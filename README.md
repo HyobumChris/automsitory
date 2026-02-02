@@ -55,6 +55,41 @@ python scan_mail_assistant.py --file scan.pdf --db vehicle_db.csv \
   --vehicle-col plate --name-col employee --email-col email_address
 ```
 
+## Email sending (SMTP)
+
+The tool can send the scan directly to the matched employee email.
+
+Environment variables:
+
+- `SMTP_HOST`, `SMTP_PORT`
+- `SMTP_USER`, `SMTP_PASS`
+- `SMTP_FROM`
+- `SMTP_SSL` (true/false)
+- `SMTP_STARTTLS` (true/false)
+
+Example:
+
+```
+export SMTP_HOST=smtp.example.com
+export SMTP_USER=mailer@example.com
+export SMTP_PASS=your_password
+export SMTP_FROM=mailer@example.com
+python scan_mail_assistant.py --file scan.pdf --db vehicle_db.csv --send-email
+```
+
+Override recipient or disable attachment:
+
+```
+python scan_mail_assistant.py --file scan.pdf --db vehicle_db.csv \
+  --send-email --email-to someone@example.com --no-attach-scan
+```
+
+Email templates support placeholders:
+
+```
+{vehicle_number} {due_date} {employee_name} {employee_email}
+```
+
 ## Notes
 
 - Vehicle plate detection expects 2-3 digits + 1 character + 4 digits.
