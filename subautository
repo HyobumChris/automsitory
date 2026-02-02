@@ -1,1 +1,62 @@
+Traffic Violation Notice Handling - Improvement Plan
+
+Problem
+- The authority sends tickets by mail to the rental car company, not the driver.
+- Mail is forwarded to the office, then manually sorted, scanned, and emailed.
+- One person cannot handle the volume consistently or quickly.
+
+Goals
+- Reduce manual sorting and scanning workload.
+- Notify the responsible employee faster and track acknowledgement.
+- Maintain an audit trail for compliance and payment deadlines.
+
+Short-term (1-2 weeks)
+1) Standardize intake:
+   - Use a single intake mailbox and daily batch scanning (ADF scanner).
+   - Apply a simple intake form to capture minimal metadata:
+     received_date, due_date, vehicle_plate, violation_type, amount.
+2) Central storage:
+   - Save scans to a shared folder with a naming rule:
+     YYYYMMDD_plate_violationtype_amount.pdf
+3) Basic tracking:
+   - Maintain a shared sheet to log each notice and status.
+
+Medium-term (1-2 months)
+1) Routing automation:
+   - Maintain a vehicle-to-employee mapping file (CSV or small DB).
+   - Use OCR to read the plate and due date from scans.
+   - Auto-create an email draft to the employee and manager.
+2) Acknowledgement workflow:
+   - Require the employee to confirm receipt via form/link.
+   - Send reminders 3, 1, and 0 days before due date.
+
+Long-term (3-6 months)
+1) Electronic delivery:
+   - Ask the rental car company or authority for e-notice options.
+   - If possible, receive digital notices directly to a shared inbox.
+2) Outsourced mailroom:
+   - Consider a scanning service if volume continues to grow.
+
+Target Process (ASCII flow)
+Authority -> Rental Company -> Office Intake -> Scan/OCR -> Auto-Route Email
+           -> Employee Acknowledgement -> Payment/Dispute -> Archive
+
+Minimum Data Model
+- notice_id
+- received_date
+- due_date
+- vehicle_plate
+- driver_email
+- violation_type
+- amount
+- status (new, notified, acknowledged, paid, closed)
+
+KPIs
+- Average time from receipt to notification
+- % notices acknowledged within 24 hours
+- Manual effort hours per week
+
+Risks/Controls
+- OCR errors: require manual validation on low-confidence scans.
+- Missed deadlines: automated reminders and escalation to manager.
 
