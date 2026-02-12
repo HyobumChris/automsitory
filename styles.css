@@ -1,0 +1,80 @@
+:root {
+  color-scheme: light;
+  font-family: Arial, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #f4f6f8;
+  color: #1f2933;
+}
+
+.container {
+  max-width: 920px;
+  margin: 2rem auto;
+  padding: 0 1rem 2rem;
+}
+
+.card {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  padding: 1rem 1.25rem;
+  margin-top: 1rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 0.85rem;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.94rem;
+  gap: 0.35rem;
+}
+
+input,
+select,
+button {
+  font-size: 1rem;
+  padding: 0.55rem;
+  border-radius: 8px;
+  border: 1px solid #cbd2d9;
+}
+
+button {
+  margin-top: 1rem;
+  border: none;
+  background: #0b69ff;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.35rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.86rem;
+  font-weight: 600;
+  margin-right: 0.35rem;
+  margin-bottom: 0.35rem;
+}
+
+.badge.required {
+  background: #d9f2e3;
+  color: #03543f;
+}
+
+.badge.conditional {
+  background: #fff5d6;
+  color: #8d5200;
+}
+
+.warning {
+  color: #b91c1c;
+  font-weight: 600;
+}

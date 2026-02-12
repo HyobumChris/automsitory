@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hatch Coaming Measure Guide</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <h1>Surveyor Measure Guide</h1>
+        <p>
+          Determine which preventative measures are required for hatch coaming and
+          upper flange longitudinal members.
+        </p>
+      </header>
+
+      <section class="card">
+        <h2>Input parameters</h2>
+        <form id="decision-form">
+          <div class="grid">
+            <label>
+              Hatch coaming material grade
+              <select id="grade" required>
+                <option value="EH36">EH36</option>
+                <option value="EH40">EH40</option>
+                <option value="EH47">EH47</option>
+              </select>
+            </label>
+
+            <label>
+              Nominal yield strength (N/mm²)
+              <select id="yieldStrength" required>
+                <option value="355">355</option>
+                <option value="390">390</option>
+                <option value="460">460</option>
+              </select>
+            </label>
+
+            <label>
+              Coaming top/side thickness t (mm)
+              <input id="thickness" type="number" min="1" step="0.1" placeholder="e.g. 92" required />
+            </label>
+
+            <label>
+              Crack arrest design applied?
+              <select id="crackArrestDesign" required>
+                <option value="no">No</option>
+                <option value="yes">Yes</option>
+              </select>
+            </label>
+
+            <label>
+              Enhanced NDE during construction applied (as part of Measure 3)?
+              <select id="enhancedNde" required>
+                <option value="no">No</option>
+                <option value="yes">Yes</option>
+              </select>
+            </label>
+          </div>
+
+          <button type="submit">Evaluate measures</button>
+        </form>
+      </section>
+
+      <section class="card" id="result-card" hidden>
+        <h2>Decision result</h2>
+        <div id="summary"></div>
+        <h3>Required measures</h3>
+        <ul id="requiredMeasures"></ul>
+        <h3>Possible/conditional measures</h3>
+        <ul id="conditionalMeasures"></ul>
+        <h3>Rule trace</h3>
+        <ol id="ruleTrace"></ol>
+      </section>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
