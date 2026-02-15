@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lloyd's Register - 해치코밍 크랙 방지 시각화 | Hatch Coaming Crack Arrest Visualization</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .section {
+            margin-bottom: 50px;
+            animation: fadeIn 0.8s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .section-title {
+            font-size: 1.8em;
+            color: #1e3c72;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+        }
+
+        .diagram-container {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 30px;
+            margin: 20px 0;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .hatch-coaming-diagram {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto;
+            height: 500px;
+        }
+
+        .hatch-part {
+            position: absolute;
+            background: #3498db;
+            border: 2px solid #2c3e50;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            text-align: center;
+            padding: 10px;
+        }
+
+        .hatch-part:hover {
+            background: #e74c3c;
+            transform: scale(1.05);
+            z-index: 10;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+        }
+
+        .hatch-part.active {
+            background: #e74c3c;
+            transform: scale(1.05);
+            z-index: 10;
+        }
+
+        .upper-deck {
+            top: 50px;
+            left: 50px;
+            width: 700px;
+            height: 80px;
+            background: #2ecc71;
+        }
+
+        .coaming-side-left {
+            top: 130px;
+            left: 50px;
+            width: 100px;
+            height: 250px;
+        }
+
+        .coaming-side-right {
+            top: 130px;
+            right: 50px;
+            width: 100px;
+            height: 250px;
+        }
+
+        .coaming-top-left {
+            top: 150px;
+            left: 150px;
+            width: 150px;
+            height: 50px;
+            background: #f39c12;
+        }
+
+        .coaming-top-right {
+            top: 150px;
+            right: 150px;
+            width: 150px;
+            height: 50px;
+            background: #f39c12;
+        }
+
+        .info-box {
+            background: white;
+            border-left: 5px solid #667eea;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 5px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+        }
+
+        .info-box h3 {
+            color: #1e3c72;
+            margin-bottom: 10px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: white;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        thead {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        th, td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        th {
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.9em;
+            letter-spacing: 0.5px;
+        }
+
+        tbody tr:hover {
+            background: #f8f9fa;
+            transform: scale(1.01);
+            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+        }
+
+        tbody tr {
+            transition: all 0.3s ease;
+        }
+
+        .highlight-bca1 {
+            background-color: #d4edda !important;
+        }
+
+        .highlight-bca2 {
+            background-color: #fff3cd !important;
+        }
+
+        .thickness-indicator {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+
+        .thickness-thin {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .thickness-medium {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .thickness-thick {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .legend {
+            display: flex;
+            gap: 20px;
+            margin: 20px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            flex-wrap: wrap;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .legend-color {
+            width: 30px;
+            height: 30px;
+            border-radius: 5px;
+            border: 2px solid #2c3e50;
+        }
+
+        .interactive-note {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: center;
+            font-weight: 500;
+        }
+
+        .steel-grade-box {
+            display: inline-block;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            margin: 5px;
+        }
+
+        .grade-355 { background: #cfe2ff; color: #084298; }
+        .grade-390 { background: #d1e7dd; color: #0f5132; }
+        .grade-460 { background: #f8d7da; color: #842029; }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8em;
+            }
+
+            .content {
+                padding: 20px;
+            }
+
+            .hatch-coaming-diagram {
+                height: 400px;
+            }
+
+            table {
+                font-size: 0.8em;
+            }
+
+            th, td {
+                padding: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚢 Lloyd's Register Rules</h1>
+            <p>컨테이너선 해치코밍 크랙 방지책 시각화</p>
+            <p>Container Ship Hatch Coaming Crack Arrest Measures</p>
+        </div>
+
+        <div class="content">
+            <!-- Interactive Diagram Section -->
+            <div class="section">
+                <h2 class="section-title">📐 해치코밍 구조도 (Interactive Hatch Coaming Structure)</h2>
+
+                <div class="interactive-note">
+                    💡 구조물 위에 마우스를 올려보세요! (Hover over structural members to see details)
+                </div>
+
+                <div class="diagram-container">
+                    <div class="hatch-coaming-diagram">
+                        <div class="hatch-part upper-deck" data-part="upper-deck">
+                            Upper Deck<br>상갑판
+                        </div>
+                        <div class="hatch-part coaming-side-left" data-part="coaming-side">
+                            Hatch<br>Coaming<br>Side<br>해치코밍<br>측판
+                        </div>
+                        <div class="hatch-part coaming-side-right" data-part="coaming-side">
+                            Hatch<br>Coaming<br>Side<br>해치코밍<br>측판
+                        </div>
+                        <div class="hatch-part coaming-top-left" data-part="coaming-top">
+                            Coaming Top<br>코밍 상부
+                        </div>
+                        <div class="hatch-part coaming-top-right" data-part="coaming-top">
+                            Coaming Top<br>코밍 상부
+                        </div>
+                    </div>
+
+                    <div id="part-info" class="info-box" style="display: none;">
+                        <h3 id="info-title"></h3>
+                        <div id="info-content"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Table 8.2.1 Section -->
+            <div class="section">
+                <h2 class="section-title">📋 Table 8.2.1 - 예방 조치 (Preventative Measures)</h2>
+
+                <div class="legend">
+                    <div class="legend-item">
+                        <div class="legend-color thickness-thin"></div>
+                        <span>t ≤ 50mm</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color thickness-medium"></div>
+                        <span>50mm < t ≤ 80mm</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color thickness-thick"></div>
+                        <span>80mm < t ≤ 100mm</span>
+                    </div>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>해치코밍 측판 두께<br>(Hatch Coaming Side Plating Thickness)</th>
+                            <th>예방 조치<br>(Preventative Measures)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="thickness-indicator thickness-thin">t ≤ 50mm</span></td>
+                            <td>
+                                상기 8.2.1의 (a) 및 (c) 적용<br>
+                                <em>Application of 8.2.1 (a) and (c) above</em>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><span class="thickness-indicator thickness-medium">50mm < t ≤ 80mm</span></td>
+                            <td>
+                                상기 8.2.1의 (a), (b) 및 (c) 적용<br>
+                                <em>Application of 8.2.1 (a), (b) and (c) above</em>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><span class="thickness-indicator thickness-thick">80mm < t ≤ 100mm</span></td>
+                            <td>
+                                상기 8.2.1의 (a), (b), (c) 및 (d) 적용<br>
+                                <em>Application of 8.2.1 (a), (b), (c) and (d) above</em>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="info-box">
+                    <h3>📌 참고사항 (Notes):</h3>
+                    <ul>
+                        <li>(a) = 재료 요구사항 (Material requirements)</li>
+                        <li>(b) = 용접 상세 (Welding details)</li>
+                        <li>(c) = 비파괴검사 (Non-destructive testing)</li>
+                        <li>(d) = 추가 검사 요구사항 (Additional inspection requirements)</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Table 8.2.2 Section -->
+            <div class="section">
+                <h2 class="section-title">🔬 Table 8.2.2 - BCA 강재 요구사항 (Brittle Crack Arrest Steel Requirements)</h2>
+
+                <div class="legend">
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #d4edda;"></div>
+                        <span>BCA1 Steel Required</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #fff3cd;"></div>
+                        <span>BCA2 Steel Required</span>
+                    </div>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>구조 부재<br>(Structural Member)</th>
+                            <th>두께 범위<br>(Thickness Range)</th>
+                            <th>최소 항복응력<br>(Min. Yield Stress)<br>N/mm²</th>
+                            <th>BCA 강재 등급<br>(BCA Steel Grade)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="highlight-bca1">
+                            <td><strong>상갑판 (Upper Deck)</strong></td>
+                            <td>
+                                <span class="thickness-indicator thickness-medium">50 < t ≤ 100mm</span>
+                            </td>
+                            <td>
+                                <span class="steel-grade-box grade-355">355</span>
+                                <span class="steel-grade-box grade-390">390</span>
+                            </td>
+                            <td><strong>BCA1</strong></td>
+                        </tr>
+                        <tr class="highlight-bca1">
+                            <td><strong>해치코밍 측판<br>(Hatch Coaming Side)</strong></td>
+                            <td>
+                                <span class="thickness-indicator thickness-medium">50 < t ≤ 80mm</span>
+                            </td>
+                            <td>
+                                <span class="steel-grade-box grade-390">390</span>
+                                <span class="steel-grade-box grade-460">460</span>
+                            </td>
+                            <td><strong>BCA1</strong></td>
+                        </tr>
+                        <tr class="highlight-bca2">
+                            <td><strong>해치코밍 측판<br>(Hatch Coaming Side)</strong></td>
+                            <td>
+                                <span class="thickness-indicator thickness-thick">80 < t ≤ 100mm</span>
+                            </td>
+                            <td>
+                                <span class="steel-grade-box grade-390">390</span>
+                                <span class="steel-grade-box grade-460">460</span>
+                            </td>
+                            <td><strong>BCA2</strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="info-box">
+                    <h3>🔍 BCA 강재 설명 (BCA Steel Explanation)</h3>
+                    <p><strong>BCA (Brittle Crack Arrest)</strong> = 취성균열 정지용 강재</p>
+                    <ul>
+                        <li><strong>BCA1:</strong> 표준 크랙 방지 강재 - 중간 두께 부재용</li>
+                        <li><strong>BCA2:</strong> 고성능 크랙 방지 강재 - 두꺼운 부재용 (더 높은 인성 요구)</li>
+                    </ul>
+                    <p style="margin-top: 10px;">
+                        <strong>중요:</strong> 두께가 증가할수록 더 높은 등급의 BCA 강재가 필요합니다.<br>
+                        <em>Important: Thicker members require higher grade BCA steel for crack arrest.</em>
+                    </p>
+                </div>
+            </div>
+
+            <!-- Summary Section -->
+            <div class="section">
+                <h2 class="section-title">📊 핵심 요약 (Key Summary)</h2>
+
+                <div class="diagram-container">
+                    <h3 style="color: #1e3c72; margin-bottom: 15px;">두께별 요구사항 플로우차트</h3>
+                    <div style="background: white; padding: 20px; border-radius: 10px;">
+                        <div style="text-align: center; margin-bottom: 20px;">
+                            <div style="background: #667eea; color: white; padding: 15px; border-radius: 10px; display: inline-block; font-weight: bold;">
+                                해치코밍 측판 두께 측정
+                            </div>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-around; flex-wrap: wrap; gap: 20px;">
+                            <div style="flex: 1; min-width: 250px; background: #d1ecf1; padding: 20px; border-radius: 10px; border: 3px solid #0c5460;">
+                                <h4 style="color: #0c5460; margin-bottom: 10px;">t ≤ 50mm</h4>
+                                <ul style="margin-left: 20px;">
+                                    <li>조치: (a), (c)</li>
+                                    <li>BCA 불필요</li>
+                                </ul>
+                            </div>
+
+                            <div style="flex: 1; min-width: 250px; background: #d4edda; padding: 20px; border-radius: 10px; border: 3px solid #0f5132;">
+                                <h4 style="color: #0f5132; margin-bottom: 10px;">50 < t ≤ 80mm</h4>
+                                <ul style="margin-left: 20px;">
+                                    <li>조치: (a), (b), (c)</li>
+                                    <li><strong>BCA1 강재</strong></li>
+                                    <li>항복응력: 390-460 N/mm²</li>
+                                </ul>
+                            </div>
+
+                            <div style="flex: 1; min-width: 250px; background: #fff3cd; padding: 20px; border-radius: 10px; border: 3px solid #856404;">
+                                <h4 style="color: #856404; margin-bottom: 10px;">80 < t ≤ 100mm</h4>
+                                <ul style="margin-left: 20px;">
+                                    <li>조치: (a), (b), (c), (d)</li>
+                                    <li><strong>BCA2 강재</strong></li>
+                                    <li>항복응력: 390-460 N/mm²</li>
+                                    <li>추가 검사 필요</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="info-box" style="margin-top: 30px; background: linear-gradient(135deg, #667eea20 0%, #764ba220 100%); border-left: 5px solid #e74c3c;">
+                    <h3 style="color: #e74c3c;">⚠️ 크랙 방지 핵심 원칙</h3>
+                    <ol style="margin-left: 20px; line-height: 1.8;">
+                        <li><strong>재료 선택:</strong> 두께가 증가할수록 더 높은 인성의 강재 필요</li>
+                        <li><strong>용접 품질:</strong> 50mm 초과 시 특별한 용접 관리 필수</li>
+                        <li><strong>검사 강화:</strong> 80mm 초과 시 추가 비파괴검사 수행</li>
+                        <li><strong>BCA 강재:</strong> 취성 파괴 전파 방지를 위한 특수 강재</li>
+                    </ol>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div style="text-align: center; padding: 30px; background: #f8f9fa; border-radius: 10px; margin-top: 40px;">
+                <p style="color: #6c757d; font-size: 0.9em;">
+                    📚 Reference: Lloyd's Register Rules for Ships<br>
+                    Part 3, Chapter 8 - Container Ships<br>
+                    Section 8.2 - Hatch Coaming Crack Arrest Measures
+                </p>
+                <p style="margin-top: 10px; color: #6c757d; font-size: 0.85em;">
+                    Created for Marine Engineers | 해양 엔지니어를 위한 시각화 자료
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Interactive diagram functionality
+        const hatchParts = document.querySelectorAll('.hatch-part');
+        const infoBox = document.getElementById('part-info');
+        const infoTitle = document.getElementById('info-title');
+        const infoContent = document.getElementById('info-content');
+
+        const partData = {
+            'upper-deck': {
+                title: '상갑판 (Upper Deck)',
+                content: `
+                    <p><strong>두께 범위:</strong> 50mm < t ≤ 100mm</p>
+                    <p><strong>요구 강재:</strong> BCA1</p>
+                    <p><strong>항복응력:</strong> 355 N/mm² 또는 390 N/mm²</p>
+                    <hr style="margin: 15px 0;">
+                    <p><strong>주요 기능:</strong></p>
+                    <ul style="margin-left: 20px;">
+                        <li>주 종강도 부재 (Primary longitudinal strength member)</li>
+                        <li>해치 개구부 경계 형성</li>
+                        <li>크랙 전파 방지 중요 위치</li>
+                    </ul>
+                `
+            },
+            'coaming-side': {
+                title: '해치코밍 측판 (Hatch Coaming Side)',
+                content: `
+                    <p><strong>두께별 요구사항:</strong></p>
+                    <table style="width: 100%; margin: 10px 0; font-size: 0.9em;">
+                        <tr style="background: #d4edda;">
+                            <td style="padding: 8px;"><strong>50 < t ≤ 80mm</strong></td>
+                            <td style="padding: 8px;">BCA1 / 390-460 N/mm²</td>
+                        </tr>
+                        <tr style="background: #fff3cd;">
+                            <td style="padding: 8px;"><strong>80 < t ≤ 100mm</strong></td>
+                            <td style="padding: 8px;">BCA2 / 390-460 N/mm²</td>
+                        </tr>
+                    </table>
+                    <hr style="margin: 15px 0;">
+                    <p><strong>예방 조치:</strong></p>
+                    <ul style="margin-left: 20px;">
+                        <li>t ≤ 50mm: (a), (c)</li>
+                        <li>50 < t ≤ 80mm: (a), (b), (c)</li>
+                        <li>80 < t ≤ 100mm: (a), (b), (c), (d)</li>
+                    </ul>
+                    <p style="margin-top: 10px; color: #e74c3c; font-weight: bold;">
+                        ⚠️ 가장 중요한 크랙 방지 대상 부재
+                    </p>
+                `
+            },
+            'coaming-top': {
+                title: '코밍 상부 (Coaming Top)',
+                content: `
+                    <p><strong>역할:</strong> 해치코밍 상단 보강재</p>
+                    <p><strong>특징:</strong></p>
+                    <ul style="margin-left: 20px; margin-top: 10px;">
+                        <li>해치 커버 지지</li>
+                        <li>측판과의 연결부 보강</li>
+                        <li>응력 집중 완화</li>
+                    </ul>
+                    <hr style="margin: 15px 0;">
+                    <p style="font-style: italic; color: #6c757d;">
+                        해치코밍 측판과 함께 전체 구조의 강성 확보
+                    </p>
+                `
+            }
+        };
+
+        hatchParts.forEach(part => {
+            part.addEventListener('mouseenter', function() {
+                const partType = this.getAttribute('data-part');
+                const data = partData[partType];
+
+                infoTitle.textContent = data.title;
+                infoContent.innerHTML = data.content;
+                infoBox.style.display = 'block';
+
+                // Highlight all parts of same type
+                hatchParts.forEach(p => {
+                    if (p.getAttribute('data-part') === partType) {
+                        p.classList.add('active');
+                    }
+                });
+            });
+
+            part.addEventListener('mouseleave', function() {
+                hatchParts.forEach(p => p.classList.remove('active'));
+            });
+        });
+
+        // Add click functionality for mobile
+        hatchParts.forEach(part => {
+            part.addEventListener('click', function() {
+                const partType = this.getAttribute('data-part');
+                const data = partData[partType];
+
+                infoTitle.textContent = data.title;
+                infoContent.innerHTML = data.content;
+                infoBox.style.display = 'block';
+
+                hatchParts.forEach(p => p.classList.remove('active'));
+                hatchParts.forEach(p => {
+                    if (p.getAttribute('data-part') === partType) {
+                        p.classList.add('active');
+                    }
+                });
+            });
+        });
+
+        // Add table row highlighting on hover
+        const tableRows = document.querySelectorAll('tbody tr');
+        tableRows.forEach(row => {
+            row.addEventListener('mouseenter', function() {
+                this.style.transform = 'scale(1.02)';
+            });
+            row.addEventListener('mouseleave', function() {
+                this.style.transform = 'scale(1)';
+            });
+        });
+
+        console.log('🚢 Lloyd\'s Register Hatch Coaming Visualization loaded successfully!');
+        console.log('📊 Interactive elements activated - hover over diagram parts for details');
+    </script>
+</body>
+</html>
