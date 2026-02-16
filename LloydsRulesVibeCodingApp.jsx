@@ -35,6 +35,16 @@ const GRADE_META = {
   },
 };
 
+const MNDE_SCOPE_FAQ = {
+  ruleHeadline: "Measure 1 applies to block-to-block butt weld intersections.",
+  inScope:
+    "U11/M11-type joints are 100% UT when upper-hull plates/stiffeners intersect the block-to-block butt weld in Fig. 8.2.1 scope.",
+  outScope:
+    "U12/M12-type joints follow general hull NDE by default and enter Measure 1 only when they are both within Fig. 8.2.1 scope and block-to-block butt welds.",
+  qNote:
+    "Q.1 fillet and Q.2 partial penetration joints are not Measure 1 targets by default. Q.3 and Q.4 block butt joints are the primary Measure 1 UT targets.",
+};
+
 const FLOWS = {
   EH36: {
     root: "eh36_q1",
@@ -82,7 +92,7 @@ const FLOWS = {
           view: "B",
           mode: "transverseCyan",
           tooltip:
-            "Measure 1: 100% UT strictly applies to Block-to-Block Butt Welds (Q.3/Q.4 concept).",
+            "Measure 1: 100% UT applies to Q.3/Q.4 block-to-block butt welds (U11/M11 type in scope; U12/M12 follows general NDE unless it becomes block-butt in Fig. 8.2.1 scope).",
           anchor: "seam",
         },
       },
@@ -119,7 +129,7 @@ const FLOWS = {
           view: "B",
           mode: "transverseCyan",
           tooltip:
-            "Measure 1: transverse butt joint receives primary UT emphasis; longitudinal joints are de-emphasized.",
+            "Measure 1: transverse butt joint receives primary UT emphasis. U11/M11-type seam intersections are in scope; U12/M12 remains general NDE unless it is a block-butt in Fig. 8.2.1 scope.",
           anchor: "seam",
         },
       },
@@ -264,7 +274,7 @@ const FLOWS = {
           view: "B",
           mode: "transverseCyan",
           tooltip:
-            "Final Measure 1 confirmation: prioritize UT at transverse block-to-block butt weld seam.",
+            "Final Measure 1 confirmation: prioritize UT at transverse block-to-block butt weld seam (U11/M11-type intersections in scope).",
           anchor: "seam",
         },
       },
@@ -359,7 +369,7 @@ const FLOWS = {
           view: "B",
           mode: "transverseCyan",
           tooltip:
-            "Final Measure 1 closure: transverse butt seam remains the principal UT target.",
+            "Final Measure 1 closure: transverse butt seam remains principal UT target; non-block-butt U12/M12-style joints stay under general hull NDE.",
           anchor: "seam",
         },
       },
@@ -509,7 +519,7 @@ const FLOWS = {
           view: "B",
           mode: "transverseCyan",
           tooltip:
-            "Final Measure 1: transverse butt seam remains primary UT target.",
+            "Final Measure 1: transverse butt seam remains primary UT target, with U11/M11-type seam intersections in explicit scope.",
           anchor: "seam",
         },
       },
@@ -604,7 +614,7 @@ const FLOWS = {
           view: "B",
           mode: "transverseCyan",
           tooltip:
-            "Final Measure 1 closure: UT focus returns to transverse butt joint seam.",
+            "Final Measure 1 closure: UT focus returns to transverse butt joint seam; U12/M12-like joints remain general NDE unless they are block-to-block butt welds.",
           anchor: "seam",
         },
       },
@@ -860,6 +870,9 @@ function ThreeDIsometricView({ mode }) {
 
   const topIntersections = [10, 23, 36, 49, 62, 75].map((y) => isoPoint(125, y, 70));
   const sideIntersections = [12, 24, 36, 48, 60].map((z) => isoPoint(125, 0, z));
+  const showMeasure1Scope = showTransverseCyan;
+  const inScopeTag = isoPoint(125, 20, 70);
+  const outScopeTag = isoPoint(170, 48, 70);
 
   return (
     <svg viewBox="0 0 760 460" className="h-full w-full">
@@ -1037,6 +1050,65 @@ function ThreeDIsometricView({ mode }) {
         opacity="0.7"
       />
 
+      {showMeasure1Scope && (
+        <g>
+          <line
+            x1={inScopeTag.x}
+            y1={inScopeTag.y}
+            x2={inScopeTag.x - 84}
+            y2={inScopeTag.y - 44}
+            stroke="#22d3ee"
+            strokeWidth="1.4"
+          />
+          <rect
+            x={inScopeTag.x - 236}
+            y={inScopeTag.y - 58}
+            width="148"
+            height="40"
+            rx="7"
+            fill="#022c3a"
+            stroke="#22d3ee"
+            strokeWidth="1.5"
+            opacity="0.95"
+          />
+          <text x={inScopeTag.x - 228} y={inScopeTag.y - 42} fill="#67e8f9" fontSize="11" fontWeight="700">
+            U11 / M11
+          </text>
+          <text x={inScopeTag.x - 228} y={inScopeTag.y - 28} fill="#a5f3fc" fontSize="10">
+            In scope: 100% UT
+          </text>
+
+          <line
+            x1={outScopeTag.x}
+            y1={outScopeTag.y}
+            x2={outScopeTag.x + 74}
+            y2={outScopeTag.y + 20}
+            stroke="#f59e0b"
+            strokeWidth="1.3"
+          />
+          <rect
+            x={outScopeTag.x + 78}
+            y={outScopeTag.y + 6}
+            width="164"
+            height="46"
+            rx="7"
+            fill="#2a1c08"
+            stroke="#f59e0b"
+            strokeWidth="1.5"
+            opacity="0.95"
+          />
+          <text x={outScopeTag.x + 86} y={outScopeTag.y + 22} fill="#fcd34d" fontSize="11" fontWeight="700">
+            U12 / M12
+          </text>
+          <text x={outScopeTag.x + 86} y={outScopeTag.y + 36} fill="#fde68a" fontSize="10">
+            General hull NDE*
+          </text>
+          <text x={outScopeTag.x + 86} y={outScopeTag.y + 48} fill="#fde68a" fontSize="9">
+            *Unless block-to-block butt weld
+          </text>
+        </g>
+      )}
+
       {showStaggered && (
         <>
           <polygon
@@ -1207,6 +1279,10 @@ export default function LloydsRulesVibeCodingApp() {
   const activeNode = nodes[activeNodeId];
   const visual = activeNode.visual;
   const ActiveModeIcon = getModeIcon(visual.mode);
+  const isMeasure1Active =
+    activeNode.step === "Measure 1" ||
+    activeNode.title.includes("100% NDE") ||
+    activeNode.title.includes("100% UT");
 
   const breadcrumb = useMemo(() => {
     return path.map((nodeId, index) => {
@@ -1497,6 +1573,10 @@ export default function LloydsRulesVibeCodingApp() {
                       <span className="h-2.5 w-2.5 rounded-full bg-rose-300" />
                       Enhanced NDE / CTOD intersection checks
                     </li>
+                    <li className="rounded-md border border-amber-400/35 bg-amber-400/10 p-2 text-[11px] text-amber-200">
+                      Measure 1 scope reminder: default UT emphasis is on Q.3/Q.4 block-to-block butt joints, not
+                      Q.1/Q.2 longitudinal fillet or partial-penetration joints.
+                    </li>
                   </ul>
                 )}
               </div>
@@ -1506,6 +1586,33 @@ export default function LloydsRulesVibeCodingApp() {
                 <p className="leading-relaxed">
                   <span className="font-semibold text-slate-100">{activeNode.title}.</span> {activeNode.detail}
                 </p>
+              </div>
+
+              <div
+                className={`rounded-xl border bg-slate-900/70 p-3 text-xs text-slate-300 md:col-span-2 ${
+                  isMeasure1Active ? "border-cyan-400/45 ring-1 ring-cyan-400/35" : "border-slate-800"
+                }`}
+              >
+                <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-100">
+                  <AlertTriangle size={14} className={isMeasure1Active ? "text-cyan-300" : "text-amber-300"} />
+                  FAQ Clarifier from Yard / MNDE (Measure 1 Scope)
+                </h3>
+
+                <div className="space-y-2 text-[12px] leading-relaxed">
+                  <p className="font-medium text-cyan-100">{MNDE_SCOPE_FAQ.ruleHeadline}</p>
+
+                  <div className="rounded-lg border border-emerald-400/35 bg-emerald-500/10 p-2">
+                    <p className="font-semibold text-emerald-200">In scope (100% UT):</p>
+                    <p className="text-emerald-100">{MNDE_SCOPE_FAQ.inScope}</p>
+                  </div>
+
+                  <div className="rounded-lg border border-amber-400/35 bg-amber-500/10 p-2">
+                    <p className="font-semibold text-amber-200">General NDE by default:</p>
+                    <p className="text-amber-100">{MNDE_SCOPE_FAQ.outScope}</p>
+                  </div>
+
+                  <p className="text-slate-300">{MNDE_SCOPE_FAQ.qNote}</p>
+                </div>
               </div>
             </div>
           </section>
