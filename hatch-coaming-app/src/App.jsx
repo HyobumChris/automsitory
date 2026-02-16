@@ -1,7 +1,6 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion"; // eslint-disable-line no-unused-vars
 import {
-  Anchor,
   ChevronRight,
   CheckCircle2,
   AlertTriangle,
@@ -402,16 +401,61 @@ function isoPoint(x, y, z) {
    VIEW A — 2D CROSS-SECTION (Fig 8.2.1)
    ═══════════════════════════════════════════════ */
 
+function DimArrow({ x1, y1, x2, y2, label, offset = 0 }) {
+  const mx = (x1 + x2) / 2 + offset;
+  const my = (y1 + y2) / 2;
+  const isVertical = Math.abs(x1 - x2) < 2;
+  return (
+    <g>
+      <line
+        x1={x1}
+        y1={y1}
+        x2={x2}
+        y2={y2}
+        stroke="#475569"
+        strokeWidth="0.6"
+        strokeDasharray="3 2"
+      />
+      <polygon
+        points={
+          isVertical
+            ? `${x1 - 3},${y1 + 6} ${x1},${y1} ${x1 + 3},${y1 + 6}`
+            : `${x1 + 6},${y1 - 3} ${x1},${y1} ${x1 + 6},${y1 + 3}`
+        }
+        fill="#475569"
+      />
+      <polygon
+        points={
+          isVertical
+            ? `${x2 - 3},${y2 - 6} ${x2},${y2} ${x2 + 3},${y2 - 6}`
+            : `${x2 - 6},${y2 - 3} ${x2},${y2} ${x2 - 6},${y2 + 3}`
+        }
+        fill="#475569"
+      />
+      {label && (
+        <text
+          x={mx}
+          y={my}
+          textAnchor="middle"
+          fill="#64748b"
+          fontSize="8"
+          fontFamily="monospace"
+          transform={isVertical ? `rotate(-90,${mx},${my})` : ""}
+        >
+          {label}
+        </text>
+      )}
+    </g>
+  );
+}
+
 function ViewA({ highlight, highlightColor }) {
-  const isCoaming =
-    highlight === "coaming" || highlight === "coaming-both";
   const isCoamingSide =
     highlight === "coaming-side" || highlight === "coaming-both";
   const isCoamingTop =
     highlight === "coaming" || highlight === "coaming-both";
   const isDeckSheer = highlight === "deck-sheer";
 
-  const BASE = "#3b4252";
   const DIM = "#475569";
 
   const coamingTopFill = isCoamingTop ? highlightColor : "#4a5568";
@@ -423,54 +467,6 @@ function ViewA({ highlight, highlightColor }) {
     active
       ? `drop-shadow(0 0 6px ${color}99) drop-shadow(0 0 14px ${color}55)`
       : "none";
-
-  const DimArrow = ({ x1, y1, x2, y2, label, offset = 0 }) => {
-    const mx = (x1 + x2) / 2 + offset;
-    const my = (y1 + y2) / 2;
-    const isVertical = Math.abs(x1 - x2) < 2;
-    return (
-      <g>
-        <line
-          x1={x1}
-          y1={y1}
-          x2={x2}
-          y2={y2}
-          stroke="#475569"
-          strokeWidth="0.6"
-          strokeDasharray="3 2"
-        />
-        <polygon
-          points={
-            isVertical
-              ? `${x1 - 3},${y1 + 6} ${x1},${y1} ${x1 + 3},${y1 + 6}`
-              : `${x1 + 6},${y1 - 3} ${x1},${y1} ${x1 + 6},${y1 + 3}`
-          }
-          fill="#475569"
-        />
-        <polygon
-          points={
-            isVertical
-              ? `${x2 - 3},${y2 - 6} ${x2},${y2} ${x2 + 3},${y2 - 6}`
-              : `${x2 - 6},${y2 - 3} ${x2},${y2} ${x2 - 6},${y2 + 3}`
-          }
-          fill="#475569"
-        />
-        {label && (
-          <text
-            x={mx}
-            y={my}
-            textAnchor="middle"
-            fill="#64748b"
-            fontSize="8"
-            fontFamily="monospace"
-            transform={isVertical ? `rotate(-90,${mx},${my})` : ""}
-          >
-            {label}
-          </text>
-        )}
-      </g>
-    );
-  };
 
   return (
     <svg viewBox="0 0 620 500" className="w-full h-full">
