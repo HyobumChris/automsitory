@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
+  FileText,
   Layers3,
   Radar,
   ShieldCheck,
@@ -43,6 +44,36 @@ const MNDE_SCOPE_FAQ = {
     "U12/M12-type joints follow general hull NDE by default and enter Measure 1 only when they are both within Fig. 8.2.1 scope and block-to-block butt welds.",
   qNote:
     "Q.1 fillet and Q.2 partial penetration joints are not Measure 1 targets by default. Q.3 and Q.4 block butt joints are the primary Measure 1 UT targets.",
+};
+
+const ORIGINAL_RULE_REQUIREMENTS = {
+  applicability: [
+    "2.3.2: Applies to containerships where thick plates for longitudinal structural members exceed 50 mm and do not exceed 100 mm (greater than 100 mm is specially considered).",
+    "2.3.3 / 2.3.4: Nominal yield strengths are 355, 390 and 460 N/mm2; where 460 N/mm2 is used, the material grade is EH.",
+  ],
+  measureDefinitions: [
+    "Measure 1 (2.3.8): 100% UT during construction on all upper flange longitudinal members in cargo hold region.",
+    "Measure 2 (2.3.9): Periodic in-service NDE may be required via ShipRight assessment route.",
+    "Measure 3 (2.3.10): One of block shift, crack arrest insert plates/holes, or enhanced NDE.",
+    "Measure 4 (2.3.11): Crack arrest steel for upper deck (case 2.3.5(b)).",
+    "Measure 5 (2.3.12): Crack arrest steel for upper deck (case 2.3.5(c)).",
+  ],
+  table821Rows: [
+    { grade: "355 (EH36)", thickness: "50 < t <= 85", m1: "Not required", m2: "Not required", m34: "Not required", m5: "Not required" },
+    { grade: "355 (EH36)", thickness: "85 < t <= 100", m1: "Required", m2: "Not required", m34: "Not required", m5: "Not required" },
+    { grade: "390 (EH40)", thickness: "50 < t <= 85", m1: "Required", m2: "Not required", m34: "Not required", m5: "Not required" },
+    { grade: "390 (EH40)", thickness: "85 < t <= 100", m1: "Required", m2: "See Note 2", m34: "Required", m5: "Required" },
+    { grade: "460 (EH47)", thickness: "50 < t <= 100", m1: "Required", m2: "See Note 2", m34: "Required", m5: "Required" },
+  ],
+  note2:
+    "Table 8.2.1 Note 2: Measure 2 may be required where enhanced NDE during construction has been applied as part of Measure 3.",
+  detailedClauses: [
+    "2.3.13: Where enhanced NDE is used for Measure 3, block-to-block butt welds of hatch coaming side/top and upper deck require minimum CTOD = 0.18 mm.",
+    "2.3.14 + Table 8.2.2: Crack arrest steel type by member/thickness: Upper deck (50 < t <= 100, yield 355/390) = BCA1; Hatch coaming side (50 < t <= 80, yield 390/460) = BCA1; Hatch coaming side (80 < t <= 100, yield 390/460) = BCA2.",
+    "2.3.15: Hatch coaming side to upper deck connection is partial penetration weld approved by LR.",
+    "2.3.16: In block-joint vicinity, alternative weld details may be used if additional crack-propagation prevention means are implemented and agreed by LR.",
+    "2.3.17: If higher crack arrest steel or weld inserts are proposed, specific properties/grades are to be agreed with LR.",
+  ],
 };
 
 const FLOWS = {
@@ -1617,6 +1648,95 @@ export default function LloydsRulesVibeCodingApp() {
             </div>
           </section>
         </div>
+
+        <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/70 p-4 shadow-xl shadow-black/35">
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div>
+              <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-100">
+                <FileText size={18} className="text-cyan-300" />
+                Original Rule Requirement Text Baseline
+              </h2>
+              <p className="mt-1 text-xs text-slate-400">
+                Consolidated from LR Pt 4, Ch 8, 2.3 and Tables 8.2.1 / 8.2.2 for fast verification against this
+                visual flow.
+              </p>
+            </div>
+            <div className="rounded-lg border border-cyan-400/35 bg-cyan-500/10 px-2.5 py-1 text-[11px] text-cyan-200">
+              Reference mode
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-xl border border-slate-800 bg-slate-950/65 p-3">
+              <h3 className="mb-2 text-sm font-semibold text-slate-100">Applicability (2.3.2 to 2.3.4)</h3>
+              <ul className="space-y-1.5 text-xs text-slate-300">
+                {ORIGINAL_RULE_REQUIREMENTS.applicability.map((item, idx) => (
+                  <li key={`app-${idx}`} className="rounded-md border border-slate-800 bg-slate-900/80 px-2 py-1.5">
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-slate-950/65 p-3">
+              <h3 className="mb-2 text-sm font-semibold text-slate-100">Measure Definitions (2.3.8 to 2.3.12)</h3>
+              <ul className="space-y-1.5 text-xs text-slate-300">
+                {ORIGINAL_RULE_REQUIREMENTS.measureDefinitions.map((item, idx) => (
+                  <li key={`measure-${idx}`} className="rounded-md border border-slate-800 bg-slate-900/80 px-2 py-1.5">
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/65 p-3">
+            <h3 className="mb-2 text-sm font-semibold text-slate-100">Table 8.2.1 Trigger Matrix</h3>
+            <div className="overflow-x-auto">
+              <table className="min-w-full border-collapse text-left text-xs text-slate-300">
+                <thead>
+                  <tr className="border-b border-slate-700 text-slate-200">
+                    <th className="px-2 py-2 font-semibold">Yield grade</th>
+                    <th className="px-2 py-2 font-semibold">Thickness</th>
+                    <th className="px-2 py-2 font-semibold">Measure 1</th>
+                    <th className="px-2 py-2 font-semibold">Measure 2</th>
+                    <th className="px-2 py-2 font-semibold">Measures 3+4</th>
+                    <th className="px-2 py-2 font-semibold">Measure 5</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ORIGINAL_RULE_REQUIREMENTS.table821Rows.map((row, idx) => (
+                    <tr
+                      key={`row821-${idx}`}
+                      className={`border-b border-slate-800 ${idx % 2 === 0 ? "bg-slate-900/40" : "bg-slate-900/20"}`}
+                    >
+                      <td className="px-2 py-2 font-medium text-slate-200">{row.grade}</td>
+                      <td className="px-2 py-2">{row.thickness}</td>
+                      <td className="px-2 py-2">{row.m1}</td>
+                      <td className="px-2 py-2">{row.m2}</td>
+                      <td className="px-2 py-2">{row.m34}</td>
+                      <td className="px-2 py-2">{row.m5}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-2 rounded-md border border-amber-400/35 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-200">
+              {ORIGINAL_RULE_REQUIREMENTS.note2}
+            </p>
+          </div>
+
+          <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/65 p-3">
+            <h3 className="mb-2 text-sm font-semibold text-slate-100">Clause Details (2.3.13 to 2.3.17 + Table 8.2.2)</h3>
+            <ul className="space-y-1.5 text-xs text-slate-300">
+              {ORIGINAL_RULE_REQUIREMENTS.detailedClauses.map((item, idx) => (
+                <li key={`detail-${idx}`} className="rounded-md border border-slate-800 bg-slate-900/80 px-2 py-1.5">
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
       </div>
     </div>
   );
