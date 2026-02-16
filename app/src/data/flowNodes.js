@@ -13,6 +13,11 @@ export const GRADE_STARTS = {
   EH47: 'eh47_q1',
 };
 
+/** Build a { root, nodes } flow object for a given grade. */
+export function buildGradeFlow(grade) {
+  return { root: GRADE_STARTS[grade], nodes: FLOW_NODES };
+}
+
 export const FLOW_NODES = {
   // ─── EH36 ───────────────────────────────────────
   eh36_q1: {
