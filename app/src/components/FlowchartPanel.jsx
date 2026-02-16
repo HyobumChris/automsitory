@@ -1,5 +1,5 @@
-import { useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { createElement, useRef, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion'; // eslint-disable-line no-unused-vars
 import {
   ChevronRight, RotateCcw, Info, Shield, AlertTriangle,
   CheckCircle2, Zap, ScanLine, Layers, HelpCircle, ArrowDown,
@@ -16,59 +16,65 @@ const ICON_MAP = {
   layers: Layers,
 };
 
-function getNodeIcon(node) {
+function resolveIcon(node) {
   if (node.icon && ICON_MAP[node.icon]) return ICON_MAP[node.icon];
   if (node.type === 'question') return HelpCircle;
   if (node.type === 'terminal') return CheckCircle2;
   return Info;
 }
 
-function NodeTypeTag({ type }) {
-  const colors = {
-    question: 'bg-blue-900/50 text-blue-400 border-blue-700/50',
-    info: 'bg-amber-900/30 text-amber-400 border-amber-700/50',
-    terminal: 'bg-emerald-900/30 text-emerald-400 border-emerald-700/50',
-  };
-  const labels = {
-    question: 'Decision',
-    info: 'Requirement',
-    terminal: 'Final Step',
-  };
+function renderIcon(node, props) {
+  return createElement(resolveIcon(node), props);
+}
+
+function TypeBadge({ type }) {
+  const cfg = {
+    question: { bg: 'bg-blue-500/10', text: 'text-blue-400', border: 'border-blue-500/25', label: 'Decision' },
+    info: { bg: 'bg-amber-500/10', text: 'text-amber-400', border: 'border-amber-500/20', label: 'Requirement' },
+    terminal: { bg: 'bg-emerald-500/10', text: 'text-emerald-400', border: 'border-emerald-500/20', label: 'Final' },
+  }[type] || { bg: 'bg-slate-500/10', text: 'text-slate-400', border: 'border-slate-500/20', label: type };
   return (
-    <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium uppercase tracking-wide ${colors[type] || colors.info}`}>
-      {labels[type] || type}
+    <span className={`text-[9px] px-1.5 py-px rounded border font-semibold uppercase tracking-widest ${cfg.bg} ${cfg.text} ${cfg.border}`}>
+      {cfg.label}
     </span>
   );
 }
 
-function HistoryNode({ nodeId, answer }) {
+function HistoryNode({ nodeId, answer, index }) {
   const node = FLOW_NODES[nodeId];
   if (!node) return null;
-  const Icon = getNodeIcon(node);
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: -20 }}
-      animate={{ opacity: 0.55, x: 0 }}
-      className="relative pl-8 pb-2"
+      initial={{ opacity: 0, x: -15 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.3 }}
+      className="relative pl-8 pb-1.5"
     >
-      {/* Connector line */}
-      <div className="absolute left-[13px] top-0 bottom-0 w-px bg-slate-700/50" />
-      <div className="absolute left-[9px] top-[10px] w-[9px] h-[9px] rounded-full border-2 border-slate-600 bg-slate-800" />
+      {/* Vertical connector */}
+      <div className="absolute left-[14px] top-0 bottom-0 w-px bg-gradient-to-b from-slate-600/40 to-slate-700/20" />
+      {/* Dot */}
+      <div className="absolute left-[10px] top-[10px] w-[9px] h-[9px] rounded-full border-[1.5px] border-slate-600/60 bg-slate-800/80" />
 
-      <div className="bg-slate-800/30 rounded-lg px-3 py-2 border border-slate-700/30">
-        <div className="flex items-center gap-2 mb-1">
-          <Icon size={12} className="text-slate-500 shrink-0" />
-          <span className="text-[10px] text-slate-500 font-medium truncate">{node.title}</span>
+      <div className="bg-slate-800/20 rounded-lg px-3 py-2 border border-slate-700/20 hover:border-slate-600/30 transition-colors">
+        <div className="flex items-center gap-1.5 mb-0.5">
+          <span className="text-[9px] text-slate-600 font-mono w-4">{String(index + 1).padStart(2, '0')}</span>
+          {renderIcon(node, { size: 11, className: 'text-slate-500 shrink-0' })}
+          <span className="text-[10px] text-slate-500 font-medium truncate flex-1">{node.title}</span>
+          {answer && answer !== 'next' && (
+            <span className={`text-[9px] font-bold px-1.5 py-px rounded ${
+              answer === 'yes'
+                ? 'bg-emerald-900/40 text-emerald-500 border border-emerald-700/30'
+                : 'bg-red-900/40 text-red-400 border border-red-700/30'
+            }`}>
+              {answer.toUpperCase()}
+            </span>
+          )}
+          {answer === 'next' && (
+            <ChevronRight size={10} className="text-slate-600" />
+          )}
         </div>
-        <p className="text-xs text-slate-400 leading-relaxed line-clamp-2">{node.text}</p>
-        {answer && (
-          <div className={`mt-1.5 inline-block text-[10px] font-bold px-2 py-0.5 rounded ${
-            answer === 'yes' ? 'bg-emerald-900/40 text-emerald-400' : 'bg-red-900/40 text-red-400'
-          }`}>
-            {answer === 'yes' ? 'YES' : 'NO'}
-          </div>
-        )}
+        <p className="text-[10px] text-slate-500 leading-snug line-clamp-1 pl-5">{node.text}</p>
       </div>
     </motion.div>
   );
@@ -77,71 +83,78 @@ function HistoryNode({ nodeId, answer }) {
 function ActiveNode({ nodeId, onChoice }) {
   const node = FLOW_NODES[nodeId];
   if (!node) return null;
-  const Icon = getNodeIcon(node);
 
-  const borderColor = {
-    question: 'border-blue-500/60',
-    info: 'border-amber-500/50',
-    terminal: 'border-emerald-500/50',
-  }[node.type] || 'border-slate-600';
+  const borderMap = {
+    question: 'border-blue-500/50 shadow-blue-500/10',
+    info: 'border-amber-500/40 shadow-amber-500/8',
+    terminal: 'border-emerald-500/40 shadow-emerald-500/8',
+  };
 
-  const glowColor = {
-    question: 'shadow-blue-500/20',
-    info: 'shadow-amber-500/15',
-    terminal: 'shadow-emerald-500/15',
-  }[node.type] || '';
+  const iconColor = node.highlightColor || '#60a5fa';
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20, scale: 0.95 }}
+      initial={{ opacity: 0, y: 20, scale: 0.96 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ type: 'spring', damping: 20, stiffness: 200 }}
-      className="relative pl-8"
+      transition={{ type: 'spring', damping: 22, stiffness: 220 }}
+      className="relative pl-8 pt-1"
     >
-      {/* Connector */}
-      <div className="absolute left-[13px] top-0 h-3 w-px bg-slate-600/50" />
+      {/* Connector line */}
+      <div className="absolute left-[14px] top-0 h-4 w-px bg-slate-600/30" />
+      {/* Active dot with pulse */}
       <motion.div
-        className="absolute left-[7px] top-[10px] w-[13px] h-[13px] rounded-full border-2 bg-slate-900"
-        style={{ borderColor: node.highlightColor || '#60a5fa' }}
-        animate={{ scale: [1, 1.2, 1] }}
-        transition={{ duration: 2, repeat: Infinity }}
+        className="absolute left-[8px] top-[14px] w-[13px] h-[13px] rounded-full border-2 bg-marine-900"
+        style={{ borderColor: iconColor }}
+        animate={{ boxShadow: [`0 0 0 0px ${iconColor}33`, `0 0 0 6px ${iconColor}00`] }}
+        transition={{ duration: 1.8, repeat: Infinity }}
       />
 
-      <div className={`bg-slate-800/60 backdrop-blur rounded-xl p-4 border-2 ${borderColor} shadow-lg ${glowColor}`}>
-        <div className="flex items-center justify-between mb-2">
+      <div className={`bg-slate-800/50 backdrop-blur-sm rounded-xl p-4 border-2 shadow-lg ${borderMap[node.type] || borderMap.info}`}>
+        {/* Header */}
+        <div className="flex items-center justify-between mb-2.5">
           <div className="flex items-center gap-2">
-            <Icon size={16} style={{ color: node.highlightColor || '#94a3b8' }} />
-            <span className="text-sm font-semibold text-slate-200">{node.title}</span>
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: iconColor + '18' }}>
+              {renderIcon(node, { size: 15, style: { color: iconColor } })}
+            </div>
+            <span className="text-[13px] font-bold text-slate-200 leading-tight">{node.title}</span>
           </div>
-          <NodeTypeTag type={node.type} />
+          <TypeBadge type={node.type} />
         </div>
 
-        <p className="text-sm text-slate-300 leading-relaxed mb-4">{node.text}</p>
+        {/* Description */}
+        <p className="text-[12px] text-slate-300 leading-relaxed mb-3.5 pl-0.5">{node.text}</p>
 
-        {/* View indicator */}
-        <div className="flex items-center gap-1.5 mb-3 text-[10px] text-slate-500">
-          <div className="w-1.5 h-1.5 rounded-full bg-cyan-500" />
-          View: {node.view === 'A' ? '2D Cross-Section' : '3D Isometric Block Joint'}
+        {/* View indicator chip */}
+        <div className="flex items-center gap-1.5 mb-3 px-2 py-1 rounded-md bg-slate-700/20 border border-slate-700/30 w-fit">
+          <motion.div
+            className="w-1.5 h-1.5 rounded-full"
+            style={{ backgroundColor: node.view === 'A' ? '#a78bfa' : '#22d3ee' }}
+            animate={{ opacity: [0.5, 1, 0.5] }}
+            transition={{ duration: 2, repeat: Infinity }}
+          />
+          <span className="text-[9px] text-slate-500 font-medium tracking-wide">
+            {node.view === 'A' ? '2D CROSS-SECTION' : '3D ISOMETRIC'}
+          </span>
         </div>
 
         {/* Action buttons */}
         {node.type === 'question' && (
-          <div className="flex gap-2">
+          <div className="flex gap-2.5">
             <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.97 }}
+              whileHover={{ scale: 1.03, backgroundColor: 'rgba(16, 185, 129, 0.2)' }}
+              whileTap={{ scale: 0.96 }}
               onClick={() => onChoice('yes')}
-              className="flex-1 py-2.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 font-semibold text-sm border border-emerald-600/30 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              className="flex-1 py-2.5 rounded-lg bg-emerald-600/12 hover:bg-emerald-600/20 text-emerald-400 font-bold text-xs border border-emerald-600/25 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
             >
-              <CheckCircle2 size={14} /> YES
+              <CheckCircle2 size={13} /> YES
             </motion.button>
             <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.97 }}
+              whileHover={{ scale: 1.03, backgroundColor: 'rgba(239, 68, 68, 0.15)' }}
+              whileTap={{ scale: 0.96 }}
               onClick={() => onChoice('no')}
-              className="flex-1 py-2.5 rounded-lg bg-red-600/15 hover:bg-red-600/25 text-red-400 font-semibold text-sm border border-red-600/30 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              className="flex-1 py-2.5 rounded-lg bg-red-600/10 hover:bg-red-600/18 text-red-400 font-bold text-xs border border-red-600/25 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
             >
-              <AlertTriangle size={14} /> NO
+              <AlertTriangle size={13} /> NO
             </motion.button>
           </div>
         )}
@@ -149,17 +162,17 @@ function ActiveNode({ nodeId, onChoice }) {
         {node.type === 'info' && node.next && (
           <motion.button
             whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.97 }}
+            whileTap={{ scale: 0.96 }}
             onClick={() => onChoice('next')}
-            className="w-full py-2.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 font-semibold text-sm border border-blue-600/30 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            className="w-full py-2.5 rounded-lg bg-blue-600/12 hover:bg-blue-600/22 text-blue-400 font-bold text-xs border border-blue-600/25 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
           >
-            Next Step <ChevronRight size={14} />
+            Continue <ChevronRight size={13} />
           </motion.button>
         )}
 
         {node.type === 'terminal' && (
-          <div className="text-center py-2 text-xs text-emerald-500 font-medium bg-emerald-900/20 rounded-lg border border-emerald-800/30">
-            <CheckCircle2 size={14} className="inline mr-1.5 -mt-0.5" />
+          <div className="text-center py-2.5 text-xs text-emerald-400 font-semibold bg-emerald-900/15 rounded-lg border border-emerald-700/25 flex items-center justify-center gap-2">
+            <CheckCircle2 size={14} />
             Assessment Complete
           </div>
         )}
@@ -173,53 +186,77 @@ export default function FlowchartPanel({ currentNodeId, history, onChoice, onRes
 
   useEffect(() => {
     if (scrollRef.current) {
-      setTimeout(() => {
+      requestAnimationFrame(() => {
         scrollRef.current.scrollTo({
           top: scrollRef.current.scrollHeight,
           behavior: 'smooth',
         });
-      }, 100);
+      });
     }
-  }, [currentNodeId, history]);
+  }, [currentNodeId, history.length]);
+
+  const currentNode = FLOW_NODES[currentNodeId];
 
   return (
     <div className="flex flex-col h-full">
       {/* Panel header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700/50">
+      <div className="shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-slate-700/40 bg-marine-800/50">
         <div className="flex items-center gap-2">
-          <ArrowDown size={14} className="text-blue-400" />
-          <span className="text-sm font-semibold text-slate-300">Decision Flowchart</span>
+          <ArrowDown size={13} className="text-blue-400" />
+          <span className="text-xs font-bold text-slate-300 tracking-tight">Decision Flowchart</span>
         </div>
         <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
+          whileHover={{ scale: 1.08 }}
+          whileTap={{ scale: 0.92 }}
           onClick={onReset}
-          className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 px-2 py-1 rounded hover:bg-slate-700/50 transition-colors cursor-pointer"
+          className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-300 px-2 py-1 rounded-md hover:bg-slate-700/40 transition-all cursor-pointer"
         >
-          <RotateCcw size={12} /> Reset
+          <RotateCcw size={11} /> Reset
         </motion.button>
       </div>
 
-      {/* Step counter */}
-      <div className="px-4 py-2 bg-slate-800/30 border-b border-slate-700/30">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">
+      {/* Progress bar */}
+      <div className="shrink-0 px-4 py-2 bg-slate-800/20 border-b border-slate-700/20">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-widest">
             Step {history.length + 1}
           </span>
-          <div className="flex-1 h-px bg-slate-700/50" />
-          <span className="text-[10px] text-slate-600">{history.length} completed</span>
+          <span className="text-[10px] text-slate-600">
+            {history.length} completed {currentNode?.type === 'terminal' ? '(done)' : ''}
+          </span>
+        </div>
+        <div className="w-full h-1 bg-slate-700/30 rounded-full overflow-hidden">
+          <motion.div
+            className="h-full rounded-full"
+            style={{ backgroundColor: currentNode?.type === 'terminal' ? '#10b981' : '#3b82f6' }}
+            initial={{ width: 0 }}
+            animate={{ width: `${Math.min(((history.length + 1) / 8) * 100, 100)}%` }}
+            transition={{ duration: 0.4 }}
+          />
         </div>
       </div>
 
       {/* Scrollable flow */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-1">
-        <AnimatePresence>
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
+        <AnimatePresence mode="sync">
           {history.map((entry, i) => (
-            <HistoryNode key={`h-${i}-${entry.nodeId}`} nodeId={entry.nodeId} answer={entry.answer} />
+            <HistoryNode
+              key={`h-${i}-${entry.nodeId}`}
+              nodeId={entry.nodeId}
+              answer={entry.answer}
+              index={i}
+            />
           ))}
         </AnimatePresence>
 
-        <ActiveNode nodeId={currentNodeId} onChoice={onChoice} />
+        <ActiveNode
+          key={currentNodeId}
+          nodeId={currentNodeId}
+          onChoice={onChoice}
+        />
+
+        {/* Bottom spacer for scroll */}
+        <div className="h-4" />
       </div>
     </div>
   );

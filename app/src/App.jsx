@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Anchor, Ship, Eye, Layers } from 'lucide-react';
+import { motion, AnimatePresence, LayoutGroup } from 'framer-motion'; // eslint-disable-line no-unused-vars
+import { Anchor, Ship, Eye, Layers, Box } from 'lucide-react';
 import { FLOW_NODES, GRADE_STARTS, GRADE_INFO } from './data/flowNodes';
 import CrossSectionView from './components/CrossSectionView';
 import IsometricView from './components/IsometricView';
@@ -10,7 +10,7 @@ const GRADES = ['EH36', 'EH40', 'EH47'];
 
 export default function App() {
   const [selectedGrade, setSelectedGrade] = useState('EH40');
-  const [currentNodeId, setCurrentNodeId] = useState(GRADE_STARTS['EH40']);
+  const [currentNodeId, setCurrentNodeId] = useState(GRADE_STARTS.EH40);
   const [history, setHistory] = useState([]);
 
   const currentNode = useMemo(() => FLOW_NODES[currentNodeId], [currentNodeId]);
@@ -58,58 +58,61 @@ export default function App() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-marine-900 text-slate-200 overflow-hidden">
-      {/* ═══ TOP HEADER BAR ═══ */}
-      <header className="shrink-0 border-b border-slate-700/50 bg-marine-800/80 backdrop-blur-sm">
-        <div className="flex items-center justify-between px-4 py-2.5 lg:px-6">
+      {/* ═══ HEADER ═══ */}
+      <header className="shrink-0 border-b border-slate-700/40 bg-gradient-to-r from-marine-800/90 via-marine-800/70 to-marine-800/90 backdrop-blur-md">
+        <div className="flex items-center justify-between px-4 py-2 lg:px-5">
           {/* Brand */}
           <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600/20 border border-blue-500/30">
-              <Anchor size={16} className="text-blue-400" />
+            <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600/20 to-cyan-600/10 border border-blue-500/25 shadow-lg shadow-blue-900/20">
+              <Anchor size={17} className="text-blue-400" />
             </div>
-            <div>
-              <h1 className="text-sm font-bold text-slate-100 tracking-tight leading-tight">
+            <div className="hidden sm:block">
+              <h1 className="text-[13px] font-extrabold text-slate-100 tracking-tight leading-tight">
                 Lloyd&apos;s Register Rules
               </h1>
-              <p className="text-[10px] text-slate-500 leading-tight">
-                Hatch Coaming Crack Propagation Prevention — Table 8.2.1
+              <p className="text-[9px] text-slate-500 leading-tight tracking-wide">
+                Hatch Coaming Crack Propagation Prevention — Ch.8 §8.2
               </p>
             </div>
           </div>
 
           {/* Grade selector */}
-          <div className="flex items-center gap-1 bg-slate-800/60 rounded-lg p-1 border border-slate-700/50">
-            {GRADES.map((grade) => {
-              const active = grade === selectedGrade;
-              const info = GRADE_INFO[grade];
-              return (
-                <motion.button
-                  key={grade}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={() => handleGradeChange(grade)}
-                  className={`relative px-3 py-1.5 rounded-md text-xs font-bold transition-colors cursor-pointer ${
-                    active
-                      ? 'text-white'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {active && (
-                    <motion.div
-                      layoutId="activeGrade"
-                      className="absolute inset-0 rounded-md"
-                      style={{ backgroundColor: info.color + '33', borderColor: info.color + '66', borderWidth: 1 }}
-                      transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                    />
-                  )}
-                  <span className="relative z-10">{grade}</span>
-                </motion.button>
-              );
-            })}
-          </div>
+          <LayoutGroup>
+            <div className="flex items-center gap-0.5 bg-slate-800/50 rounded-xl p-1 border border-slate-700/40">
+              {GRADES.map((grade) => {
+                const active = grade === selectedGrade;
+                const info = GRADE_INFO[grade];
+                return (
+                  <motion.button
+                    key={grade}
+                    onClick={() => handleGradeChange(grade)}
+                    className={`relative px-4 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                      active ? 'text-white' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                    whileHover={{ scale: active ? 1 : 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    {active && (
+                      <motion.div
+                        layoutId="gradeSelector"
+                        className="absolute inset-0 rounded-lg"
+                        style={{
+                          background: `linear-gradient(135deg, ${info.color}22, ${info.color}11)`,
+                          border: `1px solid ${info.color}44`,
+                        }}
+                        transition={{ type: 'spring', damping: 28, stiffness: 350 }}
+                      />
+                    )}
+                    <span className="relative z-10">{grade}</span>
+                  </motion.button>
+                );
+              })}
+            </div>
+          </LayoutGroup>
 
-          {/* Grade info */}
-          <div className="hidden md:flex items-center gap-2 text-xs text-slate-500">
-            <Ship size={14} />
+          {/* Grade description */}
+          <div className="hidden lg:flex items-center gap-2 text-[11px] text-slate-500">
+            <Ship size={14} className="text-slate-600" />
             <span>{GRADE_INFO[selectedGrade]?.desc}</span>
           </div>
         </div>
@@ -117,8 +120,8 @@ export default function App() {
 
       {/* ═══ MAIN CONTENT ═══ */}
       <div className="flex-1 flex overflow-hidden">
-        {/* ─── LEFT PANEL: Flowchart Wizard ─── */}
-        <div className="w-[380px] shrink-0 border-r border-slate-700/50 bg-marine-800/40 flex flex-col">
+        {/* ─── LEFT: Flowchart Wizard ─── */}
+        <div className="w-[360px] lg:w-[400px] shrink-0 border-r border-slate-700/30 bg-marine-800/30 flex flex-col">
           <FlowchartPanel
             currentNodeId={currentNodeId}
             history={history}
@@ -127,43 +130,60 @@ export default function App() {
           />
         </div>
 
-        {/* ─── RIGHT PANEL: Dynamic Visualizer ─── */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {/* View indicator bar */}
-          <div className="shrink-0 flex items-center justify-between px-4 py-2 border-b border-slate-700/30 bg-marine-800/30">
-            <div className="flex items-center gap-2">
-              {viewConfig.view === 'A' ? (
-                <Eye size={14} className="text-purple-400" />
-              ) : (
-                <Layers size={14} className="text-cyan-400" />
-              )}
-              <span className="text-xs font-semibold text-slate-400">
-                {viewConfig.view === 'A' ? 'View A — 2D Cross-Section (Fig 8.2.1)' : 'View B — 3D Isometric Block Joint'}
-              </span>
+        {/* ─── RIGHT: Dynamic Visualizer ─── */}
+        <div className="flex-1 flex flex-col overflow-hidden bg-gradient-to-b from-marine-900 to-marine-800/30">
+          {/* View mode indicator */}
+          <div className="shrink-0 flex items-center justify-between px-4 py-2 border-b border-slate-700/20 bg-marine-800/20">
+            <div className="flex items-center gap-2.5">
+              <AnimatePresence mode="wait">
+                {viewConfig.view === 'A' ? (
+                  <motion.div key="icon-a" initial={{ opacity: 0, scale: 0.5, rotate: -45 }} animate={{ opacity: 1, scale: 1, rotate: 0 }} exit={{ opacity: 0, scale: 0.5, rotate: 45 }} className="flex items-center gap-2">
+                    <Eye size={13} className="text-purple-400" />
+                    <span className="text-[11px] font-semibold text-slate-400">View A — 2D Cross-Section (Fig 8.2.1)</span>
+                  </motion.div>
+                ) : (
+                  <motion.div key="icon-b" initial={{ opacity: 0, scale: 0.5, rotate: 45 }} animate={{ opacity: 1, scale: 1, rotate: 0 }} exit={{ opacity: 0, scale: 0.5, rotate: -45 }} className="flex items-center gap-2">
+                    <Box size={13} className="text-cyan-400" />
+                    <span className="text-[11px] font-semibold text-slate-400">View B — 3D Isometric Block Joint</span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
-            <div className="flex items-center gap-1.5">
-              {viewConfig.highlights.length > 0 && (
-                <div className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium"
-                  style={{ backgroundColor: viewConfig.highlightColor + '20', color: viewConfig.highlightColor, borderColor: viewConfig.highlightColor + '40', borderWidth: 1 }}
-                >
-                  <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: viewConfig.highlightColor }} />
-                  {viewConfig.highlights.join(', ')}
-                </div>
-              )}
-            </div>
+
+            {/* Active highlights indicator */}
+            {viewConfig.highlights.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-semibold tracking-wide"
+                style={{
+                  backgroundColor: viewConfig.highlightColor + '12',
+                  color: viewConfig.highlightColor,
+                  border: `1px solid ${viewConfig.highlightColor}30`,
+                }}
+              >
+                <motion.div
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{ backgroundColor: viewConfig.highlightColor }}
+                  animate={{ opacity: [0.4, 1, 0.4] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                />
+                ACTIVE
+              </motion.div>
+            )}
           </div>
 
-          {/* SVG Visualizer with AnimatePresence */}
-          <div className="flex-1 relative overflow-hidden flex items-center justify-center p-4 lg:p-6">
+          {/* SVG View Area */}
+          <div className="flex-1 relative overflow-hidden flex items-center justify-center p-3 lg:p-5">
             <AnimatePresence mode="wait">
               {viewConfig.view === 'A' ? (
                 <motion.div
-                  key="view-a"
-                  initial={{ opacity: 0, scale: 0.92, rotateY: -15 }}
-                  animate={{ opacity: 1, scale: 1, rotateY: 0 }}
-                  exit={{ opacity: 0, scale: 0.92, rotateY: 15 }}
-                  transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
-                  className="w-full h-full max-w-3xl max-h-[560px]"
+                  key={`view-a-${currentNodeId}`}
+                  initial={{ opacity: 0, scale: 0.94, x: -30 }}
+                  animate={{ opacity: 1, scale: 1, x: 0 }}
+                  exit={{ opacity: 0, scale: 0.94, x: 30 }}
+                  transition={{ duration: 0.45, ease: [0.25, 0.8, 0.25, 1] }}
+                  className="w-full h-full max-w-[820px] max-h-[580px]"
                 >
                   <CrossSectionView
                     highlights={viewConfig.highlights}
@@ -172,12 +192,12 @@ export default function App() {
                 </motion.div>
               ) : (
                 <motion.div
-                  key="view-b"
-                  initial={{ opacity: 0, scale: 0.92, rotateY: 15 }}
-                  animate={{ opacity: 1, scale: 1, rotateY: 0 }}
-                  exit={{ opacity: 0, scale: 0.92, rotateY: -15 }}
-                  transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
-                  className="w-full h-full max-w-3xl max-h-[560px]"
+                  key={`view-b-${currentNodeId}`}
+                  initial={{ opacity: 0, scale: 0.94, x: 30 }}
+                  animate={{ opacity: 1, scale: 1, x: 0 }}
+                  exit={{ opacity: 0, scale: 0.94, x: -30 }}
+                  transition={{ duration: 0.45, ease: [0.25, 0.8, 0.25, 1] }}
+                  className="w-full h-full max-w-[820px] max-h-[580px]"
                 >
                   <IsometricView
                     highlights={viewConfig.highlights}
@@ -189,28 +209,35 @@ export default function App() {
               )}
             </AnimatePresence>
 
-            {/* Floating current-step context */}
+            {/* Floating context bar */}
             {currentNode && (
-              <motion.div
-                key={currentNodeId}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="absolute bottom-4 left-4 right-4 lg:left-6 lg:right-6"
-              >
-                <div className="bg-marine-800/90 backdrop-blur-sm border border-slate-700/50 rounded-lg px-4 py-2 flex items-center gap-3">
-                  <div
-                    className="w-2 h-2 rounded-full shrink-0 animate-pulse"
-                    style={{ backgroundColor: viewConfig.highlightColor }}
-                  />
-                  <p className="text-xs text-slate-400 line-clamp-1 flex-1">
-                    <span className="text-slate-300 font-medium">{currentNode.title}:</span>{' '}
-                    {currentNode.text}
-                  </p>
-                  <span className="text-[10px] text-slate-600 shrink-0">
-                    {selectedGrade}
-                  </span>
-                </div>
-              </motion.div>
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={currentNodeId}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 8 }}
+                  transition={{ duration: 0.35, delay: 0.15 }}
+                  className="absolute bottom-3 left-3 right-3 lg:bottom-5 lg:left-5 lg:right-5"
+                >
+                  <div className="bg-marine-800/85 backdrop-blur-md border border-slate-700/40 rounded-xl px-4 py-2.5 flex items-center gap-3 shadow-xl shadow-black/20">
+                    <motion.div
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: viewConfig.highlightColor }}
+                      animate={{ opacity: [0.4, 1, 0.4] }}
+                      transition={{ duration: 1.5, repeat: Infinity }}
+                    />
+                    <p className="text-[11px] text-slate-400 line-clamp-1 flex-1 leading-snug">
+                      <span className="text-slate-300 font-semibold">{currentNode.title}</span>
+                      <span className="mx-1.5 text-slate-600">|</span>
+                      {currentNode.text}
+                    </p>
+                    <span className="text-[9px] text-slate-600 shrink-0 font-semibold tracking-wider">
+                      {selectedGrade}
+                    </span>
+                  </div>
+                </motion.div>
+              </AnimatePresence>
             )}
           </div>
         </div>
