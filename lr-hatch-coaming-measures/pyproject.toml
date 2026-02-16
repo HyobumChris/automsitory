@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lr-hatch-coaming-measures"
+version = "1.0.0"
+description = "LR Container Ship Hatch Coaming – Crack/Brittle-Fracture Prevention Measures 1–5 System"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+ocr = [
+    "pytesseract>=0.3",
+    "Pillow>=10.0",
+    "PyMuPDF>=1.23",
+]
+ocr-alt = [
+    "easyocr>=1.7",
+]
+viz = [
+    "Pillow>=10.0",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+all = [
+    "lr-hatch-coaming-measures[ocr,viz,dev]",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.setuptools.packages.find]
+include = ["lr_hatch_coaming*"]
