@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+@theme {
+  --color-cyan-glow: #00e5ff;
+  --color-amber-glow: #ffab00;
+  --color-emerald-glow: #00e676;
+  --color-red-glow: #ff1744;
+  --color-marine-900: #0a1628;
+  --color-marine-800: #101d33;
+  --color-marine-700: #162440;
+  --color-marine-600: #1e3054;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: #0a1628;
+  color: #e2e8f0;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #162440;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* Pulsing glow keyframes */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+@keyframes radar-sweep {
+  0% { transform: scale(0.5); opacity: 1; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+.animate-radar {
+  animation: radar-sweep 2s ease-out infinite;
+}
