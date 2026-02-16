@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@theme {
+  --color-cyan-glow: #06b6d4;
+  --color-amber-glow: #f59e0b;
+  --color-emerald-glow: #10b981;
+  --color-red-glow: #ef4444;
+  --color-yellow-glow: #eab308;
+  --color-marine-900: #0c1222;
+  --color-marine-800: #111a2e;
+  --color-marine-700: #182442;
+  --color-marine-600: #1e3056;
+  --color-marine-500: #2a4a7f;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes radar-sweep {
+  0% { transform: scale(0.5); opacity: 1; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+@keyframes scan-line {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100%); }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+.animate-radar {
+  animation: radar-sweep 2s ease-out infinite;
+}
+
+.animate-scan {
+  animation: scan-line 2s linear infinite;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #111a2e;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2a4a7f;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3b5998;
+}
+
+body {
+  background: #0c1222;
+  overflow: hidden;
+}
