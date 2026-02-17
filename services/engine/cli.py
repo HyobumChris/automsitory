@@ -28,7 +28,7 @@ def _load_colors(path: Path | None) -> Dict[int, Dict[str, Any]]:
         mid = int(key)
         colors[mid] = {
             "hex": value.get("hex", colors.get(mid, {}).get("hex", "#999999")),
-            "alpha": float(value.get("alpha", colors.get(mid, {}).get("alpha", 0.25)),
+            "alpha": float(value.get("alpha", colors.get(mid, {}).get("alpha", 0.25))),
         }
     return colors
 

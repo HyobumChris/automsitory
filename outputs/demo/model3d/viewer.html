@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>hatch coaming 3D viewer</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, sans-serif; background: #121726; color: #e6eaf2; overflow: hidden; }
+    #root { display: grid; grid-template-columns: 320px 1fr; height: 100vh; }
+    #panel { padding: 14px; border-right: 1px solid #2f3548; overflow-y: auto; background: rgba(20,25,40,0.96); }
+    #panel h2 { margin: 0 0 10px; font-size: 16px; }
+    .legend-row { display:flex; gap:8px; align-items:center; margin:6px 0; font-size: 12px; }
+    .dot { width: 12px; height: 12px; border-radius: 50%; display:inline-block; }
+    #canvasWrap { position: relative; }
+    #canvas { width: 100%; height: 100%; }
+    #detail { position:absolute; top:14px; right:14px; width:360px; max-height:78vh; overflow:auto; background:rgba(18,23,38,0.95); border:1px solid #3b4463; padding:12px; border-radius:8px; display:none; }
+    #detail.active { display:block; }
+    #detail h3 { margin: 0 0 8px; font-size: 14px; color: #8ab4ff; }
+    #detail pre { white-space: pre-wrap; font-size: 11px; color: #dce4ff; }
+    #detail img { max-width: 100%; margin-top: 8px; border: 1px solid #3b4463; border-radius: 4px; }
+    .measure-toggle { margin: 8px 0; font-size: 13px; }
+    .dim-note { margin-top:10px; padding:6px; border:1px solid #3b4463; border-radius:6px; font-size:12px; }
+  </style>
+</head>
+<body>
+  <div id="root">
+    <aside id="panel">
+      <h2>Measure Layers</h2>
+      <div id="toggles"></div>
+      <div id="legend"></div>
+      <div id="dimNote" class="dim-note"></div>
+    </aside>
+    <div id="canvasWrap">
+      <div id="detail"><h3 id="detailTitle"></h3><pre id="detailBody"></pre><div id="detailImages"></div></div>
+      <div id="canvas"></div>
+    </div>
+  </div>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+    const DATA = {"measureLabels": {"1": "Measure 1 - Construction NDE", "2": "Measure 2 - Periodic in-service NDE", "3": "Measure 3 - Crack arrest measure set", "0": "Structural weld requirement", "4": "Measure 4 - Upper deck BCA steel", "5": "Measure 5 - Upper deck BCA steel (traceability)"}, "targetIndex": {"joint:J01": [{"measure_id": 1, "measure_name": "Measure 1 - Construction NDE", "status": "required", "target_type": "joint", "target_id": "J01", "condition_expression": "zone=cargo_hold_region && joint_type=block_to_block_butt && upper_flange_long_member", "requirements": ["UT 100% for relevant block-to-block butt joints during construction."], "rule_refs": ["Table 8.2.1 Measure 1"], "evidence_ids": [], "notes": ["UT100%"], "noncompliance": false, "extra": {}}, {"measure_id": 2, "measure_name": "Measure 2 - Periodic in-service NDE", "status": "conditional", "target_type": "joint", "target_id": "J01", "condition_expression": "Table 8.2.1 Note 2 && measure3_choice=enhanced_NDE", "requirements": ["frequency/extent LR agreement required"], "rule_refs": ["Table 8.2.1 Note 2"], "evidence_ids": [], "notes": ["conditional per Note 2"], "noncompliance": false, "extra": {}}, {"measure_id": 3, "measure_name": "Measure 3 - Crack arrest measure set", "status": "conditional", "target_type": "joint", "target_id": "J01", "condition_expression": "option == enhanced_NDE", "requirements": ["Enhanced NDE shall follow stricter acceptance criteria.", "If inaccessible, alternative NDE may be accepted by LR agreement.", "CTOD test minimum value is 0.18mm.", "EGW is not permitted when enhanced NDE route is selected."], "rule_refs": ["Measure 3 enhanced NDE sentence", "ShipRight reference"], "evidence_ids": [], "notes": ["stricter acceptance criteria", "CTOD>=0.18", "EGW not permitted"], "noncompliance": false, "extra": {"enhanced_nde_method": "UT", "acceptance_criteria_ref": "미지정"}}], "joint:J02": [{"measure_id": 1, "measure_name": "Measure 1 - Construction NDE", "status": "required", "target_type": "joint", "target_id": "J02", "condition_expression": "zone=cargo_hold_region && joint_type=block_to_block_butt && upper_flange_long_member", "requirements": ["UT 100% for relevant block-to-block butt joints during construction."], "rule_refs": ["Table 8.2.1 Measure 1"], "evidence_ids": [], "notes": ["UT100%"], "noncompliance": false, "extra": {}}, {"measure_id": 2, "measure_name": "Measure 2 - Periodic in-service NDE", "status": "conditional", "target_type": "joint", "target_id": "J02", "condition_expression": "Table 8.2.1 Note 2 && measure3_choice=enhanced_NDE", "requirements": ["frequency/extent LR agreement required"], "rule_refs": ["Table 8.2.1 Note 2"], "evidence_ids": [], "notes": ["conditional per Note 2"], "noncompliance": false, "extra": {}}, {"measure_id": 3, "measure_name": "Measure 3 - Crack arrest measure set", "status": "conditional", "target_type": "joint", "target_id": "J02", "condition_expression": "option == enhanced_NDE", "requirements": ["Enhanced NDE shall follow stricter acceptance criteria.", "If inaccessible, alternative NDE may be accepted by LR agreement.", "CTOD test minimum value is 0.18mm.", "EGW is not permitted when enhanced NDE route is selected."], "rule_refs": ["Measure 3 enhanced NDE sentence", "ShipRight reference"], "evidence_ids": [], "notes": ["stricter acceptance criteria", "CTOD>=0.18", "EGW not permitted"], "noncompliance": false, "extra": {"enhanced_nde_method": "UT", "acceptance_criteria_ref": "미지정"}}], "joint:J03": [{"measure_id": 0, "measure_name": "Structural weld requirement", "status": "required", "target_type": "joint", "target_id": "J03", "condition_expression": "joint_type == coaming_to_deck_connection", "requirements": ["Coaming side to upper deck connection requires LR-approved PJP welding."], "rule_refs": ["Coaming side-upper deck connection sentence"], "evidence_ids": [], "notes": ["LR-approved PJP required"], "noncompliance": false, "extra": {}}], "member:M03": [{"measure_id": 4, "measure_name": "Measure 4 - Upper deck BCA steel", "status": "required", "target_type": "member", "target_id": "M03", "condition_expression": "role=upper_deck_plate && zone=cargo_hold_region", "requirements": ["upper deck BCA steel required"], "rule_refs": ["Table 8.2.1 Measure 4", "Table 8.2.2"], "evidence_ids": [], "notes": ["BCA=BCA2"], "noncompliance": false, "extra": {"bca_type": "BCA2"}}, {"measure_id": 5, "measure_name": "Measure 5 - Upper deck BCA steel (traceability)", "status": "required", "target_type": "member", "target_id": "M03", "condition_expression": "role=upper_deck_plate && zone=cargo_hold_region", "requirements": ["upper deck BCA steel required"], "rule_refs": ["Table 8.2.1 Measure 5", "Table 8.2.2"], "evidence_ids": [], "notes": ["BCA=BCA2"], "noncompliance": false, "extra": {"bca_type": "BCA2"}}]}, "evidenceIndex": {}, "colors": {"1": "#FF8C00", "2": "#1E90FF", "3": "#DC143C", "4": "#2E8B57", "5": "#8A2BE2", "0": "#666666"}, "dimMessage": ""};
+    const canvasHost = document.getElementById("canvas");
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x121726);
+
+    const camera = new THREE.PerspectiveCamera(52, canvasHost.clientWidth / canvasHost.clientHeight, 0.01, 1000);
+    camera.position.set(15, 9, 14);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(canvasHost.clientWidth, canvasHost.clientHeight);
+    canvasHost.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.target.set(0, 1.2, 0);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.62));
+    const d1 = new THREE.DirectionalLight(0xffffff, 0.75); d1.position.set(15, 18, 12); scene.add(d1);
+    scene.add(new THREE.GridHelper(24, 24, 0x3e455f, 0x262d44));
+
+    const toggles = document.getElementById("toggles");
+    const legend = document.getElementById("legend");
+    const dimNote = document.getElementById("dimNote");
+    dimNote.textContent = DATA.dimMessage ? `모델 정보: ${DATA.dimMessage} (정규화 파라메트릭)` : "모델 정보: 입력 치수 기반";
+
+    const loader = new GLTFLoader();
+    const meshByMeasure = {};
+    const allMeshes = [];
+
+    loader.load("./hatch_coaming.glb", (gltf) => {
+      scene.add(gltf.scene);
+      gltf.scene.traverse((obj) => {
+        if (!obj.isMesh || !obj.name) return;
+        allMeshes.push(obj);
+        const m = obj.name.match(/^m(\d+)_/);
+        if (!m) return;
+        const mid = m[1];
+        meshByMeasure[mid] = meshByMeasure[mid] || [];
+        meshByMeasure[mid].push(obj);
+      });
+
+      const mids = Object.keys(DATA.measureLabels).sort((a,b) => Number(a) - Number(b));
+      mids.forEach((mid) => {
+        const row = document.createElement("div");
+        row.className = "measure-toggle";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = true;
+        cb.onchange = () => {
+          (meshByMeasure[mid] || []).forEach((mesh) => mesh.visible = cb.checked);
+        };
+        const label = document.createElement("label");
+        label.style.marginLeft = "8px";
+        label.textContent = `M${mid} - ${DATA.measureLabels[mid]}`;
+        row.appendChild(cb);
+        row.appendChild(label);
+        toggles.appendChild(row);
+
+        const lg = document.createElement("div");
+        lg.className = "legend-row";
+        const dot = document.createElement("span");
+        dot.className = "dot";
+        dot.style.background = DATA.colors[mid] || "#999";
+        lg.appendChild(dot);
+        const txt = document.createElement("span");
+        txt.textContent = `M${mid}`;
+        lg.appendChild(txt);
+        legend.appendChild(lg);
+      });
+    });
+
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    const detail = document.getElementById("detail");
+    const detailTitle = document.getElementById("detailTitle");
+    const detailBody = document.getElementById("detailBody");
+    const detailImages = document.getElementById("detailImages");
+
+    renderer.domElement.addEventListener("click", (ev) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+      const hit = raycaster.intersectObjects(allMeshes, true)[0];
+      if (!hit || !hit.object || !hit.object.name) return;
+      const m = hit.object.name.match(/^m(\d+)_(member|joint)_([^_]+)_/);
+      if (!m) return;
+      const measureId = Number(m[1]);
+      const targetType = m[2];
+      const targetId = m[3];
+      const key = `${targetType}:${targetId}`;
+      const apps = DATA.targetIndex[key] || [];
+      const filtered = apps.filter((a) => a.measure_id === measureId);
+      detailTitle.textContent = `${targetType}:${targetId} / M${measureId}`;
+      detailBody.textContent = JSON.stringify(filtered, null, 2);
+
+      detailImages.innerHTML = "";
+      const evIds = new Set();
+      filtered.forEach((app) => (app.evidence_ids || []).forEach((id) => evIds.add(id)));
+      Array.from(evIds).forEach((evId) => {
+        const ev = DATA.evidenceIndex[evId];
+        if (!ev || !ev.snippet_path) return;
+        const img = document.createElement("img");
+        img.src = ev.snippet_path;
+        img.alt = ev.key || evId;
+        detailImages.appendChild(img);
+      });
+      detail.classList.add("active");
+    });
+
+    window.addEventListener("resize", () => {
+      const w = canvasHost.clientWidth;
+      const h = canvasHost.clientHeight;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    });
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>

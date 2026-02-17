@@ -1,0 +1,262 @@
+{
+  "source_mode": "manual_table_input",
+  "source_files": [],
+  "table_821": [
+    {
+      "yield_strength_nmm2": 355,
+      "thickness_range": "0<t<=50",
+      "t_min_exclusive": 0,
+      "t_max_inclusive": 50,
+      "m1": "not_required",
+      "m2": "not_required",
+      "m3": "not_required",
+      "m4": "not_required",
+      "m5": "not_required",
+      "raw_m3m4_column": "미지정",
+      "notes": [],
+      "evidence_by_measure": {}
+    },
+    {
+      "yield_strength_nmm2": 355,
+      "thickness_range": "50<t<=85",
+      "t_min_exclusive": 50,
+      "t_max_inclusive": 85,
+      "m1": "required",
+      "m2": "see_note_2",
+      "m3": "required",
+      "m4": "required",
+      "m5": "not_required",
+      "raw_m3m4_column": "미지정",
+      "notes": [],
+      "evidence_by_measure": {}
+    },
+    {
+      "yield_strength_nmm2": 355,
+      "thickness_range": "85<t<=100",
+      "t_min_exclusive": 85,
+      "t_max_inclusive": 100,
+      "m1": "required",
+      "m2": "see_note_2",
+      "m3": "required",
+      "m4": "required",
+      "m5": "required",
+      "raw_m3m4_column": "미지정",
+      "notes": [],
+      "evidence_by_measure": {}
+    },
+    {
+      "yield_strength_nmm2": 390,
+      "thickness_range": "0<t<=50",
+      "t_min_exclusive": 0,
+      "t_max_inclusive": 50,
+      "m1": "not_required",
+      "m2": "not_required",
+      "m3": "not_required",
+      "m4": "not_required",
+      "m5": "not_required",
+      "raw_m3m4_column": "미지정",
+      "notes": [],
+      "evidence_by_measure": {}
+    },
+    {
+      "yield_strength_nmm2": 390,
+      "thickness_range": "50<t<=85",
+      "t_min_exclusive": 50,
+      "t_max_inclusive": 85,
+      "m1": "required",
+      "m2": "see_note_2",
+      "m3": "required",
+      "m4": "required",
+      "m5": "not_required",
+      "raw_m3m4_column": "미지정",
+      "notes": [],
+      "evidence_by_measure": {}
+    },
+    {
+      "yield_strength_nmm2": 390,
+      "thickness_range": "85<t<=100",
+      "t_min_exclusive": 85,
+      "t_max_inclusive": 100,
+      "m1": "required",
+      "m2": "see_note_2",
+      "m3": "required",
+      "m4": "required",
+      "m5": "required",
+      "raw_m3m4_column": "미지정",
+      "notes": [],
+      "evidence_by_measure": {}
+    },
+    {
+      "yield_strength_nmm2": 460,
+      "thickness_range": "0<t<=40",
+      "t_min_exclusive": 0,
+      "t_max_inclusive": 40,
+      "m1": "not_required",
+      "m2": "not_required",
+      "m3": "not_required",
+      "m4": "not_required",
+      "m5": "not_required",
+      "raw_m3m4_column": "미지정",
+      "notes": [],
+      "evidence_by_measure": {}
+    },
+    {
+      "yield_strength_nmm2": 460,
+      "thickness_range": "40<t<=85",
+      "t_min_exclusive": 40,
+      "t_max_inclusive": 85,
+      "m1": "required",
+      "m2": "see_note_2",
+      "m3": "required",
+      "m4": "required",
+      "m5": "required",
+      "raw_m3m4_column": "미지정",
+      "notes": [],
+      "evidence_by_measure": {}
+    },
+    {
+      "yield_strength_nmm2": 460,
+      "thickness_range": "85<t<=100",
+      "t_min_exclusive": 85,
+      "t_max_inclusive": 100,
+      "m1": "required",
+      "m2": "see_note_2",
+      "m3": "required",
+      "m4": "required",
+      "m5": "required",
+      "raw_m3m4_column": "미지정",
+      "notes": [],
+      "evidence_by_measure": {}
+    }
+  ],
+  "table_822": [
+    {
+      "member_role": "upper_deck_plate",
+      "yield_strength_nmm2": 355,
+      "thickness_range": "50<t<=100",
+      "t_min_exclusive": 50,
+      "t_max_inclusive": 100,
+      "bca_type": "BCA1",
+      "condition_text": "미지정",
+      "evidence_id": ""
+    },
+    {
+      "member_role": "upper_deck_plate",
+      "yield_strength_nmm2": 390,
+      "thickness_range": "50<t<=85",
+      "t_min_exclusive": 50,
+      "t_max_inclusive": 85,
+      "bca_type": "BCA1",
+      "condition_text": "미지정",
+      "evidence_id": ""
+    },
+    {
+      "member_role": "upper_deck_plate",
+      "yield_strength_nmm2": 390,
+      "thickness_range": "85<t<=100",
+      "t_min_exclusive": 85,
+      "t_max_inclusive": 100,
+      "bca_type": "BCA2",
+      "condition_text": "미지정",
+      "evidence_id": ""
+    },
+    {
+      "member_role": "hatch_coaming_side_plate",
+      "yield_strength_nmm2": 390,
+      "thickness_range": "50<t<=85",
+      "t_min_exclusive": 50,
+      "t_max_inclusive": 85,
+      "bca_type": "BCA1",
+      "condition_text": "미지정",
+      "evidence_id": ""
+    },
+    {
+      "member_role": "hatch_coaming_side_plate",
+      "yield_strength_nmm2": 390,
+      "thickness_range": "85<t<=100",
+      "t_min_exclusive": 85,
+      "t_max_inclusive": 100,
+      "bca_type": "BCA2",
+      "condition_text": "미지정",
+      "evidence_id": ""
+    },
+    {
+      "member_role": "hatch_coaming_side_plate",
+      "yield_strength_nmm2": 460,
+      "thickness_range": "40<t<=100",
+      "t_min_exclusive": 40,
+      "t_max_inclusive": 100,
+      "bca_type": "BCA2",
+      "condition_text": "미지정",
+      "evidence_id": ""
+    }
+  ],
+  "textual_requirements": {
+    "measure_1_ut_100": {
+      "key": "measure_1_ut_100",
+      "requirement_text": "UT 100% for relevant block-to-block butt joints during construction.",
+      "normalized": {},
+      "evidence_id": ""
+    },
+    "block_shift_min_300mm": {
+      "key": "block_shift_min_300mm",
+      "requirement_text": "Offset between related butt joints is required to be at least 300mm.",
+      "normalized": {},
+      "evidence_id": ""
+    },
+    "crack_arrest_hole_fatigue_assessment": {
+      "key": "crack_arrest_hole_fatigue_assessment",
+      "requirement_text": "Crack arrest hole requires special fatigue strength assessment.",
+      "normalized": {},
+      "evidence_id": ""
+    },
+    "enhanced_nde_stricter_acceptance": {
+      "key": "enhanced_nde_stricter_acceptance",
+      "requirement_text": "Enhanced NDE shall follow stricter acceptance criteria.",
+      "normalized": {},
+      "evidence_id": ""
+    },
+    "enhanced_nde_alternative_nde_by_lr_agreement": {
+      "key": "enhanced_nde_alternative_nde_by_lr_agreement",
+      "requirement_text": "If inaccessible, alternative NDE may be accepted by LR agreement.",
+      "normalized": {},
+      "evidence_id": ""
+    },
+    "enhanced_nde_ctod_min_0_18": {
+      "key": "enhanced_nde_ctod_min_0_18",
+      "requirement_text": "CTOD test minimum value is 0.18mm.",
+      "normalized": {},
+      "evidence_id": ""
+    },
+    "enhanced_nde_egw_not_permitted": {
+      "key": "enhanced_nde_egw_not_permitted",
+      "requirement_text": "EGW is not permitted when enhanced NDE route is selected.",
+      "normalized": {},
+      "evidence_id": ""
+    },
+    "pjp_required_coaming_to_deck": {
+      "key": "pjp_required_coaming_to_deck",
+      "requirement_text": "Coaming side to upper deck connection requires LR-approved PJP welding.",
+      "normalized": {},
+      "evidence_id": ""
+    },
+    "thickness_gt_100_special_consideration": {
+      "key": "thickness_gt_100_special_consideration",
+      "requirement_text": "Thickness above 100mm requires special consideration.",
+      "normalized": {},
+      "evidence_id": ""
+    },
+    "measure3_coaming_side_bca_requirement": {
+      "key": "measure3_coaming_side_bca_requirement",
+      "requirement_text": "Measure 3 includes providing brittle crack arrest steel at hatch coaming side plate.",
+      "normalized": {},
+      "evidence_id": ""
+    }
+  },
+  "evidence": {},
+  "manual_review_flags": [],
+  "web_conflict_flags": [],
+  "metadata": {
+    "manual_mode_reason": "manual_table_input provided"
+  }
+}

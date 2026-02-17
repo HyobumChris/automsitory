@@ -1,0 +1,525 @@
+{
+  "project_meta": {
+    "project_id": "DEMO-001",
+    "vessel_name": "미지정",
+    "date_local": "2026-02-17",
+    "timezone": "Asia/Seoul",
+    "allow_web_fetch": false
+  },
+  "control_parameters": {
+    "t_side": 90.0,
+    "t_top": 86.0,
+    "t_control": 90.0,
+    "y_side": 390,
+    "y_top": 390,
+    "y_control": 390
+  },
+  "required_measures_global": {
+    "measure_1": "required",
+    "measure_2": "conditional",
+    "measure_3": "required",
+    "measure_4": "required",
+    "measure_5": "required"
+  },
+  "table_821_lookup": {
+    "matched_row": {
+      "yield_strength_nmm2": 390,
+      "thickness_range": "85<t<=100",
+      "t_min_exclusive": 85,
+      "t_max_inclusive": 100,
+      "m1": "required",
+      "m2": "see_note_2",
+      "m3": "required",
+      "m4": "required",
+      "m5": "required",
+      "raw_m3m4_column": "미지정",
+      "notes": [],
+      "evidence_by_measure": {}
+    },
+    "note_2_triggered": true
+  },
+  "targets": {
+    "members": [
+      {
+        "target_type": "member",
+        "target_id": "M01",
+        "applied_measures": []
+      },
+      {
+        "target_type": "member",
+        "target_id": "M02",
+        "applied_measures": []
+      },
+      {
+        "target_type": "member",
+        "target_id": "M03",
+        "applied_measures": [
+          {
+            "measure_id": 4,
+            "measure_name": "Measure 4 - Upper deck BCA steel",
+            "status": "required",
+            "target_type": "member",
+            "target_id": "M03",
+            "condition_expression": "role=upper_deck_plate && zone=cargo_hold_region",
+            "requirements": [
+              "upper deck BCA steel required"
+            ],
+            "rule_refs": [
+              "Table 8.2.1 Measure 4",
+              "Table 8.2.2"
+            ],
+            "evidence_ids": [],
+            "notes": [
+              "BCA=BCA2"
+            ],
+            "noncompliance": false,
+            "extra": {
+              "bca_type": "BCA2"
+            }
+          },
+          {
+            "measure_id": 5,
+            "measure_name": "Measure 5 - Upper deck BCA steel (traceability)",
+            "status": "required",
+            "target_type": "member",
+            "target_id": "M03",
+            "condition_expression": "role=upper_deck_plate && zone=cargo_hold_region",
+            "requirements": [
+              "upper deck BCA steel required"
+            ],
+            "rule_refs": [
+              "Table 8.2.1 Measure 5",
+              "Table 8.2.2"
+            ],
+            "evidence_ids": [],
+            "notes": [
+              "BCA=BCA2"
+            ],
+            "noncompliance": false,
+            "extra": {
+              "bca_type": "BCA2"
+            }
+          }
+        ]
+      },
+      {
+        "target_type": "member",
+        "target_id": "M04",
+        "applied_measures": []
+      }
+    ],
+    "joints": [
+      {
+        "target_type": "joint",
+        "target_id": "J01",
+        "applied_measures": [
+          {
+            "measure_id": 1,
+            "measure_name": "Measure 1 - Construction NDE",
+            "status": "required",
+            "target_type": "joint",
+            "target_id": "J01",
+            "condition_expression": "zone=cargo_hold_region && joint_type=block_to_block_butt && upper_flange_long_member",
+            "requirements": [
+              "UT 100% for relevant block-to-block butt joints during construction."
+            ],
+            "rule_refs": [
+              "Table 8.2.1 Measure 1"
+            ],
+            "evidence_ids": [],
+            "notes": [
+              "UT100%"
+            ],
+            "noncompliance": false,
+            "extra": {}
+          },
+          {
+            "measure_id": 2,
+            "measure_name": "Measure 2 - Periodic in-service NDE",
+            "status": "conditional",
+            "target_type": "joint",
+            "target_id": "J01",
+            "condition_expression": "Table 8.2.1 Note 2 && measure3_choice=enhanced_NDE",
+            "requirements": [
+              "frequency/extent LR agreement required"
+            ],
+            "rule_refs": [
+              "Table 8.2.1 Note 2"
+            ],
+            "evidence_ids": [],
+            "notes": [
+              "conditional per Note 2"
+            ],
+            "noncompliance": false,
+            "extra": {}
+          },
+          {
+            "measure_id": 3,
+            "measure_name": "Measure 3 - Crack arrest measure set",
+            "status": "conditional",
+            "target_type": "joint",
+            "target_id": "J01",
+            "condition_expression": "option == enhanced_NDE",
+            "requirements": [
+              "Enhanced NDE shall follow stricter acceptance criteria.",
+              "If inaccessible, alternative NDE may be accepted by LR agreement.",
+              "CTOD test minimum value is 0.18mm.",
+              "EGW is not permitted when enhanced NDE route is selected."
+            ],
+            "rule_refs": [
+              "Measure 3 enhanced NDE sentence",
+              "ShipRight reference"
+            ],
+            "evidence_ids": [],
+            "notes": [
+              "stricter acceptance criteria",
+              "CTOD>=0.18",
+              "EGW not permitted"
+            ],
+            "noncompliance": false,
+            "extra": {
+              "enhanced_nde_method": "UT",
+              "acceptance_criteria_ref": "미지정"
+            }
+          }
+        ]
+      },
+      {
+        "target_type": "joint",
+        "target_id": "J02",
+        "applied_measures": [
+          {
+            "measure_id": 1,
+            "measure_name": "Measure 1 - Construction NDE",
+            "status": "required",
+            "target_type": "joint",
+            "target_id": "J02",
+            "condition_expression": "zone=cargo_hold_region && joint_type=block_to_block_butt && upper_flange_long_member",
+            "requirements": [
+              "UT 100% for relevant block-to-block butt joints during construction."
+            ],
+            "rule_refs": [
+              "Table 8.2.1 Measure 1"
+            ],
+            "evidence_ids": [],
+            "notes": [
+              "UT100%"
+            ],
+            "noncompliance": false,
+            "extra": {}
+          },
+          {
+            "measure_id": 2,
+            "measure_name": "Measure 2 - Periodic in-service NDE",
+            "status": "conditional",
+            "target_type": "joint",
+            "target_id": "J02",
+            "condition_expression": "Table 8.2.1 Note 2 && measure3_choice=enhanced_NDE",
+            "requirements": [
+              "frequency/extent LR agreement required"
+            ],
+            "rule_refs": [
+              "Table 8.2.1 Note 2"
+            ],
+            "evidence_ids": [],
+            "notes": [
+              "conditional per Note 2"
+            ],
+            "noncompliance": false,
+            "extra": {}
+          },
+          {
+            "measure_id": 3,
+            "measure_name": "Measure 3 - Crack arrest measure set",
+            "status": "conditional",
+            "target_type": "joint",
+            "target_id": "J02",
+            "condition_expression": "option == enhanced_NDE",
+            "requirements": [
+              "Enhanced NDE shall follow stricter acceptance criteria.",
+              "If inaccessible, alternative NDE may be accepted by LR agreement.",
+              "CTOD test minimum value is 0.18mm.",
+              "EGW is not permitted when enhanced NDE route is selected."
+            ],
+            "rule_refs": [
+              "Measure 3 enhanced NDE sentence",
+              "ShipRight reference"
+            ],
+            "evidence_ids": [],
+            "notes": [
+              "stricter acceptance criteria",
+              "CTOD>=0.18",
+              "EGW not permitted"
+            ],
+            "noncompliance": false,
+            "extra": {
+              "enhanced_nde_method": "UT",
+              "acceptance_criteria_ref": "미지정"
+            }
+          }
+        ]
+      },
+      {
+        "target_type": "joint",
+        "target_id": "J03",
+        "applied_measures": [
+          {
+            "measure_id": 0,
+            "measure_name": "Structural weld requirement",
+            "status": "required",
+            "target_type": "joint",
+            "target_id": "J03",
+            "condition_expression": "joint_type == coaming_to_deck_connection",
+            "requirements": [
+              "Coaming side to upper deck connection requires LR-approved PJP welding."
+            ],
+            "rule_refs": [
+              "Coaming side-upper deck connection sentence"
+            ],
+            "evidence_ids": [],
+            "notes": [
+              "LR-approved PJP required"
+            ],
+            "noncompliance": false,
+            "extra": {}
+          }
+        ]
+      }
+    ]
+  },
+  "applications": [
+    {
+      "measure_id": 1,
+      "measure_name": "Measure 1 - Construction NDE",
+      "status": "required",
+      "target_type": "joint",
+      "target_id": "J01",
+      "condition_expression": "zone=cargo_hold_region && joint_type=block_to_block_butt && upper_flange_long_member",
+      "requirements": [
+        "UT 100% for relevant block-to-block butt joints during construction."
+      ],
+      "rule_refs": [
+        "Table 8.2.1 Measure 1"
+      ],
+      "evidence_ids": [],
+      "notes": [
+        "UT100%"
+      ],
+      "noncompliance": false,
+      "extra": {}
+    },
+    {
+      "measure_id": 2,
+      "measure_name": "Measure 2 - Periodic in-service NDE",
+      "status": "conditional",
+      "target_type": "joint",
+      "target_id": "J01",
+      "condition_expression": "Table 8.2.1 Note 2 && measure3_choice=enhanced_NDE",
+      "requirements": [
+        "frequency/extent LR agreement required"
+      ],
+      "rule_refs": [
+        "Table 8.2.1 Note 2"
+      ],
+      "evidence_ids": [],
+      "notes": [
+        "conditional per Note 2"
+      ],
+      "noncompliance": false,
+      "extra": {}
+    },
+    {
+      "measure_id": 3,
+      "measure_name": "Measure 3 - Crack arrest measure set",
+      "status": "conditional",
+      "target_type": "joint",
+      "target_id": "J01",
+      "condition_expression": "option == enhanced_NDE",
+      "requirements": [
+        "Enhanced NDE shall follow stricter acceptance criteria.",
+        "If inaccessible, alternative NDE may be accepted by LR agreement.",
+        "CTOD test minimum value is 0.18mm.",
+        "EGW is not permitted when enhanced NDE route is selected."
+      ],
+      "rule_refs": [
+        "Measure 3 enhanced NDE sentence",
+        "ShipRight reference"
+      ],
+      "evidence_ids": [],
+      "notes": [
+        "stricter acceptance criteria",
+        "CTOD>=0.18",
+        "EGW not permitted"
+      ],
+      "noncompliance": false,
+      "extra": {
+        "enhanced_nde_method": "UT",
+        "acceptance_criteria_ref": "미지정"
+      }
+    },
+    {
+      "measure_id": 1,
+      "measure_name": "Measure 1 - Construction NDE",
+      "status": "required",
+      "target_type": "joint",
+      "target_id": "J02",
+      "condition_expression": "zone=cargo_hold_region && joint_type=block_to_block_butt && upper_flange_long_member",
+      "requirements": [
+        "UT 100% for relevant block-to-block butt joints during construction."
+      ],
+      "rule_refs": [
+        "Table 8.2.1 Measure 1"
+      ],
+      "evidence_ids": [],
+      "notes": [
+        "UT100%"
+      ],
+      "noncompliance": false,
+      "extra": {}
+    },
+    {
+      "measure_id": 2,
+      "measure_name": "Measure 2 - Periodic in-service NDE",
+      "status": "conditional",
+      "target_type": "joint",
+      "target_id": "J02",
+      "condition_expression": "Table 8.2.1 Note 2 && measure3_choice=enhanced_NDE",
+      "requirements": [
+        "frequency/extent LR agreement required"
+      ],
+      "rule_refs": [
+        "Table 8.2.1 Note 2"
+      ],
+      "evidence_ids": [],
+      "notes": [
+        "conditional per Note 2"
+      ],
+      "noncompliance": false,
+      "extra": {}
+    },
+    {
+      "measure_id": 3,
+      "measure_name": "Measure 3 - Crack arrest measure set",
+      "status": "conditional",
+      "target_type": "joint",
+      "target_id": "J02",
+      "condition_expression": "option == enhanced_NDE",
+      "requirements": [
+        "Enhanced NDE shall follow stricter acceptance criteria.",
+        "If inaccessible, alternative NDE may be accepted by LR agreement.",
+        "CTOD test minimum value is 0.18mm.",
+        "EGW is not permitted when enhanced NDE route is selected."
+      ],
+      "rule_refs": [
+        "Measure 3 enhanced NDE sentence",
+        "ShipRight reference"
+      ],
+      "evidence_ids": [],
+      "notes": [
+        "stricter acceptance criteria",
+        "CTOD>=0.18",
+        "EGW not permitted"
+      ],
+      "noncompliance": false,
+      "extra": {
+        "enhanced_nde_method": "UT",
+        "acceptance_criteria_ref": "미지정"
+      }
+    },
+    {
+      "measure_id": 0,
+      "measure_name": "Structural weld requirement",
+      "status": "required",
+      "target_type": "joint",
+      "target_id": "J03",
+      "condition_expression": "joint_type == coaming_to_deck_connection",
+      "requirements": [
+        "Coaming side to upper deck connection requires LR-approved PJP welding."
+      ],
+      "rule_refs": [
+        "Coaming side-upper deck connection sentence"
+      ],
+      "evidence_ids": [],
+      "notes": [
+        "LR-approved PJP required"
+      ],
+      "noncompliance": false,
+      "extra": {}
+    },
+    {
+      "measure_id": 4,
+      "measure_name": "Measure 4 - Upper deck BCA steel",
+      "status": "required",
+      "target_type": "member",
+      "target_id": "M03",
+      "condition_expression": "role=upper_deck_plate && zone=cargo_hold_region",
+      "requirements": [
+        "upper deck BCA steel required"
+      ],
+      "rule_refs": [
+        "Table 8.2.1 Measure 4",
+        "Table 8.2.2"
+      ],
+      "evidence_ids": [],
+      "notes": [
+        "BCA=BCA2"
+      ],
+      "noncompliance": false,
+      "extra": {
+        "bca_type": "BCA2"
+      }
+    },
+    {
+      "measure_id": 5,
+      "measure_name": "Measure 5 - Upper deck BCA steel (traceability)",
+      "status": "required",
+      "target_type": "member",
+      "target_id": "M03",
+      "condition_expression": "role=upper_deck_plate && zone=cargo_hold_region",
+      "requirements": [
+        "upper deck BCA steel required"
+      ],
+      "rule_refs": [
+        "Table 8.2.1 Measure 5",
+        "Table 8.2.2"
+      ],
+      "evidence_ids": [],
+      "notes": [
+        "BCA=BCA2"
+      ],
+      "noncompliance": false,
+      "extra": {
+        "bca_type": "BCA2"
+      }
+    }
+  ],
+  "pending_choices": [],
+  "manual_review_flags": [
+    {
+      "flag_id": "m3_side_bca_sentence_missing",
+      "message": "Measure 3 coaming side BCA sentence evidence is 미지정; auto-application skipped for side plate member.",
+      "category": "measure_3",
+      "related_ids": [],
+      "severity": "warning"
+    },
+    {
+      "flag_id": "m3_enhanced_nde_conditional_J01",
+      "message": "Enhanced NDE chosen but ShipRight file is missing or acceptance criteria ref is 미지정.",
+      "category": "measure_3_enhanced_nde",
+      "related_ids": [
+        "J01"
+      ],
+      "severity": "warning"
+    },
+    {
+      "flag_id": "m3_enhanced_nde_conditional_J02",
+      "message": "Enhanced NDE chosen but ShipRight file is missing or acceptance criteria ref is 미지정.",
+      "category": "measure_3_enhanced_nde",
+      "related_ids": [
+        "J02"
+      ],
+      "severity": "warning"
+    }
+  ],
+  "generated_at_utc": "2026-02-17T05:38:45.755844+00:00"
+}

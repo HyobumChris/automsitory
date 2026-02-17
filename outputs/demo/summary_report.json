@@ -1,0 +1,74 @@
+{
+  "project_id": "DEMO-001",
+  "required_measures_global": {
+    "measure_1": "required",
+    "measure_2": "conditional",
+    "measure_3": "required",
+    "measure_4": "required",
+    "measure_5": "required"
+  },
+  "target_summary": {
+    "members": {
+      "M01": [],
+      "M02": [],
+      "M03": [
+        4,
+        5
+      ],
+      "M04": []
+    },
+    "joints": {
+      "J01": [
+        1,
+        2,
+        3
+      ],
+      "J02": [
+        1,
+        2,
+        3
+      ],
+      "J03": [
+        0
+      ]
+    }
+  },
+  "manual_review_flags": [
+    {
+      "flag_id": "m3_side_bca_sentence_missing",
+      "message": "Measure 3 coaming side BCA sentence evidence is 미지정; auto-application skipped for side plate member.",
+      "category": "measure_3",
+      "related_ids": [],
+      "severity": "warning"
+    },
+    {
+      "flag_id": "m3_enhanced_nde_conditional_J01",
+      "message": "Enhanced NDE chosen but ShipRight file is missing or acceptance criteria ref is 미지정.",
+      "category": "measure_3_enhanced_nde",
+      "related_ids": [
+        "J01"
+      ],
+      "severity": "warning"
+    },
+    {
+      "flag_id": "m3_enhanced_nde_conditional_J02",
+      "message": "Enhanced NDE chosen but ShipRight file is missing or acceptance criteria ref is 미지정.",
+      "category": "measure_3_enhanced_nde",
+      "related_ids": [
+        "J02"
+      ],
+      "severity": "warning"
+    }
+  ],
+  "outputs": {
+    "rules_extraction_json": "/workspace/outputs/demo/rules_extraction.json",
+    "decision_results_json": "/workspace/outputs/demo/decision_results.json",
+    "hatch_plan_svg": "/workspace/outputs/demo/diagrams/hatch_plan.svg",
+    "hatch_section_svg": "/workspace/outputs/demo/diagrams/hatch_section.svg",
+    "hatch_plan_png": "/workspace/outputs/demo/diagrams/hatch_plan.png",
+    "hatch_section_png": "/workspace/outputs/demo/diagrams/hatch_section.png",
+    "decision_flow_mmd": "/workspace/outputs/demo/diagrams/decision_flow.mmd",
+    "hatch_coaming_glb": "/workspace/outputs/demo/model3d/hatch_coaming.glb",
+    "viewer_html": "/workspace/outputs/demo/model3d/viewer.html"
+  }
+}
