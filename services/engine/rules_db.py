@@ -118,13 +118,11 @@ class RegulationText(BaseModel):
 
 
 class RulesExtraction(BaseModel):
+    model_config = {"extra": "allow"}
     _meta: Dict[str, Any] = {}
     table_8_2_1: Dict[str, Any] = {}
     table_8_2_2: Dict[str, Any] = {}
     regulation_texts: Dict[str, RegulationText] = {}
-
-    class Config:
-        extra = "allow"
 
 
 class RulesExtractionDB:
@@ -207,11 +205,9 @@ class Sources(BaseModel):
 
 
 class GeomData(BaseModel):
+    model_config = {"extra": "allow"}
     type: str = UNSPECIFIED
     data: Any = UNSPECIFIED
-
-    class Config:
-        extra = "allow"
 
 
 class MemberInput(BaseModel):
@@ -236,14 +232,12 @@ class JointInput(BaseModel):
 
 
 class Measure3Parameters(BaseModel):
+    model_config = {"extra": "allow"}
     block_shift_offset_mm: Any = UNSPECIFIED
     hole_diameter_mm: Any = UNSPECIFIED
     insert_type: str = UNSPECIFIED
     enhanced_nde_method: str = UNSPECIFIED
     enhanced_nde_acceptance_criteria_ref: str = UNSPECIFIED
-
-    class Config:
-        extra = "allow"
 
 
 class Measure3Choice(BaseModel):
@@ -268,15 +262,13 @@ class VisualizationInputs(BaseModel):
 
 
 class ProjectInput(BaseModel):
+    model_config = {"extra": "allow"}
     project_meta: ProjectMeta
     sources: Sources = Sources()
     members: List[MemberInput] = []
     joints: List[JointInput] = []
     measure3_choice: Measure3Choice = Measure3Choice()
     visualization_inputs: VisualizationInputs = VisualizationInputs()
-
-    class Config:
-        extra = "allow"
 
 
 # ── Decision Result Models ───────────────────────────────────────────────────
