@@ -1,0 +1,34 @@
+{
+  "upper_flange_long_member_roles": [
+    "upper_deck_plate",
+    "hatch_coaming_side_plate",
+    "hatch_coaming_top_plate",
+    "attached_longitudinal"
+  ],
+  "cargo_hold_region_zones": [
+    "cargo_hold_region"
+  ],
+  "block_to_block_butt_types": [
+    "block_to_block_butt"
+  ],
+  "coaming_to_deck_connection_types": [
+    "coaming_to_deck_connection"
+  ],
+  "measure_targets": {
+    "1": "joint",
+    "2": "joint",
+    "3": "member+joint",
+    "4": "member",
+    "5": "member"
+  },
+  "bca_applicable_roles_table822": {
+    "upper_deck_plate": true,
+    "hatch_coaming_side_plate": true,
+    "hatch_coaming_top_plate": false
+  },
+  "yield_strength_categories": [355, 390, 460],
+  "thickness_special_consideration_mm": 100,
+  "block_shift_min_offset_mm": 300,
+  "ctod_min_mm": 0.18,
+  "egw_permitted_with_enhanced_nde": false
+}

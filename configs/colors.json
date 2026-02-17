@@ -1,0 +1,16 @@
+{
+  "measures": {
+    "1": {"label": "Measure 1 – Construction NDE", "hex": "#FF8C00", "alpha": 0.25, "stroke": "#FF8C00"},
+    "2": {"label": "Measure 2 – Periodic In-service NDE", "hex": "#1E90FF", "alpha": 0.25, "stroke": "#1E90FF"},
+    "3": {"label": "Measure 3 – Crack Arrest Measures", "hex": "#DC143C", "alpha": 0.25, "stroke": "#DC143C"},
+    "4": {"label": "Measure 4 – Upper Deck BCA Steel", "hex": "#2E8B57", "alpha": 0.25, "stroke": "#2E8B57"},
+    "5": {"label": "Measure 5 – Upper Deck BCA Steel (extended)", "hex": "#8A2BE2", "alpha": 0.25, "stroke": "#8A2BE2"}
+  },
+  "background": "#FFFFFF",
+  "hatch_outline": "#333333",
+  "deck_fill": "#E8E8E8",
+  "coaming_fill": "#D0D0D0",
+  "joint_default_stroke": "#666666",
+  "annotation_font": "Arial",
+  "annotation_size": 10
+}

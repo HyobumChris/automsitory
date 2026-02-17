@@ -1,0 +1,293 @@
+{
+  "extraction_date": "2026-02-17T05:35:11.283443",
+  "source_files": [],
+  "table_821": [
+    {
+      "yield_strength_nmm2": 355,
+      "thickness_range": "50<t<=85",
+      "thickness_min_exclusive": 50.0,
+      "thickness_max_inclusive": 85.0,
+      "cell": {
+        "m1": "required",
+        "m2": "not_required",
+        "m3": "not_required",
+        "m4": "not_required",
+        "m5": "not_required",
+        "notes": [
+          "Measure 1 only for YS355 50-85mm range"
+        ],
+        "evidence": []
+      }
+    },
+    {
+      "yield_strength_nmm2": 355,
+      "thickness_range": "85<t<=100",
+      "thickness_min_exclusive": 85.0,
+      "thickness_max_inclusive": 100.0,
+      "cell": {
+        "m1": "required",
+        "m2": "see_note_2",
+        "m3": "required",
+        "m4": "required",
+        "m5": "not_required",
+        "notes": [
+          "3+4 required together",
+          "Measure 2: see Note 2"
+        ],
+        "evidence": []
+      }
+    },
+    {
+      "yield_strength_nmm2": 390,
+      "thickness_range": "50<t<=85",
+      "thickness_min_exclusive": 50.0,
+      "thickness_max_inclusive": 85.0,
+      "cell": {
+        "m1": "required",
+        "m2": "see_note_2",
+        "m3": "required",
+        "m4": "required",
+        "m5": "not_required",
+        "notes": [
+          "3+4 required together",
+          "Measure 2: see Note 2"
+        ],
+        "evidence": []
+      }
+    },
+    {
+      "yield_strength_nmm2": 390,
+      "thickness_range": "85<t<=100",
+      "thickness_min_exclusive": 85.0,
+      "thickness_max_inclusive": 100.0,
+      "cell": {
+        "m1": "required",
+        "m2": "see_note_2",
+        "m3": "required",
+        "m4": "required",
+        "m5": "required",
+        "notes": [
+          "3+4 required together",
+          "Measure 5 required",
+          "Measure 2: see Note 2"
+        ],
+        "evidence": []
+      }
+    },
+    {
+      "yield_strength_nmm2": 460,
+      "thickness_range": "50<t<=85",
+      "thickness_min_exclusive": 50.0,
+      "thickness_max_inclusive": 85.0,
+      "cell": {
+        "m1": "required",
+        "m2": "see_note_2",
+        "m3": "required",
+        "m4": "required",
+        "m5": "required",
+        "notes": [
+          "3+4 required together",
+          "Measure 5 required",
+          "Measure 2: see Note 2"
+        ],
+        "evidence": []
+      }
+    },
+    {
+      "yield_strength_nmm2": 460,
+      "thickness_range": "85<t<=100",
+      "thickness_min_exclusive": 85.0,
+      "thickness_max_inclusive": 100.0,
+      "cell": {
+        "m1": "required",
+        "m2": "see_note_2",
+        "m3": "required",
+        "m4": "required",
+        "m5": "required",
+        "notes": [
+          "3+4 required together",
+          "Measure 5 required",
+          "Measure 2: see Note 2"
+        ],
+        "evidence": []
+      }
+    }
+  ],
+  "table_822": [
+    {
+      "structural_member": "upper_deck_plate",
+      "yield_strength_nmm2": 355,
+      "thickness_range": "50<t<=100",
+      "thickness_min_exclusive": 50.0,
+      "thickness_max_inclusive": 100.0,
+      "bca_type": "BCA1",
+      "evidence": []
+    },
+    {
+      "structural_member": "hatch_coaming_side_plate",
+      "yield_strength_nmm2": 355,
+      "thickness_range": "50<t<=100",
+      "thickness_min_exclusive": 50.0,
+      "thickness_max_inclusive": 100.0,
+      "bca_type": "BCA1",
+      "evidence": []
+    },
+    {
+      "structural_member": "upper_deck_plate",
+      "yield_strength_nmm2": 390,
+      "thickness_range": "50<t<=100",
+      "thickness_min_exclusive": 50.0,
+      "thickness_max_inclusive": 100.0,
+      "bca_type": "BCA1",
+      "evidence": []
+    },
+    {
+      "structural_member": "hatch_coaming_side_plate",
+      "yield_strength_nmm2": 390,
+      "thickness_range": "50<t<=100",
+      "thickness_min_exclusive": 50.0,
+      "thickness_max_inclusive": 100.0,
+      "bca_type": "BCA2",
+      "evidence": []
+    },
+    {
+      "structural_member": "upper_deck_plate",
+      "yield_strength_nmm2": 460,
+      "thickness_range": "50<t<=100",
+      "thickness_min_exclusive": 50.0,
+      "thickness_max_inclusive": 100.0,
+      "bca_type": "BCA2",
+      "evidence": []
+    },
+    {
+      "structural_member": "hatch_coaming_side_plate",
+      "yield_strength_nmm2": 460,
+      "thickness_range": "50<t<=100",
+      "thickness_min_exclusive": 50.0,
+      "thickness_max_inclusive": 100.0,
+      "bca_type": "BCA2",
+      "evidence": []
+    }
+  ],
+  "measure_definitions": [
+    {
+      "measure_id": 1,
+      "name": "Construction NDE",
+      "target_type": "joint",
+      "description": "100% UT of block-to-block butt welds in cargo hold region for upper flange longitudinal members",
+      "evidence": []
+    },
+    {
+      "measure_id": 2,
+      "name": "Periodic In-service NDE",
+      "target_type": "joint",
+      "description": "Periodic in-service NDE at frequency/extent agreed with LR. Conditional on enhanced NDE selection (Note 2).",
+      "evidence": []
+    },
+    {
+      "measure_id": 3,
+      "name": "Crack Arrest Measures",
+      "target_type": "member+joint",
+      "description": "One of: block shift (>=300mm offset), crack arrest hole, crack arrest insert, or enhanced NDE. Additionally, BCA steel may be required for hatch coaming side plate.",
+      "evidence": []
+    },
+    {
+      "measure_id": 4,
+      "name": "Upper Deck BCA Steel",
+      "target_type": "member",
+      "description": "Brittle crack arrest steel for upper deck plates in cargo hold region per Table 8.2.2.",
+      "evidence": []
+    },
+    {
+      "measure_id": 5,
+      "name": "Upper Deck BCA Steel (extended range)",
+      "target_type": "member",
+      "description": "Additional BCA steel requirement for upper deck plates – separate traceability from Measure 4.",
+      "evidence": []
+    }
+  ],
+  "rule_clauses": [
+    {
+      "clause_id": "CL-001",
+      "text": "Block-to-block butt welds in adjacent strakes shall be staggered by at least 300 mm.",
+      "keywords": [
+        "block shift",
+        "stagger",
+        "offset",
+        "300 mm"
+      ],
+      "evidence": []
+    },
+    {
+      "clause_id": "CL-002",
+      "text": "Where crack arrest holes are fitted, fatigue strength at the hole corners and intersections shall be specially assessed.",
+      "keywords": [
+        "crack arrest hole",
+        "fatigue strength",
+        "special assessment"
+      ],
+      "evidence": []
+    },
+    {
+      "clause_id": "CL-003",
+      "text": "Where enhanced NDE is selected as the crack arrest measure, stricter acceptance criteria per ShipRight procedure apply. CTOD value shall be not less than 0.18 mm. Electrogas welding (EGW) is not permitted.",
+      "keywords": [
+        "enhanced NDE",
+        "CTOD",
+        "0.18 mm",
+        "EGW",
+        "not permitted",
+        "ShipRight"
+      ],
+      "evidence": []
+    },
+    {
+      "clause_id": "CL-004",
+      "text": "The connection of hatch coaming to upper deck shall be made using LR-approved partial joint penetration (PJP) welding.",
+      "keywords": [
+        "coaming",
+        "upper deck",
+        "PJP",
+        "partial joint penetration"
+      ],
+      "evidence": []
+    },
+    {
+      "clause_id": "CL-005",
+      "text": "Where the thickness exceeds 100 mm, special consideration is to be given.",
+      "keywords": [
+        "thickness",
+        "100 mm",
+        "special consideration"
+      ],
+      "evidence": []
+    },
+    {
+      "clause_id": "CL-006",
+      "text": "Hatch coaming side plate in way of cargo hold region shall be provided with brittle crack arrest (BCA) steel.",
+      "keywords": [
+        "hatch coaming side plate",
+        "BCA",
+        "brittle crack arrest",
+        "cargo hold"
+      ],
+      "evidence": []
+    },
+    {
+      "clause_id": "CL-007",
+      "text": "Note 2: Where enhanced NDE is selected as Measure 3, periodic in-service NDE (Measure 2) may be required at frequency and extent to be agreed with LR.",
+      "keywords": [
+        "Note 2",
+        "enhanced NDE",
+        "Measure 2",
+        "periodic",
+        "in-service"
+      ],
+      "evidence": []
+    }
+  ],
+  "special_consideration_threshold_mm": 100.0,
+  "manual_review_flags": [
+    "Rules extracted from fallback data (manual_table_input mode). Verify against actual scanned LR Pt4 Ch8 2.3 Tables 8.2.1 and 8.2.2."
+  ]
+}

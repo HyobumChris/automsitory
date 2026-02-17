@@ -1,0 +1,79 @@
+{
+  "project_meta": {
+    "project_id": "TC-001-LOW",
+    "vessel_name": "Test Vessel Alpha",
+    "date_local": "2026-02-17",
+    "timezone": "Asia/Seoul",
+    "allow_web_fetch": false
+  },
+  "sources": {
+    "scanned_rule_files": [],
+    "diagram_files": [],
+    "optional_shipright_files": []
+  },
+  "members": [
+    {
+      "member_id": "M01",
+      "member_role": "upper_deck_plate",
+      "zone": "cargo_hold_region",
+      "yield_strength_nmm2": 355,
+      "grade": "EH36",
+      "thickness_mm_as_built": 55,
+      "geometry_ref": "미지정"
+    },
+    {
+      "member_id": "M02",
+      "member_role": "hatch_coaming_side_plate",
+      "zone": "cargo_hold_region",
+      "yield_strength_nmm2": 355,
+      "grade": "EH36",
+      "thickness_mm_as_built": 60,
+      "geometry_ref": "미지정"
+    },
+    {
+      "member_id": "M03",
+      "member_role": "hatch_coaming_top_plate",
+      "zone": "cargo_hold_region",
+      "yield_strength_nmm2": 355,
+      "grade": "EH36",
+      "thickness_mm_as_built": 55,
+      "geometry_ref": "미지정"
+    }
+  ],
+  "joints": [
+    {
+      "joint_id": "J01",
+      "joint_type": "block_to_block_butt",
+      "zone": "cargo_hold_region",
+      "connected_members": ["M01", "M02"],
+      "weld_process": "FCAW",
+      "geom": {"type": "미지정", "data": "미지정"},
+      "related_joint_ids": [],
+      "notes": "미지정"
+    },
+    {
+      "joint_id": "J02",
+      "joint_type": "coaming_to_deck_connection",
+      "zone": "cargo_hold_region",
+      "connected_members": ["M01", "M02"],
+      "weld_process": "SAW",
+      "geom": {"type": "미지정", "data": "미지정"},
+      "related_joint_ids": [],
+      "notes": "미지정"
+    }
+  ],
+  "measure3_choice": {
+    "option": "미지정",
+    "parameters": {
+      "block_shift_offset_mm": "미지정",
+      "hole_diameter_mm": "미지정",
+      "insert_type": "미지정",
+      "enhanced_nde_method": "미지정",
+      "enhanced_nde_acceptance_criteria_ref": "미지정"
+    }
+  },
+  "visualization_inputs": {
+    "output_dir": "outputs/test_case_1",
+    "hatch_opening_bbox": {"L": 10000, "B": 8000, "H": 2000}
+  }
+}
