@@ -11,7 +11,7 @@ import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 from .rules_db import (
     ManualTableInput,
@@ -540,10 +540,20 @@ def extract_rules(project_input: ProjectInput, output_dir: str) -> RulesExtracti
         if manual_source.table_822:
             rules.table_822 = [Table822Entry(**row) for row in manual_source.table_822]
         if manual_source.textual_requirements:
-            rules.textual_requirements = {
-                key: TextRequirement(key=key, **value)
-                for key, value in manual_source.textual_requirements.items()
-            }
+            rebuilt: Dict[str, TextRequirement] = {}
+            for key, value in manual_source.textual_requirements.items():
+                if isinstance(value, dict):
+                    payload = dict(value)
+                    payload.pop("key", None)
+                    rebuilt[key] = TextRequirement(key=key, **payload)
+                else:
+                    rebuilt[key] = TextRequirement(
+                        key=key,
+                        requirement_text=str(value),
+                        status="found",
+                        evidence_keys=[],
+                    )
+            rules.textual_requirements = rebuilt
         rules.extraction_notes.append("manual_table_input_applied")
 
     if not rules.table_821 or not rules.table_822:

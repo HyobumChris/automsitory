@@ -1,16 +1,15 @@
 flowchart TD
-    A["Input JSON + Scan/PDF evidence"] --> B["Derive t_control/y_control"]
-    B --> C["Lookup Table 8.2.1"]
-    C --> D{"Measure 2 cell = See Note 2?"}
-    D -- No --> D0["Measure 2 follows row status"]
-    D -- Yes --> E{"measure3_choice.option == enhanced_NDE?"}
-    E -- Yes --> E1["Measure 2 = conditional"]
-    E -- No --> E0["Measure 2 not applied"]
-
-    C --> S0["Applied set: []"]
-    S0 --> S1["[] -> [1]"]
-    S1 --> S2["[1] -> [1,3]"]
-    S2 --> S3["[1,3] -> [1,3,4]"]
-    S3 --> S4["[1,3,4] -> [1,3,4,5]"]
-    S4 --> Z["Append-only target lists (member/joint) + 2D/3D export"]
-
+A["Input: member/joint + scan evidence"] --> B["Derive t_control/y_control"]
+B --> C["Table 8.2.1 lookup"]
+C --> D["M1=required, M2=conditional, M3=required, M4=required, M5=required"]
+D --> N2{"M2 cell is See Note 2?"}
+N2 -- No --> N2X["M2 follows row value"]
+N2 -- Yes --> N2E{"measure3_choice.option == enhanced_NDE?"}
+N2E -- Yes --> N2Y["M2 = conditional"]
+N2E -- No --> N2N["M2 not applied"]
+D --> S0["Applied set: []"]
+S0 --> S1["[] -> [1] (if M1 required)"]
+S1 --> S2["[1] -> [1,3] (if M3 required)"]
+S2 --> S3["[1,3] -> [1,3,4] (if M4 required)"]
+S3 --> S4["[1,3,4] -> [1,3,4,5] (if M5 required)"]
+S4 --> Z["Append-only target lists + 2D/3D export"]

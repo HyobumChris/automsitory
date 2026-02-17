@@ -339,7 +339,7 @@ def determine_required_measures_global(
             RequiredMeasureGlobal(
                 statuses=statuses,
                 matched_row=None,
-                special_consideration=UNSPECIFIED,
+                special_consideration=special_consideration,
                 note2_row_is_see_note_2=False,
             ),
             flags,
