@@ -1,0 +1,77 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: Arial, Helvetica, sans-serif;
+  background: #f4f7fb;
+  color: #1f2937;
+}
+
+a {
+  color: #2563eb;
+}
+
+.page {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid #d8e0ea;
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.stepper {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(100px, 1fr));
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.stepper button {
+  border: 1px solid #b4c3d5;
+  background: #ffffff;
+  border-radius: 8px;
+  min-height: 56px;
+  cursor: pointer;
+}
+
+.stepper button.active {
+  border-color: #2563eb;
+  background: #eaf2ff;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.measure-chip {
+  border: 1px solid #ccd4de;
+  border-radius: 16px;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: #f8fafc;
+}
+
+.image-frame {
+  width: 100%;
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  background: #ffffff;
+}
+

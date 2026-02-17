@@ -1,0 +1,128 @@
+{
+  "table_821": [
+    {
+      "yield_strength_nmm2": 390,
+      "thickness_range": "65<t<=85",
+      "t_lower_exclusive_mm": 65,
+      "t_upper_inclusive_mm": 85,
+      "m1": "required",
+      "m2": "see_note_2",
+      "m3": "required",
+      "m4": "required",
+      "m5": "required",
+      "notes": ["3+4 column expanded to m3 and m4"],
+      "evidence_keys": []
+    },
+    {
+      "yield_strength_nmm2": 390,
+      "thickness_range": "50<t<=65",
+      "t_lower_exclusive_mm": 50,
+      "t_upper_inclusive_mm": 65,
+      "m1": "required",
+      "m2": "see_note_2",
+      "m3": "required",
+      "m4": "required",
+      "m5": "not_required",
+      "notes": ["3+4 column expanded to m3 and m4"],
+      "evidence_keys": []
+    },
+    {
+      "yield_strength_nmm2": 355,
+      "thickness_range": "0<t<=50",
+      "t_lower_exclusive_mm": 0,
+      "t_upper_inclusive_mm": 50,
+      "m1": "not_required",
+      "m2": "not_required",
+      "m3": "not_required",
+      "m4": "not_required",
+      "m5": "not_required",
+      "notes": [],
+      "evidence_keys": []
+    }
+  ],
+  "table_822": [
+    {
+      "structure_member": "upper_deck_plate",
+      "yield_strength_nmm2": 390,
+      "thickness_range": "65<t<=100",
+      "t_lower_exclusive_mm": 65,
+      "t_upper_inclusive_mm": 100,
+      "bca_type": "BCA1",
+      "condition_text": "Upper deck plate for 390 and 65<t<=100",
+      "evidence_keys": []
+    },
+    {
+      "structure_member": "hatch_coaming_side_plate",
+      "yield_strength_nmm2": 390,
+      "thickness_range": "65<t<=85",
+      "t_lower_exclusive_mm": 65,
+      "t_upper_inclusive_mm": 85,
+      "bca_type": "BCA2",
+      "condition_text": "Hatch coaming side for 390 and 65<t<=85",
+      "evidence_keys": []
+    }
+  ],
+  "textual_requirements": {
+    "construction_nde_ut100": {
+      "key": "construction_nde_ut100",
+      "requirement_text": "100% UT is required during construction for relevant butt joints.",
+      "status": "found",
+      "evidence_keys": []
+    },
+    "block_shift_offset_min_300": {
+      "key": "block_shift_offset_min_300",
+      "requirement_text": "Offset between relevant butt joints is to be not less than 300 mm.",
+      "status": "found",
+      "evidence_keys": []
+    },
+    "crack_arrest_hole_fatigue_assessment": {
+      "key": "crack_arrest_hole_fatigue_assessment",
+      "requirement_text": "Crack arrest hole corners/intersections require special fatigue strength assessment.",
+      "status": "found",
+      "evidence_keys": []
+    },
+    "enhanced_nde_stricter_acceptance": {
+      "key": "enhanced_nde_stricter_acceptance",
+      "requirement_text": "Enhanced NDE uses stricter acceptance criteria in line with ShipRight procedure.",
+      "status": "found",
+      "evidence_keys": []
+    },
+    "enhanced_nde_lr_alternative_for_inaccessible": {
+      "key": "enhanced_nde_lr_alternative_for_inaccessible",
+      "requirement_text": "Alternative NDE may be accepted by agreement with LR where access is impractical.",
+      "status": "found",
+      "evidence_keys": []
+    },
+    "enhanced_nde_ctod_0_18": {
+      "key": "enhanced_nde_ctod_0_18",
+      "requirement_text": "CTOD is to be at least 0.18 mm.",
+      "status": "found",
+      "evidence_keys": []
+    },
+    "enhanced_nde_egw_not_permitted": {
+      "key": "enhanced_nde_egw_not_permitted",
+      "requirement_text": "EGW is not permitted when enhanced NDE is selected for Measure 3.",
+      "status": "found",
+      "evidence_keys": []
+    },
+    "coaming_to_deck_pjp_required": {
+      "key": "coaming_to_deck_pjp_required",
+      "requirement_text": "Coaming side to upper deck connection requires LR-approved PJP weld.",
+      "status": "found",
+      "evidence_keys": []
+    },
+    "thickness_gt_100_special_consideration": {
+      "key": "thickness_gt_100_special_consideration",
+      "requirement_text": "For thickness above 100 mm, special consideration is required.",
+      "status": "found",
+      "evidence_keys": []
+    },
+    "coaming_side_bca_required": {
+      "key": "coaming_side_bca_required",
+      "requirement_text": "Hatch coaming side plate is to be provided with brittle crack arrest steel.",
+      "status": "found",
+      "evidence_keys": []
+    }
+  }
+}
+

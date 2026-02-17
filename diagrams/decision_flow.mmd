@@ -1,0 +1,16 @@
+flowchart TD
+    A["Input JSON + Scan/PDF evidence"] --> B["Derive t_control/y_control"]
+    B --> C["Lookup Table 8.2.1"]
+    C --> D{"Measure 2 cell = See Note 2?"}
+    D -- No --> D0["Measure 2 follows row status"]
+    D -- Yes --> E{"measure3_choice.option == enhanced_NDE?"}
+    E -- Yes --> E1["Measure 2 = conditional"]
+    E -- No --> E0["Measure 2 not applied"]
+
+    C --> S0["Applied set: []"]
+    S0 --> S1["[] -> [1]"]
+    S1 --> S2["[1] -> [1,3]"]
+    S2 --> S3["[1,3] -> [1,3,4]"]
+    S3 --> S4["[1,3,4] -> [1,3,4,5]"]
+    S4 --> Z["Append-only target lists (member/joint) + 2D/3D export"]
+

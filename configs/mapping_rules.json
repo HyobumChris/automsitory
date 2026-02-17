@@ -1,0 +1,17 @@
+{
+  "upper_flange_member_roles": [
+    "upper_deck_plate",
+    "hatch_coaming_side_plate",
+    "hatch_coaming_top_plate",
+    "attached_longitudinal"
+  ],
+  "table_822_structure_member_aliases": {
+    "upper_deck_plate": ["upper_deck_plate", "upper deck", "upper deck plate"],
+    "hatch_coaming_side_plate": [
+      "hatch_coaming_side_plate",
+      "hatch coaming side",
+      "coaming side plate"
+    ]
+  }
+}
+
