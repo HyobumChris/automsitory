@@ -1,6 +1,8 @@
 {
-  "extraction_date": "2026-02-17T05:35:11.283443",
-  "source_files": [],
+  "extraction_date": "2026-02-17T05:41:43.680738",
+  "source_files": [
+    "inputs/rules/lr_pt4_ch8.pdf"
+  ],
   "table_821": [
     {
       "yield_strength_nmm2": 355,

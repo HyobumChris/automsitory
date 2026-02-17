@@ -1,0 +1,410 @@
+{
+  "project_id": "TC-002-HIGH",
+  "control_values": {
+    "t_control_mm": 95.0,
+    "y_control_nmm2": 460.0,
+    "required_measures_global": [
+      1,
+      3,
+      4,
+      5
+    ],
+    "table_821_row_used": "YS=460, range=85<t<=100",
+    "manual_review_flags": []
+  },
+  "applied_measures": [
+    {
+      "measure_id": 1,
+      "status": "applied",
+      "target_id": "J01",
+      "target_type": "joint",
+      "requirements": [
+        "NDE: UT 100% of block-to-block butt welds"
+      ],
+      "condition_expr": "zone=Zone.cargo_hold_region AND joint_type=JointType.block_to_block_butt AND connected_to_upper_flange_member",
+      "rule_ref": "Block-to-block butt welds in adjacent strakes shall be staggered by at least 300 mm.",
+      "evidence": [
+        {
+          "scan_file": "미지정",
+          "page_index": "미지정",
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": "미지정",
+          "raw_text": "Block-to-block butt welds in adjacent strakes shall be staggered by at least 300 mm."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "measure_id": 2,
+      "status": "conditional",
+      "target_id": "J01",
+      "target_type": "joint",
+      "requirements": [
+        "Periodic in-service NDE required",
+        "Frequency and extent to be agreed with LR"
+      ],
+      "condition_expr": "Table 8.2.1 see_note_2 AND measure3_choice.option==enhanced_NDE",
+      "rule_ref": "Where enhanced NDE is selected as the crack arrest measure, stricter acceptance criteria per ShipRight procedure apply. CTOD value shall be not less than 0.18 mm. Electrogas welding (EGW) is not permitted.",
+      "evidence": [
+        {
+          "scan_file": "미지정",
+          "page_index": "미지정",
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": "미지정",
+          "raw_text": "Note 2: Where enhanced NDE is selected as Measure 3, periodic in-service NDE (Measure 2) may be required at frequency and extent to be agreed with LR."
+        }
+      ],
+      "notes": [
+        "Conditional per Note 2"
+      ]
+    },
+    {
+      "measure_id": 3,
+      "status": "applied",
+      "target_id": "J01",
+      "target_type": "joint",
+      "requirements": [
+        "Enhanced NDE method: PAUT",
+        "Stricter acceptance criteria per ShipRight procedure apply",
+        "CTOD >= 0.18 mm required",
+        "Electrogas welding (EGW) is NOT permitted"
+      ],
+      "condition_expr": "enhanced_NDE; CTOD>=0.18; EGW_permitted=False",
+      "rule_ref": "Where enhanced NDE is selected as the crack arrest measure, stricter acceptance criteria per ShipRight procedure apply. CTOD value shall be not less than 0.18 mm. Electrogas welding (EGW) is not permitted.",
+      "evidence": [
+        {
+          "scan_file": "미지정",
+          "page_index": "미지정",
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": "미지정",
+          "raw_text": "Where enhanced NDE is selected as the crack arrest measure, stricter acceptance criteria per ShipRight procedure apply. CTOD value shall be not less than 0.18 mm. Electrogas welding (EGW) is not permitted."
+        },
+        {
+          "scan_file": "미지정",
+          "page_index": "미지정",
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": "미지정",
+          "raw_text": "Note 2: Where enhanced NDE is selected as Measure 3, periodic in-service NDE (Measure 2) may be required at frequency and extent to be agreed with LR."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "measure_id": 1,
+      "status": "applied",
+      "target_id": "J02",
+      "target_type": "joint",
+      "requirements": [
+        "NDE: UT 100% of block-to-block butt welds"
+      ],
+      "condition_expr": "zone=Zone.cargo_hold_region AND joint_type=JointType.block_to_block_butt AND connected_to_upper_flange_member",
+      "rule_ref": "Block-to-block butt welds in adjacent strakes shall be staggered by at least 300 mm.",
+      "evidence": [
+        {
+          "scan_file": "미지정",
+          "page_index": "미지정",
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": "미지정",
+          "raw_text": "Block-to-block butt welds in adjacent strakes shall be staggered by at least 300 mm."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "measure_id": 2,
+      "status": "conditional",
+      "target_id": "J02",
+      "target_type": "joint",
+      "requirements": [
+        "Periodic in-service NDE required",
+        "Frequency and extent to be agreed with LR"
+      ],
+      "condition_expr": "Table 8.2.1 see_note_2 AND measure3_choice.option==enhanced_NDE",
+      "rule_ref": "Where enhanced NDE is selected as the crack arrest measure, stricter acceptance criteria per ShipRight procedure apply. CTOD value shall be not less than 0.18 mm. Electrogas welding (EGW) is not permitted.",
+      "evidence": [
+        {
+          "scan_file": "미지정",
+          "page_index": "미지정",
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": "미지정",
+          "raw_text": "Note 2: Where enhanced NDE is selected as Measure 3, periodic in-service NDE (Measure 2) may be required at frequency and extent to be agreed with LR."
+        }
+      ],
+      "notes": [
+        "Conditional per Note 2"
+      ]
+    },
+    {
+      "measure_id": 3,
+      "status": "applied",
+      "target_id": "J02",
+      "target_type": "joint",
+      "requirements": [
+        "Enhanced NDE method: PAUT",
+        "Stricter acceptance criteria per ShipRight procedure apply",
+        "CTOD >= 0.18 mm required",
+        "Electrogas welding (EGW) is NOT permitted"
+      ],
+      "condition_expr": "enhanced_NDE; CTOD>=0.18; EGW_permitted=False",
+      "rule_ref": "Where enhanced NDE is selected as the crack arrest measure, stricter acceptance criteria per ShipRight procedure apply. CTOD value shall be not less than 0.18 mm. Electrogas welding (EGW) is not permitted.",
+      "evidence": [
+        {
+          "scan_file": "미지정",
+          "page_index": "미지정",
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": "미지정",
+          "raw_text": "Where enhanced NDE is selected as the crack arrest measure, stricter acceptance criteria per ShipRight procedure apply. CTOD value shall be not less than 0.18 mm. Electrogas welding (EGW) is not permitted."
+        },
+        {
+          "scan_file": "미지정",
+          "page_index": "미지정",
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": "미지정",
+          "raw_text": "Note 2: Where enhanced NDE is selected as Measure 3, periodic in-service NDE (Measure 2) may be required at frequency and extent to be agreed with LR."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "measure_id": 0,
+      "status": "applied",
+      "target_id": "J03",
+      "target_type": "joint",
+      "requirements": [
+        "LR-approved partial joint penetration (PJP) welding REQUIRED"
+      ],
+      "condition_expr": "joint_type=coaming_to_deck_connection",
+      "rule_ref": "The connection of hatch coaming to upper deck shall be made using LR-approved partial joint penetration (PJP) welding.",
+      "evidence": [
+        {
+          "scan_file": "미지정",
+          "page_index": "미지정",
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": "미지정",
+          "raw_text": "The connection of hatch coaming to upper deck shall be made using LR-approved partial joint penetration (PJP) welding."
+        }
+      ],
+      "notes": [
+        "Welding detail rule – always applicable for coaming-to-deck connections"
+      ]
+    },
+    {
+      "measure_id": 1,
+      "status": "applied",
+      "target_id": "J04",
+      "target_type": "joint",
+      "requirements": [
+        "NDE: UT 100% of block-to-block butt welds"
+      ],
+      "condition_expr": "zone=Zone.cargo_hold_region AND joint_type=JointType.block_to_block_butt AND connected_to_upper_flange_member",
+      "rule_ref": "Block-to-block butt welds in adjacent strakes shall be staggered by at least 300 mm.",
+      "evidence": [
+        {
+          "scan_file": "미지정",
+          "page_index": "미지정",
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": "미지정",
+          "raw_text": "Block-to-block butt welds in adjacent strakes shall be staggered by at least 300 mm."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "measure_id": 2,
+      "status": "conditional",
+      "target_id": "J04",
+      "target_type": "joint",
+      "requirements": [
+        "Periodic in-service NDE required",
+        "Frequency and extent to be agreed with LR"
+      ],
+      "condition_expr": "Table 8.2.1 see_note_2 AND measure3_choice.option==enhanced_NDE",
+      "rule_ref": "Where enhanced NDE is selected as the crack arrest measure, stricter acceptance criteria per ShipRight procedure apply. CTOD value shall be not less than 0.18 mm. Electrogas welding (EGW) is not permitted.",
+      "evidence": [
+        {
+          "scan_file": "미지정",
+          "page_index": "미지정",
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": "미지정",
+          "raw_text": "Note 2: Where enhanced NDE is selected as Measure 3, periodic in-service NDE (Measure 2) may be required at frequency and extent to be agreed with LR."
+        }
+      ],
+      "notes": [
+        "Conditional per Note 2"
+      ]
+    },
+    {
+      "measure_id": 3,
+      "status": "applied",
+      "target_id": "J04",
+      "target_type": "joint",
+      "requirements": [
+        "Enhanced NDE method: PAUT",
+        "Stricter acceptance criteria per ShipRight procedure apply",
+        "CTOD >= 0.18 mm required",
+        "Electrogas welding (EGW) is NOT permitted"
+      ],
+      "condition_expr": "enhanced_NDE; CTOD>=0.18; EGW_permitted=False",
+      "rule_ref": "Where enhanced NDE is selected as the crack arrest measure, stricter acceptance criteria per ShipRight procedure apply. CTOD value shall be not less than 0.18 mm. Electrogas welding (EGW) is not permitted.",
+      "evidence": [
+        {
+          "scan_file": "미지정",
+          "page_index": "미지정",
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": "미지정",
+          "raw_text": "Where enhanced NDE is selected as the crack arrest measure, stricter acceptance criteria per ShipRight procedure apply. CTOD value shall be not less than 0.18 mm. Electrogas welding (EGW) is not permitted."
+        },
+        {
+          "scan_file": "미지정",
+          "page_index": "미지정",
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": "미지정",
+          "raw_text": "Note 2: Where enhanced NDE is selected as Measure 3, periodic in-service NDE (Measure 2) may be required at frequency and extent to be agreed with LR."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "measure_id": 4,
+      "status": "applied",
+      "target_id": "M01",
+      "target_type": "member",
+      "requirements": [
+        "Provide BCA steel – type: BCA2",
+        "Per Table 8.2.2 for upper deck plate in cargo hold region"
+      ],
+      "condition_expr": "Measure 4 required AND role=upper_deck_plate AND zone=cargo_hold_region",
+      "rule_ref": "The connection of hatch coaming to upper deck shall be made using LR-approved partial joint penetration (PJP) welding.",
+      "evidence": [
+        {
+          "scan_file": "미지정",
+          "page_index": "미지정",
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": "미지정",
+          "raw_text": "The connection of hatch coaming to upper deck shall be made using LR-approved partial joint penetration (PJP) welding."
+        },
+        {
+          "scan_file": "미지정",
+          "page_index": "미지정",
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": "미지정",
+          "raw_text": "Hatch coaming side plate in way of cargo hold region shall be provided with brittle crack arrest (BCA) steel."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "measure_id": 5,
+      "status": "applied",
+      "target_id": "M01",
+      "target_type": "member",
+      "requirements": [
+        "Provide BCA steel (Measure 5) – type: BCA2",
+        "Per Table 8.2.2 for upper deck plate (extended range, separate traceability)"
+      ],
+      "condition_expr": "Measure 5 required AND role=upper_deck_plate AND zone=cargo_hold_region",
+      "rule_ref": "The connection of hatch coaming to upper deck shall be made using LR-approved partial joint penetration (PJP) welding.",
+      "evidence": [
+        {
+          "scan_file": "미지정",
+          "page_index": "미지정",
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": "미지정",
+          "raw_text": "The connection of hatch coaming to upper deck shall be made using LR-approved partial joint penetration (PJP) welding."
+        },
+        {
+          "scan_file": "미지정",
+          "page_index": "미지정",
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": "미지정",
+          "raw_text": "Hatch coaming side plate in way of cargo hold region shall be provided with brittle crack arrest (BCA) steel."
+        }
+      ],
+      "notes": []
+    },
+    {
+      "measure_id": 3,
+      "status": "applied",
+      "target_id": "M02",
+      "target_type": "member",
+      "requirements": [
+        "Provide brittle crack arrest (BCA) steel – type: BCA2",
+        "Per Table 8.2.2 for hatch coaming side plate"
+      ],
+      "condition_expr": "Measure 3 required AND role=hatch_coaming_side_plate",
+      "rule_ref": "Hatch coaming side plate in way of cargo hold region shall be provided with brittle crack arrest (BCA) steel.",
+      "evidence": [
+        {
+          "scan_file": "미지정",
+          "page_index": "미지정",
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": "미지정",
+          "raw_text": "Hatch coaming side plate in way of cargo hold region shall be provided with brittle crack arrest (BCA) steel."
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "manual_review_flags": [],
+  "summary": {
+    "t_control_mm": 95.0,
+    "y_control_nmm2": 460.0,
+    "required_measures_global": [
+      1,
+      3,
+      4,
+      5
+    ],
+    "table_821_row": "YS=460, range=85<t<=100",
+    "member_applied_measures": {
+      "M01": [
+        4,
+        5
+      ],
+      "M02": [
+        3
+      ]
+    },
+    "joint_applied_measures": {
+      "J01": [
+        1,
+        2,
+        3
+      ],
+      "J02": [
+        1,
+        2,
+        3
+      ],
+      "J03": [
+        0
+      ],
+      "J04": [
+        1,
+        2,
+        3
+      ]
+    },
+    "total_applied": 13,
+    "manual_review_count": 0,
+    "flags_summary": []
+  }
+}

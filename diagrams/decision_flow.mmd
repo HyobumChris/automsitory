@@ -1,0 +1,115 @@
+%% LR Hatch Coaming Brittle Fracture Prevention – Measure 1-5 Decision Flow
+%% Shows cumulative (append-only) measure application
+
+flowchart TD
+    START([Start: Load Project Input]) --> VALIDATE[Validate Input<br/>Pydantic schema check<br/>Units: mm, N/mm²]
+    VALIDATE --> OCR{Rules Extraction<br/>Available?}
+
+    OCR -->|rules_extraction.json exists| LOAD_RULES[Load Existing<br/>Rules DB]
+    OCR -->|Scan files provided| DO_OCR[OCR Extract<br/>Table 8.2.1 / 8.2.2<br/>+ Clause text + Evidence]
+    OCR -->|Neither available| FALLBACK[Use Fallback Data<br/>manual_table_input mode<br/>⚠ manual_review_flag]
+    
+    DO_OCR --> RULES_DB[(Rules Extraction DB<br/>rules_extraction.json)]
+    LOAD_RULES --> RULES_DB
+    FALLBACK --> RULES_DB
+
+    RULES_DB --> DERIVE[Derive Control Values]
+    
+    DERIVE --> T_CTRL["t_control = max(side_t, top_t)<br/>If either 미지정 → flag"]
+    DERIVE --> Y_CTRL["y_control = max(side_y, top_y)<br/>If side_y ≠ top_y → flag"]
+    
+    T_CTRL --> LOOKUP
+    Y_CTRL --> LOOKUP
+    
+    LOOKUP[Table 8.2.1 Lookup<br/>y_control × t_control]
+    LOOKUP --> |Match found| EXPAND[Expand Required Set M<br/>If 3+4 column → add both 3 and 4]
+    LOOKUP --> |No match| NO_MATCH[⚠ No matching row<br/>manual_review_flag<br/>M = empty]
+    
+    EXPAND --> CUMUL_START["Cumulative Set: M = []"]
+
+    %% Measure 1
+    CUMUL_START --> M1_CHECK{1 ∈ M?}
+    M1_CHECK -->|Yes| M1_APPLY["Apply Measure 1<br/>target=joint<br/>UT 100% block-to-block butt<br/>cargo_hold + upper_flange<br/>Set: [1]"]
+    M1_CHECK -->|No| M3_CHECK
+
+    M1_APPLY --> M3_CHECK{3 ∈ M?}
+
+    %% Measure 3
+    M3_CHECK -->|Yes| M3_BCA["Measure 3A: BCA steel<br/>target=member<br/>hatch_coaming_side_plate<br/>Table 8.2.2 lookup<br/>Set: [1, 3]"]
+    M3_CHECK -->|No| M4_CHECK
+
+    M3_BCA --> M3_OPT{Measure 3 Option?}
+    
+    M3_OPT -->|block_shift| M3_BS["Block Shift<br/>target=joint<br/>Check offset ≥ 300mm<br/>PASS / FAIL"]
+    M3_OPT -->|crack_arrest_hole| M3_CH["Crack Arrest Hole<br/>target=joint<br/>Fatigue assessment req'd"]
+    M3_OPT -->|crack_arrest_insert| M3_CI["Crack Arrest Insert<br/>target=joint<br/>Insert type recorded"]
+    M3_OPT -->|enhanced_NDE| M3_EN["Enhanced NDE<br/>target=joint<br/>CTOD ≥ 0.18mm<br/>EGW NOT permitted<br/>ShipRight criteria"]
+    M3_OPT -->|미지정| M3_PEND["⚠ pending_manual_choice<br/>Show options to user<br/>BCA still applied"]
+
+    M3_BS --> M4_CHECK
+    M3_CH --> M4_CHECK
+    M3_CI --> M4_CHECK
+    M3_EN --> M2_COND
+    M3_PEND --> M4_CHECK
+
+    %% Measure 2 (conditional – Note 2)
+    M3_EN --> M2_CHECK{"Table 8.2.1<br/>see_note_2?"}
+    M2_CHECK -->|Yes| M2_COND["Measure 2: Conditional<br/>target=joint<br/>Periodic in-service NDE<br/>Frequency agreed w/ LR<br/>Set: [1, 2, 3]"]
+    M2_CHECK -->|No| M4_CHECK
+    M2_COND --> M4_CHECK
+
+    %% Measure 4
+    M4_CHECK{4 ∈ M?}
+    M4_CHECK -->|Yes| M4_APPLY["Apply Measure 4<br/>target=member<br/>upper_deck_plate BCA<br/>Table 8.2.2 lookup<br/>Set: [1, 3, 4]"]
+    M4_CHECK -->|No| M5_CHECK
+
+    M4_APPLY --> M5_CHECK{5 ∈ M?}
+
+    %% Measure 5
+    M5_CHECK -->|Yes| M5_APPLY["Apply Measure 5<br/>target=member<br/>upper_deck BCA (extended)<br/>Separate trace from M4<br/>Set: [1, 3, 4, 5]"]
+    M5_CHECK -->|No| WELD_RULES
+
+    M5_APPLY --> WELD_RULES
+
+    %% Always-applicable weld detail rules
+    WELD_RULES["Always-Apply Rules"]
+    WELD_RULES --> PJP["coaming_to_deck_connection<br/>→ LR-approved PJP required<br/>target=joint"]
+    WELD_RULES --> EGW_CHK{"EGW process +<br/>enhanced NDE?"}
+    EGW_CHK -->|Yes| EGW_NC["⚠ NONCOMPLIANCE<br/>EGW not permitted"]
+    EGW_CHK -->|No| SPECIAL
+
+    PJP --> SPECIAL
+    EGW_NC --> SPECIAL
+
+    %% Special consideration
+    SPECIAL{"Any t > 100mm?"}
+    SPECIAL -->|Yes| SPECIAL_FLAG["⚠ Special consideration<br/>manual_review_flag"]
+    SPECIAL -->|No| OUTPUT
+
+    SPECIAL_FLAG --> OUTPUT
+
+    %% Output
+    NO_MATCH --> WELD_RULES
+    OUTPUT["Generate Outputs"]
+    OUTPUT --> JSON_OUT["decision_results.json<br/>Member/Joint × Measures<br/>Cumulative list"]
+    OUTPUT --> SVG_OUT["2D: hatch_plan.svg<br/>hatch_section.svg<br/>Color overlay + annotations"]
+    OUTPUT --> GLB_OUT["3D: hatch_coaming.glb<br/>viewer.html<br/>Layer toggle + popup"]
+    OUTPUT --> EVIDENCE["Evidence:<br/>ocr_snippets/*.png<br/>Audit trail"]
+    OUTPUT --> SUMMARY["Console Summary Report<br/>Control values<br/>Applied measures<br/>Review flags"]
+
+    %% Styling
+    classDef measure1 fill:#FF8C00,color:#fff,stroke:#333
+    classDef measure2 fill:#1E90FF,color:#fff,stroke:#333
+    classDef measure3 fill:#DC143C,color:#fff,stroke:#333
+    classDef measure4 fill:#2E8B57,color:#fff,stroke:#333
+    classDef measure5 fill:#8A2BE2,color:#fff,stroke:#333
+    classDef warning fill:#FFA500,color:#000,stroke:#333
+    classDef output fill:#333,color:#fff,stroke:#666
+
+    class M1_APPLY measure1
+    class M2_COND measure2
+    class M3_BCA,M3_BS,M3_CH,M3_CI,M3_EN measure3
+    class M4_APPLY measure4
+    class M5_APPLY measure5
+    class NO_MATCH,M3_PEND,SPECIAL_FLAG,EGW_NC,FALLBACK warning
+    class JSON_OUT,SVG_OUT,GLB_OUT,EVIDENCE,SUMMARY output
