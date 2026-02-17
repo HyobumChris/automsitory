@@ -1,10 +1,11 @@
 import { create } from 'zustand'
 import {
   type SteelGrade,
-  type MeasureState,
-  type RulesInput,
+  type EvaluationResult,
   evaluateMeasures,
 } from './rulesEngine'
+
+export type Measure3SubOption = 'a' | 'b' | 'c' | 'd' | null
 
 interface AppState {
   // Inputs
@@ -12,32 +13,77 @@ interface AppState {
   thickness: number
 
   // Derived measures
-  measures: MeasureState
+  evaluation: EvaluationResult
+
+  // UI state
+  measure3SubOption: Measure3SubOption
+  hoveredMember: string | null
+  highlightedMeasure: number | null
+  showAll: boolean
+  animatingMeasures: number[]
+  animationComplete: boolean
 
   // Actions
   setSteelGrade: (grade: SteelGrade) => void
   setThickness: (t: number) => void
+  setMeasure3SubOption: (opt: Measure3SubOption) => void
+  setHoveredMember: (member: string | null) => void
+  setHighlightedMeasure: (id: number | null) => void
+  setShowAll: (show: boolean) => void
+  setAnimatingMeasures: (ids: number[]) => void
+  setAnimationComplete: (done: boolean) => void
+  reset: () => void
 }
 
-function computeMeasures(steelGrade: SteelGrade, thickness: number): MeasureState {
-  const input: RulesInput = { steelGrade, thickness }
-  return evaluateMeasures(input)
-}
+const INITIAL_GRADE: SteelGrade = 'EH36'
+const INITIAL_THICKNESS = 55
 
 export const useAppStore = create<AppState>((set) => ({
-  steelGrade: 'YP36',
-  thickness: 55,
-  measures: computeMeasures('YP36', 55),
+  steelGrade: INITIAL_GRADE,
+  thickness: INITIAL_THICKNESS,
+  evaluation: evaluateMeasures(INITIAL_GRADE, INITIAL_THICKNESS),
+  measure3SubOption: null,
+  hoveredMember: null,
+  highlightedMeasure: null,
+  showAll: false,
+  animatingMeasures: [],
+  animationComplete: false,
 
   setSteelGrade: (grade) =>
     set((state) => ({
       steelGrade: grade,
-      measures: computeMeasures(grade, state.thickness),
+      evaluation: evaluateMeasures(grade, state.thickness),
+      measure3SubOption: null,
+      animatingMeasures: [],
+      animationComplete: false,
     })),
 
   setThickness: (t) =>
     set((state) => ({
       thickness: t,
-      measures: computeMeasures(state.steelGrade, t),
+      evaluation: evaluateMeasures(state.steelGrade, t),
+      measure3SubOption: null,
+      animatingMeasures: [],
+      animationComplete: false,
     })),
+
+  setMeasure3SubOption: (opt) => set({ measure3SubOption: opt }),
+  setHoveredMember: (member) => set({ hoveredMember: member }),
+  setHighlightedMeasure: (id) => set({ highlightedMeasure: id }),
+  setShowAll: (show) => set({ showAll: show }),
+  setAnimatingMeasures: (ids) => set({ animatingMeasures: ids }),
+  setAnimationComplete: (done) => set({ animationComplete: done }),
+
+  reset: () =>
+    set({
+      steelGrade: INITIAL_GRADE,
+      thickness: INITIAL_THICKNESS,
+      evaluation: evaluateMeasures(INITIAL_GRADE, INITIAL_THICKNESS),
+      measure3SubOption: null,
+      hoveredMember: null,
+      highlightedMeasure: null,
+      showAll: false,
+      animatingMeasures: [],
+      animationComplete: false,
+    }),
 }))
