@@ -513,7 +513,7 @@ def extract_or_load_rules_db(project_input: ProjectInput, out_dir: Path) -> Rule
     existing_path = out_dir / "rules_extraction.json"
     if existing_path.exists():
         db = load_rules_db(existing_path)
-        db.source_mode = "existing_json"
+        db.metadata["loaded_from_existing_json"] = True
         return db
 
     if project_input.manual_table_input is not None:
