@@ -1,3 +1,39 @@
+# LR 컨테이너선 해치코밍 균열(취성) 예방조치 자동 판정/시각화
+
+## 신규 구성 (Scan-first Production App)
+
+아래 신규 구조가 추가되었습니다.
+
+- `services/engine/`
+  - `ocr_extract.py`: 스캔/PDF OCR + evidence snippet 생성
+  - `rules_db.py`: `rules_extraction.json` 스키마 및 lookup
+  - `decision_engine.py`: Measure 1~5 판정(누적/append-only, member/joint 분리)
+  - `diagram_2d.py`: plan/section SVG/PNG 생성
+  - `model_3d.py`: GLB + three.js viewer 생성
+  - `cli.py`: end-to-end 실행
+- `apps/web/`: Next.js 기반 6-step UI + 3D viewer iframe + JSON export
+- `configs/colors.json`, `configs/mapping_rules.json`
+- `inputs/`, `outputs/`, `tests/`
+- `diagrams/decision_flow.mmd`
+
+### 실행
+
+```bash
+python -m services.engine.cli --input inputs/project.json --out outputs/demo --manual-table inputs/manual_table_input.json
+```
+
+웹(UI):
+
+```bash
+cd apps/web
+npm install
+npm run dev
+```
+
+> UI는 기본적으로 `apps/web/public/outputs/demo` 또는 `/outputs/demo`의 결과물을 읽어 누적 시각화를 표시합니다.
+
+---
+
 # Lloyd's Register 해치코밍 크랙 방지 시각화
 
 ## 🚢 Container Ship Hatch Coaming Crack Arrest Visualization

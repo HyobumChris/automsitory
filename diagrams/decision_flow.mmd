@@ -1,0 +1,13 @@
+flowchart TD
+  A["Step 1: 자재 선택 (grade/yield)"] --> B["Step 2: 두께 입력 (as-built)"]
+  B --> C["Step 3: Table 8.2.1 lookup"]
+  C --> D["Required Measures Global"]
+  D --> E["누적 적용 예시: [] -> [1] -> [1,3] -> [1,3,4] -> [1,3,4,5]"]
+  E --> F["Step 4: Measure 3 옵션 선택"]
+  F --> G{"option == enhanced_NDE ?"}
+  G -- Yes --> H["Measure 2 = conditional (Note 2)"]
+  G -- No --> I["Measure 2 미적용"]
+  H --> J["Step 5: member/joint별 누적 결과"]
+  I --> J
+  J --> K["Step 6: Export JSON + 2D + 3D + Evidence"]
+

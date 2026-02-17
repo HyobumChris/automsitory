@@ -1,0 +1,16 @@
+{
+  "upper_flange_roles": [
+    "upper_deck_plate",
+    "hatch_coaming_side_plate",
+    "hatch_coaming_top_plate",
+    "attached_longitudinal"
+  ],
+  "table_822_member_role_mapping": {
+    "upper_deck_plate": "upper_deck_plate",
+    "hatch_coaming_side_plate": "hatch_coaming_side_plate"
+  },
+  "notes": {
+    "description": "Project-customizable role mapping for target scope and Table 8.2.2 category lookup."
+  }
+}
+

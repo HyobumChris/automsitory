@@ -1,0 +1,8 @@
+__pycache__/
+.pytest_cache/
+*.pyc
+.DS_Store
+
+apps/web/node_modules/
+apps/web/.next/
+

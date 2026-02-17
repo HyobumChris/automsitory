@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=69.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lr-hatch-coaming-measure-app"
+version = "0.1.0"
+description = "LR rules scan-first decision engine with 2D/3D visualization"
+requires-python = ">=3.10"
+dependencies = [
+  "pydantic>=2.11.0",
+  "Pillow>=11.3.0"
+]
+
+[project.optional-dependencies]
+ocr = [
+  "pytesseract>=0.3.13",
+  "PyMuPDF>=1.26.4"
+]
+dev = [
+  "pytest>=8.4.0"
+]
+
+[tool.setuptools.packages.find]
+include = ["services*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+

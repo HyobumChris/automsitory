@@ -1,0 +1,166 @@
+{
+  "table_821": [
+    {
+      "yield_strength_nmm2": 355,
+      "thickness_range": "0<t<=50",
+      "t_min_exclusive": 0,
+      "t_max_inclusive": 50,
+      "m1": "not_required",
+      "m2": "not_required",
+      "m3": "not_required",
+      "m4": "not_required",
+      "m5": "not_required"
+    },
+    {
+      "yield_strength_nmm2": 355,
+      "thickness_range": "50<t<=85",
+      "t_min_exclusive": 50,
+      "t_max_inclusive": 85,
+      "m1": "required",
+      "m2": "see_note_2",
+      "m3": "required",
+      "m4": "required",
+      "m5": "not_required"
+    },
+    {
+      "yield_strength_nmm2": 355,
+      "thickness_range": "85<t<=100",
+      "t_min_exclusive": 85,
+      "t_max_inclusive": 100,
+      "m1": "required",
+      "m2": "see_note_2",
+      "m3": "required",
+      "m4": "required",
+      "m5": "required"
+    },
+    {
+      "yield_strength_nmm2": 390,
+      "thickness_range": "0<t<=50",
+      "t_min_exclusive": 0,
+      "t_max_inclusive": 50,
+      "m1": "not_required",
+      "m2": "not_required",
+      "m3": "not_required",
+      "m4": "not_required",
+      "m5": "not_required"
+    },
+    {
+      "yield_strength_nmm2": 390,
+      "thickness_range": "50<t<=85",
+      "t_min_exclusive": 50,
+      "t_max_inclusive": 85,
+      "m1": "required",
+      "m2": "see_note_2",
+      "m3": "required",
+      "m4": "required",
+      "m5": "not_required"
+    },
+    {
+      "yield_strength_nmm2": 390,
+      "thickness_range": "85<t<=100",
+      "t_min_exclusive": 85,
+      "t_max_inclusive": 100,
+      "m1": "required",
+      "m2": "see_note_2",
+      "m3": "required",
+      "m4": "required",
+      "m5": "required"
+    },
+    {
+      "yield_strength_nmm2": 460,
+      "thickness_range": "0<t<=40",
+      "t_min_exclusive": 0,
+      "t_max_inclusive": 40,
+      "m1": "not_required",
+      "m2": "not_required",
+      "m3": "not_required",
+      "m4": "not_required",
+      "m5": "not_required"
+    },
+    {
+      "yield_strength_nmm2": 460,
+      "thickness_range": "40<t<=85",
+      "t_min_exclusive": 40,
+      "t_max_inclusive": 85,
+      "m1": "required",
+      "m2": "see_note_2",
+      "m3": "required",
+      "m4": "required",
+      "m5": "required"
+    },
+    {
+      "yield_strength_nmm2": 460,
+      "thickness_range": "85<t<=100",
+      "t_min_exclusive": 85,
+      "t_max_inclusive": 100,
+      "m1": "required",
+      "m2": "see_note_2",
+      "m3": "required",
+      "m4": "required",
+      "m5": "required"
+    }
+  ],
+  "table_822": [
+    {
+      "member_role": "upper_deck_plate",
+      "yield_strength_nmm2": 355,
+      "thickness_range": "50<t<=100",
+      "t_min_exclusive": 50,
+      "t_max_inclusive": 100,
+      "bca_type": "BCA1"
+    },
+    {
+      "member_role": "upper_deck_plate",
+      "yield_strength_nmm2": 390,
+      "thickness_range": "50<t<=85",
+      "t_min_exclusive": 50,
+      "t_max_inclusive": 85,
+      "bca_type": "BCA1"
+    },
+    {
+      "member_role": "upper_deck_plate",
+      "yield_strength_nmm2": 390,
+      "thickness_range": "85<t<=100",
+      "t_min_exclusive": 85,
+      "t_max_inclusive": 100,
+      "bca_type": "BCA2"
+    },
+    {
+      "member_role": "hatch_coaming_side_plate",
+      "yield_strength_nmm2": 390,
+      "thickness_range": "50<t<=85",
+      "t_min_exclusive": 50,
+      "t_max_inclusive": 85,
+      "bca_type": "BCA1"
+    },
+    {
+      "member_role": "hatch_coaming_side_plate",
+      "yield_strength_nmm2": 390,
+      "thickness_range": "85<t<=100",
+      "t_min_exclusive": 85,
+      "t_max_inclusive": 100,
+      "bca_type": "BCA2"
+    },
+    {
+      "member_role": "hatch_coaming_side_plate",
+      "yield_strength_nmm2": 460,
+      "thickness_range": "40<t<=100",
+      "t_min_exclusive": 40,
+      "t_max_inclusive": 100,
+      "bca_type": "BCA2"
+    }
+  ],
+  "textual_requirements": {
+    "measure_1_ut_100": "UT 100% for relevant block-to-block butt joints during construction.",
+    "block_shift_min_300mm": "Offset between related butt joints is required to be at least 300mm.",
+    "crack_arrest_hole_fatigue_assessment": "Crack arrest hole requires special fatigue strength assessment.",
+    "enhanced_nde_stricter_acceptance": "Enhanced NDE shall follow stricter acceptance criteria.",
+    "enhanced_nde_alternative_nde_by_lr_agreement": "If inaccessible, alternative NDE may be accepted by LR agreement.",
+    "enhanced_nde_ctod_min_0_18": "CTOD test minimum value is 0.18mm.",
+    "enhanced_nde_egw_not_permitted": "EGW is not permitted when enhanced NDE route is selected.",
+    "pjp_required_coaming_to_deck": "Coaming side to upper deck connection requires LR-approved PJP welding.",
+    "thickness_gt_100_special_consideration": "Thickness above 100mm requires special consideration.",
+    "measure3_coaming_side_bca_requirement": "Measure 3 includes providing brittle crack arrest steel at hatch coaming side plate."
+  }
+}
+

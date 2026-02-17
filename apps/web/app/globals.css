@@ -1,0 +1,117 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Inter", "Segoe UI", Arial, sans-serif;
+  background: #f4f7fb;
+  color: #1b2330;
+}
+
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.title {
+  margin: 0;
+  font-size: 28px;
+}
+
+.subtitle {
+  margin: 6px 0 14px;
+  color: #3f4e68;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 14px;
+}
+
+.panel {
+  background: #fff;
+  border: 1px solid #d9e2ef;
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.step {
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid #d9e2ef;
+  background: #f9fbff;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.step.active {
+  border-color: #4f7cff;
+  background: #edf3ff;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.badge {
+  border: 1px solid #ccd8eb;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: #fff;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th,
+.table td {
+  border: 1px solid #d9e2ef;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.btn {
+  border: 1px solid #1d4ed8;
+  color: #1d4ed8;
+  padding: 7px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  background: #fff;
+}
+
+.viewer-wrap {
+  height: 520px;
+  border: 1px solid #d9e2ef;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.muted {
+  color: #5a6d8a;
+  font-size: 13px;
+}
+
