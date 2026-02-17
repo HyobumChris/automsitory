@@ -1,7 +1,7 @@
 import { createElement, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion'; // eslint-disable-line no-unused-vars
 import {
-  ChevronRight, RotateCcw, Info, Shield, AlertTriangle,
+  ChevronRight, RotateCcw, Undo2, Info, Shield, AlertTriangle,
   CheckCircle2, Zap, ScanLine, Layers, HelpCircle, ArrowDown,
 } from 'lucide-react';
 import { FLOW_NODES } from '../data/flowNodes';
@@ -80,8 +80,7 @@ function HistoryNode({ nodeId, answer, index }) {
   );
 }
 
-function ActiveNode({ nodeId, onChoice }) {
-  const node = FLOW_NODES[nodeId];
+function ActiveNode({ node, onGoYes, onGoNo, onGoNext }) {
   if (!node) return null;
 
   const borderMap = {
@@ -143,7 +142,7 @@ function ActiveNode({ nodeId, onChoice }) {
             <motion.button
               whileHover={{ scale: 1.03, backgroundColor: 'rgba(16, 185, 129, 0.2)' }}
               whileTap={{ scale: 0.96 }}
-              onClick={() => onChoice('yes')}
+              onClick={onGoYes}
               className="flex-1 py-2.5 rounded-lg bg-emerald-600/12 hover:bg-emerald-600/20 text-emerald-400 font-bold text-xs border border-emerald-600/25 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <CheckCircle2 size={13} /> YES
@@ -151,7 +150,7 @@ function ActiveNode({ nodeId, onChoice }) {
             <motion.button
               whileHover={{ scale: 1.03, backgroundColor: 'rgba(239, 68, 68, 0.15)' }}
               whileTap={{ scale: 0.96 }}
-              onClick={() => onChoice('no')}
+              onClick={onGoNo}
               className="flex-1 py-2.5 rounded-lg bg-red-600/10 hover:bg-red-600/18 text-red-400 font-bold text-xs border border-red-600/25 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <AlertTriangle size={13} /> NO
@@ -163,7 +162,7 @@ function ActiveNode({ nodeId, onChoice }) {
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.96 }}
-            onClick={() => onChoice('next')}
+            onClick={onGoNext}
             className="w-full py-2.5 rounded-lg bg-blue-600/12 hover:bg-blue-600/22 text-blue-400 font-bold text-xs border border-blue-600/25 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
           >
             Continue <ChevronRight size={13} />
@@ -181,7 +180,7 @@ function ActiveNode({ nodeId, onChoice }) {
   );
 }
 
-export default function FlowchartPanel({ currentNodeId, history, onChoice, onReset }) {
+export default function FlowchartPanel({ activeNodeId, activeNode, transitions, canUndo, onGoYes, onGoNo, onGoNext, onReset, onUndo }) {
   const scrollRef = useRef(null);
 
   useEffect(() => {
@@ -193,9 +192,7 @@ export default function FlowchartPanel({ currentNodeId, history, onChoice, onRes
         });
       });
     }
-  }, [currentNodeId, history.length]);
-
-  const currentNode = FLOW_NODES[currentNodeId];
+  }, [activeNodeId, transitions.length]);
 
   return (
     <div className="flex flex-col h-full">
@@ -205,32 +202,46 @@ export default function FlowchartPanel({ currentNodeId, history, onChoice, onRes
           <ArrowDown size={13} className="text-blue-400" />
           <span className="text-xs font-bold text-slate-300 tracking-tight">Decision Flowchart</span>
         </div>
-        <motion.button
-          whileHover={{ scale: 1.08 }}
-          whileTap={{ scale: 0.92 }}
-          onClick={onReset}
-          className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-300 px-2 py-1 rounded-md hover:bg-slate-700/40 transition-all cursor-pointer"
-        >
-          <RotateCcw size={11} /> Reset
-        </motion.button>
+        <div className="flex items-center gap-1">
+          {canUndo && (
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.92 }}
+              onClick={onUndo}
+              className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-300 px-2 py-1 rounded-md hover:bg-slate-700/40 transition-all cursor-pointer"
+            >
+              <Undo2 size={11} /> Undo
+            </motion.button>
+          )}
+          <motion.button
+            whileHover={{ scale: 1.08 }}
+            whileTap={{ scale: 0.92 }}
+            onClick={onReset}
+            className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-300 px-2 py-1 rounded-md hover:bg-slate-700/40 transition-all cursor-pointer"
+          >
+            <RotateCcw size={11} /> Reset
+          </motion.button>
+        </div>
       </div>
 
       {/* Progress bar */}
       <div className="shrink-0 px-4 py-2 bg-slate-800/20 border-b border-slate-700/20">
         <div className="flex items-center justify-between mb-1.5">
           <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-widest">
-            Step {history.length + 1}
+            Step {transitions.length + 1}
           </span>
           <span className="text-[10px] text-slate-600">
-            {history.length} completed {currentNode?.type === 'terminal' ? '(done)' : ''}
+            {transitions.length} completed {activeNode?.type === 'terminal' ? '(done)' : ''}
           </span>
         </div>
         <div className="w-full h-1 bg-slate-700/30 rounded-full overflow-hidden">
           <motion.div
             className="h-full rounded-full"
-            style={{ backgroundColor: currentNode?.type === 'terminal' ? '#10b981' : '#3b82f6' }}
+            style={{ backgroundColor: activeNode?.type === 'terminal' ? '#10b981' : '#3b82f6' }}
             initial={{ width: 0 }}
-            animate={{ width: `${Math.min(((history.length + 1) / 8) * 100, 100)}%` }}
+            animate={{ width: `${Math.min(((transitions.length + 1) / 8) * 100, 100)}%` }}
             transition={{ duration: 0.4 }}
           />
         </div>
@@ -239,20 +250,22 @@ export default function FlowchartPanel({ currentNodeId, history, onChoice, onRes
       {/* Scrollable flow */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
         <AnimatePresence mode="sync">
-          {history.map((entry, i) => (
+          {transitions.map((entry, i) => (
             <HistoryNode
-              key={`h-${i}-${entry.nodeId}`}
-              nodeId={entry.nodeId}
-              answer={entry.answer}
+              key={`h-${i}-${entry.from}`}
+              nodeId={entry.from}
+              answer={entry.choice}
               index={i}
             />
           ))}
         </AnimatePresence>
 
         <ActiveNode
-          key={currentNodeId}
-          nodeId={currentNodeId}
-          onChoice={onChoice}
+          key={activeNodeId}
+          node={activeNode}
+          onGoYes={onGoYes}
+          onGoNo={onGoNo}
+          onGoNext={onGoNext}
         />
 
         {/* Bottom spacer for scroll */}

@@ -1,7 +1,8 @@
 import { useState, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion'; // eslint-disable-line no-unused-vars
 import { Anchor, Ship, Eye, Layers, Box } from 'lucide-react';
-import { FLOW_NODES, GRADE_STARTS, GRADE_INFO } from './data/flowNodes';
+import { GRADE_INFO, buildGradeFlow } from './data/flowNodes';
+import { useFlowEngine, validateFlow } from './hooks/useFlowEngine';
 import CrossSectionView from './components/CrossSectionView';
 import IsometricView from './components/IsometricView';
 import FlowchartPanel from './components/FlowchartPanel';
@@ -10,51 +11,31 @@ const GRADES = ['EH36', 'EH40', 'EH47'];
 
 export default function App() {
   const [selectedGrade, setSelectedGrade] = useState('EH40');
-  const [currentNodeId, setCurrentNodeId] = useState(GRADE_STARTS.EH40);
-  const [history, setHistory] = useState([]);
 
-  const currentNode = useMemo(() => FLOW_NODES[currentNodeId], [currentNodeId]);
+  const flow = useMemo(() => buildGradeFlow(selectedGrade), [selectedGrade]);
+
+  if (import.meta.env.DEV) {
+    validateFlow(flow, selectedGrade);
+  }
+
+  const {
+    activeNodeId, activeNode, transitions,
+    canUndo, reset, undo, goYes, goNo, goNext,
+  } = useFlowEngine(flow);
 
   const handleGradeChange = useCallback((grade) => {
     setSelectedGrade(grade);
-    setCurrentNodeId(GRADE_STARTS[grade]);
-    setHistory([]);
   }, []);
 
-  const handleChoice = useCallback((choice) => {
-    const node = FLOW_NODES[currentNodeId];
-    if (!node) return;
-
-    let nextId = null;
-    let answer = choice;
-
-    if (node.type === 'question') {
-      nextId = choice === 'yes' ? node.yes : node.no;
-    } else if (node.type === 'info' && node.next) {
-      nextId = node.next;
-      answer = 'next';
-    }
-
-    if (nextId && FLOW_NODES[nextId]) {
-      setHistory(prev => [...prev, { nodeId: currentNodeId, answer }]);
-      setCurrentNodeId(nextId);
-    }
-  }, [currentNodeId]);
-
-  const handleReset = useCallback(() => {
-    setCurrentNodeId(GRADE_STARTS[selectedGrade]);
-    setHistory([]);
-  }, [selectedGrade]);
-
   const viewConfig = useMemo(() => {
-    if (!currentNode) return { view: 'A', highlights: [], highlightColor: '#60a5fa', tooltip: '' };
+    if (!activeNode) return { view: 'A', highlights: [], highlightColor: '#60a5fa', tooltip: '' };
     return {
-      view: currentNode.view || 'A',
-      highlights: currentNode.highlights || [],
-      highlightColor: currentNode.highlightColor || '#60a5fa',
-      tooltip: currentNode.tooltip || '',
+      view: activeNode.view || 'A',
+      highlights: activeNode.highlights || [],
+      highlightColor: activeNode.highlightColor || '#60a5fa',
+      tooltip: activeNode.tooltip || '',
     };
-  }, [currentNode]);
+  }, [activeNode]);
 
   return (
     <div className="h-screen w-screen flex flex-col bg-marine-900 text-slate-200 overflow-hidden">
@@ -123,10 +104,15 @@ export default function App() {
         {/* ─── LEFT: Flowchart Wizard ─── */}
         <div className="w-[360px] lg:w-[400px] shrink-0 border-r border-slate-700/30 bg-marine-800/30 flex flex-col">
           <FlowchartPanel
-            currentNodeId={currentNodeId}
-            history={history}
-            onChoice={handleChoice}
-            onReset={handleReset}
+            activeNodeId={activeNodeId}
+            activeNode={activeNode}
+            transitions={transitions}
+            canUndo={canUndo}
+            onGoYes={goYes}
+            onGoNo={goNo}
+            onGoNext={goNext}
+            onReset={reset}
+            onUndo={undo}
           />
         </div>
 
@@ -178,7 +164,7 @@ export default function App() {
             <AnimatePresence mode="wait">
               {viewConfig.view === 'A' ? (
                 <motion.div
-                  key={`view-a-${currentNodeId}`}
+                  key={`view-a-${activeNodeId}`}
                   initial={{ opacity: 0, scale: 0.94, x: -30 }}
                   animate={{ opacity: 1, scale: 1, x: 0 }}
                   exit={{ opacity: 0, scale: 0.94, x: 30 }}
@@ -192,7 +178,7 @@ export default function App() {
                 </motion.div>
               ) : (
                 <motion.div
-                  key={`view-b-${currentNodeId}`}
+                  key={`view-b-${activeNodeId}`}
                   initial={{ opacity: 0, scale: 0.94, x: 30 }}
                   animate={{ opacity: 1, scale: 1, x: 0 }}
                   exit={{ opacity: 0, scale: 0.94, x: -30 }}
@@ -210,10 +196,10 @@ export default function App() {
             </AnimatePresence>
 
             {/* Floating context bar */}
-            {currentNode && (
+            {activeNode && (
               <AnimatePresence mode="wait">
                 <motion.div
-                  key={currentNodeId}
+                  key={activeNodeId}
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 8 }}
@@ -228,9 +214,9 @@ export default function App() {
                       transition={{ duration: 1.5, repeat: Infinity }}
                     />
                     <p className="text-[11px] text-slate-400 line-clamp-1 flex-1 leading-snug">
-                      <span className="text-slate-300 font-semibold">{currentNode.title}</span>
+                      <span className="text-slate-300 font-semibold">{activeNode.title}</span>
                       <span className="mx-1.5 text-slate-600">|</span>
-                      {currentNode.text}
+                      {activeNode.text}
                     </p>
                     <span className="text-[9px] text-slate-600 shrink-0 font-semibold tracking-wider">
                       {selectedGrade}
