@@ -1,0 +1,311 @@
+{
+  "_meta": {
+    "source": "manual_fallback",
+    "description": "Fallback rules extraction based on LR Pt4 Ch8 2.3, Table 8.2.1 / 8.2.2. Used when OCR is unavailable.",
+    "ocr_confidence": null,
+    "manual_review_flags": ["Fallback data – not extracted from scan. Requires manual verification against actual LR rules."]
+  },
+  "table_8_2_1": {
+    "description": "Measures to prevent brittle fracture propagation in way of cargo hold region – Hatch coaming and upper deck",
+    "rows": [
+      {
+        "yield_strength_nmm2": 355,
+        "thickness_range": "50<t<=65",
+        "t_min": 50,
+        "t_max": 65,
+        "m1": "required",
+        "m2": "not_required",
+        "m3": "not_required",
+        "m4": "not_required",
+        "m5": "not_required",
+        "notes": [],
+        "evidence": {
+          "scan_file": "미지정",
+          "page_index": null,
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": null
+        }
+      },
+      {
+        "yield_strength_nmm2": 355,
+        "thickness_range": "65<t<=85",
+        "t_min": 65,
+        "t_max": 85,
+        "m1": "required",
+        "m2": "not_required",
+        "m3": "required",
+        "m4": "required",
+        "m5": "not_required",
+        "notes": ["3+4 combined in original table"],
+        "evidence": {
+          "scan_file": "미지정",
+          "page_index": null,
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": null
+        }
+      },
+      {
+        "yield_strength_nmm2": 355,
+        "thickness_range": "85<t<=100",
+        "t_min": 85,
+        "t_max": 100,
+        "m1": "required",
+        "m2": "see_note_2",
+        "m3": "required",
+        "m4": "required",
+        "m5": "required",
+        "notes": ["3+4 combined in original table", "Note 2 applies to Measure 2"],
+        "evidence": {
+          "scan_file": "미지정",
+          "page_index": null,
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": null
+        }
+      },
+      {
+        "yield_strength_nmm2": 390,
+        "thickness_range": "50<t<=65",
+        "t_min": 50,
+        "t_max": 65,
+        "m1": "required",
+        "m2": "not_required",
+        "m3": "required",
+        "m4": "required",
+        "m5": "not_required",
+        "notes": ["3+4 combined in original table"],
+        "evidence": {
+          "scan_file": "미지정",
+          "page_index": null,
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": null
+        }
+      },
+      {
+        "yield_strength_nmm2": 390,
+        "thickness_range": "65<t<=85",
+        "t_min": 65,
+        "t_max": 85,
+        "m1": "required",
+        "m2": "see_note_2",
+        "m3": "required",
+        "m4": "required",
+        "m5": "required",
+        "notes": ["3+4 combined in original table", "Note 2 applies to Measure 2"],
+        "evidence": {
+          "scan_file": "미지정",
+          "page_index": null,
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": null
+        }
+      },
+      {
+        "yield_strength_nmm2": 390,
+        "thickness_range": "85<t<=100",
+        "t_min": 85,
+        "t_max": 100,
+        "m1": "required",
+        "m2": "see_note_2",
+        "m3": "required",
+        "m4": "required",
+        "m5": "required",
+        "notes": ["3+4 combined in original table", "Note 2 applies to Measure 2"],
+        "evidence": {
+          "scan_file": "미지정",
+          "page_index": null,
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": null
+        }
+      },
+      {
+        "yield_strength_nmm2": 460,
+        "thickness_range": "50<t<=65",
+        "t_min": 50,
+        "t_max": 65,
+        "m1": "required",
+        "m2": "see_note_2",
+        "m3": "required",
+        "m4": "required",
+        "m5": "required",
+        "notes": ["3+4 combined in original table", "Note 2 applies to Measure 2"],
+        "evidence": {
+          "scan_file": "미지정",
+          "page_index": null,
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": null
+        }
+      },
+      {
+        "yield_strength_nmm2": 460,
+        "thickness_range": "65<t<=85",
+        "t_min": 65,
+        "t_max": 85,
+        "m1": "required",
+        "m2": "see_note_2",
+        "m3": "required",
+        "m4": "required",
+        "m5": "required",
+        "notes": ["3+4 combined in original table", "Note 2 applies to Measure 2"],
+        "evidence": {
+          "scan_file": "미지정",
+          "page_index": null,
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": null
+        }
+      },
+      {
+        "yield_strength_nmm2": 460,
+        "thickness_range": "85<t<=100",
+        "t_min": 85,
+        "t_max": 100,
+        "m1": "required",
+        "m2": "see_note_2",
+        "m3": "required",
+        "m4": "required",
+        "m5": "required",
+        "notes": ["3+4 combined in original table", "Note 2 applies to Measure 2"],
+        "evidence": {
+          "scan_file": "미지정",
+          "page_index": null,
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": null
+        }
+      }
+    ]
+  },
+  "table_8_2_2": {
+    "description": "BCA steel type requirements by structural member and thickness",
+    "rows": [
+      {
+        "structural_member": "upper_deck_plate",
+        "condition": "cargo_hold_region",
+        "yield_strength_nmm2": 355,
+        "thickness_range": "50<t<=100",
+        "bca_type": "BCA1",
+        "evidence": {
+          "scan_file": "미지정",
+          "page_index": null,
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": null
+        }
+      },
+      {
+        "structural_member": "upper_deck_plate",
+        "condition": "cargo_hold_region",
+        "yield_strength_nmm2": 390,
+        "thickness_range": "50<t<=100",
+        "bca_type": "BCA2",
+        "evidence": {
+          "scan_file": "미지정",
+          "page_index": null,
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": null
+        }
+      },
+      {
+        "structural_member": "upper_deck_plate",
+        "condition": "cargo_hold_region",
+        "yield_strength_nmm2": 460,
+        "thickness_range": "50<t<=100",
+        "bca_type": "BCA2",
+        "evidence": {
+          "scan_file": "미지정",
+          "page_index": null,
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": null
+        }
+      },
+      {
+        "structural_member": "hatch_coaming_side_plate",
+        "condition": "cargo_hold_region",
+        "yield_strength_nmm2": 355,
+        "thickness_range": "50<t<=100",
+        "bca_type": "BCA1",
+        "evidence": {
+          "scan_file": "미지정",
+          "page_index": null,
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": null
+        }
+      },
+      {
+        "structural_member": "hatch_coaming_side_plate",
+        "condition": "cargo_hold_region",
+        "yield_strength_nmm2": 390,
+        "thickness_range": "50<t<=100",
+        "bca_type": "BCA2",
+        "evidence": {
+          "scan_file": "미지정",
+          "page_index": null,
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": null
+        }
+      },
+      {
+        "structural_member": "hatch_coaming_side_plate",
+        "condition": "cargo_hold_region",
+        "yield_strength_nmm2": 460,
+        "thickness_range": "50<t<=100",
+        "bca_type": "BCA2",
+        "evidence": {
+          "scan_file": "미지정",
+          "page_index": null,
+          "bbox": null,
+          "ocr_confidence": null,
+          "snippet_path": null
+        }
+      }
+    ]
+  },
+  "regulation_texts": {
+    "block_shift_min_offset": {
+      "text": "Where block shift (stagger) arrangement is adopted, the minimum offset between adjacent butt welds shall be not less than 300 mm.",
+      "evidence": {"scan_file": "미지정", "page_index": null, "bbox": null, "ocr_confidence": null, "snippet_path": null}
+    },
+    "crack_arrest_hole_fatigue": {
+      "text": "Where crack arrest holes are fitted, the fatigue strength at the hole corners and intersections shall be specially assessed.",
+      "evidence": {"scan_file": "미지정", "page_index": null, "bbox": null, "ocr_confidence": null, "snippet_path": null}
+    },
+    "enhanced_nde_ctod": {
+      "text": "Where enhanced NDE is adopted as Measure 3, CTOD value shall not be less than 0.18 mm at the minimum design temperature.",
+      "evidence": {"scan_file": "미지정", "page_index": null, "bbox": null, "ocr_confidence": null, "snippet_path": null}
+    },
+    "enhanced_nde_acceptance": {
+      "text": "Enhanced NDE shall comply with stricter acceptance criteria in accordance with ShipRight procedures.",
+      "evidence": {"scan_file": "미지정", "page_index": null, "bbox": null, "ocr_confidence": null, "snippet_path": null}
+    },
+    "egw_not_permitted": {
+      "text": "Electrogas welding (EGW) is not permitted where enhanced NDE is required as Measure 3.",
+      "evidence": {"scan_file": "미지정", "page_index": null, "bbox": null, "ocr_confidence": null, "snippet_path": null}
+    },
+    "pjp_coaming_deck": {
+      "text": "The connection between the hatch coaming and upper deck shall be made using LR-approved partial joint penetration (PJP) welding.",
+      "evidence": {"scan_file": "미지정", "page_index": null, "bbox": null, "ocr_confidence": null, "snippet_path": null}
+    },
+    "coaming_side_bca": {
+      "text": "Hatch coaming side plate shall be provided with brittle crack arrest (BCA) steel.",
+      "evidence": {"scan_file": "미지정", "page_index": null, "bbox": null, "ocr_confidence": null, "snippet_path": null}
+    },
+    "note_2_measure_2": {
+      "text": "Note 2: Where enhanced NDE is adopted as Measure 3, periodic in-service NDE (Measure 2) may be required. The frequency and extent to be agreed with LR.",
+      "evidence": {"scan_file": "미지정", "page_index": null, "bbox": null, "ocr_confidence": null, "snippet_path": null}
+    },
+    "special_consideration_above_100": {
+      "text": "For plate thickness exceeding 100 mm, special consideration is to be given.",
+      "evidence": {"scan_file": "미지정", "page_index": null, "bbox": null, "ocr_confidence": null, "snippet_path": null}
+    }
+  }
+}

@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LR Hatch Coaming - 3D Measure Viewer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; overflow: hidden; }
+  #canvas-container { width: 100vw; height: 100vh; }
+  canvas { display: block; }
+  #legend {
+    position: absolute; top: 15px; left: 15px; background: rgba(20,20,40,0.92);
+    border-radius: 10px; padding: 15px 18px; min-width: 220px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  }
+  #legend h3 { margin-bottom: 10px; font-size: 14px; color: #aaa; }
+  .legend-item { display: flex; align-items: center; margin: 6px 0; cursor: pointer; }
+  .legend-swatch { width: 16px; height: 16px; border-radius: 3px; margin-right: 8px; border: 1px solid #555; }
+  .legend-label { font-size: 12px; }
+  .legend-item.disabled .legend-label { text-decoration: line-through; opacity: 0.4; }
+  .legend-item.disabled .legend-swatch { opacity: 0.3; }
+  #info-panel {
+    position: absolute; top: 15px; right: 15px; background: rgba(20,20,40,0.95);
+    border-radius: 10px; padding: 18px; max-width: 380px; max-height: 80vh;
+    overflow-y: auto; display: none;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  }
+  #info-panel h3 { margin-bottom: 8px; color: #7ecfff; font-size: 15px; }
+  #info-panel .measure-item { margin: 8px 0; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 6px; }
+  #info-panel .measure-item h4 { font-size: 12px; color: #ffc107; margin-bottom: 4px; }
+  #info-panel .measure-item p { font-size: 11px; color: #ccc; margin: 2px 0; }
+  #info-panel .close-btn { position: absolute; top: 8px; right: 12px; cursor: pointer; font-size: 18px; color: #888; }
+  #no-dim-note {
+    position: absolute; bottom: 15px; left: 50%; transform: translateX(-50%);
+    background: rgba(255,193,7,0.15); color: #ffc107; padding: 6px 16px;
+    border-radius: 6px; font-size: 11px; display: none;
+  }
+  #project-label {
+    position: absolute; bottom: 15px; left: 15px;
+    font-size: 11px; color: #666;
+  }
+</style>
+</head>
+<body>
+<div id="canvas-container"></div>
+
+<div id="legend">
+  <h3>Measure Layers</h3>
+  <div id="legend-items"></div>
+</div>
+
+<div id="info-panel">
+  <span class="close-btn" onclick="document.getElementById('info-panel').style.display='none'">&times;</span>
+  <h3 id="info-title">Target Info</h3>
+  <div id="info-content"></div>
+</div>
+
+<div id="no-dim-note">Dimensions unspecified – schematic model</div>
+<div id="project-label">Project: CASE3-SPECIAL | Test Vessel Gamma</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.164.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const measureInfo = {"0": {"label": "Measure 0", "hex": "#888888", "alpha": 0.25}, "1": {"label": "Measure 1 \u2013 Construction NDE", "hex": "#FF8C00", "alpha": 0.25}, "2": {"label": "Measure 2 \u2013 Periodic In\u2011service NDE", "hex": "#1E90FF", "alpha": 0.25}, "3": {"label": "Measure 3 \u2013 Crack Arrest Measures", "hex": "#DC143C", "alpha": 0.25}, "4": {"label": "Measure 4 \u2013 Upper Deck BCA Steel", "hex": "#2E8B57", "alpha": 0.25}, "5": {"label": "Measure 5 \u2013 Upper Deck BCA Steel (ext.)", "hex": "#8A2BE2", "alpha": 0.25}};
+const targetData = {"J02": {"type": "joint", "measures": [{"measure_id": 0, "status": "applied", "requirements": ["LR-approved partial joint penetration (PJP) welding required for hatch coaming to upper deck connection."], "notes": ["Always applicable for coaming-to-deck connections"], "rule_basis": "The connection between the hatch coaming and upper deck shall be made using LR-approved partial joint penetration (PJP) welding."}]}};
+const hasBbox = false;
+
+if (!hasBbox) document.getElementById('no-dim-note').style.display = 'block';
+
+// Scene setup
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a2e);
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(15, 10, 15);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+container.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+
+// Lighting
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+scene.add(ambientLight);
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dirLight.position.set(10, 15, 10);
+scene.add(dirLight);
+const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.3);
+dirLight2.position.set(-10, 5, -10);
+scene.add(dirLight2);
+
+// Grid
+const grid = new THREE.GridHelper(30, 30, 0x333355, 0x222244);
+scene.add(grid);
+
+// Layer management
+const measureLayers = {};
+const layerEnabled = {};
+
+for (const [mid, info] of Object.entries(measureInfo)) {
+  measureLayers[mid] = [];
+  layerEnabled[mid] = true;
+}
+
+// Load GLB
+const loader = new GLTFLoader();
+loader.load('hatch_coaming.glb', (gltf) => {
+  const model = gltf.scene;
+  scene.add(model);
+
+  model.traverse((child) => {
+    if (child.isMesh) {
+      const name = child.name || '';
+      const match = name.match(/_m(\d+)$/);
+      if (match) {
+        const mid = match[1];
+        if (measureLayers[mid]) measureLayers[mid].push(child);
+      }
+
+      // Make base geometry clickable
+      child.userData.clickable = true;
+      const parts = name.split('_m');
+      if (parts.length > 1) {
+        child.userData.baseName = parts[0];
+      } else {
+        child.userData.baseName = name;
+      }
+    }
+  });
+
+  // Center camera
+  const box = new THREE.Box3().setFromObject(model);
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z);
+  camera.position.set(center.x + maxDim, center.y + maxDim * 0.7, center.z + maxDim);
+  controls.target.copy(center);
+  controls.update();
+});
+
+// Legend
+const legendContainer = document.getElementById('legend-items');
+for (const [mid, info] of Object.entries(measureInfo)) {
+  const item = document.createElement('div');
+  item.className = 'legend-item';
+  item.innerHTML = `
+    <div class="legend-swatch" style="background:${info.hex};opacity:0.8"></div>
+    <span class="legend-label">${info.label}</span>
+  `;
+  item.addEventListener('click', () => {
+    layerEnabled[mid] = !layerEnabled[mid];
+    item.classList.toggle('disabled', !layerEnabled[mid]);
+    for (const mesh of (measureLayers[mid] || [])) {
+      mesh.visible = layerEnabled[mid];
+    }
+  });
+  legendContainer.appendChild(item);
+}
+
+// Click / raycasting
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+renderer.domElement.addEventListener('click', (event) => {
+  mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObjects(scene.children, true);
+
+  for (const hit of intersects) {
+    if (hit.object.userData.clickable) {
+      const baseName = hit.object.userData.baseName || hit.object.name;
+      showInfoPanel(baseName);
+      break;
+    }
+  }
+});
+
+function showInfoPanel(meshName) {
+  const panel = document.getElementById('info-panel');
+  const title = document.getElementById('info-title');
+  const content = document.getElementById('info-content');
+
+  // Map mesh names to member/joint IDs
+  const nameMap = {
+    'upper_deck': 'M01',
+    'coaming_side_left': 'M02', 'coaming_side_right': 'M02',
+    'coaming_side_front': 'M02', 'coaming_side_back': 'M02',
+    'coaming_top': 'M03',
+  };
+
+  let targetId = nameMap[meshName];
+  if (!targetId) {
+    const jmatch = meshName.match(/joint_(J\d+)/);
+    if (jmatch) targetId = jmatch[1];
+  }
+
+  if (!targetId || !targetData[targetId]) {
+    title.textContent = meshName;
+    content.innerHTML = '<p style="color:#888">No measure data for this element.</p>';
+    panel.style.display = 'block';
+    return;
+  }
+
+  const data = targetData[targetId];
+  title.textContent = `${targetId} (${data.type})`;
+
+  let html = '';
+  for (const m of data.measures) {
+    const info = measureInfo[m.measure_id] || { label: 'M' + m.measure_id, hex: '#888' };
+    html += `<div class="measure-item">
+      <h4 style="color:${info.hex}">${info.label} [${m.status}]</h4>`;
+    for (const req of m.requirements) {
+      html += `<p>• ${req}</p>`;
+    }
+    for (const note of m.notes) {
+      html += `<p style="color:#999;font-style:italic">⟶ ${note}</p>`;
+    }
+    if (m.rule_basis && m.rule_basis !== '미지정') {
+      html += `<p style="color:#666;font-size:10px">Rule: ${m.rule_basis}</p>`;
+    }
+    html += '</div>';
+  }
+
+  content.innerHTML = html || '<p style="color:#888">No measures applied.</p>';
+  panel.style.display = 'block';
+}
+
+// Resize
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// Animate
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
