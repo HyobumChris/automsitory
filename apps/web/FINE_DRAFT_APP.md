@@ -45,6 +45,9 @@
    - 업로드/추출/드래프트 생성 이력 확인
    - 필요시 문서를 `on_hold` 상태로 전환(보류 사유 기록)
    - 확인 완료 후 `resume`으로 보류 해제 가능
+7. **보관 정책 정리**
+   - 운영 모니터링 섹션에서 보관기간 초과 레코드 정리 실행 가능
+   - 필요 시 `PURGE_API_TOKEN`으로 보호
 
 ---
 
@@ -82,6 +85,7 @@ MS365_CLIENT_ID=
 MS365_CLIENT_SECRET=
 MS365_MAILBOX_USER_ID=
 MAPPING_IMPORT_APPROVAL_TOKEN=
+PURGE_API_TOKEN=
 ```
 
 필수 권한(앱 권한): `Mail.ReadWrite`
@@ -108,4 +112,5 @@ npm run build
 - `POST /api/fine-documents/:id/draft`
 - `POST /api/fine-documents/:id/hold`
 - `POST /api/fine-documents/:id/resume`
+- `POST /api/fine-documents/purge`
 - `GET /api/fine-documents/:id`

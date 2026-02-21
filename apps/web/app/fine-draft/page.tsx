@@ -71,6 +71,9 @@ export default function FineDraftPage() {
   const [mappingStats, setMappingStats] = useState<{ total: number; active: number; inactive: number } | null>(null);
   const [queueSummary, setQueueSummary] = useState<Record<string, number>>({});
   const [queueRecords, setQueueRecords] = useState<QueueRecord[]>([]);
+  const [purgeDays, setPurgeDays] = useState('90');
+  const [purgeStatuses, setPurgeStatuses] = useState('on_hold,draft_created');
+  const [purgeToken, setPurgeToken] = useState('');
 
   const canExtract = Boolean(documentId);
   const canCreateDraft = Boolean(documentId && extraction);
@@ -107,6 +110,39 @@ export default function FineDraftPage() {
     };
     setQueueSummary(payload.summary);
     setQueueRecords(payload.records);
+  };
+
+  const onPurgeRecords = async () => {
+    setWorking(true);
+    setStatusMessage('');
+    try {
+      const statuses = purgeStatuses
+        .split(',')
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0);
+      const response = await fetch('/api/fine-documents/purge', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(purgeToken ? { 'x-purge-token': purgeToken } : {}),
+        },
+        body: JSON.stringify({
+          olderThanDays: Number(purgeDays),
+          statuses,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        setStatusMessage(payload.error ?? '정리 작업 실패');
+        return;
+      }
+      await refreshQueue();
+      setStatusMessage(`정리 완료: ${payload.purgedCount}건 삭제`);
+    } catch (error) {
+      setStatusMessage(String(error));
+    } finally {
+      setWorking(false);
+    }
   };
 
   useEffect(() => {
@@ -614,6 +650,42 @@ export default function FineDraftPage() {
               새로고침
             </button>
           </div>
+          <div className="grid md:grid-cols-4 gap-2">
+            <label className="text-xs text-slate-300">
+              보관일(일)
+              <input
+                className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-2 py-1.5"
+                value={purgeDays}
+                onChange={(event) => setPurgeDays(event.target.value)}
+              />
+            </label>
+            <label className="text-xs text-slate-300 md:col-span-2">
+              대상 상태(쉼표)
+              <input
+                className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-2 py-1.5"
+                value={purgeStatuses}
+                onChange={(event) => setPurgeStatuses(event.target.value)}
+                placeholder="on_hold,draft_created"
+              />
+            </label>
+            <label className="text-xs text-slate-300">
+              정리 토큰
+              <input
+                className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-2 py-1.5"
+                value={purgeToken}
+                onChange={(event) => setPurgeToken(event.target.value)}
+                placeholder="x-purge-token"
+              />
+            </label>
+          </div>
+          <button
+            type="button"
+            onClick={onPurgeRecords}
+            disabled={working}
+            className="rounded-lg bg-rose-700 hover:bg-rose-600 px-3 py-1.5 text-xs disabled:opacity-50"
+          >
+            보관기간 초과 레코드 정리
+          </button>
           <p className="text-xs text-slate-400">
             상태 집계: uploaded {queueSummary.uploaded ?? 0} / extracted {queueSummary.extracted ?? 0} / on_hold{' '}
             {queueSummary.on_hold ?? 0} / draft_created {queueSummary.draft_created ?? 0}
