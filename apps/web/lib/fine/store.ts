@@ -165,12 +165,28 @@ export async function purgeFineDocumentRecords(params: {
   olderThanDays: number;
   statuses?: string[];
 }): Promise<{ purgedCount: number; purgedIds: string[] }> {
+  const candidates = await listFineDocumentPurgeCandidates(params);
+
+  for (const record of candidates) {
+    await fs.rm(documentDirectory(record.id), { recursive: true, force: true });
+  }
+
+  return {
+    purgedCount: candidates.length,
+    purgedIds: candidates.map((record) => record.id),
+  };
+}
+
+export async function listFineDocumentPurgeCandidates(params: {
+  olderThanDays: number;
+  statuses?: string[];
+}): Promise<FineDocumentRecord[]> {
   const olderThanDays = Math.max(0, Math.floor(params.olderThanDays));
   const cutoff = Date.now() - olderThanDays * 24 * 60 * 60 * 1000;
   const statusSet = params.statuses?.length ? new Set(params.statuses) : null;
 
   const records = await listFineDocumentRecords(5000);
-  const targetRecords = records.filter((record) => {
+  return records.filter((record) => {
     const uploadedTs = Date.parse(record.uploadedAt);
     if (Number.isNaN(uploadedTs)) {
       return false;
@@ -183,13 +199,4 @@ export async function purgeFineDocumentRecords(params: {
     }
     return true;
   });
-
-  for (const record of targetRecords) {
-    await fs.rm(documentDirectory(record.id), { recursive: true, force: true });
-  }
-
-  return {
-    purgedCount: targetRecords.length,
-    purgedIds: targetRecords.map((record) => record.id),
-  };
 }
