@@ -1,0 +1,376 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import type { FineExtraction, MappingImportReport } from '@/lib/fine/types';
+
+interface DraftApiResponse {
+  id: string;
+  status: string;
+  recipientEmail: string;
+  selectedFields: {
+    vehicleNumber: string;
+    paymentDeadline: string;
+    violationDetails: string;
+  };
+  draftResult: {
+    draftId: string;
+    webLink: string | null;
+    mode: 'mock' | 'live';
+    sendPolicy: 'manual_only';
+  };
+}
+
+export default function FineDraftPage() {
+  const [uploadedBy, setUploadedBy] = useState('ops-team');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [documentId, setDocumentId] = useState<string | null>(null);
+  const [rawTextOverride, setRawTextOverride] = useState('');
+  const [extraction, setExtraction] = useState<FineExtraction | null>(null);
+  const [formVehicleNumber, setFormVehicleNumber] = useState('');
+  const [formPaymentDeadline, setFormPaymentDeadline] = useState('');
+  const [formViolationDetails, setFormViolationDetails] = useState('');
+  const [draftResult, setDraftResult] = useState<DraftApiResponse | null>(null);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [working, setWorking] = useState(false);
+
+  const [csvText, setCsvText] = useState(
+    'vehicle_number,email,employee_id,employee_name,status\n231하1342,hyo-bum.bae@lr.org,E0001,Bae Hyobum,active',
+  );
+  const [securityApproved, setSecurityApproved] = useState(false);
+  const [mappingReport, setMappingReport] = useState<MappingImportReport | null>(null);
+  const [mappingStats, setMappingStats] = useState<{ total: number; active: number; inactive: number } | null>(null);
+
+  const canExtract = Boolean(documentId);
+  const canCreateDraft = Boolean(documentId && extraction);
+
+  const confidenceBadge = useMemo(() => {
+    if (!extraction) {
+      return null;
+    }
+    const score = Math.round(extraction.overallConfidence * 100);
+    if (score >= 90) return { label: '높음', className: 'bg-emerald-500/20 text-emerald-300' };
+    if (score >= 75) return { label: '보통', className: 'bg-amber-500/20 text-amber-300' };
+    return { label: '낮음', className: 'bg-rose-500/20 text-rose-300' };
+  }, [extraction]);
+
+  useEffect(() => {
+    const run = async () => {
+      const response = await fetch('/api/fine-mappings');
+      if (!response.ok) {
+        return;
+      }
+      setMappingStats(await response.json());
+    };
+    void run();
+  }, []);
+
+  const onUpload = async () => {
+    if (!selectedFile) {
+      setStatusMessage('업로드할 파일을 선택하세요.');
+      return;
+    }
+
+    setWorking(true);
+    setStatusMessage('');
+    try {
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('uploadedBy', uploadedBy);
+      const response = await fetch('/api/fine-documents/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        setStatusMessage(payload.error ?? '업로드 실패');
+        return;
+      }
+      setDocumentId(payload.id);
+      setDraftResult(null);
+      setExtraction(null);
+      setStatusMessage(`업로드 완료. 문서 ID: ${payload.id}`);
+    } catch (error) {
+      setStatusMessage(String(error));
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const onExtract = async () => {
+    if (!documentId) {
+      return;
+    }
+    setWorking(true);
+    setStatusMessage('');
+    try {
+      const response = await fetch(`/api/fine-documents/${documentId}/extract`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actor: uploadedBy,
+          rawTextOverride: rawTextOverride.trim() || undefined,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        setStatusMessage(payload.error ?? '추출 실패');
+        return;
+      }
+      setExtraction(payload.extraction as FineExtraction);
+      setFormVehicleNumber(payload.extraction.vehicleNumber.value);
+      setFormPaymentDeadline(payload.extraction.paymentDeadline.value);
+      setFormViolationDetails(payload.extraction.violationDetails.value);
+      setStatusMessage('필드 추출 완료. 필요한 경우 값을 수정한 뒤 Draft를 생성하세요.');
+    } catch (error) {
+      setStatusMessage(String(error));
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const onCreateDraft = async () => {
+    if (!documentId) {
+      return;
+    }
+    setWorking(true);
+    setStatusMessage('');
+    try {
+      const response = await fetch(`/api/fine-documents/${documentId}/draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actor: uploadedBy,
+          overrideFields: {
+            vehicleNumber: formVehicleNumber,
+            paymentDeadline: formPaymentDeadline,
+            violationDetails: formViolationDetails,
+          },
+        }),
+      });
+      const payload = (await response.json()) as DraftApiResponse | { error?: string };
+      if (!response.ok) {
+        setStatusMessage((payload as { error?: string }).error ?? 'Draft 생성 실패');
+        return;
+      }
+      setDraftResult(payload as DraftApiResponse);
+      setStatusMessage('Draft 생성 완료. 정책상 실제 발송은 Outlook에서 수동으로 진행해야 합니다.');
+    } catch (error) {
+      setStatusMessage(String(error));
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const onImportMappings = async () => {
+    setWorking(true);
+    setStatusMessage('');
+    try {
+      const response = await fetch('/api/fine-mappings/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          csvText,
+          securityApproved,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        setStatusMessage(payload.error ?? '매핑 업로드 실패');
+        return;
+      }
+      setMappingReport(payload.report as MappingImportReport);
+      const statsResponse = await fetch('/api/fine-mappings');
+      if (statsResponse.ok) {
+        setMappingStats(await statsResponse.json());
+      }
+      setStatusMessage('차량번호-이메일 매핑 반입 완료');
+    } catch (error) {
+      setStatusMessage(String(error));
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-[#0b1220] text-slate-100">
+      <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+        <header className="space-y-1">
+          <h1 className="text-2xl font-bold">과속과징금 문서 Draft 자동화 (MS365)</h1>
+          <p className="text-sm text-slate-400">
+            업로드 → OCR 추출 → 차량번호 매핑 → Outlook Draft 생성. 실제 발송은 반드시 사람이 수행합니다.
+          </p>
+        </header>
+
+        <section className="bg-slate-900/70 border border-slate-700 rounded-xl p-4 space-y-4">
+          <h2 className="text-lg font-semibold">1) 차량번호 - 이메일 매핑 반입</h2>
+          <label className="block text-sm text-slate-300">
+            CSV 텍스트
+            <textarea
+              className="mt-1 w-full min-h-32 rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm"
+              value={csvText}
+              onChange={(event) => setCsvText(event.target.value)}
+            />
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-300">
+            <input
+              type="checkbox"
+              checked={securityApproved}
+              onChange={(event) => setSecurityApproved(event.target.checked)}
+            />
+            보안 승인 완료 (실데이터 반입 가능)
+          </label>
+          <button
+            type="button"
+            onClick={onImportMappings}
+            disabled={working}
+            className="rounded-lg bg-cyan-600 hover:bg-cyan-500 px-4 py-2 text-sm font-semibold disabled:opacity-50"
+          >
+            매핑 반입
+          </button>
+
+          {mappingStats && (
+            <p className="text-xs text-slate-400">
+              현재 매핑: 총 {mappingStats.total}건 / 활성 {mappingStats.active}건 / 비활성 {mappingStats.inactive}건
+            </p>
+          )}
+          {mappingReport && (
+            <div className="text-xs text-slate-300 bg-slate-950 border border-slate-700 rounded-lg p-3 space-y-1">
+              <p>반입 {mappingReport.importedRows}건, 거절 {mappingReport.rejectedRows}건</p>
+              {mappingReport.errors.length > 0 && <p>오류: {mappingReport.errors.join(' | ')}</p>}
+              {mappingReport.duplicateVehicleNumbers.length > 0 && (
+                <p>중복 차량번호: {mappingReport.duplicateVehicleNumbers.join(', ')}</p>
+              )}
+            </div>
+          )}
+        </section>
+
+        <section className="bg-slate-900/70 border border-slate-700 rounded-xl p-4 space-y-4">
+          <h2 className="text-lg font-semibold">2) 과징금 문서 업로드 및 추출</h2>
+
+          <label className="block text-sm text-slate-300">
+            작업자 식별자
+            <input
+              className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm"
+              value={uploadedBy}
+              onChange={(event) => setUploadedBy(event.target.value)}
+            />
+          </label>
+
+          <label className="block text-sm text-slate-300">
+            문서 파일(PDF/JPG/PNG)
+            <input
+              type="file"
+              className="mt-1 block w-full text-sm text-slate-300"
+              onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+            />
+          </label>
+
+          <div className="flex gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={onUpload}
+              disabled={working}
+              className="rounded-lg bg-indigo-600 hover:bg-indigo-500 px-4 py-2 text-sm font-semibold disabled:opacity-50"
+            >
+              업로드
+            </button>
+            <button
+              type="button"
+              onClick={onExtract}
+              disabled={!canExtract || working}
+              className="rounded-lg bg-emerald-600 hover:bg-emerald-500 px-4 py-2 text-sm font-semibold disabled:opacity-50"
+            >
+              추출 실행
+            </button>
+          </div>
+
+          <label className="block text-sm text-slate-300">
+            OCR 대체 텍스트 (Azure OCR 미설정 환경 테스트용, 선택)
+            <textarea
+              className="mt-1 w-full min-h-28 rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-xs"
+              value={rawTextOverride}
+              onChange={(event) => setRawTextOverride(event.target.value)}
+            />
+          </label>
+
+          {documentId && <p className="text-xs text-slate-400">문서 ID: {documentId}</p>}
+        </section>
+
+        <section className="bg-slate-900/70 border border-slate-700 rounded-xl p-4 space-y-4">
+          <h2 className="text-lg font-semibold">3) 추출값 검토 후 Draft 생성</h2>
+          {extraction && confidenceBadge && (
+            <div className="text-xs flex items-center gap-3">
+              <span className={`px-2 py-1 rounded ${confidenceBadge.className}`}>
+                신뢰도 {Math.round(extraction.overallConfidence * 100)}% ({confidenceBadge.label})
+              </span>
+              <span className="text-slate-400">
+                {extraction.requiresHumanReview ? '수동 검토 필요' : '자동 검토 통과'}
+              </span>
+            </div>
+          )}
+
+          <div className="grid md:grid-cols-3 gap-3">
+            <label className="text-sm text-slate-300">
+              차량번호
+              <input
+                className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm"
+                value={formVehicleNumber}
+                onChange={(event) => setFormVehicleNumber(event.target.value)}
+              />
+            </label>
+            <label className="text-sm text-slate-300">
+              납부기한
+              <input
+                className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm"
+                value={formPaymentDeadline}
+                onChange={(event) => setFormPaymentDeadline(event.target.value)}
+              />
+            </label>
+            <label className="text-sm text-slate-300">
+              위반사항
+              <input
+                className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm"
+                value={formViolationDetails}
+                onChange={(event) => setFormViolationDetails(event.target.value)}
+              />
+            </label>
+          </div>
+
+          <button
+            type="button"
+            onClick={onCreateDraft}
+            disabled={!canCreateDraft || working}
+            className="rounded-lg bg-violet-600 hover:bg-violet-500 px-4 py-2 text-sm font-semibold disabled:opacity-50"
+          >
+            Outlook Draft 생성
+          </button>
+
+          {draftResult && (
+            <div className="text-xs bg-slate-950 border border-slate-700 rounded-lg p-3 space-y-1">
+              <p>수신자: {draftResult.recipientEmail}</p>
+              <p>Draft ID: {draftResult.draftResult.draftId}</p>
+              <p>모드: {draftResult.draftResult.mode}</p>
+              <p>발송 정책: {draftResult.draftResult.sendPolicy} (자동 발송 금지)</p>
+              {draftResult.draftResult.webLink && (
+                <a
+                  className="text-cyan-300 underline"
+                  href={draftResult.draftResult.webLink}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Outlook에서 Draft 열기
+                </a>
+              )}
+            </div>
+          )}
+        </section>
+
+        {statusMessage && (
+          <p className="text-sm rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-2">
+            {statusMessage}
+          </p>
+        )}
+      </div>
+    </main>
+  );
+}
