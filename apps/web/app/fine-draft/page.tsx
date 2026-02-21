@@ -31,6 +31,18 @@ interface DraftErrorResponse {
   }>;
 }
 
+interface QueueRecord {
+  id: string;
+  status: string;
+  originalFileName: string;
+  uploadedBy: string;
+  uploadedAt: string;
+  recipientEmail: string | null;
+  overallConfidence: number | null;
+  requiresHumanReview: boolean | null;
+  draftMode: string | null;
+}
+
 export default function FineDraftPage() {
   const [uploadedBy, setUploadedBy] = useState('ops-team');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -55,6 +67,8 @@ export default function FineDraftPage() {
   const [approvalToken, setApprovalToken] = useState('');
   const [mappingReport, setMappingReport] = useState<MappingImportReport | null>(null);
   const [mappingStats, setMappingStats] = useState<{ total: number; active: number; inactive: number } | null>(null);
+  const [queueSummary, setQueueSummary] = useState<Record<string, number>>({});
+  const [queueRecords, setQueueRecords] = useState<QueueRecord[]>([]);
 
   const canExtract = Boolean(documentId);
   const canCreateDraft = Boolean(documentId && extraction);
@@ -80,6 +94,23 @@ export default function FineDraftPage() {
     void run();
   }, []);
 
+  const refreshQueue = async () => {
+    const response = await fetch('/api/fine-documents?limit=12');
+    if (!response.ok) {
+      return;
+    }
+    const payload = (await response.json()) as {
+      summary: Record<string, number>;
+      records: QueueRecord[];
+    };
+    setQueueSummary(payload.summary);
+    setQueueRecords(payload.records);
+  };
+
+  useEffect(() => {
+    void refreshQueue();
+  }, []);
+
   const refreshDocumentRecord = async (id: string) => {
     const response = await fetch(`/api/fine-documents/${id}`);
     if (!response.ok) {
@@ -87,6 +118,7 @@ export default function FineDraftPage() {
     }
     const payload = (await response.json()) as FineDocumentRecord;
     setDocumentRecord(payload);
+    await refreshQueue();
   };
 
   const onUpload = async () => {
@@ -263,6 +295,7 @@ export default function FineDraftPage() {
         setMappingStats(await statsResponse.json());
       }
       setStatusMessage('차량번호-이메일 매핑 반입 완료');
+      await refreshQueue();
     } catch (error) {
       setStatusMessage(String(error));
     } finally {
@@ -500,6 +533,57 @@ export default function FineDraftPage() {
             {statusMessage}
           </p>
         )}
+
+        <section className="bg-slate-900/70 border border-slate-700 rounded-xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">5) 운영 모니터링</h2>
+            <button
+              type="button"
+              onClick={() => {
+                void refreshQueue();
+              }}
+              className="rounded-lg bg-slate-700 hover:bg-slate-600 px-3 py-1.5 text-xs"
+            >
+              새로고침
+            </button>
+          </div>
+          <p className="text-xs text-slate-400">
+            상태 집계: uploaded {queueSummary.uploaded ?? 0} / extracted {queueSummary.extracted ?? 0} / on_hold{' '}
+            {queueSummary.on_hold ?? 0} / draft_created {queueSummary.draft_created ?? 0}
+          </p>
+          <div className="max-h-72 overflow-auto rounded-lg border border-slate-700 bg-slate-950">
+            <table className="w-full text-xs">
+              <thead className="text-slate-300 border-b border-slate-700">
+                <tr>
+                  <th className="text-left px-3 py-2">문서</th>
+                  <th className="text-left px-3 py-2">상태</th>
+                  <th className="text-left px-3 py-2">신뢰도</th>
+                  <th className="text-left px-3 py-2">수신자</th>
+                  <th className="text-left px-3 py-2">업로드</th>
+                </tr>
+              </thead>
+              <tbody>
+                {queueRecords.map((record) => (
+                  <tr key={record.id} className="border-b border-slate-800">
+                    <td className="px-3 py-2">
+                      <div className="text-slate-200">{record.originalFileName}</div>
+                      <div className="text-slate-500">{record.id}</div>
+                    </td>
+                    <td className="px-3 py-2">{record.status}</td>
+                    <td className="px-3 py-2">
+                      {record.overallConfidence !== null ? `${Math.round(record.overallConfidence * 100)}%` : '-'}
+                    </td>
+                    <td className="px-3 py-2">{record.recipientEmail ?? '-'}</td>
+                    <td className="px-3 py-2">
+                      <div>{record.uploadedBy}</div>
+                      <div className="text-slate-500">{record.uploadedAt}</div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
         {documentRecord && (
           <section className="bg-slate-900/70 border border-slate-700 rounded-xl p-4 space-y-3">
