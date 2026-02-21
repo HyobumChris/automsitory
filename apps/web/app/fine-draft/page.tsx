@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import type { FineExtraction, MappingImportReport } from '@/lib/fine/types';
+import type { FineDocumentRecord, FineExtraction, MappingImportReport } from '@/lib/fine/types';
 
 interface DraftApiResponse {
   id: string;
@@ -32,6 +32,7 @@ export default function FineDraftPage() {
   const [draftResult, setDraftResult] = useState<DraftApiResponse | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
   const [working, setWorking] = useState(false);
+  const [documentRecord, setDocumentRecord] = useState<FineDocumentRecord | null>(null);
 
   const [csvText, setCsvText] = useState(
     'vehicle_number,email,employee_id,employee_name,status\n231하1342,hyo-bum.bae@lr.org,E0001,Bae Hyobum,active',
@@ -64,6 +65,15 @@ export default function FineDraftPage() {
     void run();
   }, []);
 
+  const refreshDocumentRecord = async (id: string) => {
+    const response = await fetch(`/api/fine-documents/${id}`);
+    if (!response.ok) {
+      return;
+    }
+    const payload = (await response.json()) as FineDocumentRecord;
+    setDocumentRecord(payload);
+  };
+
   const onUpload = async () => {
     if (!selectedFile) {
       setStatusMessage('업로드할 파일을 선택하세요.');
@@ -88,6 +98,8 @@ export default function FineDraftPage() {
       setDocumentId(payload.id);
       setDraftResult(null);
       setExtraction(null);
+      setDocumentRecord(null);
+      await refreshDocumentRecord(payload.id);
       setStatusMessage(`업로드 완료. 문서 ID: ${payload.id}`);
     } catch (error) {
       setStatusMessage(String(error));
@@ -120,6 +132,7 @@ export default function FineDraftPage() {
       setFormVehicleNumber(payload.extraction.vehicleNumber.value);
       setFormPaymentDeadline(payload.extraction.paymentDeadline.value);
       setFormViolationDetails(payload.extraction.violationDetails.value);
+      await refreshDocumentRecord(documentId);
       setStatusMessage('필드 추출 완료. 필요한 경우 값을 수정한 뒤 Draft를 생성하세요.');
     } catch (error) {
       setStatusMessage(String(error));
@@ -153,6 +166,7 @@ export default function FineDraftPage() {
         return;
       }
       setDraftResult(payload as DraftApiResponse);
+      await refreshDocumentRecord(documentId);
       setStatusMessage('Draft 생성 완료. 정책상 실제 발송은 Outlook에서 수동으로 진행해야 합니다.');
     } catch (error) {
       setStatusMessage(String(error));
@@ -306,7 +320,13 @@ export default function FineDraftPage() {
               <span className="text-slate-400">
                 {extraction.requiresHumanReview ? '수동 검토 필요' : '자동 검토 통과'}
               </span>
+              <span className="text-slate-400">프로파일: {extraction.profile}</span>
             </div>
+          )}
+          {extraction && extraction.matchedAnchors.length > 0 && (
+            <p className="text-xs text-slate-400">
+              템플릿 앵커 감지: {extraction.matchedAnchors.join(', ')}
+            </p>
           )}
 
           <div className="grid md:grid-cols-3 gap-3">
@@ -369,6 +389,39 @@ export default function FineDraftPage() {
           <p className="text-sm rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-2">
             {statusMessage}
           </p>
+        )}
+
+        {documentRecord && (
+          <section className="bg-slate-900/70 border border-slate-700 rounded-xl p-4 space-y-3">
+            <h2 className="text-lg font-semibold">4) 감사 추적 로그</h2>
+            <p className="text-xs text-slate-400">
+              상태: {documentRecord.status} / 업로드: {documentRecord.originalFileName}
+            </p>
+            <div className="max-h-60 overflow-auto rounded-lg border border-slate-700 bg-slate-950">
+              <table className="w-full text-xs">
+                <thead className="text-slate-300 border-b border-slate-700">
+                  <tr>
+                    <th className="text-left px-3 py-2">시각</th>
+                    <th className="text-left px-3 py-2">행위</th>
+                    <th className="text-left px-3 py-2">작업자</th>
+                    <th className="text-left px-3 py-2">상세</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {documentRecord.auditLog.map((entry, idx) => (
+                    <tr key={`${entry.at}-${idx}`} className="border-b border-slate-800 align-top">
+                      <td className="px-3 py-2 text-slate-400 whitespace-nowrap">{entry.at}</td>
+                      <td className="px-3 py-2">{entry.action}</td>
+                      <td className="px-3 py-2">{entry.actor}</td>
+                      <td className="px-3 py-2 text-slate-400 break-all">
+                        {entry.details ? JSON.stringify(entry.details) : '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
         )}
       </div>
     </main>
