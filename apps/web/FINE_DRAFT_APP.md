@@ -103,6 +103,19 @@ npm run build
 
 ---
 
+## 배포(컨테이너)
+
+`apps/web`에는 운영 배포용 Dockerfile이 포함되어 있습니다.
+
+```bash
+docker build -t fine-draft-web .
+docker run --rm -p 3000:3000 --env-file .env fine-draft-web
+```
+
+기본 런타임 포트는 `3000`이며, 업로드/감사 로그 데이터는 컨테이너 내부 `.data/fine-draft`에 저장됩니다.
+
+---
+
 ## 주요 API
 
 - `POST /api/fine-mappings/import`
