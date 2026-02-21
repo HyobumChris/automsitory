@@ -30,10 +30,15 @@
 3. **필드 추출**
    - Azure Document Intelligence OCR 실행
    - 환경 미설정 시 `rawTextOverride`로 테스트 가능
+   - 템플릿 프로파일 자동 판별:
+     - `template_a_municipal_notice`
+     - `generic_fallback`
 4. **수동 검토**
    - 차량번호/납부기한/위반사항 수정
 5. **Draft 생성**
    - Microsoft Graph로 Outlook Draft 생성 + 원본 첨부
+6. **감사로그 확인**
+   - 업로드/추출/드래프트 생성 이력 확인
 
 ---
 
@@ -84,3 +89,14 @@ MS365_MAILBOX_USER_ID=
 npm run test
 npm run build
 ```
+
+---
+
+## 주요 API
+
+- `POST /api/fine-mappings/import`
+- `GET /api/fine-mappings`
+- `POST /api/fine-documents/upload`
+- `POST /api/fine-documents/:id/extract`
+- `POST /api/fine-documents/:id/draft`
+- `GET /api/fine-documents/:id`
