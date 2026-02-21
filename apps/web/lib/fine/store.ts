@@ -132,3 +132,31 @@ export async function addAuditLogEntry(params: {
 export function fineDataRootPath(): string {
   return DATA_ROOT;
 }
+
+export async function listFineDocumentRecords(limit = 50): Promise<FineDocumentRecord[]> {
+  await ensureDirectories();
+  const documentIds = await fs.readdir(DOCUMENTS_ROOT, { withFileTypes: true });
+  const records: FineDocumentRecord[] = [];
+
+  for (const entry of documentIds) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const record = await getFineDocumentRecord(entry.name);
+    if (record) {
+      records.push(record);
+    }
+  }
+
+  return records
+    .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt))
+    .slice(0, Math.max(1, limit));
+}
+
+export async function summarizeFineDocumentStatuses(): Promise<Record<string, number>> {
+  const records = await listFineDocumentRecords(1000);
+  return records.reduce<Record<string, number>>((acc, record) => {
+    acc[record.status] = (acc[record.status] ?? 0) + 1;
+    return acc;
+  }, {});
+}
