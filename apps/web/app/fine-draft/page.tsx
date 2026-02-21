@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { FINE_DRAFT_POLICY } from '@/lib/fine/policy';
 import type { FineDocumentRecord, FineExtraction, MappingImportReport } from '@/lib/fine/types';
 
 interface DraftApiResponse {
@@ -71,8 +72,8 @@ export default function FineDraftPage() {
   const [mappingStats, setMappingStats] = useState<{ total: number; active: number; inactive: number } | null>(null);
   const [queueSummary, setQueueSummary] = useState<Record<string, number>>({});
   const [queueRecords, setQueueRecords] = useState<QueueRecord[]>([]);
-  const [purgeDays, setPurgeDays] = useState('90');
-  const [purgeStatuses, setPurgeStatuses] = useState('on_hold,draft_created');
+  const [purgeDays, setPurgeDays] = useState(String(FINE_DRAFT_POLICY.retention.defaultPurgeDays));
+  const [purgeStatuses, setPurgeStatuses] = useState(FINE_DRAFT_POLICY.retention.defaultPurgeStatuses.join(','));
   const [purgeToken, setPurgeToken] = useState('');
   const [purgeDryRun, setPurgeDryRun] = useState(true);
 
@@ -390,6 +391,10 @@ export default function FineDraftPage() {
           <h1 className="text-2xl font-bold">과속과징금 문서 Draft 자동화 (MS365)</h1>
           <p className="text-sm text-slate-400">
             업로드 → OCR 추출 → 차량번호 매핑 → Outlook Draft 생성. 실제 발송은 반드시 사람이 수행합니다.
+          </p>
+          <p className="text-xs text-slate-500">
+            정책: OCR={FINE_DRAFT_POLICY.ocrEngine} / Email={FINE_DRAFT_POLICY.emailProvider} / Send=
+            {FINE_DRAFT_POLICY.sendPolicy}
           </p>
         </header>
 

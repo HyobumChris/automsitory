@@ -12,6 +12,14 @@
 
 > 정책: 자동 발송 금지. 시스템은 Draft만 생성하며, 사용자가 Outlook에서 수동 발송해야 합니다.
 
+## 운영 기본 결정값
+
+- OCR 엔진: `azure_document_intelligence`
+- 이메일 연동: `microsoft_graph`
+- 발송 정책: `manual_only` (자동발송 미지원)
+- 매핑 반입 채널: 관리자 CSV 업로드
+- 기본 보관 정리 기준: 90일, `on_hold,draft_created`
+
 ---
 
 ## 화면 경로
