@@ -43,6 +43,7 @@
 6. **감사로그 확인**
    - 업로드/추출/드래프트 생성 이력 확인
    - 필요시 문서를 `on_hold` 상태로 전환(보류 사유 기록)
+   - 확인 완료 후 `resume`으로 보류 해제 가능
 
 ---
 
@@ -105,4 +106,5 @@ npm run build
 - `POST /api/fine-documents/:id/extract`
 - `POST /api/fine-documents/:id/draft`
 - `POST /api/fine-documents/:id/hold`
+- `POST /api/fine-documents/:id/resume`
 - `GET /api/fine-documents/:id`
