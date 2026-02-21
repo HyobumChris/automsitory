@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { purgeFineDocumentRecords } from '@/lib/fine/store';
+import { listFineDocumentPurgeCandidates, purgeFineDocumentRecords } from '@/lib/fine/store';
 
 export const runtime = 'nodejs';
 
 interface PurgeRequestBody {
   olderThanDays?: number;
   statuses?: string[];
+  dryRun?: boolean;
 }
 
 export async function POST(req: NextRequest) {
@@ -28,13 +29,29 @@ export async function POST(req: NextRequest) {
     ? Math.max(0, Math.floor(body.olderThanDays as number))
     : 30;
   const statuses = Array.isArray(body.statuses) ? body.statuses.filter((status) => typeof status === 'string') : [];
+  const dryRun = body.dryRun === true;
 
-  const result = await purgeFineDocumentRecords({
+  const scope = {
     olderThanDays,
     statuses: statuses.length > 0 ? statuses : undefined,
-  });
+  };
+
+  if (dryRun) {
+    const candidates = await listFineDocumentPurgeCandidates(scope);
+    return NextResponse.json({
+      dryRun: true,
+      purgedCount: 0,
+      candidateCount: candidates.length,
+      candidateIds: candidates.map((record) => record.id),
+      olderThanDays,
+      statuses: statuses.length > 0 ? statuses : 'ALL',
+    });
+  }
+
+  const result = await purgeFineDocumentRecords(scope);
 
   return NextResponse.json({
+    dryRun: false,
     purgedCount: result.purgedCount,
     purgedIds: result.purgedIds,
     olderThanDays,
