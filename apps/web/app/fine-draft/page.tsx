@@ -74,6 +74,7 @@ export default function FineDraftPage() {
   const [purgeDays, setPurgeDays] = useState('90');
   const [purgeStatuses, setPurgeStatuses] = useState('on_hold,draft_created');
   const [purgeToken, setPurgeToken] = useState('');
+  const [purgeDryRun, setPurgeDryRun] = useState(true);
 
   const canExtract = Boolean(documentId);
   const canCreateDraft = Boolean(documentId && extraction);
@@ -129,6 +130,7 @@ export default function FineDraftPage() {
         body: JSON.stringify({
           olderThanDays: Number(purgeDays),
           statuses,
+          dryRun: purgeDryRun,
         }),
       });
       const payload = await response.json();
@@ -136,8 +138,12 @@ export default function FineDraftPage() {
         setStatusMessage(payload.error ?? '정리 작업 실패');
         return;
       }
-      await refreshQueue();
-      setStatusMessage(`정리 완료: ${payload.purgedCount}건 삭제`);
+      if (payload.dryRun) {
+        setStatusMessage(`드라이런 완료: 삭제 후보 ${payload.candidateCount}건`);
+      } else {
+        await refreshQueue();
+        setStatusMessage(`정리 완료: ${payload.purgedCount}건 삭제`);
+      }
     } catch (error) {
       setStatusMessage(String(error));
     } finally {
@@ -684,8 +690,16 @@ export default function FineDraftPage() {
             disabled={working}
             className="rounded-lg bg-rose-700 hover:bg-rose-600 px-3 py-1.5 text-xs disabled:opacity-50"
           >
-            보관기간 초과 레코드 정리
+            {purgeDryRun ? '정리 드라이런 실행' : '보관기간 초과 레코드 정리'}
           </button>
+          <label className="flex items-center gap-2 text-xs text-slate-300">
+            <input
+              type="checkbox"
+              checked={purgeDryRun}
+              onChange={(event) => setPurgeDryRun(event.target.checked)}
+            />
+            드라이런 모드(실제 삭제 안함)
+          </label>
           <p className="text-xs text-slate-400">
             상태 집계: uploaded {queueSummary.uploaded ?? 0} / extracted {queueSummary.extracted ?? 0} / on_hold{' '}
             {queueSummary.on_hold ?? 0} / draft_created {queueSummary.draft_created ?? 0}
