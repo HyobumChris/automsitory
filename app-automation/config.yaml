@@ -1,0 +1,83 @@
+# ============================================================
+# App Automation Configuration
+# ZeroHarm 안전 체크리스트 자동화 설정
+# ============================================================
+
+# Appium 서버 설정
+appium:
+  host: "127.0.0.1"
+  port: 4723
+
+# Android 디바이스 설정
+device:
+  platform_name: "Android"
+  # 실제 디바이스 이름으로 변경 (adb devices 로 확인)
+  device_name: "emulator-5554"
+  # Android 버전 (설정 > 휴대전화 정보 에서 확인)
+  platform_version: "13"
+  # 자동화 엔진 (UiAutomator2 권장)
+  automation_name: "UiAutomator2"
+  # 앱 재설치 없이 실행
+  no_reset: true
+
+# ZeroHarm 앱 설정
+app:
+  # 앱 패키지명 (adb shell pm list packages | grep zeroharm 으로 확인)
+  package: "com.zeroharm.app"
+  # 시작 Activity (adb shell dumpsys activity activities | grep zeroharm 으로 확인)
+  activity: "com.zeroharm.app.MainActivity"
+
+# 자동화 타이밍 설정 (초 단위)
+timing:
+  # 앱 실행 후 로딩 대기
+  app_launch_wait: 5
+  # 화면 전환 대기
+  screen_transition_wait: 2
+  # 요소 클릭 후 대기
+  after_click_wait: 1
+  # 요소 검색 최대 대기 (implicit wait)
+  implicit_wait: 10
+  # 명시적 대기 최대 시간
+  explicit_wait: 15
+
+# 안전 체크리스트 시나리오 설정
+checklist:
+  # 체크리스트 메뉴 접근 경로
+  menu_path:
+    - text: "안전점검"       # 또는 "Safety Check" (앱 언어에 따라)
+    - text: "체크리스트"     # 또는 "Checklist"
+
+  # 체크리스트 항목 응답 방식
+  # "check_all"   : 모든 항목을 체크(적합) 처리
+  # "by_config"   : items 목록에 따라 개별 설정
+  response_mode: "check_all"
+
+  # response_mode가 "by_config"일 때 사용
+  # 각 항목의 인덱스(0부터)와 응답 값 지정
+  items:
+    - index: 0
+      action: "check"       # check, uncheck, skip
+    - index: 1
+      action: "check"
+    - index: 2
+      action: "check"
+    # 필요한 만큼 추가...
+
+  # 체크리스트 완료 후 동작
+  on_complete:
+    submit: true             # 제출 버튼 클릭
+    screenshot: true         # 완료 화면 스크린샷 저장
+    close_app: true          # 앱 종료
+
+# 스크린샷 저장 설정
+screenshot:
+  enabled: true
+  save_dir: "./screenshots"
+  # 파일명 형식 (Python strftime 포맷)
+  filename_format: "zeroharm_%Y%m%d_%H%M%S.png"
+
+# 로깅 설정
+logging:
+  level: "INFO"              # DEBUG, INFO, WARNING, ERROR
+  # 로그 파일 경로 (null이면 콘솔만 출력)
+  file: "./logs/automation.log"
