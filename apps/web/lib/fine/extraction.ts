@@ -1,8 +1,9 @@
-import type { ExtractedField, FineExtraction, OcrSource } from '@/lib/fine/types';
+import type { ExtractedField, ExtractionProfile, FineExtraction, OcrSource } from '@/lib/fine/types';
 import { coerceIsoDate, normalizeVehicleNumber } from '@/lib/fine/normalization';
 
 const VEHICLE_NUMBER_PATTERN = /\d{2,3}[가-힣]\d{4}/g;
 const DATE_PATTERN = /20\d{2}[.\-/년\s]+\d{1,2}[.\-/월\s]+\d{1,2}/g;
+const TEMPLATE_A_ANCHORS = ['차량번호', '자동차등록번호', '납부기한', '기한내', '가산금', '위반내용', '위반사항', '주정차', '단속장소', '단속일시'] as const;
 
 function clampConfidence(input: number): number {
   if (input < 0) {
@@ -80,15 +81,56 @@ function extractViolationDetails(lines: string[]): ExtractedField {
   return buildField('', 0, '');
 }
 
+function detectExtractionProfile(lines: string[]): {
+  profile: ExtractionProfile;
+  matchedAnchors: string[];
+} {
+  const joined = lines.join('\n');
+  const matchedAnchors = TEMPLATE_A_ANCHORS.filter((anchor) => joined.includes(anchor));
+  const profile: ExtractionProfile =
+    matchedAnchors.length >= 3 ? 'template_a_municipal_notice' : 'generic_fallback';
+  return { profile, matchedAnchors };
+}
+
+function extractUsingTemplateA(lines: string[]): {
+  vehicleNumber: ExtractedField;
+  paymentDeadline: ExtractedField;
+  violationDetails: ExtractedField;
+} {
+  const vehicleNumber = extractVehicleNumber(lines);
+  const paymentDeadline = extractPaymentDeadline(lines);
+  const violationDetails = extractViolationDetails(lines);
+  return { vehicleNumber, paymentDeadline, violationDetails };
+}
+
+function extractUsingGenericFallback(lines: string[]): {
+  vehicleNumber: ExtractedField;
+  paymentDeadline: ExtractedField;
+  violationDetails: ExtractedField;
+} {
+  const vehicleNumber = extractVehicleNumber(lines);
+  const paymentDeadline = extractPaymentDeadline(lines);
+  const violationDetails = extractViolationDetails(lines);
+  return {
+    vehicleNumber: { ...vehicleNumber, confidence: clampConfidence(vehicleNumber.confidence * 0.9) },
+    paymentDeadline: { ...paymentDeadline, confidence: clampConfidence(paymentDeadline.confidence * 0.9) },
+    violationDetails: { ...violationDetails, confidence: clampConfidence(violationDetails.confidence * 0.9) },
+  };
+}
+
 export function extractFineFields(rawText: string, ocrSource: OcrSource): FineExtraction {
   const lines = rawText
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
 
-  const vehicleNumber = extractVehicleNumber(lines);
-  const paymentDeadline = extractPaymentDeadline(lines);
-  const violationDetails = extractViolationDetails(lines);
+  const { profile, matchedAnchors } = detectExtractionProfile(lines);
+  const extraction =
+    profile === 'template_a_municipal_notice'
+      ? extractUsingTemplateA(lines)
+      : extractUsingGenericFallback(lines);
+
+  const { vehicleNumber, paymentDeadline, violationDetails } = extraction;
   const confidenceValues = [vehicleNumber.confidence, paymentDeadline.confidence, violationDetails.confidence];
   const overallConfidence = clampConfidence(
     confidenceValues.reduce((sum, value) => sum + value, 0) / confidenceValues.length,
@@ -96,6 +138,7 @@ export function extractFineFields(rawText: string, ocrSource: OcrSource): FineEx
 
   return {
     ocrSource,
+    profile,
     rawText,
     vehicleNumber,
     paymentDeadline,
@@ -106,5 +149,6 @@ export function extractFineFields(rawText: string, ocrSource: OcrSource): FineEx
       vehicleNumber.confidence < 0.9 ||
       paymentDeadline.confidence < 0.85 ||
       violationDetails.confidence < 0.75,
+    matchedAnchors,
   };
 }

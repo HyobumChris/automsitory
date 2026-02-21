@@ -11,13 +11,16 @@ const SAMPLE_NOTICE_TEXT = `
 describe('extractFineFields', () => {
   it('extracts key fields from notice text', () => {
     const extraction = extractFineFields(SAMPLE_NOTICE_TEXT, 'manual_override');
+    expect(extraction.profile).toBe('template_a_municipal_notice');
     expect(extraction.vehicleNumber.value).toBe('231하1342');
     expect(extraction.paymentDeadline.value).toBe('2026-02-06');
     expect(extraction.violationDetails.value).toContain('위반');
+    expect(extraction.matchedAnchors.length).toBeGreaterThan(0);
   });
 
   it('marks incomplete extraction as review required', () => {
     const extraction = extractFineFields('빈 문서', 'manual_override');
+    expect(extraction.profile).toBe('generic_fallback');
     expect(extraction.requiresHumanReview).toBe(true);
     expect(extraction.overallConfidence).toBeLessThan(0.9);
   });

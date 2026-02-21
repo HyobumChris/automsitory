@@ -1,6 +1,7 @@
 export type DocumentStatus = 'uploaded' | 'extracted' | 'draft_created';
 
 export type OcrSource = 'azure_document_intelligence' | 'manual_override';
+export type ExtractionProfile = 'template_a_municipal_notice' | 'generic_fallback';
 
 export interface ExtractedField {
   value: string;
@@ -10,12 +11,14 @@ export interface ExtractedField {
 
 export interface FineExtraction {
   ocrSource: OcrSource;
+  profile: ExtractionProfile;
   rawText: string;
   vehicleNumber: ExtractedField;
   paymentDeadline: ExtractedField;
   violationDetails: ExtractedField;
   overallConfidence: number;
   requiresHumanReview: boolean;
+  matchedAnchors: string[];
 }
 
 export interface DraftResult {
