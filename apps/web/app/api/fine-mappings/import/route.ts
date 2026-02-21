@@ -22,6 +22,16 @@ export async function POST(req: NextRequest) {
       { status: 403 },
     );
   }
+  const requiredApprovalToken = process.env.MAPPING_IMPORT_APPROVAL_TOKEN;
+  if (requiredApprovalToken) {
+    const providedToken = req.headers.get('x-security-approval-token');
+    if (!providedToken || providedToken !== requiredApprovalToken) {
+      return NextResponse.json(
+        { error: 'Valid security approval token is required for mapping import.' },
+        { status: 403 },
+      );
+    }
+  }
   if (!body.csvText || body.csvText.trim().length === 0) {
     return NextResponse.json({ error: 'csvText is required.' }, { status: 400 });
   }

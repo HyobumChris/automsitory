@@ -52,6 +52,7 @@ export default function FineDraftPage() {
     'vehicle_number,email,employee_id,employee_name,status\n231하1342,hyo-bum.bae@lr.org,E0001,Bae Hyobum,active',
   );
   const [securityApproved, setSecurityApproved] = useState(false);
+  const [approvalToken, setApprovalToken] = useState('');
   const [mappingReport, setMappingReport] = useState<MappingImportReport | null>(null);
   const [mappingStats, setMappingStats] = useState<{ total: number; active: number; inactive: number } | null>(null);
 
@@ -242,7 +243,10 @@ export default function FineDraftPage() {
     try {
       const response = await fetch('/api/fine-mappings/import', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(approvalToken ? { 'x-security-approval-token': approvalToken } : {}),
+        },
         body: JSON.stringify({
           csvText,
           securityApproved,
@@ -293,6 +297,15 @@ export default function FineDraftPage() {
               onChange={(event) => setSecurityApproved(event.target.checked)}
             />
             보안 승인 완료 (실데이터 반입 가능)
+          </label>
+          <label className="block text-sm text-slate-300">
+            보안 승인 토큰(선택, 서버 설정 시 필수)
+            <input
+              className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm"
+              value={approvalToken}
+              onChange={(event) => setApprovalToken(event.target.value)}
+              placeholder="x-security-approval-token"
+            />
           </label>
           <button
             type="button"

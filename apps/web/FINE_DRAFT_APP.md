@@ -25,6 +25,7 @@
 1. **매핑 반입**
    - CSV 업로드(텍스트 입력) 후 보안 승인 체크
    - 포맷 검증(차량번호 형식/이메일 형식/중복)
+   - 서버에 `MAPPING_IMPORT_APPROVAL_TOKEN` 설정 시 승인 토큰도 함께 제출
 2. **문서 업로드**
    - PDF/JPG/PNG 파일 업로드
 3. **필드 추출**
@@ -77,6 +78,7 @@ MS365_TENANT_ID=
 MS365_CLIENT_ID=
 MS365_CLIENT_SECRET=
 MS365_MAILBOX_USER_ID=
+MAPPING_IMPORT_APPROVAL_TOKEN=
 ```
 
 필수 권한(앱 권한): `Mail.ReadWrite`
