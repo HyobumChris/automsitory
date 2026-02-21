@@ -56,6 +56,40 @@ describe('purge route', () => {
     expect(listPayload.records.map((row) => row.id)).toContain(newRecord.id);
   });
 
+  it('supports dryRun mode without deleting candidates', async () => {
+    const oldRecord = await createFineDocumentRecord({
+      originalFileName: 'old-dryrun.txt',
+      mimeType: 'text/plain',
+      uploadedBy: 'ops',
+      fileBuffer: Buffer.from('old', 'utf-8'),
+    });
+    await updateFineDocumentRecord(oldRecord.id, (record) => ({
+      ...record,
+      status: 'on_hold',
+      uploadedAt: '2024-01-01T00:00:00.000Z',
+    }));
+
+    const dryRunRequest = new NextRequest('http://localhost/api/fine-documents/purge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        olderThanDays: 30,
+        statuses: ['on_hold'],
+        dryRun: true,
+      }),
+    });
+    const dryRunResponse = await purgePost(dryRunRequest);
+    expect(dryRunResponse.status).toBe(200);
+    const dryPayload = (await dryRunResponse.json()) as { dryRun: boolean; candidateCount: number; candidateIds: string[] };
+    expect(dryPayload.dryRun).toBe(true);
+    expect(dryPayload.candidateCount).toBe(1);
+    expect(dryPayload.candidateIds).toContain(oldRecord.id);
+
+    const listResponse = await listDocuments(new NextRequest('http://localhost/api/fine-documents?limit=10'));
+    const listPayload = (await listResponse.json()) as { records: Array<{ id: string }> };
+    expect(listPayload.records.map((row) => row.id)).toContain(oldRecord.id);
+  });
+
   it('requires token when PURGE_API_TOKEN is configured', async () => {
     vi.stubEnv('PURGE_API_TOKEN', 'secret-token');
 
