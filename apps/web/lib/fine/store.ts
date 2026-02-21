@@ -160,3 +160,36 @@ export async function summarizeFineDocumentStatuses(): Promise<Record<string, nu
     return acc;
   }, {});
 }
+
+export async function purgeFineDocumentRecords(params: {
+  olderThanDays: number;
+  statuses?: string[];
+}): Promise<{ purgedCount: number; purgedIds: string[] }> {
+  const olderThanDays = Math.max(0, Math.floor(params.olderThanDays));
+  const cutoff = Date.now() - olderThanDays * 24 * 60 * 60 * 1000;
+  const statusSet = params.statuses?.length ? new Set(params.statuses) : null;
+
+  const records = await listFineDocumentRecords(5000);
+  const targetRecords = records.filter((record) => {
+    const uploadedTs = Date.parse(record.uploadedAt);
+    if (Number.isNaN(uploadedTs)) {
+      return false;
+    }
+    if (uploadedTs > cutoff) {
+      return false;
+    }
+    if (statusSet && !statusSet.has(record.status)) {
+      return false;
+    }
+    return true;
+  });
+
+  for (const record of targetRecords) {
+    await fs.rm(documentDirectory(record.id), { recursive: true, force: true });
+  }
+
+  return {
+    purgedCount: targetRecords.length,
+    purgedIds: targetRecords.map((record) => record.id),
+  };
+}
