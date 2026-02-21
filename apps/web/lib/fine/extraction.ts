@@ -65,7 +65,7 @@ function extractViolationDetails(lines: string[]): ExtractedField {
   const anchored = linesNearKeyword(lines, /(위반내용|위반사항|주정차|단속장소|단속일시)/);
   for (const line of anchored) {
     const cleaned = line.replace(/\s+/g, ' ').trim();
-    if (cleaned.length >= 5) {
+    if (cleaned.length >= 5 && /(위반|주정차|단속)/.test(cleaned)) {
       return buildField(cleaned, 0.9, line);
     }
   }

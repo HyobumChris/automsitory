@@ -60,7 +60,7 @@ async function runAzureDocumentIntelligence(fileBytes: Buffer, mimeType: string)
       'Content-Type': mimeType || 'application/octet-stream',
       'Ocp-Apim-Subscription-Key': config.key,
     },
-    body: fileBytes,
+    body: fileBytes as unknown as BodyInit,
     cache: 'no-store',
   });
 
