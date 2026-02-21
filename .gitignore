@@ -12,6 +12,7 @@ node_modules/
 .next/
 .turbo/
 out/
+.data/
 
 # IDE
 .idea/

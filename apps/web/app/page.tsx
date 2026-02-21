@@ -97,30 +97,38 @@ export default function Home() {
               LR Pt4 Ch8 2.3 &middot; Tables 8.2.1 / 8.2.2 &middot; Measure 1–5 Auto-Determination
             </p>
           </div>
-          <label className="flex items-center gap-2 cursor-pointer bg-slate-700/50 rounded-lg px-3 py-2 hover:bg-slate-700 transition">
-            <svg className="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-            </svg>
-            <span className="text-xs text-slate-300">Load Results JSON</span>
-            <input
-              type="file"
-              accept=".json"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) {
-                  const reader = new FileReader();
-                  reader.onload = (ev) => {
-                    try {
-                      const data = JSON.parse(ev.target?.result as string);
-                      handleLoadResults(data);
-                    } catch {}
-                  };
-                  reader.readAsText(file);
-                }
-              }}
-            />
-          </label>
+          <div className="flex items-center gap-2">
+            <a
+              href="/fine-draft"
+              className="text-xs text-cyan-300 border border-cyan-400/40 rounded-lg px-3 py-2 hover:bg-cyan-400/10 transition"
+            >
+              과속과징금 Draft 앱
+            </a>
+            <label className="flex items-center gap-2 cursor-pointer bg-slate-700/50 rounded-lg px-3 py-2 hover:bg-slate-700 transition">
+              <svg className="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+              <span className="text-xs text-slate-300">Load Results JSON</span>
+              <input
+                type="file"
+                accept=".json"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                      try {
+                        const data = JSON.parse(ev.target?.result as string);
+                        handleLoadResults(data);
+                      } catch {}
+                    };
+                    reader.readAsText(file);
+                  }
+                }}
+              />
+            </label>
+          </div>
         </div>
       </header>
 
