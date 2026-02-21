@@ -1,4 +1,4 @@
-export type DocumentStatus = 'uploaded' | 'extracted' | 'draft_created';
+export type DocumentStatus = 'uploaded' | 'extracted' | 'on_hold' | 'draft_created';
 
 export type OcrSource = 'azure_document_intelligence' | 'manual_override';
 export type ExtractionProfile = 'template_a_municipal_notice' | 'generic_fallback';

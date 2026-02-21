@@ -40,6 +40,7 @@ export default function FineDraftPage() {
   const [formVehicleNumber, setFormVehicleNumber] = useState('');
   const [formPaymentDeadline, setFormPaymentDeadline] = useState('');
   const [formViolationDetails, setFormViolationDetails] = useState('');
+  const [holdReason, setHoldReason] = useState('');
   const [draftResult, setDraftResult] = useState<DraftApiResponse | null>(null);
   const [recipientCandidates, setRecipientCandidates] = useState<DraftErrorResponse['candidates']>([]);
   const [selectedRecipientEmail, setSelectedRecipientEmail] = useState('');
@@ -199,6 +200,35 @@ export default function FineDraftPage() {
       setDraftResult(payload as DraftApiResponse);
       await refreshDocumentRecord(documentId);
       setStatusMessage('Draft 생성 완료. 정책상 실제 발송은 Outlook에서 수동으로 진행해야 합니다.');
+    } catch (error) {
+      setStatusMessage(String(error));
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const onHoldDocument = async () => {
+    if (!documentId) {
+      return;
+    }
+    setWorking(true);
+    setStatusMessage('');
+    try {
+      const response = await fetch(`/api/fine-documents/${documentId}/hold`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actor: uploadedBy,
+          reason: holdReason || undefined,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        setStatusMessage(payload.error ?? '보류 처리 실패');
+        return;
+      }
+      await refreshDocumentRecord(documentId);
+      setStatusMessage('문서를 보류 상태로 전환했습니다. 사유를 확인 후 재처리하세요.');
     } catch (error) {
       setStatusMessage(String(error));
     } finally {
@@ -395,6 +425,25 @@ export default function FineDraftPage() {
           >
             Outlook Draft 생성
           </button>
+          <div className="grid md:grid-cols-[1fr_auto] gap-2 items-end">
+            <label className="text-sm text-slate-300">
+              보류 사유
+              <input
+                className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm"
+                value={holdReason}
+                onChange={(event) => setHoldReason(event.target.value)}
+                placeholder="예: 수신자 확인 필요"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={onHoldDocument}
+              disabled={!documentId || working}
+              className="rounded-lg bg-amber-600 hover:bg-amber-500 px-4 py-2 text-sm font-semibold disabled:opacity-50"
+            >
+              보류 처리
+            </button>
+          </div>
 
           {recipientCandidates && recipientCandidates.length > 0 && (
             <label className="block text-sm text-slate-300">
