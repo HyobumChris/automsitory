@@ -37,6 +37,7 @@
    - 필드별 근거(`sourceText`, `sourceSpan`)를 함께 저장
 4. **수동 검토**
    - 차량번호/납부기한/위반사항 수정
+   - 신뢰도 미달 시 `수동 검토 완료` 체크가 있어야 Draft 생성 가능
 5. **Draft 생성**
    - Microsoft Graph로 Outlook Draft 생성 + 원본 첨부
    - 동일 차량번호 다중 매핑 시 수신자 후보를 사용자 선택 후 Draft 생성

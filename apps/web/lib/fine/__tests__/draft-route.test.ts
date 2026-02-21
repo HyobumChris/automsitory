@@ -80,4 +80,38 @@ describe('draft route recipient conflict handling', () => {
     expect(updated?.status).toBe('draft_created');
     expect(updated?.recipientEmail).toBe('other.user@lr.org');
   });
+
+  it('requires human review confirmation when extraction confidence is low', async () => {
+    await importVehicleEmailMappings('vehicle_number,email\n231하1342,hyo-bum.bae@lr.org');
+
+    const record = await createFineDocumentRecord({
+      originalFileName: 'notice.txt',
+      mimeType: 'text/plain',
+      uploadedBy: 'tester',
+      fileBuffer: Buffer.from('raw notice', 'utf-8'),
+    });
+    await updateFineDocumentRecord(record.id, (existing) => ({
+      ...existing,
+      status: 'extracted',
+      extraction: extractFineFields('231하1342\n2026.02.06\n속도위반', 'manual_override'),
+    }));
+
+    const requestWithoutConfirm = new NextRequest('http://localhost/api/fine-documents/id/draft', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actor: 'tester' }),
+    });
+    const blockedResponse = await draftPost(requestWithoutConfirm, { params: Promise.resolve({ id: record.id }) });
+    expect(blockedResponse.status).toBe(409);
+    const blockedPayload = (await blockedResponse.json()) as { errorCode?: string };
+    expect(blockedPayload.errorCode).toBe('HUMAN_REVIEW_REQUIRED');
+
+    const requestWithConfirm = new NextRequest('http://localhost/api/fine-documents/id/draft', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actor: 'tester', confirmHumanReview: true }),
+    });
+    const successResponse = await draftPost(requestWithConfirm, { params: Promise.resolve({ id: record.id }) });
+    expect(successResponse.status).toBe(200);
+  });
 });

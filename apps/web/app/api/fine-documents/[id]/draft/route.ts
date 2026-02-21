@@ -11,6 +11,7 @@ export const runtime = 'nodejs';
 interface DraftRequestBody {
   actor?: string;
   recipientEmailOverride?: string;
+  confirmHumanReview?: boolean;
   overrideFields?: {
     vehicleNumber?: string;
     paymentDeadline?: string;
@@ -43,6 +44,20 @@ export async function POST(
   );
   const paymentDeadline = body.overrideFields?.paymentDeadline || record.extraction.paymentDeadline.value;
   const violationDetails = body.overrideFields?.violationDetails || record.extraction.violationDetails.value;
+
+  if (record.extraction.requiresHumanReview && !body.confirmHumanReview) {
+    return NextResponse.json(
+      {
+        error: 'Extraction requires human review confirmation before draft creation.',
+        errorCode: 'HUMAN_REVIEW_REQUIRED',
+        extraction: {
+          overallConfidence: record.extraction.overallConfidence,
+          profile: record.extraction.profile,
+        },
+      },
+      { status: 409 },
+    );
+  }
 
   if (!vehicleNumber || !paymentDeadline || !violationDetails) {
     return NextResponse.json(

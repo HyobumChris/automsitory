@@ -54,6 +54,7 @@ export default function FineDraftPage() {
   const [formViolationDetails, setFormViolationDetails] = useState('');
   const [holdReason, setHoldReason] = useState('');
   const [resumeReason, setResumeReason] = useState('');
+  const [reviewConfirmed, setReviewConfirmed] = useState(false);
   const [draftResult, setDraftResult] = useState<DraftApiResponse | null>(null);
   const [recipientCandidates, setRecipientCandidates] = useState<DraftErrorResponse['candidates']>([]);
   const [selectedRecipientEmail, setSelectedRecipientEmail] = useState('');
@@ -148,6 +149,7 @@ export default function FineDraftPage() {
       setRecipientCandidates([]);
       setSelectedRecipientEmail('');
       setExtraction(null);
+      setReviewConfirmed(false);
       setDocumentRecord(null);
       await refreshDocumentRecord(payload.id);
       setStatusMessage(`업로드 완료. 문서 ID: ${payload.id}`);
@@ -184,6 +186,7 @@ export default function FineDraftPage() {
       setFormViolationDetails(payload.extraction.violationDetails.value);
       setRecipientCandidates([]);
       setSelectedRecipientEmail('');
+      setReviewConfirmed(!payload.extraction.requiresHumanReview);
       await refreshDocumentRecord(documentId);
       setStatusMessage('필드 추출 완료. 필요한 경우 값을 수정한 뒤 Draft를 생성하세요.');
     } catch (error) {
@@ -206,6 +209,7 @@ export default function FineDraftPage() {
         body: JSON.stringify({
           actor: uploadedBy,
           recipientEmailOverride: selectedRecipientEmail || undefined,
+          confirmHumanReview: reviewConfirmed,
           overrideFields: {
             vehicleNumber: formVehicleNumber,
             paymentDeadline: formPaymentDeadline,
@@ -222,6 +226,10 @@ export default function FineDraftPage() {
             setSelectedRecipientEmail(errorPayload.candidates[0].email);
           }
           setStatusMessage('동일 차량번호에 다수 수신자가 있어 선택이 필요합니다.');
+          return;
+        }
+        if (errorPayload.errorCode === 'HUMAN_REVIEW_REQUIRED') {
+          setStatusMessage('신뢰도 미달 문서입니다. 수동 검토 확인 후 Draft를 생성하세요.');
           return;
         }
         if (errorPayload.candidates?.length) {
@@ -459,6 +467,16 @@ export default function FineDraftPage() {
               </span>
               <span className="text-slate-400">프로파일: {extraction.profile}</span>
             </div>
+          )}
+          {extraction?.requiresHumanReview && (
+            <label className="flex items-center gap-2 text-sm text-amber-200">
+              <input
+                type="checkbox"
+                checked={reviewConfirmed}
+                onChange={(event) => setReviewConfirmed(event.target.checked)}
+              />
+              추출값 수동 검토 완료 (확인 후에만 Draft 생성)
+            </label>
           )}
           {extraction && extraction.matchedAnchors.length > 0 && (
             <p className="text-xs text-slate-400">
