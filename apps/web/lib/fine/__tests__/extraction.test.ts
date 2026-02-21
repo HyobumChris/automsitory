@@ -13,8 +13,11 @@ describe('extractFineFields', () => {
     const extraction = extractFineFields(SAMPLE_NOTICE_TEXT, 'manual_override');
     expect(extraction.profile).toBe('template_a_municipal_notice');
     expect(extraction.vehicleNumber.value).toBe('231하1342');
+    expect(extraction.vehicleNumber.sourceSpan).not.toBeNull();
     expect(extraction.paymentDeadline.value).toBe('2026-02-06');
+    expect(extraction.paymentDeadline.sourceSpan).not.toBeNull();
     expect(extraction.violationDetails.value).toContain('위반');
+    expect(extraction.violationDetails.sourceSpan).not.toBeNull();
     expect(extraction.matchedAnchors.length).toBeGreaterThan(0);
   });
 

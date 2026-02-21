@@ -34,6 +34,7 @@
    - 템플릿 프로파일 자동 판별:
      - `template_a_municipal_notice`
      - `generic_fallback`
+   - 필드별 근거(`sourceText`, `sourceSpan`)를 함께 저장
 4. **수동 검토**
    - 차량번호/납부기한/위반사항 수정
 5. **Draft 생성**

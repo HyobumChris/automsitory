@@ -20,6 +20,7 @@ function buildField(value: string, confidence: number, sourceText: string): Extr
     value: value.trim(),
     confidence: clampConfidence(confidence),
     sourceText: sourceText.trim(),
+    sourceSpan: null,
   };
 }
 
@@ -118,6 +119,23 @@ function extractUsingGenericFallback(lines: string[]): {
   };
 }
 
+function withSourceSpan(field: ExtractedField, rawText: string): ExtractedField {
+  if (!field.sourceText) {
+    return field;
+  }
+  const start = rawText.indexOf(field.sourceText);
+  if (start < 0) {
+    return field;
+  }
+  return {
+    ...field,
+    sourceSpan: {
+      start,
+      end: start + field.sourceText.length,
+    },
+  };
+}
+
 export function extractFineFields(rawText: string, ocrSource: OcrSource): FineExtraction {
   const lines = rawText
     .split(/\r?\n/)
@@ -130,7 +148,9 @@ export function extractFineFields(rawText: string, ocrSource: OcrSource): FineEx
       ? extractUsingTemplateA(lines)
       : extractUsingGenericFallback(lines);
 
-  const { vehicleNumber, paymentDeadline, violationDetails } = extraction;
+  const vehicleNumber = withSourceSpan(extraction.vehicleNumber, rawText);
+  const paymentDeadline = withSourceSpan(extraction.paymentDeadline, rawText);
+  const violationDetails = withSourceSpan(extraction.violationDetails, rawText);
   const confidenceValues = [vehicleNumber.confidence, paymentDeadline.confidence, violationDetails.confidence];
   const overallConfidence = clampConfidence(
     confidenceValues.reduce((sum, value) => sum + value, 0) / confidenceValues.length,

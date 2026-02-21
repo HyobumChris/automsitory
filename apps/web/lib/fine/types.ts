@@ -7,6 +7,7 @@ export interface ExtractedField {
   value: string;
   confidence: number;
   sourceText: string;
+  sourceSpan: { start: number; end: number } | null;
 }
 
 export interface FineExtraction {
