@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { findRecipientByVehicleNumber } from '@/lib/fine/mapping';
+import { lookupRecipientsByVehicleNumber } from '@/lib/fine/mapping';
 import { createOutlookDraft } from '@/lib/fine/graph';
 import { buildDraftBody, buildDraftSubject } from '@/lib/fine/templates';
 import { getFineDocumentRecord, readStoredDocumentFile, updateFineDocumentRecord } from '@/lib/fine/store';
 import { normalizeVehicleNumber } from '@/lib/fine/normalization';
+import type { VehicleEmailMappingRow } from '@/lib/fine/types';
 
 export const runtime = 'nodejs';
 
 interface DraftRequestBody {
   actor?: string;
+  recipientEmailOverride?: string;
   overrideFields?: {
     vehicleNumber?: string;
     paymentDeadline?: string;
@@ -51,15 +53,64 @@ export async function POST(
     );
   }
 
-  const recipient = await findRecipientByVehicleNumber(vehicleNumber);
-  if (!recipient) {
+  const lookup = await lookupRecipientsByVehicleNumber(vehicleNumber);
+  if (lookup.active.length === 0) {
+    const hasInactiveOnly = lookup.inactive.length > 0;
     return NextResponse.json(
-      { error: `No active recipient mapping found for vehicle number ${vehicleNumber}.` },
-      { status: 404 },
+      {
+        error: hasInactiveOnly
+          ? `Vehicle ${vehicleNumber} is mapped only to inactive accounts.`
+          : `No active recipient mapping found for vehicle number ${vehicleNumber}.`,
+        errorCode: hasInactiveOnly ? 'INACTIVE_RECIPIENT_ONLY' : 'RECIPIENT_NOT_FOUND',
+        candidates: lookup.inactive.map((row) => ({
+          email: row.email,
+          employeeId: row.employeeId,
+          employeeName: row.employeeName,
+          status: row.status,
+        })),
+      },
+      { status: hasInactiveOnly ? 409 : 404 },
     );
   }
 
   try {
+    let recipient: VehicleEmailMappingRow;
+    if (body.recipientEmailOverride) {
+      const matched = lookup.active.find((row) => row.email === body.recipientEmailOverride);
+      if (!matched) {
+        return NextResponse.json(
+          {
+            error: `recipientEmailOverride must match one of active mapping candidates for vehicle ${vehicleNumber}.`,
+            errorCode: 'INVALID_RECIPIENT_OVERRIDE',
+            candidates: lookup.active.map((row) => ({
+              email: row.email,
+              employeeId: row.employeeId,
+              employeeName: row.employeeName,
+              status: row.status,
+            })),
+          },
+          { status: 400 },
+        );
+      }
+      recipient = matched;
+    } else if (lookup.active.length > 1) {
+      return NextResponse.json(
+        {
+          error: `Multiple active recipients found for vehicle ${vehicleNumber}. Select recipientEmailOverride.`,
+          errorCode: 'RECIPIENT_CONFLICT',
+          candidates: lookup.active.map((row) => ({
+            email: row.email,
+            employeeId: row.employeeId,
+            employeeName: row.employeeName,
+            status: row.status,
+          })),
+        },
+        { status: 409 },
+      );
+    } else {
+      recipient = lookup.active[0];
+    }
+
     const subject = buildDraftSubject({ vehicleNumber, paymentDeadline });
     const bodyText = buildDraftBody({
       recipientEmail: recipient.email,

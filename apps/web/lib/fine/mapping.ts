@@ -83,8 +83,6 @@ export function parseVehicleEmailCsv(csvText: string): {
 
     if (seen.has(vehicleNumberNormalized)) {
       duplicates.add(vehicleNumberNormalized);
-      report.errors.push(`Row ${rowNumber}: duplicate vehicle number (${vehicleNumberNormalized}).`);
-      return;
     }
     seen.add(vehicleNumberNormalized);
 
@@ -120,6 +118,18 @@ export async function findRecipientByVehicleNumber(
   const normalized = normalizeVehicleNumber(vehicleNumber);
   const rows = await readMappings();
   return rows.find((row) => row.vehicleNumberNormalized === normalized && row.status === 'active') ?? null;
+}
+
+export async function lookupRecipientsByVehicleNumber(
+  vehicleNumber: string,
+): Promise<{ active: VehicleEmailMappingRow[]; inactive: VehicleEmailMappingRow[] }> {
+  const normalized = normalizeVehicleNumber(vehicleNumber);
+  const rows = await readMappings();
+  const matches = rows.filter((row) => row.vehicleNumberNormalized === normalized);
+  return {
+    active: matches.filter((row) => row.status === 'active'),
+    inactive: matches.filter((row) => row.status === 'inactive'),
+  };
 }
 
 export async function mappingStats(): Promise<{ total: number; active: number; inactive: number }> {

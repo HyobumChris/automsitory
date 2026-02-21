@@ -20,6 +20,17 @@ interface DraftApiResponse {
   };
 }
 
+interface DraftErrorResponse {
+  error?: string;
+  errorCode?: string;
+  candidates?: Array<{
+    email: string;
+    employeeId: string;
+    employeeName: string;
+    status: string;
+  }>;
+}
+
 export default function FineDraftPage() {
   const [uploadedBy, setUploadedBy] = useState('ops-team');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -30,6 +41,8 @@ export default function FineDraftPage() {
   const [formPaymentDeadline, setFormPaymentDeadline] = useState('');
   const [formViolationDetails, setFormViolationDetails] = useState('');
   const [draftResult, setDraftResult] = useState<DraftApiResponse | null>(null);
+  const [recipientCandidates, setRecipientCandidates] = useState<DraftErrorResponse['candidates']>([]);
+  const [selectedRecipientEmail, setSelectedRecipientEmail] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const [working, setWorking] = useState(false);
   const [documentRecord, setDocumentRecord] = useState<FineDocumentRecord | null>(null);
@@ -97,6 +110,8 @@ export default function FineDraftPage() {
       }
       setDocumentId(payload.id);
       setDraftResult(null);
+      setRecipientCandidates([]);
+      setSelectedRecipientEmail('');
       setExtraction(null);
       setDocumentRecord(null);
       await refreshDocumentRecord(payload.id);
@@ -132,6 +147,8 @@ export default function FineDraftPage() {
       setFormVehicleNumber(payload.extraction.vehicleNumber.value);
       setFormPaymentDeadline(payload.extraction.paymentDeadline.value);
       setFormViolationDetails(payload.extraction.violationDetails.value);
+      setRecipientCandidates([]);
+      setSelectedRecipientEmail('');
       await refreshDocumentRecord(documentId);
       setStatusMessage('필드 추출 완료. 필요한 경우 값을 수정한 뒤 Draft를 생성하세요.');
     } catch (error) {
@@ -153,6 +170,7 @@ export default function FineDraftPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           actor: uploadedBy,
+          recipientEmailOverride: selectedRecipientEmail || undefined,
           overrideFields: {
             vehicleNumber: formVehicleNumber,
             paymentDeadline: formPaymentDeadline,
@@ -160,11 +178,24 @@ export default function FineDraftPage() {
           },
         }),
       });
-      const payload = (await response.json()) as DraftApiResponse | { error?: string };
+      const payload = (await response.json()) as DraftApiResponse | DraftErrorResponse;
       if (!response.ok) {
-        setStatusMessage((payload as { error?: string }).error ?? 'Draft 생성 실패');
+        const errorPayload = payload as DraftErrorResponse;
+        if (errorPayload.errorCode === 'RECIPIENT_CONFLICT' && errorPayload.candidates?.length) {
+          setRecipientCandidates(errorPayload.candidates);
+          if (!selectedRecipientEmail) {
+            setSelectedRecipientEmail(errorPayload.candidates[0].email);
+          }
+          setStatusMessage('동일 차량번호에 다수 수신자가 있어 선택이 필요합니다.');
+          return;
+        }
+        if (errorPayload.candidates?.length) {
+          setRecipientCandidates(errorPayload.candidates);
+        }
+        setStatusMessage(errorPayload.error ?? 'Draft 생성 실패');
         return;
       }
+      setRecipientCandidates([]);
       setDraftResult(payload as DraftApiResponse);
       await refreshDocumentRecord(documentId);
       setStatusMessage('Draft 생성 완료. 정책상 실제 발송은 Outlook에서 수동으로 진행해야 합니다.');
@@ -364,6 +395,23 @@ export default function FineDraftPage() {
           >
             Outlook Draft 생성
           </button>
+
+          {recipientCandidates && recipientCandidates.length > 0 && (
+            <label className="block text-sm text-slate-300">
+              충돌 수신자 선택
+              <select
+                className="mt-1 w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2 text-sm"
+                value={selectedRecipientEmail}
+                onChange={(event) => setSelectedRecipientEmail(event.target.value)}
+              >
+                {recipientCandidates.map((candidate) => (
+                  <option key={`${candidate.email}-${candidate.employeeId}`} value={candidate.email}>
+                    {candidate.email} ({candidate.employeeName || candidate.employeeId || 'unknown'})
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           {draftResult && (
             <div className="text-xs bg-slate-950 border border-slate-700 rounded-lg p-3 space-y-1">
