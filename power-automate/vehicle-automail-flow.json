@@ -145,6 +145,54 @@
           "example": "GK 해상도로 발행 미납통행료 안내문 — 차량번호/성명 같은 줄 대응"
         }
       ]
+    },
+    "Compose_2": {
+      "type": "Compose",
+      "description": "OCR 전문의 법률 조항/키워드 기반으로 고지서 성격 판별 → 통지서명 부여",
+      "runAfter": {
+        "Compose": ["Succeeded"]
+      },
+      "inputs": "@if(or(contains(outputs('Compose'),'제17조'),contains(outputs('Compose'),'과속')),'과속단속통지서',if(or(or(contains(outputs('Compose'),'제32'),contains(outputs('Compose'),'제33')),or(contains(outputs('Compose'),'제34'),contains(outputs('Compose'),'주정차'))),'주정차위반통지서',if(contains(outputs('Compose'),'통행료'),'미납통행료통지서','기타통지서')))",
+      "_expressionBreakdown": {
+        "overview": "법률 조항 + 키워드 기반으로 고지서 성격을 판별하여 통지서명 부여",
+        "case1_과속": "or(contains('제17조'), contains('과속')) → '과속단속통지서' — 도로교통법 제17조(자동차등의 속도)",
+        "case2_주정차": "or(or(contains('제32'), contains('제33')), or(contains('제34'), contains('주정차'))) → '주정차위반통지서' — 도로교통법 제32~34조(주정차 금지/제한)",
+        "case3_통행료": "contains('통행료') → '미납통행료통지서' — 법률 조항 없이 통행료 키워드 매칭",
+        "fallback": "'기타통지서' — 위 패턴 모두 해당하지 않는 경우"
+      },
+      "_classificationRules": {
+        "과속단속통지서": {
+          "법률": "도로교통법 제17조 (자동차등의 속도)",
+          "키워드": ["제17조", "과속"],
+          "예시문서": "경찰서 발행 과속 과태료 고지서, 사전통지서"
+        },
+        "주정차위반통지서": {
+          "법률": "도로교통법 제32조(정차·주차 금지), 제33조(주차금지 장소), 제34조(주차 방법·시간 제한)",
+          "키워드": ["제32", "제33", "제34", "주정차"],
+          "예시문서": "구청/지자체 주정차위반 과태료 고지서"
+        },
+        "미납통행료통지서": {
+          "법률": "해당없음 (법률 조항 미기재)",
+          "키워드": ["통행료"],
+          "예시문서": "GK 해상도로 미납통행료 납부안내문"
+        }
+      }
+    },
+    "Compose_3": {
+      "type": "Compose",
+      "description": "OCR 전문에서 1차 납부기한 추출 — 납부기한/납기내 패턴 대응",
+      "runAfter": {
+        "Compose": ["Succeeded"]
+      },
+      "inputs": "@if(contains(outputs('Compose'),'납부기한 : '),trim(first(split(first(skip(split(outputs('Compose'),'납부기한 : '),1)),decodeUriComponent('%0A')))),if(contains(outputs('Compose'),'납부기한'),trim(first(split(first(skip(split(outputs('Compose'),'납부기한'),1)),decodeUriComponent('%0A')))),if(contains(outputs('Compose'),'납기내'),trim(first(split(first(skip(split(outputs('Compose'),'납기내'),1)),decodeUriComponent('%0A')))),'추출실패')))",
+      "_expressionBreakdown": {
+        "overview": "중첩 if()로 1차 납부기한 추출",
+        "case1": "contains('납부기한 : ') → '납부기한 : ' 뒤 첫 줄 추출 (가장 일반적, 콜론+공백 포함)",
+        "case2": "contains('납부기한') → '납부기한' 뒤 첫 줄 추출 (구분자 없는 형식)",
+        "case3": "contains('납기내') → '납기내' 뒤 첫 줄 추출 (대안 라벨)",
+        "fallback": "'추출실패' — 납부기한 필드를 찾을 수 없음",
+        "note": "1차/2차 기한이 모두 있는 문서에서 '납부기한' 뒤 첫 번째 값이 1차에 해당"
+      }
     }
   },
   "_todo": {
