@@ -188,14 +188,14 @@
       "runAfter": {
         "Compose": ["Succeeded"]
       },
-      "inputs": "@if(contains(outputs('Compose'),'납부기한 : '),trim(first(split(first(skip(split(outputs('Compose'),'납부기한 : '),1)),decodeUriComponent('%0A')))),if(contains(outputs('Compose'),'납부기한'),trim(first(split(first(skip(split(outputs('Compose'),'납부기한'),1)),decodeUriComponent('%0A')))),if(contains(outputs('Compose'),'납기내'),trim(first(split(first(skip(split(outputs('Compose'),'납기내'),1)),decodeUriComponent('%0A')))),'추출실패')))",
+      "inputs": "@if(contains(outputs('Compose'),'납부기한 : '),trim(first(split(first(skip(split(outputs('Compose'),'납부기한 : '),1)),decodeUriComponent('%0A')))),if(contains(outputs('Compose'),'납부기한'),trim(first(split(last(split(outputs('Compose'),'납부기한')),decodeUriComponent('%0A')))),if(contains(outputs('Compose'),'납기내'),trim(first(split(first(skip(split(outputs('Compose'),'납기내'),1)),decodeUriComponent('%0A')))),'추출실패')))",
       "_expressionBreakdown": {
         "overview": "중첩 if()로 1차 납부기한 추출",
         "case1": "contains('납부기한 : ') → '납부기한 : ' 뒤 첫 줄 추출 (가장 일반적, 콜론+공백 포함)",
-        "case2": "contains('납부기한') → '납부기한' 뒤 첫 줄 추출 (구분자 없는 형식)",
+        "case2": "contains('납부기한') → last(split('납부기한')) 뒤 첫 줄 추출 — '납부기한 경과시...' 경고 문구 회피를 위해 마지막 출현 사용",
         "case3": "contains('납기내') → '납기내' 뒤 첫 줄 추출 (대안 라벨)",
         "fallback": "'추출실패' — 납부기한 필드를 찾을 수 없음",
-        "note": "1차/2차 기한이 모두 있는 문서에서 '납부기한' 뒤 첫 번째 값이 1차에 해당"
+        "note": "Case 1은 콜론 구분자가 있어 경고 문구와 충돌 없음. Case 2는 GK 미납통행료 등에서 '납부기한 경과시'(경고)와 '납부기한 2026년...'(영수증)이 공존하므로 last()로 하단 영수증 섹션을 우선 추출"
       }
     },
     "Compose_4": {
@@ -283,31 +283,136 @@
             "Subject": "과속단속통지서_231허1342_2026.03.15",
             "AttachmentName": "과속단속통지서_231허1342_2026.03.15.pdf"
           }
+        },
+        "Move_file_processed": {
+          "type": "ApiConnection",
+          "connector": "SharePoint",
+          "description": "Draft 생성 성공 후 원본 PDF를 Processed 폴더로 이동 — 중복 처리 방지 및 이력 관리",
+          "runAfter": {
+            "Create_a_draft_(V2)": ["Succeeded"]
+          },
+          "inputs": {
+            "host": {
+              "connection": {
+                "name": "shared_sharepointonline"
+              }
+            },
+            "method": "post",
+            "path": "/datasets/@{encodeURIComponent(encodeURIComponent('https://lloydsregistergroup.sharepoint.com/sites/AutomationTest'))}/files/@{encodeURIComponent(triggerOutputs()['headers']['x-ms-file-id'])}/move",
+            "body": {
+              "destinationPath": "/Test Library/Processed/@{concat(outputs('Compose_4'),'.pdf')}",
+              "nameConflictBehavior": "rename"
+            }
+          },
+          "parameters": {
+            "siteAddress": "Automation Test Site - https://lloydsregistergroup.sharepoint.com/sites/AutomationTest",
+            "sourceFileId": "@triggerOutputs()['headers']['x-ms-file-id']",
+            "destinationFolder": "/Test Library/Processed",
+            "newFileName": "@{concat(outputs('Compose_4'),'.pdf')}",
+            "_note": "파일명을 '고지서성격_차량번호_납부기한.pdf'로 변경하여 이동 — 파일명 충돌 시 자동 rename"
+          }
         }
       },
       "else": {
         "actions": {
           "Compose_no_match": {
             "type": "Compose",
-            "description": "차량번호 매칭 실패 시 로깅",
+            "description": "차량번호 매칭 실패 시 로깅 메시지 생성",
             "inputs": "@concat('매칭 실패: 차량번호 ', outputs('Compose_1'), ' — SharePoint 리스트에 해당 차량번호가 없습니다.')"
+          },
+          "Send_an_email_(V2)_no_match": {
+            "type": "ApiConnection",
+            "connector": "Office 365 Outlook",
+            "description": "차량번호 매칭 실패 시 관리자에게 알림 이메일 발송",
+            "runAfter": {
+              "Compose_no_match": ["Succeeded"]
+            },
+            "inputs": {
+              "host": {
+                "connection": {
+                  "name": "shared_office365"
+                }
+              },
+              "method": "post",
+              "path": "/v2/Mail",
+              "body": {
+                "To": "hyo-bum.bae@lr.org",
+                "Subject": "[Vehicle Automail] 매칭 실패 — @{outputs('Compose_1')}",
+                "Body": "<p><b>차량번호 매칭 실패 알림</b></p><p>SharePoint 리스트(VehicleEmailMapping)에서 아래 차량번호에 해당하는 담당자를 찾을 수 없습니다.</p><ul><li>차량번호: @{outputs('Compose_1')}</li><li>고지서 성격: @{outputs('Compose_2')}</li><li>납부기한: @{outputs('Compose_3')}</li><li>파일명: @{triggerOutputs()['headers']['x-ms-file-name']}</li></ul><p>SharePoint 리스트에 차량번호를 등록하거나 수동으로 처리해주세요.</p>",
+                "Importance": "High"
+              }
+            },
+            "_note": "관리자 이메일을 flow 소유자(hyo-bum.bae@lr.org)로 설정 — 실제 운영 시 적절한 관리자 이메일로 변경"
+          },
+          "Move_file_unmatched": {
+            "type": "ApiConnection",
+            "connector": "SharePoint",
+            "description": "매칭 실패 파일을 Unmatched 폴더로 이동 — 수동 처리 대기열",
+            "runAfter": {
+              "Send_an_email_(V2)_no_match": ["Succeeded"]
+            },
+            "inputs": {
+              "host": {
+                "connection": {
+                  "name": "shared_sharepointonline"
+                }
+              },
+              "method": "post",
+              "path": "/datasets/@{encodeURIComponent(encodeURIComponent('https://lloydsregistergroup.sharepoint.com/sites/AutomationTest'))}/files/@{encodeURIComponent(triggerOutputs()['headers']['x-ms-file-id'])}/move",
+              "body": {
+                "destinationPath": "/Test Library/Unmatched/@{triggerOutputs()['headers']['x-ms-file-name']}",
+                "nameConflictBehavior": "rename"
+              }
+            },
+            "parameters": {
+              "siteAddress": "Automation Test Site - https://lloydsregistergroup.sharepoint.com/sites/AutomationTest",
+              "sourceFileId": "@triggerOutputs()['headers']['x-ms-file-id']",
+              "destinationFolder": "/Test Library/Unmatched",
+              "_note": "원본 파일명 유지하여 수동 식별 용이하게 함"
+            }
           }
         }
       }
     }
   },
   "_flowSummary": {
-    "trigger": "SharePoint 폴더에 PDF 업로드",
+    "trigger": "SharePoint 폴더('/Test Library/File to be sent')에 PDF 업로드",
     "step1": "Get file content → 파일 바이너리 가져오기",
     "step2": "AI Builder OCR → 텍스트 인식",
     "step3": "Compose → fullText 추출",
     "step4_parallel": {
       "Compose_1": "차량번호 추출 (부과대상/위반차량/차량번호)",
       "Compose_2": "고지서 성격 판별 (법률 조항 기반)",
-      "Compose_3": "1차 납부기한 추출"
+      "Compose_3": "1차 납부기한 추출 (last() — 경고 문구 회피)"
     },
     "step5": "Get items → SharePoint 리스트에서 차량번호-이메일 매핑 조회",
     "step6": "Compose_4 → 제목 조합 (고지서성격_차량번호_납부기한)",
-    "step7": "Condition → 매칭 확인 → Yes: Outlook Draft 생성 (제목=첨부파일명)"
+    "step7_condition": {
+      "yes": "Outlook Draft 생성 → 원본 파일을 /Processed 폴더로 이동 (파일명 변경)",
+      "no": "관리자에게 매칭 실패 알림 이메일(High 중요도) → 원본 파일을 /Unmatched 폴더로 이동"
+    }
+  },
+  "_errorHandlingStrategy": {
+    "description": "Power Automate에서 Scope 액션으로 에러 핸들링 구현 시 적용할 전략",
+    "recommendation": "Scope_OCR_Extract 안에 Compose, Compose_1~4, Get_items, Condition을 넣고, Scope 실패 시(Configure run after: has failed, has timed out) 아래 액션 실행",
+    "onFailure": {
+      "Send_error_notification": {
+        "description": "관리자에게 에러 알림 이메일 발송",
+        "to": "hyo-bum.bae@lr.org",
+        "subject": "[Vehicle Automail] 플로우 실패 — @{triggerOutputs()['headers']['x-ms-file-name']}",
+        "importance": "High"
+      },
+      "Move_file_failed": {
+        "description": "실패한 파일을 /Test Library/Failed 폴더로 이동",
+        "destinationFolder": "/Test Library/Failed"
+      }
+    },
+    "_note": "현재 JSON 레퍼런스에서는 Scope를 직접 구현하지 않음 — Power Automate UI에서 Scope 액션을 추가하여 구현. 이 섹션은 구현 가이드 역할"
+  },
+  "_sharePointFolderStructure": {
+    "/Test Library/File to be sent": "트리거 감시 폴더 — 새 문서 업로드 위치",
+    "/Test Library/Processed": "성공 처리 완료 — 파일명이 '고지서성격_차량번호_납부기한.pdf'로 변경됨",
+    "/Test Library/Unmatched": "차량번호 매칭 실패 — 수동 처리 대기열",
+    "/Test Library/Failed": "플로우 에러 — OCR 실패 등 기술적 오류 발생 파일"
   }
 }
