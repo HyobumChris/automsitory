@@ -18,6 +18,10 @@
       "aibuilder": {
         "connectionId": "shared_aibuilder",
         "model": "Recognize text in image or document (prebuilt)"
+      },
+      "office365outlook": {
+        "connectionId": "shared_office365",
+        "account": "hyo-bum.bae@lr.org"
       }
     }
   },
@@ -193,17 +197,117 @@
         "fallback": "'추출실패' — 납부기한 필드를 찾을 수 없음",
         "note": "1차/2차 기한이 모두 있는 문서에서 '납부기한' 뒤 첫 번째 값이 1차에 해당"
       }
+    },
+    "Compose_4": {
+      "type": "Compose",
+      "description": "이메일 제목 및 첨부파일명 조합 — '{고지서성격}_{차량번호}_{납부기한}'",
+      "runAfter": {
+        "Compose_1": ["Succeeded"],
+        "Compose_2": ["Succeeded"],
+        "Compose_3": ["Succeeded"]
+      },
+      "inputs": "@concat(outputs('Compose_2'),'_',outputs('Compose_1'),'_',outputs('Compose_3'))",
+      "_outputExample": "과속단속통지서_231허1342_2026.03.15"
+    },
+    "Get_items": {
+      "type": "ApiConnection",
+      "connector": "SharePoint",
+      "description": "SharePoint 리스트에서 차량번호로 담당자 이메일 조회",
+      "runAfter": {
+        "Compose_1": ["Succeeded"]
+      },
+      "inputs": {
+        "host": {
+          "connection": {
+            "name": "shared_sharepointonline"
+          }
+        },
+        "method": "get",
+        "path": "/datasets/@{encodeURIComponent(encodeURIComponent('https://lloydsregistergroup.sharepoint.com/sites/AutomationTest'))}/tables/@{encodeURIComponent(encodeURIComponent('VehicleEmailMapping'))}/items",
+        "queries": {
+          "$filter": "VehicleNumber eq '@{outputs('Compose_1')}'"
+        }
+      },
+      "parameters": {
+        "siteAddress": "Automation Test Site - https://lloydsregistergroup.sharepoint.com/sites/AutomationTest",
+        "listName": "VehicleEmailMapping",
+        "$filter": "VehicleNumber eq '@{outputs('Compose_1')}'",
+        "_listColumns": {
+          "VehicleNumber": "차량번호 (텍스트) — 예: 231허1342",
+          "Email": "담당자 이메일 (텍스트) — 예: john.doe@lr.org"
+        }
+      }
+    },
+    "Condition": {
+      "type": "If",
+      "description": "SharePoint 리스트에서 차량번호 매칭 여부 확인",
+      "runAfter": {
+        "Get_items": ["Succeeded"],
+        "Compose_4": ["Succeeded"]
+      },
+      "expression": {
+        "and": [
+          {
+            "greater": ["@length(body('Get_items')?['value'])", 0]
+          }
+        ]
+      },
+      "actions": {
+        "Create_a_draft_(V2)": {
+          "type": "ApiConnection",
+          "connector": "Office 365 Outlook",
+          "description": "매칭된 담당자에게 Outlook Draft 생성 — 제목과 첨부파일명 동일",
+          "inputs": {
+            "host": {
+              "connection": {
+                "name": "shared_office365"
+              }
+            },
+            "method": "post",
+            "path": "/v2/Mail/drafts",
+            "body": {
+              "To": "@{first(body('Get_items')?['value'])?['Email']}",
+              "Subject": "@{outputs('Compose_4')}",
+              "Body": "<p>교통 관련 통지서를 첨부합니다.</p><p>문서 성격: @{outputs('Compose_2')}<br>차량번호: @{outputs('Compose_1')}<br>납부기한: @{outputs('Compose_3')}</p>",
+              "Importance": "Normal",
+              "Attachments": [
+                {
+                  "Name": "@{concat(outputs('Compose_4'),'.pdf')}",
+                  "ContentBytes": "@{body('Get_file_content').$content}"
+                }
+              ]
+            }
+          },
+          "_outputExample": {
+            "To": "john.doe@lr.org",
+            "Subject": "과속단속통지서_231허1342_2026.03.15",
+            "AttachmentName": "과속단속통지서_231허1342_2026.03.15.pdf"
+          }
+        }
+      },
+      "else": {
+        "actions": {
+          "Compose_no_match": {
+            "type": "Compose",
+            "description": "차량번호 매칭 실패 시 로깅",
+            "inputs": "@concat('매칭 실패: 차량번호 ', outputs('Compose_1'), ' — SharePoint 리스트에 해당 차량번호가 없습니다.')"
+          }
+        }
+      }
     }
   },
-  "_todo": {
-    "note": "Compose/Compose 1 이후 추가 단계 (조건 분기, 이메일 Draft 생성 등) 스크린샷 확인 후 업데이트 필요",
-    "expectedNextSteps": [
-      "차량번호 패턴 추출 (정규식 또는 AI Builder 커스텀 모델)",
-      "SharePoint 리스트에서 차량번호-이메일 매핑 조회",
-      "조건 분기: 매핑 존재 여부",
-      "Outlook Draft 생성 (Microsoft Graph 또는 Office 365 Outlook 커넥터)",
-      "원본 문서 첨부",
-      "처리 결과 로깅/알림"
-    ]
+  "_flowSummary": {
+    "trigger": "SharePoint 폴더에 PDF 업로드",
+    "step1": "Get file content → 파일 바이너리 가져오기",
+    "step2": "AI Builder OCR → 텍스트 인식",
+    "step3": "Compose → fullText 추출",
+    "step4_parallel": {
+      "Compose_1": "차량번호 추출 (부과대상/위반차량/차량번호)",
+      "Compose_2": "고지서 성격 판별 (법률 조항 기반)",
+      "Compose_3": "1차 납부기한 추출"
+    },
+    "step5": "Get items → SharePoint 리스트에서 차량번호-이메일 매핑 조회",
+    "step6": "Compose_4 → 제목 조합 (고지서성격_차량번호_납부기한)",
+    "step7": "Condition → 매칭 확인 → Yes: Outlook Draft 생성 (제목=첨부파일명)"
   }
 }
