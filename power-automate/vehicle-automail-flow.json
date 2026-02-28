@@ -1,0 +1,125 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "flowName": "Vehicle Automail",
+    "description": "SharePoint 폴더에 과속/과징금 문서가 업로드되면 AI Builder OCR로 텍스트를 인식하고 차량번호를 추출하여 담당 직원에게 Outlook Draft를 자동 생성하는 Power Automate 클라우드 플로우",
+    "author": "hyo-bum.bae@lr.org",
+    "created": "2026-02-28",
+    "version": "1.0.0",
+    "environment": "LR SharePoint (Automation Test Site)",
+    "connections": {
+      "sharepoint": {
+        "connectionId": "shared_sharepointonline",
+        "account": "hyo-bum.bae@lr.org"
+      },
+      "aibuilder": {
+        "connectionId": "shared_aibuilder",
+        "model": "Recognize text in image or document (prebuilt)"
+      }
+    }
+  },
+  "triggers": {
+    "When_a_file_is_created_in_a_folder": {
+      "type": "ApiConnection",
+      "connector": "SharePoint",
+      "description": "SharePoint 라이브러리에 새 파일이 생성되면 트리거 (deprecated connector 사용)",
+      "inputs": {
+        "host": {
+          "connection": {
+            "name": "shared_sharepointonline"
+          }
+        },
+        "method": "get",
+        "path": "/datasets/@{encodeURIComponent(encodeURIComponent('https://lloydsregistergroup.sharepoint.com/sites/AutomationTest'))}/triggers/onnewfileinrootfolder"
+      },
+      "parameters": {
+        "siteAddress": "Automation Test Site - https://lloydsregistergroup.sharepoint.com/sites/AutomationTest",
+        "folderId": "/Test Library/File to be sent"
+      },
+      "outputs": {
+        "headers/x-ms-file-id": "File identifier",
+        "headers/x-ms-file-name": "File name",
+        "headers/x-ms-file-path-encoded": "File path (URL encoded)",
+        "headers/x-ms-file-etag": "File entity tag",
+        "headers/Content-Type": "File content type (e.g. application/pdf, image/jpeg)",
+        "File Content": "Binary content of the uploaded file"
+      }
+    }
+  },
+  "actions": {
+    "Get_file_content": {
+      "type": "ApiConnection",
+      "connector": "SharePoint",
+      "description": "트리거에서 감지된 파일의 바이너리 콘텐츠를 가져옴",
+      "runAfter": {},
+      "inputs": {
+        "host": {
+          "connection": {
+            "name": "shared_sharepointonline"
+          }
+        },
+        "method": "get",
+        "path": "/datasets/@{encodeURIComponent(encodeURIComponent('https://lloydsregistergroup.sharepoint.com/sites/AutomationTest'))}/files/@{encodeURIComponent(triggerOutputs()['headers']['x-ms-file-id'])}/content"
+      },
+      "parameters": {
+        "siteAddress": "Automation Test Site - https://lloydsregistergroup.sharepoint.com/sites/AutomationTest",
+        "fileIdentifier": "@triggerOutputs()['headers']['x-ms-file-id']"
+      }
+    },
+    "Recognize_text_in_image_or_document": {
+      "type": "ApiConnection",
+      "connector": "AI Builder",
+      "description": "AI Builder 사전 빌드 OCR 모델 — Get file content의 File Content(바이너리)를 Image 입력으로 전달",
+      "runAfter": {
+        "Get_file_content": ["Succeeded"]
+      },
+      "inputs": {
+        "host": {
+          "connection": {
+            "name": "shared_aibuilder"
+          }
+        },
+        "body": {
+          "image": "@body('Get_file_content').$content"
+        }
+      },
+      "parameters": {
+        "image": "@outputs('Get_file_content')?['body']"
+      },
+      "model": "prebuilt-read (OCR)",
+      "outputs": {
+        "text": "전체 OCR 인식 텍스트",
+        "pages": "페이지별 텍스트 블록 배열",
+        "lines": "라인별 텍스트 및 바운딩 박스"
+      }
+    },
+    "Compose": {
+      "type": "Compose",
+      "description": "OCR 결과에서 필요한 필드를 추출/가공 (차량번호, 납부기한, 위반사항 등)",
+      "runAfter": {
+        "Recognize_text_in_image_or_document": ["Succeeded"]
+      },
+      "inputs": "@outputs('Recognize_text_in_image_or_document')?['body/text']"
+    },
+    "Compose_1": {
+      "type": "Compose",
+      "description": "추출된 텍스트에서 차량번호 패턴 매칭 또는 추가 데이터 가공",
+      "runAfter": {
+        "Compose": ["Succeeded"]
+      },
+      "inputs": "@outputs('Compose')"
+    }
+  },
+  "_todo": {
+    "note": "Compose/Compose 1 이후 추가 단계 (조건 분기, 이메일 Draft 생성 등) 스크린샷 확인 후 업데이트 필요",
+    "expectedNextSteps": [
+      "차량번호 패턴 추출 (정규식 또는 AI Builder 커스텀 모델)",
+      "SharePoint 리스트에서 차량번호-이메일 매핑 조회",
+      "조건 분기: 매핑 존재 여부",
+      "Outlook Draft 생성 (Microsoft Graph 또는 Office 365 Outlook 커넥터)",
+      "원본 문서 첨부",
+      "처리 결과 로깅/알림"
+    ]
+  }
+}
