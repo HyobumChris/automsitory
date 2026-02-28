@@ -106,19 +106,35 @@
     },
     "Compose_1": {
       "type": "Compose",
-      "description": "OCR 전문에서 '부과대상 : ' 뒤의 값을 줄바꿈 전까지 추출 (차량번호 또는 부과 대상자)",
+      "description": "OCR 전문에서 차량번호를 추출 — 3가지 문서 형식 대응 (부과대상/위반차량/차량번호)",
       "runAfter": {
         "Compose": ["Succeeded"]
       },
-      "inputs": "@trim(first(split(first(skip(split(outputs('Compose'),'부과대상 : '),1)),decodeUriComponent('%0A'))))",
+      "inputs": "@if(contains(outputs('Compose'),'부과대상 : '),trim(first(split(first(skip(split(outputs('Compose'),'부과대상 : '),1)),decodeUriComponent('%0A')))),if(contains(outputs('Compose'),'위반차량'),trim(first(split(first(skip(split(outputs('Compose'),'위반차량'),1)),decodeUriComponent('%0A')))),trim(first(split(first(skip(split(outputs('Compose'),'차량번호'),1)),decodeUriComponent('%0A'))))))",
       "_expressionBreakdown": {
-        "step1_split": "split(outputs('Compose'), '부과대상 : ') → OCR 전문을 '부과대상 : ' 기준 분할",
-        "step2_skip": "skip(..., 1) → 앞부분 건너뜀",
-        "step3_first": "first(...) → '부과대상 : ' 뒤의 텍스트",
-        "step4_splitNewline": "split(..., decodeUriComponent('%0A')) → 줄바꿈 기준 분할",
-        "step5_firstLine": "first(...) → 첫 줄만 추출 (= 부과대상 값)",
-        "step6_trim": "trim(...) → 앞뒤 공백 제거"
-      }
+        "overview": "중첩 if()로 3가지 문서 형식에서 차량번호 추출",
+        "case1": "contains('부과대상 : ') → 과태료 고지서 (경찰서 발행) 형식",
+        "case2": "contains('위반차량') → 사전통지서 (경찰서 발행) 형식",
+        "case3": "fallback '차량번호' → 과태료 고지서 (구청 발행) 형식",
+        "extractionLogic": "각 케이스 동일: split(delimiter) → skip(1) → first → split(newline) → first → trim"
+      },
+      "_supportedDocumentTypes": [
+        {
+          "type": "과태료 고지서 (경찰서)",
+          "delimiter": "부과대상 : ",
+          "example": "경찰서 발행 과속/과징금 고지서"
+        },
+        {
+          "type": "위반사실 통지 및 사전통지서",
+          "delimiter": "위반차량",
+          "example": "경찰서 발행 속도위반 사전통지서"
+        },
+        {
+          "type": "과태료 부과 고지서 (구청)",
+          "delimiter": "차량번호",
+          "example": "구청 발행 주정차위반 과태료 고지서"
+        }
+      ]
     }
   },
   "_todo": {
