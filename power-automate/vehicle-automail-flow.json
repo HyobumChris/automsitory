@@ -110,13 +110,13 @@
       "runAfter": {
         "Compose": ["Succeeded"]
       },
-      "inputs": "@if(contains(outputs('Compose'),'부과대상 : '),trim(first(split(first(skip(split(outputs('Compose'),'부과대상 : '),1)),decodeUriComponent('%0A')))),if(contains(outputs('Compose'),'위반차량'),trim(first(split(first(skip(split(outputs('Compose'),'위반차량'),1)),decodeUriComponent('%0A')))),trim(first(split(first(skip(split(outputs('Compose'),'차량번호'),1)),decodeUriComponent('%0A'))))))",
+      "inputs": "@if(contains(outputs('Compose'),'부과대상 : '),trim(first(split(first(skip(split(outputs('Compose'),'부과대상 : '),1)),decodeUriComponent('%0A')))),if(contains(outputs('Compose'),'위반차량'),trim(first(split(first(skip(split(outputs('Compose'),'위반차량'),1)),decodeUriComponent('%0A')))),trim(first(split(first(split(first(skip(split(outputs('Compose'),'차량번호'),1)),decodeUriComponent('%0A'))),'성명')))))",
       "_expressionBreakdown": {
         "overview": "중첩 if()로 3가지 문서 형식에서 차량번호 추출",
-        "case1": "contains('부과대상 : ') → 과태료 고지서 (경찰서 발행) 형식",
-        "case2": "contains('위반차량') → 사전통지서 (경찰서 발행) 형식",
-        "case3": "fallback '차량번호' → 과태료 고지서 (구청 발행) 형식",
-        "extractionLogic": "각 케이스 동일: split(delimiter) → skip(1) → first → split(newline) → first → trim"
+        "case1": "contains('부과대상 : ') → split('부과대상 : ') → skip(1) → first → split(newline) → first → trim",
+        "case2": "contains('위반차량') → split('위반차량') → skip(1) → first → split(newline) → first → trim",
+        "case3_fallback": "split('차량번호') → skip(1) → first → split(newline) → first → split('성명') → first → trim",
+        "case3_note": "차량번호와 성명이 같은 줄에 올 수 있어 '성명' 기준 추가 분리 (미납통행료 안내문 대응)"
       },
       "_supportedDocumentTypes": [
         {
@@ -133,6 +133,16 @@
           "type": "과태료 부과 고지서 (구청)",
           "delimiter": "차량번호",
           "example": "구청 발행 주정차위반 과태료 고지서"
+        },
+        {
+          "type": "주정차위반 과태료 통지서 (거제시)",
+          "delimiter": "부과대상 : ",
+          "example": "거제시 발행 주정차위반 과태료 통지서 (case1에 해당)"
+        },
+        {
+          "type": "유료도로 미납통행료 납부안내문",
+          "delimiter": "차량번호",
+          "example": "GK 해상도로 발행 미납통행료 안내문 — 차량번호/성명 같은 줄 대응"
         }
       ]
     }
