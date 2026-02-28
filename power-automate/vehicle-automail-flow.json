@@ -8,6 +8,8 @@
     "created": "2026-02-28",
     "version": "1.0.0",
     "environment": "LR SharePoint (Automation Test Site)",
+    "environmentId": "Default-4a3454a0-8cf4-4a9c-b1c0-6ce4d1495f82",
+    "flowId": "14db0ec0-0db3-431a-8b3c-ad28305bab88",
     "connections": {
       "sharepoint": {
         "connectionId": "shared_sharepointonline",
@@ -96,11 +98,11 @@
     },
     "Compose": {
       "type": "Compose",
-      "description": "OCR 결과에서 필요한 필드를 추출/가공 (차량번호, 납부기한, 위반사항 등)",
+      "description": "AI Builder OCR의 predictionOutput(전체 인식 결과)을 추출",
       "runAfter": {
         "Recognize_text_in_image_or_document": ["Succeeded"]
       },
-      "inputs": "@outputs('Recognize_text_in_image_or_document')?['body/text']"
+      "inputs": "@outputs('Recognize_text_in_image_or_document')?['body/responsev2/predictionOutput']"
     },
     "Compose_1": {
       "type": "Compose",
