@@ -98,11 +98,11 @@
     },
     "Compose": {
       "type": "Compose",
-      "description": "AI Builder OCR의 predictionOutput(전체 인식 결과)을 추출",
+      "description": "AI Builder OCR 결과에서 fullText(전체 인식 텍스트)를 추출",
       "runAfter": {
         "Recognize_text_in_image_or_document": ["Succeeded"]
       },
-      "inputs": "@outputs('Recognize_text_in_image_or_document')?['body/responsev2/predictionOutput']"
+      "inputs": "@body('Recognize_text_in_image_or_document')?['responsev2']?['predictionOutput']?['fullText']"
     },
     "Compose_1": {
       "type": "Compose",
