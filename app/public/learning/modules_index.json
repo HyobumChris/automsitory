@@ -1,0 +1,77 @@
+{
+  "modules": [
+    {
+      "module_id": "M1_100pct_UT",
+      "title_ko": "Measure 1 — 건조 중 100% NDE (UT)",
+      "title_en": "Measure 1 — 100% NDE (UT) During Construction",
+      "measure_ids": [
+        1
+      ],
+      "difficulty": "basic",
+      "file": "modules/M1_100pct_UT.md",
+      "quiz_ids": [
+        "Q-M1-001"
+      ],
+      "evidence_refs": []
+    },
+    {
+      "module_id": "M2_in_service_NDE",
+      "title_ko": "Measure 2 — 운항 중 주기적 NDE",
+      "title_en": "Measure 2 — Periodic In-Service NDE",
+      "measure_ids": [
+        2
+      ],
+      "difficulty": "intermediate",
+      "file": "modules/M2_in_service_NDE.md",
+      "quiz_ids": [
+        "Q-M2-NOTE2-001"
+      ],
+      "evidence_refs": [
+        "measure_2_in_service"
+      ]
+    },
+    {
+      "module_id": "M3_enhanced_NDE",
+      "title_ko": "Measure 3 — Enhanced NDE",
+      "title_en": "Measure 3 — Enhanced NDE with Stricter Acceptance",
+      "measure_ids": [
+        3
+      ],
+      "difficulty": "advanced",
+      "file": "modules/M3_enhanced_NDE.md",
+      "quiz_ids": [
+        "Q-M2-NOTE2-001",
+        "Q-M3-CTOD-TF-001",
+        "Q-M3-EGW-001",
+        "Q-M3-METHOD-001"
+      ],
+      "evidence_refs": [
+        "measure_3_ctod",
+        "measure_3_acceptance",
+        "egw_prohibition",
+        "measure_3_enhanced_nde"
+      ]
+    },
+    {
+      "module_id": "M3_enhanced_NDE_CTOD",
+      "title_ko": "Measure 3 — CTOD 요건",
+      "title_en": "Measure 3 — CTOD Requirement",
+      "measure_ids": [
+        3
+      ],
+      "difficulty": "advanced",
+      "file": "modules/M3_enhanced_NDE_CTOD.md",
+      "quiz_ids": [
+        "Q-M2-NOTE2-001",
+        "Q-M3-CTOD-TF-001",
+        "Q-M3-EGW-001",
+        "Q-M3-METHOD-001"
+      ],
+      "evidence_refs": [
+        "measure_3_ctod"
+      ]
+    }
+  ],
+  "total_modules": 4,
+  "total_quizzes": 5
+}
