@@ -17,8 +17,7 @@
 ### 1. `ndt_extent_01`
 - Methods: **-**
 
-> The extent of examination shall be 100% for primary members and 20% spot checks
-for secondary members.
+> The extent of examination shall be 100% for primary members.
 
 ## 용어 (Terminology)
 

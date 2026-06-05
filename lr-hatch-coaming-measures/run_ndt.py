@@ -93,6 +93,10 @@ def main(input_path: str, output_dir: str = "./output_ndt") -> None:
     print(f"modules_index : {paths['modules_index']}")
     print(f"quiz_bank     : {paths['quiz_bank']}")
     print(f"ndt_clauses   : {ndt_paths['ndt_clauses']}")
+    print("-" * 60)
+    viewer = os.path.abspath(paths["viewer_html"])
+    print("VIEW IN BROWSER (double-click or open this file):")
+    print(f"  {viewer}")
     print("=" * 60)
 
     if ndt.extraction_warnings:

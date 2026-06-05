@@ -729,4 +729,209 @@ def write_learning_outputs(
         )
     paths["quiz_bank"] = quiz_path
 
+    # Standalone HTML viewer (open directly in a browser, no server needed)
+    viewer_path = os.path.join(learning_dir, "index.html")
+    with open(viewer_path, "w", encoding="utf-8") as f:
+        f.write(_render_viewer_html(learning_output))
+    paths["viewer_html"] = viewer_path
+
     return paths
+
+
+def _render_viewer_html(learning_output: LearningOutput) -> str:
+    """Build a self-contained HTML viewer embedding modules + quizzes."""
+    modules_data = [
+        {
+            "module_id": m.module_id,
+            "title_ko": m.title_ko,
+            "title_en": m.title_en,
+            "measure_ids": m.measure_ids,
+            "difficulty": m.difficulty,
+            "content_md": m.content_md,
+            "quiz_ids": m.quiz_ids,
+        }
+        for m in learning_output.modules
+    ]
+    quizzes_data = [q.model_dump() for q in learning_output.quiz_items]
+
+    modules_json = json.dumps(modules_data, ensure_ascii=False)
+    quizzes_json = json.dumps(quizzes_data, ensure_ascii=False)
+
+    return _VIEWER_TEMPLATE.replace("__MODULES_JSON__", modules_json).replace(
+        "__QUIZZES_JSON__", quizzes_json
+    )
+
+
+_VIEWER_TEMPLATE = r"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LR NDT Learning Modules</title>
+<style>
+  :root { --bg:#0b1220; --bg2:#111c2e; --panel:#16233a; --border:#26344d;
+          --text:#cbd5e1; --muted:#7c8aa3; --accent:#38bdf8; --accent2:#22d3ee;
+          --ok:#34d399; --bad:#f87171; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+         background:var(--bg); color:var(--text); height:100vh; display:flex; flex-direction:column; }
+  header { padding:12px 18px; border-bottom:1px solid var(--border);
+           background:linear-gradient(90deg,#0e1a2c,#16233a); display:flex; align-items:center; gap:12px; }
+  header h1 { font-size:14px; margin:0; color:#e2e8f0; letter-spacing:.3px; }
+  header .sub { font-size:11px; color:var(--muted); }
+  .wrap { flex:1; display:flex; overflow:hidden; }
+  .sidebar { width:300px; border-right:1px solid var(--border); background:var(--bg2);
+             overflow-y:auto; padding:10px; }
+  .sidebar h2 { font-size:11px; text-transform:uppercase; letter-spacing:1px;
+                color:var(--muted); margin:8px 6px; }
+  .mod-btn { display:block; width:100%; text-align:left; border:1px solid transparent;
+             background:none; color:var(--text); padding:9px 11px; border-radius:9px;
+             cursor:pointer; margin-bottom:4px; font-size:12px; }
+  .mod-btn:hover { background:#1d2c44; }
+  .mod-btn.active { background:rgba(56,189,248,.12); border-color:rgba(56,189,248,.35); color:#bae6fd; }
+  .mod-btn .t2 { font-size:10px; color:var(--muted); margin-top:2px; }
+  .mod-btn .tags { margin-top:4px; display:flex; gap:6px; flex-wrap:wrap; }
+  .tag { font-size:9px; padding:1px 6px; border-radius:6px; background:#243349; color:var(--muted); }
+  .main { flex:1; display:flex; overflow:hidden; }
+  .content { flex:1; overflow-y:auto; padding:24px 30px; }
+  .content h1 { font-size:22px; color:#f1f5f9; }
+  .content h2 { font-size:16px; color:#bae6fd; margin-top:24px; border-bottom:1px solid var(--border); padding-bottom:5px; }
+  .content h3 { font-size:13px; color:#e2e8f0; margin-top:16px; }
+  .content blockquote { border-left:3px solid var(--accent); margin:8px 0; padding:6px 14px;
+                        background:#0e1a2c; color:#aebfd6; border-radius:0 8px 8px 0; font-size:13px; }
+  .content code { background:#1d2c44; padding:1px 5px; border-radius:4px; font-size:12px; color:#7dd3fc; }
+  .content li { font-size:13px; margin:3px 0; }
+  .content table { border-collapse:collapse; margin:10px 0; font-size:12px; }
+  .content th, .content td { border:1px solid var(--border); padding:5px 10px; text-align:left; }
+  .content hr { border:none; border-top:1px solid var(--border); margin:18px 0; }
+  .quiz { width:360px; border-left:1px solid var(--border); background:var(--bg2);
+          overflow-y:auto; padding:16px; }
+  .quiz h2 { font-size:12px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); }
+  .q-card { border:1px solid var(--border); border-radius:10px; padding:12px; margin-bottom:12px; background:var(--panel); }
+  .q-q { font-size:12px; color:#e2e8f0; font-weight:600; }
+  .q-en { font-size:10px; color:var(--muted); margin:3px 0 8px; }
+  .opt { display:block; width:100%; text-align:left; border:1px solid var(--border); background:none;
+         color:var(--text); padding:7px 10px; border-radius:8px; cursor:pointer; margin-bottom:5px; font-size:11px; }
+  .opt:hover { border-color:var(--accent); }
+  .opt.sel { border-color:var(--accent); background:rgba(56,189,248,.12); }
+  .opt.ok { border-color:var(--ok); background:rgba(52,211,153,.14); color:#a7f3d0; }
+  .opt.bad { border-color:var(--bad); background:rgba(248,113,113,.14); color:#fecaca; }
+  .expl { font-size:10px; margin-top:6px; padding:8px; border-radius:8px; }
+  .expl.ok { background:rgba(52,211,153,.12); color:#a7f3d0; }
+  .expl.bad { background:rgba(248,113,113,.12); color:#fecaca; }
+  .badge { font-size:9px; padding:1px 6px; border-radius:6px; background:#243349; color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>LR NDT Learning Modules</h1>
+  <span class="sub">비파괴검사(NDT/NDE) 학습 모듈 · 자동 생성</span>
+</header>
+<div class="wrap">
+  <div class="sidebar" id="sidebar"><h2>Modules</h2></div>
+  <div class="main">
+    <div class="content" id="content"></div>
+    <div class="quiz" id="quiz"><h2>Quiz</h2><div id="quizList"></div></div>
+  </div>
+</div>
+<script>
+const MODULES = __MODULES_JSON__;
+const QUIZZES = __QUIZZES_JSON__;
+let activeId = MODULES.length ? MODULES[0].module_id : null;
+
+function mdToHtml(md){
+  const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const lines = (md||'').split('\n');
+  let html=[], inUl=false, inTable=false;
+  const closeUl=()=>{ if(inUl){html.push('</ul>');inUl=false;} };
+  const closeTable=()=>{ if(inTable){html.push('</table>');inTable=false;} };
+  const inline = t => esc(t)
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/`([^`]+)`/g,'<code>$1</code>');
+  for(let raw of lines){
+    let line=raw.replace(/\s+$/,'');
+    if(/^\s*\|(.+)\|\s*$/.test(line)){
+      const cells=line.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());
+      if(cells.every(c=>/^:?-+:?$/.test(c))) continue;
+      if(!inTable){ html.push('<table>'); inTable=true; }
+      const tag = 'td';
+      html.push('<tr>'+cells.map(c=>`<${tag}>${inline(c)}</${tag}>`).join('')+'</tr>');
+      continue;
+    } else closeTable();
+    if(/^### /.test(line)){ closeUl(); html.push('<h3>'+inline(line.slice(4))+'</h3>'); }
+    else if(/^## /.test(line)){ closeUl(); html.push('<h2>'+inline(line.slice(3))+'</h2>'); }
+    else if(/^# /.test(line)){ closeUl(); html.push('<h1>'+inline(line.slice(2))+'</h1>'); }
+    else if(/^> /.test(line)){ closeUl(); html.push('<blockquote>'+inline(line.slice(2))+'</blockquote>'); }
+    else if(/^---+$/.test(line)){ closeUl(); html.push('<hr>'); }
+    else if(/^\s*[-*] /.test(line)){ if(!inUl){html.push('<ul>');inUl=true;} html.push('<li>'+inline(line.replace(/^\s*[-*] /,''))+'</li>'); }
+    else if(line.trim()===''){ closeUl(); }
+    else { closeUl(); html.push('<p>'+inline(line)+'</p>'); }
+  }
+  closeUl(); closeTable();
+  return html.join('\n');
+}
+
+function quizzesForModule(mod){
+  return QUIZZES.filter(q => q.module_id===mod.module_id ||
+    (q.measure_ids && q.measure_ids.length && mod.measure_ids &&
+     q.measure_ids.some(id=>mod.measure_ids.includes(id))));
+}
+
+function renderSidebar(){
+  const sb=document.getElementById('sidebar');
+  sb.innerHTML='<h2>Modules ('+MODULES.length+')</h2>';
+  MODULES.forEach(m=>{
+    const b=document.createElement('button');
+    b.className='mod-btn'+(m.module_id===activeId?' active':'');
+    const mids = (m.measure_ids&&m.measure_ids.length)? m.measure_ids.map(x=>'M'+x).join(' ') : 'General';
+    b.innerHTML=`<div>${m.title_ko}</div><div class="t2">${m.title_en}</div>
+      <div class="tags"><span class="tag">${m.difficulty}</span><span class="tag">${mids}</span></div>`;
+    b.onclick=()=>{ activeId=m.module_id; render(); };
+    sb.appendChild(b);
+  });
+}
+
+function renderQuiz(mod){
+  const list=document.getElementById('quizList');
+  const qs=quizzesForModule(mod);
+  document.querySelector('#quiz h2').textContent='Quiz ('+qs.length+')';
+  list.innerHTML='';
+  if(!qs.length){ list.innerHTML='<div style="font-size:11px;color:#7c8aa3">이 모듈에는 퀴즈가 없습니다.</div>'; return; }
+  qs.forEach(q=>{
+    const card=document.createElement('div'); card.className='q-card';
+    card.innerHTML=`<div class="q-q">${q.question_ko}</div><div class="q-en">${q.question_en}</div>`;
+    let answered=false;
+    q.options.forEach(opt=>{
+      const ob=document.createElement('button'); ob.className='opt'; ob.textContent=opt;
+      ob.onclick=()=>{
+        if(answered) return; answered=true;
+        const correct = opt===q.correct_answer;
+        card.querySelectorAll('.opt').forEach(o=>{
+          if(o.textContent===q.correct_answer) o.classList.add('ok');
+          else if(o===ob) o.classList.add('bad');
+        });
+        const e=document.createElement('div');
+        e.className='expl '+(correct?'ok':'bad');
+        e.innerHTML=(correct?'정답 ✓':'오답 ✗')+'<br>'+(q.explanation_ko||'')+'<br><span style="opacity:.7">'+(q.explanation_en||'')+'</span>'+
+          (q.rule_ref?'<br><span class="badge">'+q.rule_ref+'</span>':'');
+        card.appendChild(e);
+      };
+      card.appendChild(ob);
+    });
+    list.appendChild(card);
+  });
+}
+
+function render(){
+  renderSidebar();
+  const mod=MODULES.find(m=>m.module_id===activeId);
+  const c=document.getElementById('content');
+  if(!mod){ c.innerHTML='<p>No modules.</p>'; return; }
+  c.innerHTML=mdToHtml(mod.content_md);
+  renderQuiz(mod);
+}
+render();
+</script>
+</body>
+</html>
+"""

@@ -17,9 +17,7 @@
 ### 1. `ndt_method_01`
 - Methods: **RT, MT, PT**
 
-> Magnetic particle testing (MT) shall be used for surface crack detection,
-liquid penetrant testing (PT) where applicable, and radiographic testing (RT)
-for butt welds.
+> Magnetic particle testing (MT), liquid penetrant testing (PT), radiographic testing (RT).
 
 ## 용어 (Terminology)
 

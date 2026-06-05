@@ -17,9 +17,8 @@
 ### 1. `ndt_service_supplier_01`
 - Methods: **-**
 
-> Firms engaged in non-destructive testing services for hull structures shall be
-approved as service suppliers by LR under the service supplier approval scheme,
-subject to periodic audit.
+> Firms engaged in non-destructive testing services shall be approved as service
+suppliers by LR, subject to periodic audit.
 
 ## 용어 (Terminology)
 

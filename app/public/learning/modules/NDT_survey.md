@@ -17,8 +17,7 @@
 ### 1. `ndt_survey_01`
 - Methods: **-**
 
-> During special survey, close-up survey of suspect areas and thickness
-measurement shall be carried out at identified checkpoints.
+> During special survey, close-up survey and thickness measurement at checkpoints.
 
 ## 용어 (Terminology)
 

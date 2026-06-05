@@ -17,7 +17,7 @@
 ### 1. `ndt_acceptance_01`
 - Methods: **-**
 
-> Acceptance criteria: indications exceeding the allowable length are rejectable defects.
+> Acceptance criteria: indications exceeding allowable length are rejectable.
 
 ## 용어 (Terminology)
 

@@ -139,6 +139,23 @@ class TestLearningGenerator:
         assert ss.measure_ids == []
         assert os.path.isfile(os.path.join(output_dir, "learning", "modules", "NDT_service_supplier.md"))
 
+    def test_html_viewer_generated(self, output_dir):
+        ndt = extract_ndt_from_text(SAMPLE_TEXT)
+        decision = _decision_result({1: MeasureStatus.required, 3: MeasureStatus.required})
+        output = generate_learning_modules(ndt, decision, {}, output_dir)
+        paths = write_learning_outputs(output_dir, output)
+
+        assert "viewer_html" in paths
+        assert os.path.isfile(paths["viewer_html"])
+        with open(paths["viewer_html"], encoding="utf-8") as f:
+            html = f.read()
+        assert html.startswith("<!DOCTYPE html>")
+        assert "const MODULES =" in html
+        assert "const QUIZZES =" in html
+        # Embedded data must be present (not placeholders)
+        assert "__MODULES_JSON__" not in html
+        assert "__QUIZZES_JSON__" not in html
+
     def test_category_quiz_items(self, output_dir):
         general_text = """
         Firms engaged in NDT services shall be approved as service suppliers.
