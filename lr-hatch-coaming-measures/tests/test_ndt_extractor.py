@@ -148,3 +148,45 @@ class TestGeneralNdtExtraction:
         general = [c for c in result.clauses if c.category.value != "measure"]
         assert general
         assert all(c.measure_ids == [] for c in general)
+
+
+class TestPdfExtraction:
+    """Multi-page PDF extraction (requires PyMuPDF)."""
+
+    def _make_pdf(self, tmp_path):
+        fitz = pytest.importorskip("fitz")
+        pages = [
+            "Chapter 1\n1.5 Firms engaged in non-destructive examination shall be "
+            "approved as service suppliers. Operators shall be certified to ISO 9712 Level II.",
+            "Chapter 5\n5.7 Ultrasonic testing (UT) shall be 100% for plates over 50 mm. "
+            "Magnetic particle testing (MT) for surface defects.",
+            "Chapter 7\n7.9 Radiographic testing (RT) is required for castings. "
+            "Acceptance criteria: indications exceeding allowable length are rejectable.",
+        ]
+        doc = fitz.open()
+        for content in pages:
+            page = doc.new_page()
+            page.insert_textbox(fitz.Rect(40, 40, 555, 800), content, fontsize=11, fontname="helv")
+        pdf_path = str(tmp_path / "rules.pdf")
+        doc.save(pdf_path)
+        doc.close()
+        return pdf_path
+
+    def test_extract_from_multipage_pdf(self, tmp_path):
+        from lr_hatch_coaming.ndt_extractor import extract_ndt_from_pdf
+
+        pdf_path = self._make_pdf(tmp_path)
+        result = extract_ndt_from_pdf(pdf_path)
+
+        cats = {c.category.value for c in result.clauses}
+        assert "service_supplier" in cats
+        assert "qualification" in cats
+        all_methods = {m.value for c in result.clauses for m in c.methods}
+        assert {"UT", "MT", "RT"}.issubset(all_methods)
+
+    def test_pdf_not_found(self):
+        from lr_hatch_coaming.ndt_extractor import extract_ndt_from_pdf
+
+        result = extract_ndt_from_pdf("/nonexistent/path.pdf")
+        assert not result.clauses
+        assert result.extraction_warnings

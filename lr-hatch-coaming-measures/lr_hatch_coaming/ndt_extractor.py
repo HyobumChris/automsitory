@@ -370,12 +370,14 @@ _CATEGORY_SIGNALS: List[Tuple[NdtCategory, re.Pattern]] = [
 # acceptance, survey checkpoints, service supplier) so that clauses without
 # a method keyword are still captured.
 _NDT_RELEVANCE = re.compile(
-    r"\bNDT\b|\bNDE\b|non[- ]destructive|\bUT\b|ultrasonic|\bRT\b|radiograph|"
+    r"\bNDT\b|\bNDE\b|non[- ]?destructive (?:test|examination)|non[- ]?destructive|"
+    r"\bUT\b|ultrasonic|\bRT\b|radiograph|"
     r"\bMT\b|magnetic[- ]particle|\bPT\b|penetrant|\bVT\b|visual (?:test|examination|inspection)|"
     r"\bET\b|eddy[- ]current|\bPAUT\b|\bTOFD\b|examination of weld|weld(?:ing)? inspection|"
     r"extent of examination|acceptance criteri|rejectable|indication.{0,30}(?:exceed|length|accept)|"
     r"close[- ]up survey|thickness measurement|service supplier|"
-    r"firms? engaged|spot (?:check|examination)|examination shall be",
+    r"firms? engaged|spot (?:check|examination)|examination shall be|"
+    r"ISO\s?9712|SNT[- ]TC[- ]1A|certified to .{0,20}level|operators? shall be (?:qualified|certified)",
     re.I,
 )
 
@@ -484,6 +486,41 @@ def extract_ndt_from_text(text: str) -> NdtExtraction:
     return result
 
 
+def extract_ndt_from_pdf(
+    pdf_path: str,
+    max_pages: Optional[int] = None,
+) -> NdtExtraction:
+    """Extract NDT clauses directly from a (multi-page) PDF rule document.
+
+    Reads the full document text (embedded text, with OCR fallback for
+    scanned pages) and runs both measure-specific and general NDT extraction.
+    This is the entry point for "throw any LR rule PDF" workflows.
+    """
+    from .ocr_extractor import _extract_pdf_all_pages
+
+    result = NdtExtraction()
+    if not os.path.isfile(pdf_path):
+        result.extraction_warnings.append(f"PDF not found: {pdf_path}")
+        return result
+
+    text, conf, n_pages = _extract_pdf_all_pages(pdf_path, max_pages=max_pages)
+    if not text.strip():
+        result.extraction_warnings.append(
+            f"No extractable text from {pdf_path}. "
+            "If this is a scanned PDF, install OCR extras: pip install -e '.[ocr]'."
+        )
+        return result
+
+    extraction = extract_ndt_from_text(text)
+    result.clauses = extraction.clauses
+    result.extraction_warnings = extraction.extraction_warnings
+    result.extraction_warnings.append(
+        f"Extracted from {n_pages} page(s) of {os.path.basename(pdf_path)} "
+        f"(avg OCR/text confidence {conf:.2f})."
+    )
+    return result
+
+
 def extract_ndt_specs(
     rules: RulesExtraction,
     sources: Sources,
@@ -533,8 +570,13 @@ def extract_ndt_specs(
             "No NDT clauses extracted. Using fallback regulation texts if available."
         )
         fallback = _load_fallback_regulation_texts()
+        _ndt_keywords = (
+            "nde", "ndt", "non-destructive", "nondestructive", "non destructive",
+            "ut", "ultrasonic", "rt", "radiograph", "mt", "magnetic particle",
+            "pt", "penetrant", "vt", "visual", "ctod",
+        )
         for key, text in fallback.items():
-            if any(kw in text.lower() for kw in ("nde", "ndt", "ut", "ctod", "ultrasonic")):
+            if any(kw in text.lower() for kw in _ndt_keywords):
                 clause = _clause_from_key(key, text)
                 if clause and clause.clause_id not in clauses_by_id:
                     clauses_by_id[clause.clause_id] = clause

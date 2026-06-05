@@ -472,66 +472,71 @@ def _build_quiz_items(
             measure_ids=[1],
         ))
 
-    quizzes.append(QuizItem(
-        quiz_id="Q-M2-NOTE2-001",
-        module_id="M2_in_service_NDE",
-        question_type="multiple_choice",
-        question_ko="Measure 3을 enhanced NDE로 선택했을 때 Measure 2는?",
-        question_en="When Measure 3 is achieved via enhanced NDE, Measure 2 is:",
-        options=[
-            "Conditional — periodic in-service NDE per Note 2",
-            "Not required under any circumstance",
-            "Always required regardless of Measure 3",
-            "Replaced by CTOD testing only",
-        ],
-        correct_answer="Conditional — periodic in-service NDE per Note 2",
-        explanation_ko="Note 2: enhanced NDE를 Measure 3으로 채택하면 운항 중 주기적 NDE(Measure 2)가 조건부로 요구될 수 있습니다.",
-        explanation_en="Note 2: where enhanced NDE is adopted as Measure 3, periodic in-service NDE (Measure 2) may be required.",
-        rule_ref="Table 8.2.1 Note 2",
-        measure_ids=[2, 3],
-    ))
+    has_m2 = "M2_in_service_NDE" in module_ids
+    has_m3 = "M3_enhanced_NDE" in module_ids or "M3_enhanced_NDE_CTOD" in module_ids
 
-    quizzes.append(QuizItem(
-        quiz_id="Q-M3-CTOD-TF-001",
-        module_id="M3_enhanced_NDE",
-        question_type="true_false",
-        question_ko="CTOD ≥ 0.18 mm 요건은 Measure 2에 속한다.",
-        question_en="The CTOD ≥ 0.18 mm requirement belongs to Measure 2.",
-        options=["True", "False"],
-        correct_answer="False",
-        explanation_ko="CTOD ≥ 0.18 mm는 Measure 3 enhanced NDE의 요건이며 Measure 2와 무관합니다.",
-        explanation_en="CTOD ≥ 0.18 mm is part of Measure 3 enhanced NDE, not Measure 2.",
-        rule_ref="Pt 4, Ch 8, 2.3.10(d)",
-        measure_ids=[3],
-    ))
+    if has_m2 or has_m3:
+        quizzes.append(QuizItem(
+            quiz_id="Q-M2-NOTE2-001",
+            module_id="M2_in_service_NDE" if has_m2 else "M3_enhanced_NDE",
+            question_type="multiple_choice",
+            question_ko="Measure 3을 enhanced NDE로 선택했을 때 Measure 2는?",
+            question_en="When Measure 3 is achieved via enhanced NDE, Measure 2 is:",
+            options=[
+                "Conditional — periodic in-service NDE per Note 2",
+                "Not required under any circumstance",
+                "Always required regardless of Measure 3",
+                "Replaced by CTOD testing only",
+            ],
+            correct_answer="Conditional — periodic in-service NDE per Note 2",
+            explanation_ko="Note 2: enhanced NDE를 Measure 3으로 채택하면 운항 중 주기적 NDE(Measure 2)가 조건부로 요구될 수 있습니다.",
+            explanation_en="Note 2: where enhanced NDE is adopted as Measure 3, periodic in-service NDE (Measure 2) may be required.",
+            rule_ref="Table 8.2.1 Note 2",
+            measure_ids=[2, 3],
+        ))
 
-    quizzes.append(QuizItem(
-        quiz_id="Q-M3-EGW-001",
-        module_id="M3_enhanced_NDE",
-        question_type="case_study",
-        question_ko="t=85mm, EH40, Measure 3=enhanced NDE(PAUT) 선택, block butt joint에 EGW 사용. compliant?",
-        question_en="t=85mm, EH40, Measure 3=enhanced NDE (PAUT), EGW used on block butt joint. Compliant?",
-        options=["Compliant", "Non-compliant — EGW prohibited", "Compliant if CTOD test passed", "Not applicable"],
-        correct_answer="Non-compliant — EGW prohibited",
-        explanation_ko="enhanced NDE가 요구되는 경우 EGW(전기 가스 용접)는 허용되지 않습니다.",
-        explanation_en="Electrogas welding (EGW) is not permitted where enhanced NDE is required as Measure 3.",
-        rule_ref="Pt 4, Ch 8, 2.3.10(d)",
-        measure_ids=[3],
-    ))
+    if has_m3:
+        quizzes.append(QuizItem(
+            quiz_id="Q-M3-CTOD-TF-001",
+            module_id="M3_enhanced_NDE",
+            question_type="true_false",
+            question_ko="CTOD ≥ 0.18 mm 요건은 Measure 2에 속한다.",
+            question_en="The CTOD ≥ 0.18 mm requirement belongs to Measure 2.",
+            options=["True", "False"],
+            correct_answer="False",
+            explanation_ko="CTOD ≥ 0.18 mm는 Measure 3 enhanced NDE의 요건이며 Measure 2와 무관합니다.",
+            explanation_en="CTOD ≥ 0.18 mm is part of Measure 3 enhanced NDE, not Measure 2.",
+            rule_ref="Pt 4, Ch 8, 2.3.10(d)",
+            measure_ids=[3],
+        ))
 
-    quizzes.append(QuizItem(
-        quiz_id="Q-M3-METHOD-001",
-        module_id="M3_enhanced_NDE",
-        question_type="multiple_choice",
-        question_ko="Enhanced NDE에 사용 가능한 방법이 아닌 것은?",
-        question_en="Which is NOT a valid enhanced NDE method?",
-        options=["PAUT", "TOFD", "Visual inspection only", "RT"],
-        correct_answer="Visual inspection only",
-        explanation_ko="Enhanced NDE 방법으로 UT, PAUT, TOFD, RT가 정의되어 있습니다.",
-        explanation_en="Enhanced NDE methods include UT, PAUT, TOFD, and RT.",
-        rule_ref="Pt 4, Ch 8, 2.3.10(d)",
-        measure_ids=[3],
-    ))
+        quizzes.append(QuizItem(
+            quiz_id="Q-M3-EGW-001",
+            module_id="M3_enhanced_NDE",
+            question_type="case_study",
+            question_ko="t=85mm, EH40, Measure 3=enhanced NDE(PAUT) 선택, block butt joint에 EGW 사용. compliant?",
+            question_en="t=85mm, EH40, Measure 3=enhanced NDE (PAUT), EGW used on block butt joint. Compliant?",
+            options=["Compliant", "Non-compliant — EGW prohibited", "Compliant if CTOD test passed", "Not applicable"],
+            correct_answer="Non-compliant — EGW prohibited",
+            explanation_ko="enhanced NDE가 요구되는 경우 EGW(전기 가스 용접)는 허용되지 않습니다.",
+            explanation_en="Electrogas welding (EGW) is not permitted where enhanced NDE is required as Measure 3.",
+            rule_ref="Pt 4, Ch 8, 2.3.10(d)",
+            measure_ids=[3],
+        ))
+
+        quizzes.append(QuizItem(
+            quiz_id="Q-M3-METHOD-001",
+            module_id="M3_enhanced_NDE",
+            question_type="multiple_choice",
+            question_ko="Enhanced NDE에 사용 가능한 방법이 아닌 것은?",
+            question_en="Which is NOT a valid enhanced NDE method?",
+            options=["PAUT", "TOFD", "Visual inspection only", "RT"],
+            correct_answer="Visual inspection only",
+            explanation_ko="Enhanced NDE 방법으로 UT, PAUT, TOFD, RT가 정의되어 있습니다.",
+            explanation_en="Enhanced NDE methods include UT, PAUT, TOFD, and RT.",
+            rule_ref="Pt 4, Ch 8, 2.3.10(d)",
+            measure_ids=[3],
+        ))
 
     return quizzes
 

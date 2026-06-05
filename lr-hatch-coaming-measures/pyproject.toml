@@ -31,8 +31,11 @@ dev = [
 learning = [
     "jinja2>=3.0",
 ]
+pdf = [
+    "PyMuPDF>=1.23",
+]
 all = [
-    "lr-hatch-coaming-measures[ocr,viz,dev,learning]",
+    "lr-hatch-coaming-measures[ocr,viz,dev,learning,pdf]",
 ]
 
 [tool.pytest.ini_options]

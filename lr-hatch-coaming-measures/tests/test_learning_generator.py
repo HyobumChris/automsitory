@@ -76,7 +76,11 @@ class TestLearningGenerator:
 
     def test_write_learning_outputs(self, output_dir):
         ndt = extract_ndt_from_text(SAMPLE_TEXT)
-        decision = _decision_result({1: MeasureStatus.required})
+        # Activate M1 and M3 so measure-specific quizzes are generated
+        decision = _decision_result({
+            1: MeasureStatus.required,
+            3: MeasureStatus.required,
+        })
         output = generate_learning_modules(ndt, decision, {}, output_dir)
         paths = write_learning_outputs(output_dir, output)
 
@@ -91,6 +95,19 @@ class TestLearningGenerator:
         with open(paths["quiz_bank"]) as f:
             quizzes = json.load(f)
         assert len(quizzes) >= 3
+
+    def test_measure_quizzes_gated_without_measures(self, output_dir):
+        """A generic doc (no active measures) should not get hatch-coaming M2/M3 quizzes."""
+        general_text = """
+        Firms engaged in NDT services shall be approved as service suppliers.
+        Magnetic particle testing (MT) for surface defects.
+        """
+        ndt = extract_ndt_from_text(general_text)
+        decision = _decision_result({})
+        output = generate_learning_modules(ndt, decision, {}, output_dir)
+        quiz_ids = {q.quiz_id for q in output.quiz_items}
+        assert "Q-M3-CTOD-TF-001" not in quiz_ids
+        assert "Q-M2-NOTE2-001" not in quiz_ids
 
     def test_module_content_bilingual(self, output_dir):
         ndt = extract_ndt_from_text(SAMPLE_TEXT)
