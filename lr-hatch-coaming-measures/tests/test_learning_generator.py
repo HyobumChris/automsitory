@@ -100,3 +100,36 @@ class TestLearningGenerator:
         assert "학습 목표" in m1.content_md
         assert "Learning Objectives" in m1.content_md
         assert "NDE" in m1.content_md or "NDT" in m1.content_md
+
+    def test_general_category_modules_generated(self, output_dir):
+        general_text = """
+        Firms engaged in NDT services shall be approved as service suppliers.
+        NDT personnel shall be certified to ISO 9712 Level II.
+        Close-up survey and thickness measurement at survey checkpoints.
+        Magnetic particle testing (MT) and radiographic testing (RT) required.
+        """
+        ndt = extract_ndt_from_text(general_text)
+        decision = _decision_result({1: MeasureStatus.required})
+        output = generate_learning_modules(ndt, decision, {}, output_dir)
+
+        module_ids = {m.module_id for m in output.modules}
+        assert "NDT_service_supplier" in module_ids
+        assert "NDT_survey" in module_ids
+        assert "NDT_qualification" in module_ids
+
+        # Category modules are not tied to a measure
+        ss = next(m for m in output.modules if m.module_id == "NDT_service_supplier")
+        assert ss.measure_ids == []
+        assert os.path.isfile(os.path.join(output_dir, "learning", "modules", "NDT_service_supplier.md"))
+
+    def test_category_quiz_items(self, output_dir):
+        general_text = """
+        Firms engaged in NDT services shall be approved as service suppliers.
+        NDT personnel shall be certified to ISO 9712 Level II.
+        """
+        ndt = extract_ndt_from_text(general_text)
+        decision = _decision_result({1: MeasureStatus.required})
+        output = generate_learning_modules(ndt, decision, {}, output_dir)
+        quiz_ids = {q.quiz_id for q in output.quiz_items}
+        assert "Q-SS-001" in quiz_ids
+        assert "Q-QUAL-001" in quiz_ids

@@ -92,3 +92,59 @@ class TestNdtExtractor:
         result = extract_ndt_from_text("")
         assert result.extraction_warnings
         assert not result.clauses
+
+
+GENERAL_RULE_TEXT = """
+Firms engaged in non-destructive testing services shall be approved as
+service suppliers by LR under the service supplier approval scheme.
+
+NDT personnel shall be qualified and certified to ISO 9712 Level II or III.
+
+During special survey, close-up survey of suspect areas and thickness
+measurement shall be carried out at the identified checkpoints.
+
+Magnetic particle testing (MT) shall be used for surface crack detection,
+liquid penetrant testing (PT) where applicable, and radiographic testing (RT)
+for butt welds.
+
+The extent of examination shall be 100% for primary members and 20% spot
+checks for secondary members.
+
+Acceptance criteria: indications exceeding the allowable length are rejectable.
+"""
+
+
+class TestGeneralNdtExtraction:
+    """NDT clauses beyond hatch-coaming Measures 1-5."""
+
+    def test_service_supplier_clause(self):
+        result = extract_ndt_from_text(GENERAL_RULE_TEXT)
+        cats = {c.category.value for c in result.clauses}
+        assert "service_supplier" in cats
+
+    def test_survey_checkpoint_clause(self):
+        result = extract_ndt_from_text(GENERAL_RULE_TEXT)
+        cats = {c.category.value for c in result.clauses}
+        assert "survey" in cats
+
+    def test_qualification_clause(self):
+        result = extract_ndt_from_text(GENERAL_RULE_TEXT)
+        cats = {c.category.value for c in result.clauses}
+        assert "qualification" in cats
+
+    def test_multiple_methods_detected(self):
+        result = extract_ndt_from_text(GENERAL_RULE_TEXT)
+        all_methods = {m.value for c in result.clauses for m in c.methods}
+        assert {"MT", "PT", "RT"}.issubset(all_methods)
+
+    def test_extent_and_acceptance(self):
+        result = extract_ndt_from_text(GENERAL_RULE_TEXT)
+        cats = {c.category.value for c in result.clauses}
+        assert "extent" in cats
+        assert "acceptance" in cats
+
+    def test_general_clauses_have_empty_measure_ids(self):
+        result = extract_ndt_from_text(GENERAL_RULE_TEXT)
+        general = [c for c in result.clauses if c.category.value != "measure"]
+        assert general
+        assert all(c.measure_ids == [] for c in general)

@@ -72,6 +72,35 @@ class EnhancedNDEMethod(str, Enum):
     unspecified = "미지정"
 
 
+class NdtMethod(str, Enum):
+    """Full set of NDT methods found across LR rules (not only M1-5)."""
+
+    UT = "UT"      # Ultrasonic Testing
+    PAUT = "PAUT"  # Phased Array UT
+    TOFD = "TOFD"  # Time of Flight Diffraction
+    RT = "RT"      # Radiographic Testing
+    MT = "MT"      # Magnetic Particle Testing
+    PT = "PT"      # Liquid Penetrant Testing
+    VT = "VT"      # Visual Testing
+    ET = "ET"      # Eddy Current Testing
+    unspecified = "미지정"
+
+
+class NdtCategory(str, Enum):
+    """Categories of NDT clauses, independent of hatch-coaming Measures 1-5."""
+
+    method = "method"                   # method definition / applicability
+    extent = "extent"                   # coverage / percentage / sampling
+    acceptance = "acceptance"           # acceptance criteria
+    qualification = "qualification"     # personnel / procedure qualification
+    service_supplier = "service_supplier"  # approval/management of NDT service firms
+    survey = "survey"                   # hull survey checkpoints / in-service inspection
+    timing = "timing"                   # construction / in-service / periodic
+    prohibition = "prohibition"         # restrictions / not permitted
+    measure = "measure"                 # tied to a hatch-coaming Measure 1-5
+    general = "general"                 # other NDT-related
+
+
 class MeasureStatus(str, Enum):
     required = "Required"
     not_required = "Not required"
@@ -283,11 +312,18 @@ class EvidenceBlock(BaseModel):
 
 
 class NdtClause(BaseModel):
-    """Structured NDT/NDE requirement extracted from LR rule text."""
+    """Structured NDT/NDE requirement extracted from LR rule text.
+
+    Not limited to hatch-coaming Measures 1-5: ``measure_ids`` may be empty
+    for general NDT clauses (method definitions, acceptance criteria,
+    personnel qualification, extent of examination, etc.).
+    """
 
     clause_id: str
+    category: NdtCategory = NdtCategory.general
     measure_ids: List[int] = Field(default_factory=list)
     method: Optional[EnhancedNDEMethod] = None
+    methods: List[NdtMethod] = Field(default_factory=list)
     coverage: Optional[str] = None
     scope: Optional[str] = None
     requirement_text: str

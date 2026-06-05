@@ -16,6 +16,7 @@ from .models import (
     LearningModule,
     LearningOutput,
     MeasureStatus,
+    NdtCategory,
     NdtClause,
     NdtExtraction,
     QuizItem,
@@ -69,6 +70,95 @@ _MEASURE_CATALOG: Dict[int, Dict[str, str]] = {
         ),
         "module_file": "M3_enhanced_NDE.md",
         "difficulty": "advanced",
+    },
+}
+
+
+# General (measure-agnostic) NDT topic catalog — covers the broader set of
+# NDT clauses in LR rules: service supplier management, hull survey
+# checkpoints, personnel qualification, methods, extent, acceptance, etc.
+_CATEGORY_CATALOG: Dict[str, Dict[str, str]] = {
+    NdtCategory.method.value: {
+        "title_ko": "NDT 방법론 (UT/RT/MT/PT/VT/ET)",
+        "title_en": "NDT Methods (UT/RT/MT/PT/VT/ET)",
+        "intro_ko": (
+            "LR 규칙에서 인정하는 비파괴검사 방법과 각 방법의 적용 대상을 다룹니다. "
+            "초음파(UT), 방사선(RT), 자분(MT), 침투(PT), 육안(VT), 와전류(ET)."
+        ),
+        "intro_en": (
+            "NDT methods recognized across LR rules and their applicability: "
+            "Ultrasonic (UT), Radiographic (RT), Magnetic Particle (MT), "
+            "Liquid Penetrant (PT), Visual (VT), Eddy Current (ET)."
+        ),
+        "difficulty": "basic",
+    },
+    NdtCategory.extent.value: {
+        "title_ko": "검사 범위 및 비율 (Extent of Examination)",
+        "title_en": "Extent of Examination",
+        "intro_ko": "검사 비율(100%, spot, random), 샘플링, 검사 대상 범위에 관한 조항.",
+        "intro_en": "Coverage (100%, spot, random), sampling, and scope of NDT.",
+        "difficulty": "intermediate",
+    },
+    NdtCategory.acceptance.value: {
+        "title_ko": "합격 기준 (Acceptance Criteria)",
+        "title_en": "Acceptance Criteria",
+        "intro_ko": "결함 지시(indication)의 허용 한계 및 합격/불합격 판정 기준.",
+        "intro_en": "Allowable indication limits and accept/reject criteria.",
+        "difficulty": "intermediate",
+    },
+    NdtCategory.qualification.value: {
+        "title_ko": "검사원·절차 자격 (Qualification)",
+        "title_en": "Personnel & Procedure Qualification",
+        "intro_ko": "검사원 자격(ISO 9712, SNT-TC-1A, Level II/III) 및 절차 승인 요건.",
+        "intro_en": "Personnel qualification (ISO 9712, SNT-TC-1A, Level II/III) and procedure approval.",
+        "difficulty": "intermediate",
+    },
+    NdtCategory.service_supplier.value: {
+        "title_ko": "서비스 공급자 관리 (Service Supplier)",
+        "title_en": "Service Supplier Management",
+        "intro_ko": (
+            "NDT 용역을 수행하는 firm(서비스 공급자)의 승인, 자격, 감사 등 "
+            "관리 체계에 관한 LR 요건."
+        ),
+        "intro_en": (
+            "LR requirements for approval, qualification, and audit of firms "
+            "(service suppliers) providing NDT services."
+        ),
+        "difficulty": "advanced",
+    },
+    NdtCategory.survey.value: {
+        "title_ko": "선체 검사 체크포인트 (Hull Survey Checkpoints)",
+        "title_en": "Hull Survey Checkpoints",
+        "intro_ko": (
+            "정기/중간/특별검사, close-up survey, 두께 계측 등 운항 중 "
+            "선체 검사에서의 NDT 위치 및 범위."
+        ),
+        "intro_en": (
+            "NDT locations and extent during periodical/intermediate/special "
+            "surveys, close-up survey, and thickness measurement."
+        ),
+        "difficulty": "advanced",
+    },
+    NdtCategory.timing.value: {
+        "title_ko": "검사 시점 (Timing)",
+        "title_en": "Inspection Timing",
+        "intro_ko": "건조 중, 용접 후, 운항 중, 주기적 검사 시점에 관한 조항.",
+        "intro_en": "Construction, post-weld, in-service, and periodic timing clauses.",
+        "difficulty": "basic",
+    },
+    NdtCategory.prohibition.value: {
+        "title_ko": "제한 및 금지 조항 (Prohibitions)",
+        "title_en": "Restrictions & Prohibitions",
+        "intro_ko": "특정 공법·재료·조건의 제한 또는 금지에 관한 조항.",
+        "intro_en": "Clauses restricting or prohibiting certain processes, materials, or conditions.",
+        "difficulty": "intermediate",
+    },
+    NdtCategory.general.value: {
+        "title_ko": "기타 NDT 조항 (General)",
+        "title_en": "Other NDT Clauses",
+        "intro_ko": "위 분류에 속하지 않는 일반 NDT 관련 조항.",
+        "intro_en": "General NDT-related clauses not covered by other categories.",
+        "difficulty": "basic",
     },
 }
 
@@ -183,6 +273,175 @@ def _render_module_md(
     ])
 
     return "\n".join(lines)
+
+
+def _render_category_module_md(
+    category_value: str,
+    catalog: Dict[str, str],
+    clauses: List[NdtClause],
+    project_id: str,
+) -> str:
+    lines = [
+        f"# {catalog['title_ko']}",
+        "",
+        f"**{catalog['title_en']}**",
+        "",
+        f"- Project: `{project_id}`",
+        f"- Category: `{category_value}`",
+        f"- Extracted clauses: **{len(clauses)}**",
+        "",
+        "## 개요 (Overview)",
+        "",
+        f"**KO:** {catalog['intro_ko']}",
+        "",
+        f"**EN:** {catalog['intro_en']}",
+        "",
+        "## 추출된 조항 (Extracted Clauses)",
+        "",
+    ]
+
+    if not clauses:
+        lines.append("_(이 카테고리에 해당하는 조항이 추출되지 않았습니다.)_")
+        lines.append("")
+    for i, clause in enumerate(clauses, 1):
+        methods = ", ".join(m.value for m in clause.methods) if clause.methods else "-"
+        lines.append(f"### {i}. `{clause.clause_id}`")
+        lines.append(f"- Methods: **{methods}**")
+        if clause.rule_ref:
+            lines.append(f"- Rule ref: `{clause.rule_ref}`")
+        lines.append("")
+        lines.append(f"> {clause.requirement_text}")
+        lines.append("")
+
+    lines.extend([
+        "## 용어 (Terminology)",
+        "",
+        "- **NDE / NDT** — Non-Destructive Examination / Testing (비파괴검사)",
+        "- **UT** Ultrasonic · **RT** Radiographic · **MT** Magnetic Particle",
+        "- **PT** Liquid Penetrant · **VT** Visual · **ET** Eddy Current",
+        "",
+    ])
+
+    return "\n".join(lines)
+
+
+def _generate_category_modules(
+    ndt_extraction: NdtExtraction,
+    project_id: str,
+    modules_dir: str,
+) -> List[LearningModule]:
+    """Generate measure-agnostic NDT modules grouped by category."""
+    modules: List[LearningModule] = []
+
+    # Group general (non-measure) clauses by category
+    by_category: Dict[str, List[NdtClause]] = {}
+    for clause in ndt_extraction.clauses:
+        if clause.measure_ids:
+            continue  # measure-specific clauses handled elsewhere
+        cat = clause.category.value if hasattr(clause.category, "value") else str(clause.category)
+        by_category.setdefault(cat, []).append(clause)
+
+    for cat_value, clauses in by_category.items():
+        catalog = _CATEGORY_CATALOG.get(cat_value, _CATEGORY_CATALOG[NdtCategory.general.value])
+        module_id = f"NDT_{cat_value}"
+        content_md = _render_category_module_md(cat_value, catalog, clauses, project_id)
+
+        md_path = os.path.join(modules_dir, f"{module_id}.md")
+        with open(md_path, "w", encoding="utf-8") as f:
+            f.write(content_md)
+
+        modules.append(LearningModule(
+            module_id=module_id,
+            title_ko=catalog["title_ko"],
+            title_en=catalog["title_en"],
+            measure_ids=[],
+            difficulty=catalog.get("difficulty", "basic"),
+            learning_objectives_ko=[
+                f"{catalog['title_ko']} 관련 LR NDT 조항을 이해한다.",
+                "추출된 조항의 적용 대상과 방법을 설명할 수 있다.",
+            ],
+            learning_objectives_en=[
+                f"Understand LR NDT clauses for: {catalog['title_en']}.",
+                "Explain the applicability and methods of extracted clauses.",
+            ],
+            content_md=content_md,
+            evidence_refs=[c.clause_id for c in clauses],
+        ))
+
+    return modules
+
+
+def _build_category_quiz_items(modules: List[LearningModule]) -> List[QuizItem]:
+    """Generic quizzes for general NDT category modules."""
+    quizzes: List[QuizItem] = []
+    cat_module_ids = {m.module_id for m in modules}
+
+    if "NDT_service_supplier" in cat_module_ids:
+        quizzes.append(QuizItem(
+            quiz_id="Q-SS-001",
+            module_id="NDT_service_supplier",
+            question_type="multiple_choice",
+            question_ko="NDT 용역을 수행하는 firm에 대해 LR이 요구하는 것은?",
+            question_en="What does LR require regarding firms performing NDT services?",
+            options=[
+                "서비스 공급자 승인 및 자격 관리",
+                "별도 요건 없음",
+                "선주 자체 승인만으로 충분",
+                "검사 결과만 제출하면 됨",
+            ],
+            correct_answer="서비스 공급자 승인 및 자격 관리",
+            explanation_ko="NDT 용역 firm은 LR의 서비스 공급자 승인 체계에 따라 승인·자격·감사가 관리되어야 합니다.",
+            explanation_en="Firms providing NDT services must be approved and managed under LR's service supplier scheme.",
+            rule_ref="Service Supplier approval",
+            measure_ids=[],
+        ))
+
+    if "NDT_survey" in cat_module_ids:
+        quizzes.append(QuizItem(
+            quiz_id="Q-SURVEY-001",
+            module_id="NDT_survey",
+            question_type="true_false",
+            question_ko="Close-up survey와 두께 계측은 운항 중 선체 검사의 NDT 체크포인트에 포함된다.",
+            question_en="Close-up survey and thickness measurement are NDT checkpoints during in-service hull surveys.",
+            options=["True", "False"],
+            correct_answer="True",
+            explanation_ko="정기/중간/특별검사에서 close-up survey와 두께 계측은 주요 NDT 체크포인트입니다.",
+            explanation_en="Close-up survey and thickness measurement are key NDT checkpoints in periodical/intermediate/special surveys.",
+            rule_ref="Hull survey requirements",
+            measure_ids=[],
+        ))
+
+    if "NDT_qualification" in cat_module_ids:
+        quizzes.append(QuizItem(
+            quiz_id="Q-QUAL-001",
+            module_id="NDT_qualification",
+            question_type="multiple_choice",
+            question_ko="NDT 검사원 자격 기준으로 흔히 인용되는 표준은?",
+            question_en="Which standard is commonly cited for NDT personnel qualification?",
+            options=["ISO 9712 / SNT-TC-1A", "ISO 9001", "MARPOL Annex VI", "SOLAS Ch II-1"],
+            correct_answer="ISO 9712 / SNT-TC-1A",
+            explanation_ko="NDT 검사원 자격은 일반적으로 ISO 9712 또는 SNT-TC-1A에 따라 Level I/II/III로 인증됩니다.",
+            explanation_en="NDT personnel are typically certified to Level I/II/III per ISO 9712 or SNT-TC-1A.",
+            rule_ref="Personnel qualification",
+            measure_ids=[],
+        ))
+
+    if "NDT_method" in cat_module_ids:
+        quizzes.append(QuizItem(
+            quiz_id="Q-METHOD-001",
+            module_id="NDT_method",
+            question_type="multiple_choice",
+            question_ko="표면 결함 검출에 주로 사용되는 NDT 방법은?",
+            question_en="Which NDT method is primarily used for surface defect detection?",
+            options=["MT / PT (자분·침투)", "UT (초음파)", "RT (방사선)", "두께 계측"],
+            correct_answer="MT / PT (자분·침투)",
+            explanation_ko="자분(MT)·침투(PT)는 표면/표면直下 결함, UT·RT는 내부 결함 검출에 주로 사용됩니다.",
+            explanation_en="MT/PT detect surface/near-surface defects; UT/RT detect internal defects.",
+            rule_ref="NDT methods",
+            measure_ids=[],
+        ))
+
+    return quizzes
 
 
 def _build_quiz_items(
@@ -380,6 +639,13 @@ def generate_learning_modules(
         output.modules.append(ctod_module)
         module_ids.append("M3_enhanced_NDE_CTOD")
 
+    # ── General (measure-agnostic) NDT category modules ─────────────────
+    # Covers service supplier management, hull survey checkpoints, personnel
+    # qualification, methods, extent, acceptance, etc. — beyond M1-5.
+    category_modules = _generate_category_modules(ndt_extraction, project_id, modules_dir)
+    output.modules.extend(category_modules)
+    module_ids.extend(m.module_id for m in category_modules)
+
     if not output.modules:
         # Fallback: generate basic NDT overview module from extracted clauses
         overview_md = _render_module_md(
@@ -404,6 +670,7 @@ def generate_learning_modules(
         module_ids.append("NDT_overview")
 
     output.quiz_items = _build_quiz_items(ndt_extraction, decision_result, module_ids)
+    output.quiz_items.extend(_build_category_quiz_items(category_modules))
 
     for module in output.modules:
         module.quiz_ids = [
@@ -432,7 +699,7 @@ def write_learning_outputs(
                 "title_en": m.title_en,
                 "measure_ids": m.measure_ids,
                 "difficulty": m.difficulty,
-                "file": f"modules/{m.module_id}.md" if not m.module_id.startswith("M") else f"modules/{m.module_id.replace('M1_100pct_UT', 'M1_100pct_UT')}.md",
+                "file": f"modules/{m.module_id}.md",
                 "quiz_ids": m.quiz_ids,
                 "evidence_refs": m.evidence_refs,
             }
@@ -441,17 +708,6 @@ def write_learning_outputs(
         "total_modules": len(learning_output.modules),
         "total_quizzes": len(learning_output.quiz_items),
     }
-
-    # Fix file paths in index
-    file_map = {
-        "M1_100pct_UT": "modules/M1_100pct_UT.md",
-        "M2_in_service_NDE": "modules/M2_in_service_NDE.md",
-        "M3_enhanced_NDE": "modules/M3_enhanced_NDE.md",
-        "M3_enhanced_NDE_CTOD": "modules/M3_enhanced_NDE_CTOD.md",
-        "NDT_overview": "modules/NDT_overview.md",
-    }
-    for entry in index["modules"]:
-        entry["file"] = file_map.get(entry["module_id"], f"modules/{entry['module_id']}.md")
 
     index_path = os.path.join(learning_dir, "modules_index.json")
     with open(index_path, "w", encoding="utf-8") as f:

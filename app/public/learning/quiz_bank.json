@@ -97,5 +97,75 @@
     "measure_ids": [
       3
     ]
+  },
+  {
+    "quiz_id": "Q-SS-001",
+    "module_id": "NDT_service_supplier",
+    "question_type": "multiple_choice",
+    "question_ko": "NDT 용역을 수행하는 firm에 대해 LR이 요구하는 것은?",
+    "question_en": "What does LR require regarding firms performing NDT services?",
+    "options": [
+      "서비스 공급자 승인 및 자격 관리",
+      "별도 요건 없음",
+      "선주 자체 승인만으로 충분",
+      "검사 결과만 제출하면 됨"
+    ],
+    "correct_answer": "서비스 공급자 승인 및 자격 관리",
+    "explanation_ko": "NDT 용역 firm은 LR의 서비스 공급자 승인 체계에 따라 승인·자격·감사가 관리되어야 합니다.",
+    "explanation_en": "Firms providing NDT services must be approved and managed under LR's service supplier scheme.",
+    "rule_ref": "Service Supplier approval",
+    "measure_ids": []
+  },
+  {
+    "quiz_id": "Q-SURVEY-001",
+    "module_id": "NDT_survey",
+    "question_type": "true_false",
+    "question_ko": "Close-up survey와 두께 계측은 운항 중 선체 검사의 NDT 체크포인트에 포함된다.",
+    "question_en": "Close-up survey and thickness measurement are NDT checkpoints during in-service hull surveys.",
+    "options": [
+      "True",
+      "False"
+    ],
+    "correct_answer": "True",
+    "explanation_ko": "정기/중간/특별검사에서 close-up survey와 두께 계측은 주요 NDT 체크포인트입니다.",
+    "explanation_en": "Close-up survey and thickness measurement are key NDT checkpoints in periodical/intermediate/special surveys.",
+    "rule_ref": "Hull survey requirements",
+    "measure_ids": []
+  },
+  {
+    "quiz_id": "Q-QUAL-001",
+    "module_id": "NDT_qualification",
+    "question_type": "multiple_choice",
+    "question_ko": "NDT 검사원 자격 기준으로 흔히 인용되는 표준은?",
+    "question_en": "Which standard is commonly cited for NDT personnel qualification?",
+    "options": [
+      "ISO 9712 / SNT-TC-1A",
+      "ISO 9001",
+      "MARPOL Annex VI",
+      "SOLAS Ch II-1"
+    ],
+    "correct_answer": "ISO 9712 / SNT-TC-1A",
+    "explanation_ko": "NDT 검사원 자격은 일반적으로 ISO 9712 또는 SNT-TC-1A에 따라 Level I/II/III로 인증됩니다.",
+    "explanation_en": "NDT personnel are typically certified to Level I/II/III per ISO 9712 or SNT-TC-1A.",
+    "rule_ref": "Personnel qualification",
+    "measure_ids": []
+  },
+  {
+    "quiz_id": "Q-METHOD-001",
+    "module_id": "NDT_method",
+    "question_type": "multiple_choice",
+    "question_ko": "표면 결함 검출에 주로 사용되는 NDT 방법은?",
+    "question_en": "Which NDT method is primarily used for surface defect detection?",
+    "options": [
+      "MT / PT (자분·침투)",
+      "UT (초음파)",
+      "RT (방사선)",
+      "두께 계측"
+    ],
+    "correct_answer": "MT / PT (자분·침투)",
+    "explanation_ko": "자분(MT)·침투(PT)는 표면/표면直下 결함, UT·RT는 내부 결함 검출에 주로 사용됩니다.",
+    "explanation_en": "MT/PT detect surface/near-surface defects; UT/RT detect internal defects.",
+    "rule_ref": "NDT methods",
+    "measure_ids": []
   }
 ]

@@ -3,7 +3,7 @@
 **Measure 2 — Periodic In-Service NDE**
 
 - LR Reference: `Pt 4, Ch 8, 2.3.10(d)`
-- Project: `E2E-TEST-001`
+- Project: `PROJ-2026-HC-001`
 - Applicability for this case: **Conditional**
 
 ## 학습 목표 (Learning Objectives)

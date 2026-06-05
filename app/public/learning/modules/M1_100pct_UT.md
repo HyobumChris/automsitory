@@ -3,7 +3,7 @@
 **Measure 1 — 100% NDE (UT) During Construction**
 
 - LR Reference: `Pt 4, Ch 8, 2.3.8`
-- Project: `E2E-TEST-001`
+- Project: `PROJ-2026-HC-001`
 - Applicability for this case: **Required**
 
 ## 학습 목표 (Learning Objectives)
