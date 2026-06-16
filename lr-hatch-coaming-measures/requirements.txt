@@ -1,0 +1,8 @@
+pydantic>=2.0
+pytest>=7.0
+pytest-cov>=4.0
+# Optional — uncomment for OCR support:
+# pytesseract>=0.3
+# Pillow>=10.0
+# PyMuPDF>=1.23
+# easyocr>=1.7

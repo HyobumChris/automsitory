@@ -1,0 +1,108 @@
+{
+  "project_meta": {
+    "project_id": "CASE2-HIGH",
+    "vessel_name": "Test Vessel Beta",
+    "date_local": "2026-02-17",
+    "timezone": "Asia/Seoul",
+    "allow_web_fetch": false
+  },
+  "sources": {
+    "scanned_rule_files": [],
+    "diagram_files": [],
+    "optional_shipright_files": []
+  },
+  "members": [
+    {
+      "member_id": "M01",
+      "member_role": "upper_deck_plate",
+      "zone": "cargo_hold_region",
+      "yield_strength_nmm2": 390,
+      "grade": "DH40",
+      "thickness_mm_as_built": 90,
+      "geometry_ref": "upper_deck"
+    },
+    {
+      "member_id": "M02",
+      "member_role": "hatch_coaming_side_plate",
+      "zone": "cargo_hold_region",
+      "yield_strength_nmm2": 390,
+      "grade": "DH40",
+      "thickness_mm_as_built": 92,
+      "geometry_ref": "coaming_side"
+    },
+    {
+      "member_id": "M03",
+      "member_role": "hatch_coaming_top_plate",
+      "zone": "cargo_hold_region",
+      "yield_strength_nmm2": 390,
+      "grade": "DH40",
+      "thickness_mm_as_built": 88,
+      "geometry_ref": "coaming_top"
+    },
+    {
+      "member_id": "M04",
+      "member_role": "attached_longitudinal",
+      "zone": "cargo_hold_region",
+      "yield_strength_nmm2": 355,
+      "grade": "AH36",
+      "thickness_mm_as_built": 25,
+      "geometry_ref": "longitudinal_1"
+    }
+  ],
+  "joints": [
+    {
+      "joint_id": "J01",
+      "joint_type": "block_to_block_butt",
+      "zone": "cargo_hold_region",
+      "connected_members": ["M01", "M02"],
+      "weld_process": "FCAW",
+      "geom": {"type": "line", "data": [[5000, 0, 0], [5000, 8000, 0]]},
+      "related_joint_ids": ["J03"],
+      "notes": "Upper deck butt weld at block boundary"
+    },
+    {
+      "joint_id": "J02",
+      "joint_type": "coaming_to_deck_connection",
+      "zone": "cargo_hold_region",
+      "connected_members": ["M01", "M02"],
+      "weld_process": "FCAW",
+      "geom": {"type": "polyline", "data": [[0, 0, 0], [10000, 0, 0], [10000, 8000, 0], [0, 8000, 0]]},
+      "related_joint_ids": [],
+      "notes": "Hatch coaming to upper deck connection"
+    },
+    {
+      "joint_id": "J03",
+      "joint_type": "block_to_block_butt",
+      "zone": "cargo_hold_region",
+      "connected_members": ["M02", "M03"],
+      "weld_process": "FCAW",
+      "geom": {"type": "line", "data": [[5350, 0, 0], [5350, 0, 2000]]},
+      "related_joint_ids": ["J01"],
+      "notes": "Coaming side butt weld at block boundary"
+    },
+    {
+      "joint_id": "J04",
+      "joint_type": "attachment_weld",
+      "zone": "cargo_hold_region",
+      "connected_members": ["M01", "M04"],
+      "weld_process": "FCAW",
+      "geom": {"type": "미지정", "data": "미지정"},
+      "related_joint_ids": [],
+      "notes": "Longitudinal stiffener attachment"
+    }
+  ],
+  "measure3_choice": {
+    "option": "block_shift",
+    "parameters": {
+      "block_shift_offset_mm": 350,
+      "hole_diameter_mm": "미지정",
+      "insert_type": "미지정",
+      "enhanced_nde_method": "미지정",
+      "enhanced_nde_acceptance_criteria_ref": "미지정"
+    }
+  },
+  "visualization_inputs": {
+    "output_dir": "outputs/case2_high",
+    "hatch_opening_bbox": {"L": 12000, "B": 9000, "H": 2200}
+  }
+}

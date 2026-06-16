@@ -1,0 +1,115 @@
+{
+  "project_meta": {
+    "project_id": "PROJ-2026-HC-001",
+    "vessel_name": "MV Pacific Explorer 24000TEU",
+    "date_local": "2026-02-16",
+    "allow_web_fetch": false
+  },
+  "sources": {
+    "scanned_rule_images": [],
+    "optional_refs": []
+  },
+  "members": [
+    {
+      "member_id": "HC-SIDE-P-01",
+      "member_role": "hatch_coaming_side_plate",
+      "yield_strength_nmm2": 390,
+      "grade": "EH40-BCA1",
+      "thickness_mm_as_built": 80.0,
+      "zone": "cargo_hold_region",
+      "geometry_ref": "HC_SIDE_P_STB"
+    },
+    {
+      "member_id": "HC-SIDE-S-01",
+      "member_role": "hatch_coaming_side_plate",
+      "yield_strength_nmm2": 390,
+      "grade": "EH40-BCA1",
+      "thickness_mm_as_built": 80.0,
+      "zone": "cargo_hold_region",
+      "geometry_ref": "HC_SIDE_S_STB"
+    },
+    {
+      "member_id": "HC-TOP-01",
+      "member_role": "hatch_coaming_top_plate",
+      "yield_strength_nmm2": 390,
+      "grade": "EH40",
+      "thickness_mm_as_built": 55.0,
+      "zone": "cargo_hold_region",
+      "geometry_ref": "HC_TOP_PLATE"
+    },
+    {
+      "member_id": "UD-01",
+      "member_role": "upper_deck_plate",
+      "yield_strength_nmm2": 390,
+      "grade": "EH40-BCA1",
+      "thickness_mm_as_built": 70.0,
+      "zone": "cargo_hold_region",
+      "geometry_ref": "UPPER_DECK_CARGO"
+    },
+    {
+      "member_id": "LONG-UF-01",
+      "member_role": "attached_longitudinal",
+      "yield_strength_nmm2": 355,
+      "grade": "EH36",
+      "thickness_mm_as_built": 22.0,
+      "zone": "cargo_hold_region",
+      "geometry_ref": "LONG_UPPER_FLANGE_01"
+    }
+  ],
+  "joints": [
+    {
+      "joint_id": "J-BB-HC-SIDE-01",
+      "joint_type": "block_to_block_butt",
+      "connected_members": ["HC-SIDE-P-01", "UD-01"],
+      "zone": "cargo_hold_region",
+      "weld_process": "FCAW",
+      "geom": {"type": "line", "data": [[0, 0, 1250], [14500, 0, 1250]]},
+      "notes": "Block 21/22 butt joint"
+    },
+    {
+      "joint_id": "J-BB-UD-01",
+      "joint_type": "block_to_block_butt",
+      "connected_members": ["UD-01", "LONG-UF-01"],
+      "zone": "cargo_hold_region",
+      "weld_process": "SAW",
+      "geom": {"type": "line", "data": [[7250, -500, 0], [7250, 500, 0]]},
+      "notes": "Upper deck block butt"
+    },
+    {
+      "joint_id": "J-CD-01",
+      "joint_type": "coaming_to_deck_connection",
+      "connected_members": ["HC-SIDE-P-01", "UD-01"],
+      "zone": "cargo_hold_region",
+      "weld_process": "FCAW",
+      "geom": {"type": "line", "data": [[0, 0, 0], [14500, 0, 0]]},
+      "notes": "Coaming side to upper deck connection"
+    },
+    {
+      "joint_id": "J-CD-02",
+      "joint_type": "coaming_to_deck_connection",
+      "connected_members": ["HC-SIDE-S-01", "UD-01"],
+      "zone": "cargo_hold_region",
+      "weld_process": "FCAW",
+      "geom": {"type": "line", "data": [[0, 4200, 0], [14500, 4200, 0]]},
+      "notes": "Coaming side (port) to upper deck connection"
+    }
+  ],
+  "measure3_choice": {
+    "option": "block_shift",
+    "parameters": {
+      "block_shift_offset_mm": 350.0,
+      "hole_diameter_mm": "미지정",
+      "insert_type": "미지정",
+      "enhanced_nde_method": "미지정",
+      "enhanced_nde_acceptance_criteria_ref": "미지정"
+    }
+  },
+  "visualization_inputs": {
+    "output_dir": "./output",
+    "hatch_opening_bbox": {
+      "L": 14500,
+      "B": 4200,
+      "H": 2800
+    }
+  }
+}
