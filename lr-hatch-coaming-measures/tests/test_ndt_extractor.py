@@ -1,0 +1,192 @@
+"""Tests for NDT clause extraction."""
+
+from __future__ import annotations
+
+import pytest
+
+from lr_hatch_coaming.models import (
+    RulesExtraction,
+    Sources,
+)
+from lr_hatch_coaming.ndt_extractor import (
+    enrich_applications_with_ndt,
+    extract_ndt_from_text,
+    extract_ndt_specs,
+)
+from lr_hatch_coaming.models import MeasureApplication, MeasureStatus, MeasureTarget
+
+
+SAMPLE_RULE_TEXT = """
+Table 8.2.1 Measures for hatch coaming.
+
+Measure 1: 100% ultrasonic testing (UT) shall be carried out during construction
+on all block-to-block butt joints of upper flange longitudinal members
+in the cargo hold region. Pt 4, Ch 8, 2.3.8.
+
+Note 2: Where enhanced NDE is adopted as Measure 3, periodic in-service NDE
+(Measure 2) may be required. The frequency and extent to be agreed with LR.
+
+Where enhanced NDE is adopted as Measure 3, CTOD value shall not be less than
+0.18 mm at the minimum design temperature.
+
+Enhanced NDE shall comply with stricter acceptance criteria in accordance
+with ShipRight procedures. PAUT may be used.
+
+Electrogas welding (EGW) is not permitted where enhanced NDE is required as Measure 3.
+"""
+
+
+class TestNdtExtractor:
+
+    def test_extract_ndt_from_text_finds_m1(self):
+        result = extract_ndt_from_text(SAMPLE_RULE_TEXT)
+        clause_ids = {c.clause_id for c in result.clauses}
+        assert "measure_1_ut" in clause_ids
+
+    def test_extract_ndt_from_text_finds_enhanced_nde(self):
+        result = extract_ndt_from_text(SAMPLE_RULE_TEXT)
+        clause_ids = {c.clause_id for c in result.clauses}
+        assert "measure_3_enhanced_nde" in clause_ids
+        assert "measure_3_ctod" in clause_ids or "ctod_requirement" in clause_ids
+
+    def test_extract_ndt_from_text_finds_note_2(self):
+        result = extract_ndt_from_text(SAMPLE_RULE_TEXT)
+        clause_ids = {c.clause_id for c in result.clauses}
+        assert "measure_2_in_service" in clause_ids or "note_2_measure_2" in clause_ids
+
+    def test_extract_ndt_from_text_finds_egw_prohibition(self):
+        result = extract_ndt_from_text(SAMPLE_RULE_TEXT)
+        clause_ids = {c.clause_id for c in result.clauses}
+        assert "egw_prohibition" in clause_ids
+
+    def test_extract_ndt_specs_with_pasted_text(self):
+        rules = RulesExtraction()
+        sources = Sources(rule_text_paste=SAMPLE_RULE_TEXT)
+        result = extract_ndt_specs(rules, sources)
+        assert len(result.clauses) >= 3
+
+    def test_extract_ndt_specs_fallback_when_empty(self):
+        rules = RulesExtraction()
+        sources = Sources()
+        result = extract_ndt_specs(rules, sources)
+        # Should load fallback regulation texts with NDT content
+        assert len(result.clauses) >= 1
+
+    def test_enrich_applications_with_ndt(self):
+        apps = [
+            MeasureApplication(
+                measure_id=1,
+                measure_name="100% UT",
+                status=MeasureStatus.required,
+                target_type=MeasureTarget.joint,
+                target_id="J-01",
+            ),
+        ]
+        from lr_hatch_coaming.ndt_extractor import extract_ndt_from_text
+
+        ndt = extract_ndt_from_text(SAMPLE_RULE_TEXT)
+        enriched = enrich_applications_with_ndt(apps, ndt)
+        assert enriched[0].evidence_snippet_key == "measure_1_ut"
+
+    def test_empty_text_warning(self):
+        result = extract_ndt_from_text("")
+        assert result.extraction_warnings
+        assert not result.clauses
+
+
+GENERAL_RULE_TEXT = """
+Firms engaged in non-destructive testing services shall be approved as
+service suppliers by LR under the service supplier approval scheme.
+
+NDT personnel shall be qualified and certified to ISO 9712 Level II or III.
+
+During special survey, close-up survey of suspect areas and thickness
+measurement shall be carried out at the identified checkpoints.
+
+Magnetic particle testing (MT) shall be used for surface crack detection,
+liquid penetrant testing (PT) where applicable, and radiographic testing (RT)
+for butt welds.
+
+The extent of examination shall be 100% for primary members and 20% spot
+checks for secondary members.
+
+Acceptance criteria: indications exceeding the allowable length are rejectable.
+"""
+
+
+class TestGeneralNdtExtraction:
+    """NDT clauses beyond hatch-coaming Measures 1-5."""
+
+    def test_service_supplier_clause(self):
+        result = extract_ndt_from_text(GENERAL_RULE_TEXT)
+        cats = {c.category.value for c in result.clauses}
+        assert "service_supplier" in cats
+
+    def test_survey_checkpoint_clause(self):
+        result = extract_ndt_from_text(GENERAL_RULE_TEXT)
+        cats = {c.category.value for c in result.clauses}
+        assert "survey" in cats
+
+    def test_qualification_clause(self):
+        result = extract_ndt_from_text(GENERAL_RULE_TEXT)
+        cats = {c.category.value for c in result.clauses}
+        assert "qualification" in cats
+
+    def test_multiple_methods_detected(self):
+        result = extract_ndt_from_text(GENERAL_RULE_TEXT)
+        all_methods = {m.value for c in result.clauses for m in c.methods}
+        assert {"MT", "PT", "RT"}.issubset(all_methods)
+
+    def test_extent_and_acceptance(self):
+        result = extract_ndt_from_text(GENERAL_RULE_TEXT)
+        cats = {c.category.value for c in result.clauses}
+        assert "extent" in cats
+        assert "acceptance" in cats
+
+    def test_general_clauses_have_empty_measure_ids(self):
+        result = extract_ndt_from_text(GENERAL_RULE_TEXT)
+        general = [c for c in result.clauses if c.category.value != "measure"]
+        assert general
+        assert all(c.measure_ids == [] for c in general)
+
+
+class TestPdfExtraction:
+    """Multi-page PDF extraction (requires PyMuPDF)."""
+
+    def _make_pdf(self, tmp_path):
+        fitz = pytest.importorskip("fitz")
+        pages = [
+            "Chapter 1\n1.5 Firms engaged in non-destructive examination shall be "
+            "approved as service suppliers. Operators shall be certified to ISO 9712 Level II.",
+            "Chapter 5\n5.7 Ultrasonic testing (UT) shall be 100% for plates over 50 mm. "
+            "Magnetic particle testing (MT) for surface defects.",
+            "Chapter 7\n7.9 Radiographic testing (RT) is required for castings. "
+            "Acceptance criteria: indications exceeding allowable length are rejectable.",
+        ]
+        doc = fitz.open()
+        for content in pages:
+            page = doc.new_page()
+            page.insert_textbox(fitz.Rect(40, 40, 555, 800), content, fontsize=11, fontname="helv")
+        pdf_path = str(tmp_path / "rules.pdf")
+        doc.save(pdf_path)
+        doc.close()
+        return pdf_path
+
+    def test_extract_from_multipage_pdf(self, tmp_path):
+        from lr_hatch_coaming.ndt_extractor import extract_ndt_from_pdf
+
+        pdf_path = self._make_pdf(tmp_path)
+        result = extract_ndt_from_pdf(pdf_path)
+
+        cats = {c.category.value for c in result.clauses}
+        assert "service_supplier" in cats
+        assert "qualification" in cats
+        all_methods = {m.value for c in result.clauses for m in c.methods}
+        assert {"UT", "MT", "RT"}.issubset(all_methods)
+
+    def test_pdf_not_found(self):
+        from lr_hatch_coaming.ndt_extractor import extract_ndt_from_pdf
+
+        result = extract_ndt_from_pdf("/nonexistent/path.pdf")
+        assert not result.clauses
+        assert result.extraction_warnings

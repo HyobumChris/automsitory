@@ -1,16 +1,22 @@
 import { useState, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion'; // eslint-disable-line no-unused-vars
-import { Anchor, Ship, Eye, Layers, Box } from 'lucide-react';
+import { Anchor, Ship, Eye, Box, GraduationCap, GitBranch } from 'lucide-react';
 import { GRADE_INFO, buildGradeFlow } from './data/flowNodes';
 import { useFlowEngine, validateFlow } from './hooks/useFlowEngine';
 import CrossSectionView from './components/CrossSectionView';
 import IsometricView from './components/IsometricView';
 import FlowchartPanel from './components/FlowchartPanel';
+import LearningPanel from './components/LearningPanel';
 
 const GRADES = ['EH36', 'EH40', 'EH47'];
+const MODES = [
+  { id: 'flowchart', label: 'Flowchart', icon: GitBranch },
+  { id: 'learning', label: 'NDT Learning', icon: GraduationCap },
+];
 
 export default function App() {
   const [selectedGrade, setSelectedGrade] = useState('EH40');
+  const [appMode, setAppMode] = useState('flowchart');
 
   const flow = useMemo(() => buildGradeFlow(selectedGrade), [selectedGrade]);
 
@@ -58,6 +64,7 @@ export default function App() {
           </div>
 
           {/* Grade selector */}
+          {appMode === 'flowchart' && (
           <LayoutGroup>
             <div className="flex items-center gap-0.5 bg-slate-800/50 rounded-xl p-1 border border-slate-700/40">
               {GRADES.map((grade) => {
@@ -90,16 +97,42 @@ export default function App() {
               })}
             </div>
           </LayoutGroup>
+          )}
+
+          {/* Mode selector */}
+          <div className="flex items-center gap-0.5 bg-slate-800/50 rounded-xl p-1 border border-slate-700/40">
+            {MODES.map(({ id, label, icon: Icon }) => {
+              const active = appMode === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setAppMode(id)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                    active ? 'text-cyan-300 bg-cyan-500/10 border border-cyan-500/30' : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                  }`}
+                >
+                  <Icon size={13} />
+                  <span className="hidden sm:inline">{label}</span>
+                </button>
+              );
+            })}
+          </div>
 
           {/* Grade description */}
+          {appMode === 'flowchart' && (
           <div className="hidden lg:flex items-center gap-2 text-[11px] text-slate-500">
             <Ship size={14} className="text-slate-600" />
             <span>{GRADE_INFO[selectedGrade]?.desc}</span>
           </div>
+          )}
         </div>
       </header>
 
       {/* ═══ MAIN CONTENT ═══ */}
+      {appMode === 'learning' ? (
+        <LearningPanel />
+      ) : (
       <div className="flex-1 flex overflow-hidden">
         {/* ─── LEFT: Flowchart Wizard ─── */}
         <div className="w-[360px] lg:w-[400px] shrink-0 border-r border-slate-700/30 bg-marine-800/30 flex flex-col">
@@ -228,6 +261,7 @@ export default function App() {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

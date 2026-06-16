@@ -72,6 +72,35 @@ class EnhancedNDEMethod(str, Enum):
     unspecified = "미지정"
 
 
+class NdtMethod(str, Enum):
+    """Full set of NDT methods found across LR rules (not only M1-5)."""
+
+    UT = "UT"      # Ultrasonic Testing
+    PAUT = "PAUT"  # Phased Array UT
+    TOFD = "TOFD"  # Time of Flight Diffraction
+    RT = "RT"      # Radiographic Testing
+    MT = "MT"      # Magnetic Particle Testing
+    PT = "PT"      # Liquid Penetrant Testing
+    VT = "VT"      # Visual Testing
+    ET = "ET"      # Eddy Current Testing
+    unspecified = "미지정"
+
+
+class NdtCategory(str, Enum):
+    """Categories of NDT clauses, independent of hatch-coaming Measures 1-5."""
+
+    method = "method"                   # method definition / applicability
+    extent = "extent"                   # coverage / percentage / sampling
+    acceptance = "acceptance"           # acceptance criteria
+    qualification = "qualification"     # personnel / procedure qualification
+    service_supplier = "service_supplier"  # approval/management of NDT service firms
+    survey = "survey"                   # hull survey checkpoints / in-service inspection
+    timing = "timing"                   # construction / in-service / periodic
+    prohibition = "prohibition"         # restrictions / not permitted
+    measure = "measure"                 # tied to a hatch-coaming Measure 1-5
+    general = "general"                 # other NDT-related
+
+
 class MeasureStatus(str, Enum):
     required = "Required"
     not_required = "Not required"
@@ -110,6 +139,7 @@ class OptionalRef(BaseModel):
 class Sources(BaseModel):
     scanned_rule_images: List[ScannedRuleImage] = Field(default_factory=list)
     optional_refs: List[OptionalRef] = Field(default_factory=list)
+    rule_text_paste: Optional[str] = None
 
 
 class MemberInput(BaseModel):
@@ -268,3 +298,79 @@ class ManualMatrixEntry(BaseModel):
     measure_2: str
     measure_3_and_4: str
     measure_5: str
+
+
+# ── NDT Extraction & Learning Models ────────────────────────────────────────
+class EvidenceBlock(BaseModel):
+    """Traceability link from extracted clause to source document."""
+
+    scan_file: str = UNSPECIFIED
+    page_index: Optional[int] = None
+    bbox: Optional[List[int]] = None
+    ocr_confidence: Optional[float] = None
+    snippet_path: str = UNSPECIFIED
+
+
+class NdtClause(BaseModel):
+    """Structured NDT/NDE requirement extracted from LR rule text.
+
+    Not limited to hatch-coaming Measures 1-5: ``measure_ids`` may be empty
+    for general NDT clauses (method definitions, acceptance criteria,
+    personnel qualification, extent of examination, etc.).
+    """
+
+    clause_id: str
+    category: NdtCategory = NdtCategory.general
+    measure_ids: List[int] = Field(default_factory=list)
+    method: Optional[EnhancedNDEMethod] = None
+    methods: List[NdtMethod] = Field(default_factory=list)
+    coverage: Optional[str] = None
+    scope: Optional[str] = None
+    requirement_text: str
+    rule_ref: Optional[str] = None
+    evidence: EvidenceBlock = Field(default_factory=EvidenceBlock)
+
+
+class NdtExtraction(BaseModel):
+    """Complete NDT-focused extraction from rule sources."""
+
+    clauses: List[NdtClause] = Field(default_factory=list)
+    extraction_warnings: List[str] = Field(default_factory=list)
+
+
+class QuizItem(BaseModel):
+    """Single quiz question for learning modules."""
+
+    quiz_id: str
+    module_id: str
+    question_type: Literal["multiple_choice", "true_false", "case_study"]
+    question_ko: str
+    question_en: str
+    options: List[str] = Field(default_factory=list)
+    correct_answer: str
+    explanation_ko: str = ""
+    explanation_en: str = ""
+    rule_ref: str = ""
+    measure_ids: List[int] = Field(default_factory=list)
+
+
+class LearningModule(BaseModel):
+    """Generated learning module metadata and content."""
+
+    module_id: str
+    title_ko: str
+    title_en: str
+    measure_ids: List[int] = Field(default_factory=list)
+    difficulty: Literal["basic", "intermediate", "advanced"] = "basic"
+    learning_objectives_ko: List[str] = Field(default_factory=list)
+    learning_objectives_en: List[str] = Field(default_factory=list)
+    content_md: str = ""
+    evidence_refs: List[str] = Field(default_factory=list)
+    quiz_ids: List[str] = Field(default_factory=list)
+
+
+class LearningOutput(BaseModel):
+    """Aggregate output from the learning module generator."""
+
+    modules: List[LearningModule] = Field(default_factory=list)
+    quiz_items: List[QuizItem] = Field(default_factory=list)

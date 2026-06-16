@@ -1,7 +1,7 @@
 """End-to-end pipeline orchestrator.
 
 Runs: OCR → Rule merge → Decision → Measure application →
-      Visualization → Evidence/Audit output.
+      NDT extraction → Learning modules → Visualization → Evidence/Audit output.
 """
 
 from __future__ import annotations
@@ -26,7 +26,13 @@ from .decision_engine import run_decision
 from .measure_applicator import apply_measures
 from .viz_2d import write_2d_outputs
 from .viz_3d import write_3d_outputs
-from .evidence import write_audit_json, write_evidence
+from .evidence import write_audit_json, write_evidence, write_ndt_evidence
+from .ndt_extractor import (
+    enrich_applications_with_ndt,
+    extract_ndt_specs,
+    write_ndt_snippets,
+)
+from .learning_generator import generate_learning_modules, write_learning_outputs
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +82,16 @@ def run_pipeline(
     )
     all_flags = flags + app_flags
 
+    # ── Step 4b: NDT extraction ─────────────────────────────────────────
+    logger.info("Step 4b: Extracting NDT/NDE clauses from rules")
+    ndt_result = extract_ndt_specs(rules, pipeline_input.sources)
+    applications = enrich_applications_with_ndt(applications, ndt_result)
+    ndt_snippet_paths = write_ndt_snippets(
+        output_dir,
+        ndt_result,
+        keyed_text=rules.textual_requirements,
+    )
+
     # Build decision result
     decision_result = DecisionResult(
         project_meta=pipeline_input.project_meta,
@@ -86,6 +102,16 @@ def run_pipeline(
         manual_review_flags=all_flags,
         pending_choices=pending,
     )
+
+    # ── Step 4c: Learning module generation ─────────────────────────────
+    logger.info("Step 4c: Generating NDT learning modules")
+    learning_output = generate_learning_modules(
+        ndt_result,
+        decision_result,
+        rules.textual_requirements,
+        output_dir,
+    )
+    learning_paths = write_learning_outputs(output_dir, learning_output)
 
     # ── Step 5: Resolve bbox ────────────────────────────────────────────
     bbox_input = pipeline_input.visualization_inputs.hatch_opening_bbox
@@ -123,6 +149,8 @@ def run_pipeline(
     logger.info("Step 7: Writing audit JSON and evidence")
     audit_paths = write_audit_json(output_dir, rules, decision_result)
     evidence_paths = write_evidence(output_dir, rules, decision_result)
+    ndt_evidence_paths = write_ndt_evidence(output_dir, ndt_result)
+    evidence_paths.update(ndt_evidence_paths)
 
     # ── Summary ─────────────────────────────────────────────────────────
     summary = {
@@ -138,12 +166,18 @@ def run_pipeline(
         "total_applications": len(applications),
         "manual_review_flags_count": len(all_flags),
         "pending_choices_count": len(pending),
+        "ndt_clauses_count": len(ndt_result.clauses),
+        "learning_modules_count": len(learning_output.modules),
+        "learning_quizzes_count": len(learning_output.quiz_items),
         "output_files": {
             **audit_paths,
             **diagram_paths,
             **model3d_paths,
             **evidence_paths,
+            **learning_paths,
+            **ndt_snippet_paths,
         },
+        "learning_paths": learning_paths,
     }
 
     # Write summary

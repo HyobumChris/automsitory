@@ -83,3 +83,20 @@ def write_audit_json(
     paths["decision_results"] = decision_path
 
     return paths
+
+
+def write_ndt_evidence(
+    output_dir: str,
+    ndt_extraction,
+) -> Dict[str, str]:
+    """Write NDT clause evidence JSON to output_dir/evidence/."""
+    evidence_dir = os.path.join(output_dir, "evidence")
+    os.makedirs(evidence_dir, exist_ok=True)
+    paths: Dict[str, str] = {}
+
+    ndt_path = os.path.join(evidence_dir, "ndt_clauses.json")
+    with open(ndt_path, "w", encoding="utf-8") as f:
+        f.write(ndt_extraction.model_dump_json(indent=2))
+    paths["ndt_clauses"] = ndt_path
+
+    return paths
