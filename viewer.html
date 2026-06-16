@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IGF Double Wall Pipe Viewer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { overflow: hidden; font-family: 'Segoe UI', sans-serif; background: #e8ecf1; }
+  #canvas-container { width: 100vw; height: 100vh; }
+  #info {
+    position: absolute; top: 12px; left: 12px;
+    background: rgba(35, 40, 50, 0.78); backdrop-filter: blur(6px);
+    color: #ffffff; padding: 10px 12px; border-radius: 8px;
+    font-size: 10.5px; line-height: 1.5; min-width: 175px;
+  }
+  #info h1 { font-size: 11.5px; margin-bottom: 5px; color: #ffffff; }
+  #info .row { display: flex; justify-content: space-between; gap: 12px; }
+  #info .row span:last-child { font-variant-numeric: tabular-nums; }
+  #info .std { margin-top: 5px; padding-top: 5px; border-top: 1px solid rgba(255,255,255,0.2); font-size: 9.5px; }
+  #status { position: absolute; top: 12px; right: 12px; color: #b45309; font-size: 12px; }
+  #shots {
+    position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+    display: none; gap: 8px;
+  }
+  #shots button {
+    font: 600 12px 'Segoe UI', sans-serif; color: #ffffff;
+    background: rgba(35, 40, 50, 0.85); border: 2px solid;
+    border-radius: 6px; padding: 7px 14px; cursor: pointer;
+  }
+  #shots button.off { opacity: 0.35; }
+  #rtbtn {
+    position: absolute; bottom: 16px; right: 16px;
+    font: 600 12px 'Segoe UI', sans-serif; color: #ffffff;
+    background: rgba(35, 40, 50, 0.85); border: 2px solid #5b7c99;
+    border-radius: 6px; padding: 7px 14px; cursor: pointer;
+  }
+  #rtbtn.on { background: #5b7c99; }
+  #cards {
+    position: absolute; top: 12px; right: 12px;
+    display: none; gap: 10px; align-items: flex-start;
+  }
+  #cards img {
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    object-fit: contain; background: #ffffff;
+  }
+  #cardFilm { background: #202326 !important; }
+</style>
+</head>
+<body>
+<div id="canvas-container"></div>
+<div id="info">
+  <h1>IGF Double Wall Pipe + Branch</h1>
+  <div class="row"><span>Outer NPS 3 Sch 10S</span><span>OD 88.9 / t 3.05</span></div>
+  <div class="row"><span>Inner NPS 2 Sch 40</span><span>OD 60.3 / t 3.91</span></div>
+  <div class="row"><span>Annular gap</span><span>11.25 mm</span></div>
+  <div class="row"><span>Outlet (cold-formed)</span><span>OD 26.7 / t 2.87</span></div>
+  <div class="row"><span>Shell cutout</span><span>&Oslash;70 mm</span></div>
+  <div class="row"><span>Flange (compact WN)</span><span>OD 70 / t 14.6</span></div>
+  <div class="row"><span>Weld line &rarr; inner pipe</span><span>10 mm (flank) / 6.85 (crown)</span></div>
+  <div class="row"><span>Weld line &rarr; flange face</span><span>8.0 mm</span></div>
+  <div class="row"><span>Length</span><span>1000 mm</span></div>
+  <div class="std">ASME B36.10M / B16.5 / ASTM A53&middot;A106 &middot; IGF Code</div>
+</div>
+<div id="status">Loading...</div>
+<div id="shots"></div>
+<button id="rtbtn">RT setup: OFF</button>
+<div id="cards">
+  <img id="cardTop" alt="DWDI coverage (top view)">
+  <img id="cardSide" alt="Section view (beam plane)">
+  <img id="cardFilm" alt="Simulated radiograph">
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xe8ecf1);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 1, 10000);
+camera.position.set(700, 500, 700);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(devicePixelRatio);
+container.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.target.set(0, 0, 0);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8d97a5, 0.9));
+const key = new THREE.DirectionalLight(0xffffff, 1.4);
+key.position.set(500, 800, 600);
+scene.add(key);
+const fill = new THREE.DirectionalLight(0x88aaff, 0.5);
+fill.position.set(-600, -300, -400);
+scene.add(fill);
+
+const grid = new THREE.GridHelper(2000, 40, 0xaab4c0, 0xcdd5de);
+scene.add(grid);
+scene.add(new THREE.AxesHelper(150));
+
+const loader = new STLLoader();
+const OUTER_RADIUS = 88.9 / 2;
+const PIPE_LENGTH = 1000;
+
+// CAD frame: pipes along +Z, branch along +Y.
+// Uniform transform: lay along X axis, centered, resting on the grid.
+function loadPart(file, material) {
+  return new Promise((resolve, reject) => {
+    loader.load(file + '?v=' + Date.now(), geometry => {
+      geometry.computeVertexNormals();
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.rotation.y = Math.PI / 2;
+      mesh.position.x = -PIPE_LENGTH / 2;
+      mesh.position.y = OUTER_RADIUS;
+      scene.add(mesh);
+      resolve(mesh);
+    }, undefined, reject);
+  });
+}
+
+// Stainless steel tone shared by outer pipe, branch stub and flange;
+// inner fuel pipe keeps a distinct color for clarity.
+const outerMat = new THREE.MeshStandardMaterial({
+  color: 0xcfd6dd, metalness: 0.65, roughness: 0.3,
+  transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false,
+});
+const innerMat = new THREE.MeshStandardMaterial({
+  color: 0xe8821a, metalness: 0.2, roughness: 0.5,
+  transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false,
+});
+const steelMat = new THREE.MeshStandardMaterial({
+  color: 0xbcc7d4, metalness: 0.7, roughness: 0.28,
+  transparent: true, opacity: 0.68, side: THREE.DoubleSide, depthWrite: false,
+});
+const weldMat = new THREE.MeshStandardMaterial({
+  color: 0x8e949e, metalness: 0.6, roughness: 0.55,
+});
+
+// --- RT (radiographic testing) setup visualization: ?rt=1 ---
+// DWDI elliptical technique for the girth weld (OD 26.7, t 2.87):
+// Ir-192 source offset above the weld plane on one side, film on the
+// opposite side, beam passing through both walls.
+const WELD_Y = 37 + OUTER_RADIUS;  // girth weld world height (81.45)
+
+// Builds one source–beam–film exposure set; the group is rotated about the
+// vertical branch axis to place the three 120°-spaced shots
+function createRTSetup(angleRad, beamColor) {
+  const g = new THREE.Group();
+
+  // Film: stand-off cassette — the weld sits right above the inner pipe so
+  // the strip is NOT pressed onto the bead; it is held as a clean R24
+  // cylinder, taped down to the inner pipe surface at the bottom and up to
+  // the flange disc underside at the top (Ug rechecked: 0.43 mm, Class A ok)
+  const FILM_R = 24;
+  const filmGeo = new THREE.CylinderGeometry(
+    FILM_R, FILM_R, 12, 64, 6, true, Math.PI - 0.9, 1.8);
+  {
+    // only mild handling waviness — the taped stand-off keeps it smooth
+    const pos = filmGeo.attributes.position;
+    const ph = angleRad * 3.1;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      const th = Math.atan2(x, z);
+      const r = FILM_R + 0.18 * Math.sin(6.0 * th + ph)
+              + 0.10 * Math.sin(13.0 * th + ph + y * 0.3);
+      pos.setX(i, Math.sin(th) * r);
+      pos.setZ(i, Math.cos(th) * r);
+    }
+    filmGeo.computeVertexNormals();
+  }
+  const film = new THREE.Mesh(
+    filmGeo,
+    new THREE.MeshStandardMaterial({
+      color: 0x2a3a2e, roughness: 0.75, metalness: 0.05,
+      side: THREE.DoubleSide,
+    })
+  );
+  film.position.set(0, WELD_Y, 0);
+  g.add(film);
+
+  // tape: bottom strips run from the film down onto the inner pipe surface,
+  // top strips fold onto the flange disc underside (y = weld + 8)
+  const filmTapeMat = new THREE.MeshStandardMaterial({
+    color: 0xd9c27a, transparent: true, opacity: 0.8, roughness: 0.65,
+    side: THREE.DoubleSide, depthWrite: false,
+  });
+  const sinA = Math.sin(angleRad), cosA = Math.cos(angleRad);
+  for (const u of [-0.72, 0.0, 0.72]) {           // bottom: down to the pipe
+    const phi = Math.PI + u;
+    const wz = -Math.sin(phi) * sinA + Math.cos(phi) * cosA;
+    const surfRel = Math.sqrt(
+      Math.max(0, 30.15 * 30.15 - wz * wz * FILM_R * FILM_R)) - 37;
+    const top = -2.0, bot = surfRel + 0.1;        // hugs film, lands near pipe
+    const tape = new THREE.Mesh(
+      new THREE.CylinderGeometry(FILM_R + 0.25, FILM_R + 0.25, top - bot,
+                                 10, 1, true, phi - 0.065, 0.13),
+      filmTapeMat
+    );
+    tape.position.set(0, WELD_Y + (top + bot) / 2, 0);
+    g.add(tape);
+  }
+  for (const u of [-0.55, 0.55]) {                // top: up to the flange
+    const phi = Math.PI + u;
+    const tape = new THREE.Mesh(
+      new THREE.CylinderGeometry(FILM_R + 0.25, FILM_R + 0.25, 5.6,
+                                 10, 1, true, phi - 0.065, 0.13),
+      filmTapeMat
+    );
+    tape.position.set(0, WELD_Y + 5.0, 0);
+    g.add(tape);
+    // folded foot stuck on the flange disc underside
+    const foot = new THREE.Mesh(
+      new THREE.RingGeometry(FILM_R - 3.2, FILM_R + 0.3, 10, 1,
+                             Math.PI / 2 - phi - 0.065, 0.13),
+      filmTapeMat
+    );
+    foot.rotation.x = Math.PI / 2;
+    foot.position.set(0, WELD_Y + 7.85, 0);
+    g.add(foot);
+  }
+
+  // Ir-192 source capsule on a guide tube, ~6° above the weld plane so the
+  // beam threads the 8 mm gap between the weld and the flange overhang
+  // (radius 185: keeps Class A min distance with the stand-off film at R24)
+  const srcPos = new THREE.Vector3(0, WELD_Y + 20, 185);
+  const capsule = new THREE.Mesh(
+    new THREE.CapsuleGeometry(3, 8, 8, 16),
+    new THREE.MeshStandardMaterial({ color: 0xcc2222, roughness: 0.4 })
+  );
+  capsule.position.copy(srcPos);
+  g.add(capsule);
+
+  const tube = new THREE.Mesh(
+    new THREE.CylinderGeometry(2, 2, 70, 16),
+    new THREE.MeshStandardMaterial({ color: 0x666c77, roughness: 0.5 })
+  );
+  tube.position.set(0, srcPos.y + 4, srcPos.z + 28);
+  tube.rotation.x = Math.PI / 2 - 0.11;
+  g.add(tube);
+
+  // Beam cone from source through the weld onto the curved film
+  const target = new THREE.Vector3(0, WELD_Y, -24);
+  const dir = new THREE.Vector3().subVectors(target, srcPos);
+  const len = dir.length();
+  // Collimated to the weld band only (keeps the flange out of the beam)
+  const coneGeo = new THREE.ConeGeometry(16, len, 32, 1, true);
+  coneGeo.translate(0, -len / 2, 0);
+  const beam = new THREE.Mesh(coneGeo, new THREE.MeshBasicMaterial({
+    color: beamColor, transparent: true, opacity: 0.1,
+    side: THREE.DoubleSide, depthWrite: false,
+  }));
+  beam.position.copy(srcPos);
+  beam.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0, -1, 0), dir.clone().normalize()
+  );
+  g.add(beam);
+
+  // Central ray
+  g.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([srcPos, target]),
+    new THREE.LineBasicMaterial({ color: beamColor })
+  ));
+
+  // Wire-type IQI (ISO 19232-1, set W10–W16) wrapped onto the weld bead on
+  // the source side: clear plastic sleeve, 7 wires of graduated diameter
+  // perpendicular to the seam, lead ID characters, fixing tape
+  const iqi = new THREE.Group();
+  const IQI_R = 15.0;       // sleeve radius (over the bead, R≈14.2)
+  const IQI_ARC = 1.35;     // ≈20 mm arc length
+
+  // flexible transparent sleeve
+  iqi.add(new THREE.Mesh(
+    new THREE.CylinderGeometry(IQI_R, IQI_R, 13, 32, 1, true,
+                               -IQI_ARC / 2, IQI_ARC),
+    new THREE.MeshPhysicalMaterial({
+      color: 0xffffff, transparent: true, opacity: 0.28, roughness: 0.2,
+      side: THREE.DoubleSide, depthWrite: false,
+    })
+  ));
+
+  // 7 wires, thickest (W10 Ø0.4) to thinnest (W16 Ø0.1) — radii exaggerated
+  // ~3x so the gradation stays visible at model scale
+  const wireMat = new THREE.MeshStandardMaterial({
+    color: 0x3c4148, metalness: 0.85, roughness: 0.25,
+  });
+  const WIRE_R = 14.6;      // sandwiched between sleeve and bead
+  const wireRadii = [0.60, 0.48, 0.38, 0.30, 0.24, 0.19, 0.15];
+  for (let i = 0; i < 7; i++) {
+    const phi = (i - 3) * (2.0 / WIRE_R);
+    const wire = new THREE.Mesh(
+      new THREE.CylinderGeometry(wireRadii[i], wireRadii[i], 9, 8), wireMat
+    );
+    wire.position.set(WIRE_R * Math.sin(phi), 0, WIRE_R * Math.cos(phi));
+    iqi.add(wire);
+  }
+
+  // lead identification characters ("10 ISO 16" + "W 10" by the thick wire)
+  const mkLabel = (text, w, h) => {
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = Math.round(256 * h / w);
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#23272e';
+    ctx.font = `bold ${Math.round(c.height * 0.78)}px Arial`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, c.width / 2, c.height / 2);
+    const m = new THREE.Mesh(
+      new THREE.PlaneGeometry(w, h),
+      new THREE.MeshBasicMaterial({
+        map: new THREE.CanvasTexture(c), transparent: true,
+        side: THREE.DoubleSide,
+      })
+    );
+    return m;
+  };
+  const idLabel = mkLabel('10 ISO 16', 9, 2.2);
+  idLabel.position.set(0, 4.6, IQI_R + 0.15);
+  iqi.add(idLabel);
+  const wLabel = mkLabel('W 10', 4, 1.8);
+  const phiW = -3.7 * (2.0 / WIRE_R);
+  wLabel.position.set((IQI_R + 0.15) * Math.sin(phiW), -4.4,
+                      (IQI_R + 0.15) * Math.cos(phiW));
+  wLabel.rotation.y = phiW;
+  iqi.add(wLabel);
+
+  // fixing tape at both ends of the sleeve
+  const tapeMat = new THREE.MeshStandardMaterial({
+    color: 0xd9b84a, transparent: true, opacity: 0.75, roughness: 0.6,
+    side: THREE.DoubleSide, depthWrite: false,
+  });
+  for (const s of [-1, 1]) {
+    iqi.add(new THREE.Mesh(
+      new THREE.CylinderGeometry(IQI_R + 0.1, IQI_R + 0.1, 15, 12, 1, true,
+                                 s * IQI_ARC / 2 - 0.11, 0.22),
+      tapeMat
+    ));
+  }
+
+  iqi.position.set(0, WELD_Y, 0);
+  g.add(iqi);
+
+  g.rotation.y = angleRad;
+  return g;
+}
+
+// --- RT master toggle (always-visible button, no URL param needed) ---
+const rtRoot = new THREE.Group();
+rtRoot.visible = false;
+scene.add(rtRoot);
+let rtBuilt = false;
+const rtBtn = document.getElementById('rtbtn');
+const stdEl = document.querySelector('#info .std');
+const STD_TEXT = stdEl.textContent;
+
+function setRT(on) {
+  if (on && !rtBuilt) buildRT();
+  rtRoot.visible = on;
+  document.getElementById('shots').style.display = on ? 'flex' : 'none';
+  if (!on) document.getElementById('cards').style.display = 'none';
+  stdEl.textContent = on
+    ? 'RT: Ir-192 × 3 shots (az -60°/0°/+60°, elev ≈6°) · DWDI · wire IQI, source side'
+    : STD_TEXT;
+  rtBtn.textContent = on ? 'RT setup: ON' : 'RT setup: OFF';
+  rtBtn.classList.toggle('on', on);
+}
+rtBtn.onclick = () => setRT(!rtRoot.visible);
+
+function buildRT() {
+  // Sources confined to the open ±z sector (the outer pipe crown blocks the
+  // low beam path along the run pipe axis): azimuths -60° / 0° / +60°
+  // one steel-blue family, lightness-coded per shot (no traffic-light look)
+  const beamColors = [0x2f4858, 0x5b7c99, 0x9db4c4];
+  const azimuths = [-Math.PI / 3, 0, Math.PI / 3];
+  const azLabels = ['-60°', '0°', '+60°'];
+  const shotsDiv = document.getElementById('shots');
+  const cards = document.getElementById('cards');
+  const cardTop = document.getElementById('cardTop');
+  const cardSide = document.getElementById('cardSide');
+  const cardFilm = document.getElementById('cardFilm');
+  shotsDiv.style.display = 'flex';
+  // size the two cards to exactly match the spec panel box (same width and
+  // height), shrinking proportionally when the window gets narrow
+  function layoutCards() {
+    const info = document.getElementById('info');
+    const infoW = info.offsetWidth;
+    const infoH = info.offsetHeight;
+    const avail = innerWidth - infoW - 60;   // margins + breathing room
+    const w = Math.max(170, Math.min(infoW, (avail - 20) / 3));
+    const h = infoH * (w / infoW);
+    for (const c of [cardTop, cardSide, cardFilm]) {
+      c.style.width = w + 'px';
+      c.style.height = h + 'px';
+    }
+  }
+  layoutCards();
+  addEventListener('resize', layoutCards);
+  const shotGroups = [];
+  const CARD_V = Date.now();  // cache-buster for regenerated diagrams
+  // Cards show the diagrams of the last-clicked shot while it is visible;
+  // otherwise fall back to the first still-visible shot
+  function updateCard(preferred) {
+    let idx = preferred >= 0 && shotGroups[preferred].visible
+      ? preferred
+      : shotGroups.findIndex(s => s.visible);
+    if (idx === -1) {
+      cards.style.display = 'none';
+    } else {
+      cardTop.src = `rt_shot${idx + 1}.png?v=${CARD_V}`;
+      cardSide.src = `rt_side${idx + 1}.png?v=${CARD_V}`;
+      cardFilm.src = `rt_film${idx + 1}.png?v=${CARD_V}`;
+      cards.style.display = 'flex';
+    }
+  }
+  for (let i = 0; i < 3; i++) {
+    const shot = createRTSetup(azimuths[i], beamColors[i]);
+    rtRoot.add(shot);
+    shotGroups.push(shot);
+    const btn = document.createElement('button');
+    btn.textContent = `Shot ${i + 1} (${azLabels[i]})`;
+    btn.style.borderColor = '#' + beamColors[i].toString(16).padStart(6, '0');
+    btn.onclick = () => {
+      shot.visible = !shot.visible;
+      btn.classList.toggle('off', !shot.visible);
+      updateCard(i);
+    };
+    shotsDiv.appendChild(btn);
+  }
+  rtBuilt = true;
+}
+
+Promise.all([
+  loadPart('outer_NPS3_Sch10S.stl', outerMat),
+  loadPart('inner_NPS2_Sch40.stl', innerMat),
+  loadPart('flange_WN_compact.stl', steelMat),
+  loadPart('weld_beads.stl', weldMat),
+]).then(() => {
+  const params = new URLSearchParams(location.search);
+  if (params.get('rt') === '1') setRT(true);
+  if (params.get('view') === 'iqi') {
+    controls.target.set(0, 82.5, 14);
+    camera.position.set(18, 92, 68);
+  } else if (params.get('view') === 'close' && params.get('rt') === '1') {
+    controls.target.set(0, 84, 0);
+    camera.position.set(200, 130, 230);
+  } else if (params.get('view') === 'close') {
+    controls.target.set(0, 80, 0);
+    camera.position.set(100, 120, 180);
+  } else if (params.get('rt') === '1') {
+    controls.target.set(0, 90, 0);
+    camera.position.set(420, 430, 420);
+  } else {
+    controls.target.set(0, 100, 0);
+    camera.position.set(550, 450, 1200);
+  }
+  document.getElementById('status').textContent = '';
+}).catch(err => {
+  document.getElementById('status').textContent = 'STL 로드 실패: ' + err;
+});
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+(function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+})();
+</script>
+</body>
+</html>
