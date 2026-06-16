@@ -1,0 +1,55 @@
+{
+  "project_id": "CASE3-SPECIAL",
+  "control_values": {
+    "t_control": 110.0,
+    "y_control": 460.0,
+    "side_thickness": 110,
+    "top_thickness": 102,
+    "side_yield": 460,
+    "top_yield": 460
+  },
+  "required_measures_global": [],
+  "table_821_row_used": null,
+  "special_consideration": true,
+  "member_results": {},
+  "joint_results": {
+    "J02": {
+      "target_type": "joint",
+      "target_id": "J02",
+      "applied_measures": [
+        {
+          "measure_id": 0,
+          "status": "applied",
+          "target_type": "joint",
+          "target_id": "J02",
+          "requirements": [
+            {
+              "description": "LR-approved partial joint penetration (PJP) welding required for hatch coaming to upper deck connection.",
+              "rule_ref": "LR Pt4 Ch8 2.3 – Welding detail",
+              "evidence": {
+                "scan_file": "미지정",
+                "page_index": null,
+                "bbox": null,
+                "ocr_confidence": null,
+                "snippet_path": null
+              }
+            }
+          ],
+          "condition_expr": "joint_type==coaming_to_deck_connection",
+          "rule_basis": "The connection between the hatch coaming and upper deck shall be made using LR-approved partial joint penetration (PJP) welding.",
+          "evidence": [],
+          "notes": [
+            "Always applicable for coaming-to-deck connections"
+          ]
+        }
+      ]
+    }
+  },
+  "manual_review_flags": [
+    "Fallback data – not extracted from scan. Requires manual verification against actual LR rules.",
+    "Thickness 110.0 mm > 100 mm. Special consideration required per LR rules.",
+    "No Table 8.2.1 match for yield=460, t=110.0. Manual review required.",
+    "Using fallback rules_extraction – verify against actual LR rules scan."
+  ],
+  "noncompliance_flags": []
+}

@@ -1,0 +1,34 @@
+{
+  "upper_flange_long_member_roles": [
+    "upper_deck_plate",
+    "hatch_coaming_side_plate",
+    "hatch_coaming_top_plate",
+    "attached_longitudinal"
+  ],
+  "block_to_block_butt_joint_types": [
+    "block_to_block_butt"
+  ],
+  "coaming_to_deck_joint_types": [
+    "coaming_to_deck_connection"
+  ],
+  "bca_target_roles_measure4": [
+    "upper_deck_plate"
+  ],
+  "bca_target_roles_measure5": [
+    "upper_deck_plate"
+  ],
+  "bca_target_roles_measure3_coaming": [
+    "hatch_coaming_side_plate"
+  ],
+  "thickness_special_consideration_mm": 100,
+  "block_shift_min_offset_mm": 300,
+  "ctod_min_mm": 0.18,
+  "egw_not_permitted_when_enhanced_nde": true,
+  "pjp_required_joint_types": [
+    "coaming_to_deck_connection"
+  ],
+  "note2_condition": {
+    "table_value": "see_note_2",
+    "measure3_option": "enhanced_NDE"
+  }
+}

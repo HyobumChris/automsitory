@@ -1,0 +1,278 @@
+{
+  "project_id": "CASE2-HIGH",
+  "control_values": {
+    "t_control": 92.0,
+    "y_control": 390.0,
+    "side_thickness": 92,
+    "top_thickness": 88,
+    "side_yield": 390,
+    "top_yield": 390
+  },
+  "required_measures_global": [
+    1,
+    3,
+    4,
+    5
+  ],
+  "table_821_row_used": {
+    "yield_strength_nmm2": 390,
+    "thickness_range": "85<t<=100",
+    "t_min": 85.0,
+    "t_max": 100.0,
+    "m1": "required",
+    "m2": "see_note_2",
+    "m3": "required",
+    "m4": "required",
+    "m5": "required",
+    "notes": [
+      "3+4 combined in original table",
+      "Note 2 applies to Measure 2"
+    ],
+    "evidence": {
+      "scan_file": "미지정",
+      "page_index": null,
+      "bbox": null,
+      "ocr_confidence": null,
+      "snippet_path": null
+    }
+  },
+  "special_consideration": false,
+  "member_results": {
+    "M02": {
+      "target_type": "member",
+      "target_id": "M02",
+      "applied_measures": [
+        {
+          "measure_id": 3,
+          "status": "applied",
+          "target_type": "member",
+          "target_id": "M02",
+          "requirements": [
+            {
+              "description": "Provide BCA steel (BCA2) for hatch coaming side plate.",
+              "rule_ref": "LR Pt4 Ch8 2.3 – Measure 3 (coaming side BCA)",
+              "evidence": {
+                "scan_file": "미지정",
+                "page_index": null,
+                "bbox": null,
+                "ocr_confidence": null,
+                "snippet_path": null
+              }
+            }
+          ],
+          "condition_expr": "Measure 3 required AND member_role==hatch_coaming_side_plate",
+          "rule_basis": "Hatch coaming side plate shall be provided with brittle crack arrest (BCA) steel.",
+          "evidence": [],
+          "notes": [
+            "BCA type from Table 8.2.2: BCA2"
+          ]
+        }
+      ]
+    },
+    "M01": {
+      "target_type": "member",
+      "target_id": "M01",
+      "applied_measures": [
+        {
+          "measure_id": 4,
+          "status": "applied",
+          "target_type": "member",
+          "target_id": "M01",
+          "requirements": [
+            {
+              "description": "Upper deck plate to be of BCA steel (BCA2).",
+              "rule_ref": "LR Pt4 Ch8 2.3 – Measure 4",
+              "evidence": {
+                "scan_file": "미지정",
+                "page_index": null,
+                "bbox": null,
+                "ocr_confidence": null,
+                "snippet_path": null
+              }
+            }
+          ],
+          "condition_expr": "Measure 4 required AND member_role==upper_deck_plate AND zone==cargo_hold_region",
+          "rule_basis": "Table 8.2.1 Measure 4 Required, BCA type from Table 8.2.2",
+          "evidence": [],
+          "notes": [
+            "BCA type: BCA2"
+          ]
+        },
+        {
+          "measure_id": 5,
+          "status": "applied",
+          "target_type": "member",
+          "target_id": "M01",
+          "requirements": [
+            {
+              "description": "Upper deck plate to be of BCA steel (BCA2) – Measure 5 extended application.",
+              "rule_ref": "LR Pt4 Ch8 2.3 – Measure 5",
+              "evidence": {
+                "scan_file": "미지정",
+                "page_index": null,
+                "bbox": null,
+                "ocr_confidence": null,
+                "snippet_path": null
+              }
+            }
+          ],
+          "condition_expr": "Measure 5 required AND member_role==upper_deck_plate AND zone==cargo_hold_region",
+          "rule_basis": "Table 8.2.1 Measure 5 Required, BCA type from Table 8.2.2",
+          "evidence": [],
+          "notes": [
+            "BCA type: BCA2",
+            "Separate traceability from Measure 4"
+          ]
+        }
+      ]
+    }
+  },
+  "joint_results": {
+    "J01": {
+      "target_type": "joint",
+      "target_id": "J01",
+      "applied_measures": [
+        {
+          "measure_id": 1,
+          "status": "applied",
+          "target_type": "joint",
+          "target_id": "J01",
+          "requirements": [
+            {
+              "description": "Construction NDE: 100% UT of butt welds required.",
+              "rule_ref": "LR Pt4 Ch8 2.3 – Measure 1",
+              "evidence": {
+                "scan_file": "미지정",
+                "page_index": null,
+                "bbox": null,
+                "ocr_confidence": null,
+                "snippet_path": null
+              }
+            }
+          ],
+          "condition_expr": "zone==cargo_hold_region AND joint_type in block_to_block_butt AND connected_member_role in upper_flange_long_member",
+          "rule_basis": "Table 8.2.1 Measure 1 Required",
+          "evidence": [],
+          "notes": []
+        },
+        {
+          "measure_id": 3,
+          "status": "applied",
+          "target_type": "joint",
+          "target_id": "J01",
+          "requirements": [
+            {
+              "description": "Block shift arrangement: offset >= 300 mm. Result: PASS",
+              "rule_ref": "LR Pt4 Ch8 2.3 – Measure 3 (block shift)",
+              "evidence": {
+                "scan_file": "미지정",
+                "page_index": null,
+                "bbox": null,
+                "ocr_confidence": null,
+                "snippet_path": null
+              }
+            }
+          ],
+          "condition_expr": "Measure 3 required, option=block_shift, offset>=300mm",
+          "rule_basis": "Where block shift (stagger) arrangement is adopted, the minimum offset between adjacent butt welds shall be not less than 300 mm.",
+          "evidence": [],
+          "notes": [
+            "Block shift: offset >= 300 mm required",
+            "Offset = 350.0 mm >= 300 mm → PASS"
+          ]
+        }
+      ]
+    },
+    "J03": {
+      "target_type": "joint",
+      "target_id": "J03",
+      "applied_measures": [
+        {
+          "measure_id": 1,
+          "status": "applied",
+          "target_type": "joint",
+          "target_id": "J03",
+          "requirements": [
+            {
+              "description": "Construction NDE: 100% UT of butt welds required.",
+              "rule_ref": "LR Pt4 Ch8 2.3 – Measure 1",
+              "evidence": {
+                "scan_file": "미지정",
+                "page_index": null,
+                "bbox": null,
+                "ocr_confidence": null,
+                "snippet_path": null
+              }
+            }
+          ],
+          "condition_expr": "zone==cargo_hold_region AND joint_type in block_to_block_butt AND connected_member_role in upper_flange_long_member",
+          "rule_basis": "Table 8.2.1 Measure 1 Required",
+          "evidence": [],
+          "notes": []
+        },
+        {
+          "measure_id": 3,
+          "status": "applied",
+          "target_type": "joint",
+          "target_id": "J03",
+          "requirements": [
+            {
+              "description": "Block shift arrangement: offset >= 300 mm. Result: PASS",
+              "rule_ref": "LR Pt4 Ch8 2.3 – Measure 3 (block shift)",
+              "evidence": {
+                "scan_file": "미지정",
+                "page_index": null,
+                "bbox": null,
+                "ocr_confidence": null,
+                "snippet_path": null
+              }
+            }
+          ],
+          "condition_expr": "Measure 3 required, option=block_shift, offset>=300mm",
+          "rule_basis": "Where block shift (stagger) arrangement is adopted, the minimum offset between adjacent butt welds shall be not less than 300 mm.",
+          "evidence": [],
+          "notes": [
+            "Block shift: offset >= 300 mm required",
+            "Offset = 350.0 mm >= 300 mm → PASS"
+          ]
+        }
+      ]
+    },
+    "J02": {
+      "target_type": "joint",
+      "target_id": "J02",
+      "applied_measures": [
+        {
+          "measure_id": 0,
+          "status": "applied",
+          "target_type": "joint",
+          "target_id": "J02",
+          "requirements": [
+            {
+              "description": "LR-approved partial joint penetration (PJP) welding required for hatch coaming to upper deck connection.",
+              "rule_ref": "LR Pt4 Ch8 2.3 – Welding detail",
+              "evidence": {
+                "scan_file": "미지정",
+                "page_index": null,
+                "bbox": null,
+                "ocr_confidence": null,
+                "snippet_path": null
+              }
+            }
+          ],
+          "condition_expr": "joint_type==coaming_to_deck_connection",
+          "rule_basis": "The connection between the hatch coaming and upper deck shall be made using LR-approved partial joint penetration (PJP) welding.",
+          "evidence": [],
+          "notes": [
+            "Always applicable for coaming-to-deck connections"
+          ]
+        }
+      ]
+    }
+  },
+  "manual_review_flags": [
+    "Fallback data – not extracted from scan. Requires manual verification against actual LR rules.",
+    "Using fallback rules_extraction – verify against actual LR rules scan."
+  ],
+  "noncompliance_flags": []
+}

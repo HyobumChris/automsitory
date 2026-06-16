@@ -1,0 +1,108 @@
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#2E8B57", "edgeLabelBackground":"#fff"}}}%%
+flowchart TD
+    START([Start: Load Project Input]) --> LOAD_RULES
+    LOAD_RULES[Load Rules Extraction DB<br/>OCR / manual / fallback]
+    LOAD_RULES --> DERIVE_CV
+
+    subgraph CV ["Step 1: Derive Control Values"]
+        DERIVE_CV[Identify coaming side & top members]
+        DERIVE_CV --> T_CTRL["t_control = max(side_thick, top_thick)"]
+        DERIVE_CV --> Y_CTRL["y_control = max(side_yield, top_yield)"]
+        T_CTRL --> CHK_UNDEF{Any value<br/>미지정?}
+        Y_CTRL --> CHK_UNDEF
+        CHK_UNDEF -->|Yes| FLAG_CV["⚠ manual_review_flag<br/>미지정 – partial derivation"]
+        CHK_UNDEF -->|No| CHK_MISMATCH{side_yield<br/>≠ top_yield?}
+        CHK_MISMATCH -->|Yes| FLAG_YS["⚠ flag: yield mismatch<br/>Using max"]
+        CHK_MISMATCH -->|No| LOOKUP
+        FLAG_CV --> LOOKUP
+        FLAG_YS --> LOOKUP
+    end
+
+    subgraph LOOKUP_BLOCK ["Step 2: Table 8.2.1 Lookup"]
+        LOOKUP["Lookup (y_control, t_control)<br/>→ Table 8.2.1"]
+        LOOKUP --> CHK_T100{t_control > 100 mm?}
+        CHK_T100 -->|Yes| SPECIAL["⚠ special_consideration = true"]
+        CHK_T100 -->|No| ROW_FOUND
+        SPECIAL --> ROW_FOUND
+        ROW_FOUND{Row found?}
+        ROW_FOUND -->|No, t≤50| NO_MEAS["Required Measures = ∅<br/>set: [ ]"]
+        ROW_FOUND -->|No, else| FLAG_NO_ROW["⚠ flag: no match"]
+        ROW_FOUND -->|Yes| EXPAND["Expand '3+4' → M3, M4<br/>Build Required Set M"]
+    end
+
+    EXPAND --> APPLY_SET["Required Measures Global<br/>e.g. {1, 3, 4, 5}"]
+
+    subgraph M1 ["Measure 1 (target=joint)"]
+        APPLY_SET --> CHK_M1{1 ∈ M?}
+        CHK_M1 -->|No| SKIP_M1([Skip M1])
+        CHK_M1 -->|Yes| APP_M1["Apply to butt joints in cargo hold<br/>connected to upper-flange members<br/>Req: 100% UT<br/><b>set: [1]</b>"]
+    end
+
+    subgraph M3 ["Measure 3 (target=member+joint)"]
+        APP_M1 --> CHK_M3
+        SKIP_M1 --> CHK_M3
+        CHK_M3{3 ∈ M?}
+        CHK_M3 -->|No| SKIP_M3([Skip M3])
+        CHK_M3 -->|Yes| BCA_SIDE["Apply BCA steel to coaming side<br/>(Table 8.2.2 lookup)<br/>target=member"]
+        BCA_SIDE --> OPT{measure3 option?}
+        OPT -->|block_shift| BS["Verify offset ≥ 300 mm<br/>target=joint<br/><b>set: [1,3]</b>"]
+        OPT -->|crack_arrest_hole| CAH["Apply holes<br/>+ fatigue assessment<br/>target=joint<br/><b>set: [1,3]</b>"]
+        OPT -->|crack_arrest_insert| CAI["Apply insert<br/>target=joint<br/><b>set: [1,3]</b>"]
+        OPT -->|enhanced_NDE| ENDE["Stricter acceptance<br/>CTOD ≥ 0.18 mm<br/>EGW not permitted<br/>target=joint<br/><b>set: [1,3]</b>"]
+        OPT -->|미지정| PEND["status = pending_manual_choice<br/><b>set: [1,3*]</b>"]
+    end
+
+    subgraph M4 ["Measure 4 (target=member)"]
+        BS --> CHK_M4
+        CAH --> CHK_M4
+        CAI --> CHK_M4
+        ENDE --> CHK_M4
+        PEND --> CHK_M4
+        SKIP_M3 --> CHK_M4
+        CHK_M4{4 ∈ M?}
+        CHK_M4 -->|No| SKIP_M4([Skip M4])
+        CHK_M4 -->|Yes| APP_M4["Apply BCA steel to upper deck<br/>(Table 8.2.2 lookup)<br/><b>set: [1,3,4]</b>"]
+    end
+
+    subgraph M5 ["Measure 5 (target=member)"]
+        APP_M4 --> CHK_M5
+        SKIP_M4 --> CHK_M5
+        CHK_M5{5 ∈ M?}
+        CHK_M5 -->|No| SKIP_M5([Skip M5])
+        CHK_M5 -->|Yes| APP_M5["Apply BCA steel to upper deck (ext.)<br/>Separate traceability from M4<br/><b>set: [1,3,4,5]</b>"]
+    end
+
+    subgraph M2 ["Measure 2 (target=joint, conditional)"]
+        APP_M5 --> CHK_M2
+        SKIP_M5 --> CHK_M2
+        CHK_M2{"Table 8.2.1 m2 ==<br/>see_note_2?"}
+        CHK_M2 -->|No| SKIP_M2([Skip M2])
+        CHK_M2 -->|Yes| CHK_ENDE{measure3 option ==<br/>enhanced_NDE?}
+        CHK_ENDE -->|No| SKIP_M2_NOTE["M2 not applied<br/>(Note 2 condition unmet)"]
+        CHK_ENDE -->|Yes| APP_M2["Apply M2 conditional<br/>Freq/extent: LR agreement<br/><b>set: [1,2,3,4,5]</b>"]
+    end
+
+    subgraph ALWAYS ["Always-Applicable Rules"]
+        APP_M2 --> PJP
+        SKIP_M2 --> PJP
+        SKIP_M2_NOTE --> PJP
+        PJP["coaming_to_deck → PJP required<br/>target=joint"]
+        PJP --> EGW_CHK{"EGW process +<br/>enhanced_NDE?"}
+        EGW_CHK -->|Yes| EGW_FLAG["⚠ NONCOMPLIANCE:<br/>EGW not permitted"]
+        EGW_CHK -->|No| DONE
+        EGW_FLAG --> DONE
+    end
+
+    DONE([Output: decision_results.json<br/>+ 2D SVG/PNG<br/>+ 3D GLB + viewer.html<br/>+ Summary Report])
+
+    NO_MEAS --> PJP
+    FLAG_NO_ROW --> PJP
+
+    style M1 fill:#FFF3E0,stroke:#FF8C00
+    style M2 fill:#E3F2FD,stroke:#1E90FF
+    style M3 fill:#FCE4EC,stroke:#DC143C
+    style M4 fill:#E8F5E9,stroke:#2E8B57
+    style M5 fill:#F3E5F5,stroke:#8A2BE2
+    style ALWAYS fill:#FFF8E1,stroke:#FFC107
+    style CV fill:#F5F5F5,stroke:#999
+    style LOOKUP_BLOCK fill:#F5F5F5,stroke:#999
