@@ -1,3 +1,20 @@
+> ## 📦 이 저장소는 프로젝트별 독립 저장소로 분리되었습니다 (Archived)
+>
+> 이 `automsitory` 모노리포는 더 이상 개발에 사용하지 않으며 **읽기 전용으로 보관**됩니다.
+> 각 프로젝트는 아래 독립 저장소로 이전되었습니다 (이력 보존):
+>
+> | 프로젝트 | 독립 저장소 | 설명 |
+> |---|---|---|
+> | `app/` | [lr-hatch-coaming-flowchart](https://github.com/HyobumChris/lr-hatch-coaming-flowchart) | LR 해치코밍 인터랙티브 플로우차트 (React + Vite) |
+> | `containership-app/` | [lr-containership-flowchart](https://github.com/HyobumChris/lr-containership-flowchart) | 이전 버전 컨테이너선 플로우차트 (React + Vite) |
+> | `hatch-coaming-3d/` | [lr-hatch-coaming-3d](https://github.com/HyobumChris/lr-hatch-coaming-3d) | 3D WebGL 시각화 (React + Three.js + TypeScript) |
+> | `lr-hatch-coaming-measures/` | [lr-hatch-coaming-measures](https://github.com/HyobumChris/lr-hatch-coaming-measures) | 결정 엔진·OCR·파이프라인 (Python) |
+> | (IGF 이중관/RT) | [igf-double-wall-pipe-rt](https://github.com/HyobumChris/igf-double-wall-pipe-rt) | IGF 이중관 3D 모델·RT 시각화·검증 보고서 |
+>
+> 신규 작업은 위 저장소에서 진행하세요. 아래 내용은 분리 이전 기준의 기록 보관용입니다.
+
+---
+
 # Lloyd's Register 해치코밍 크랙 방지 시각화
 
 ## 🚢 Container Ship Hatch Coaming Crack Arrest Visualization
