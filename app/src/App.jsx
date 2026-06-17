@@ -96,6 +96,15 @@ export default function App() {
             <Ship size={14} className="text-slate-600" />
             <span>{GRADE_INFO[selectedGrade]?.desc}</span>
           </div>
+
+          <a
+            href="/no96-tightness-tests.html"
+            target="_blank"
+            rel="noreferrer"
+            className="text-[11px] font-semibold px-3 py-1.5 rounded-lg border border-cyan-500/35 text-cyan-300 hover:bg-cyan-500/10 transition-colors"
+          >
+            NO96 Tightness Test 보기
+          </a>
         </div>
       </header>
 

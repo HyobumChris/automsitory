@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GTT NO96 Tightness Test 시각화</title>
+    <style>
+      :root {
+        --bg: #0b1220;
+        --panel: #131d33;
+        --line: #3b4d77;
+        --text: #e8eefc;
+        --subtle: #a9b8db;
+        --bearing: #5bc0be;
+        --helium: #f6ae2d;
+        --danger: #ff6b6b;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Pretendard", "Noto Sans KR", system-ui, sans-serif;
+        background: radial-gradient(circle at top, #182744 0%, var(--bg) 55%);
+        color: var(--text);
+        padding: 28px;
+      }
+      h1 { margin: 0 0 8px; font-size: 1.8rem; }
+      p.subtitle { margin: 0 0 24px; color: var(--subtle); }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+        gap: 20px;
+      }
+      .card {
+        background: linear-gradient(180deg, #162441 0%, var(--panel) 100%);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 16px;
+      }
+      h2 { margin: 0 0 10px; font-size: 1.1rem; }
+      svg {
+        width: 100%;
+        height: auto;
+        background: #0a1326;
+        border: 1px solid #253658;
+        border-radius: 10px;
+      }
+      .legend {
+        margin-top: 10px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        color: var(--subtle);
+        font-size: 0.88rem;
+      }
+      .dot {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-right: 6px;
+      }
+      ul { margin: 10px 0 0; color: var(--subtle); padding-left: 18px; }
+      li { margin-bottom: 6px; }
+      .note {
+        margin-top: 18px;
+        padding: 12px;
+        border-left: 4px solid var(--danger);
+        background: #2a1820;
+        color: #ffd0d0;
+        border-radius: 6px;
+        font-size: 0.92rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>GTT NO96 Tightness Test 시각화</h1>
+    <p class="subtitle">LNG 화물창 멤브레인 2차/1차 장벽의 건전성 확인을 위한 Bearing Test 및 Helium Leak Test 개념도</p>
+
+    <div class="grid">
+      <section class="card">
+        <h2>1) Bearing Test (압착/접촉 건전성 확인)</h2>
+        <svg viewBox="0 0 620 320" role="img" aria-label="NO96 bearing test diagram">
+          <rect x="20" y="40" width="580" height="240" fill="#0d1a33" stroke="#324a77" stroke-width="2" rx="12" />
+          <text x="40" y="70" fill="#c9d8ff" font-size="15">Panel Cross-section (개념)</text>
+
+          <rect x="60" y="95" width="500" height="28" fill="#3d5a80" />
+          <text x="70" y="113" fill="#eaf1ff" font-size="13">1차 멤브레인 / NO96 Invar membrane zone</text>
+
+          <rect x="60" y="123" width="500" height="52" fill="#244164" />
+          <text x="70" y="154" fill="#dce9ff" font-size="13">Insulation box + plywood support</text>
+
+          <rect x="60" y="175" width="500" height="80" fill="#182b45" />
+          <text x="70" y="220" fill="#b8caef" font-size="13">2차 장벽 영역</text>
+
+          <circle cx="180" cy="87" r="12" fill="#5bc0be" />
+          <line x1="180" y1="87" x2="180" y2="60" stroke="#5bc0be" stroke-width="3" />
+          <text x="155" y="52" fill="#8de6e4" font-size="12">가압 점</text>
+
+          <circle cx="320" cy="87" r="12" fill="#5bc0be" />
+          <line x1="320" y1="87" x2="320" y2="60" stroke="#5bc0be" stroke-width="3" />
+
+          <circle cx="460" cy="87" r="12" fill="#5bc0be" />
+          <line x1="460" y1="87" x2="460" y2="60" stroke="#5bc0be" stroke-width="3" />
+
+          <path d="M180 95 v20 M320 95 v20 M460 95 v20" stroke="#5bc0be" stroke-width="2" stroke-dasharray="4 3"/>
+          <text x="370" y="52" fill="#8de6e4" font-size="12">압착 하중 분포 체크</text>
+
+          <text x="70" y="275" fill="#a9b8db" font-size="12">판정: 지정 하중 조건에서 접촉 불량/유격/비정상 변형 여부 확인</text>
+        </svg>
+        <ul>
+          <li>목적: 패널/접합부의 기계적 밀착성(bearing integrity) 점검</li>
+          <li>관찰 포인트: 국부 변형, 지지부 압착 불균일, 인터페이스 들뜸</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>2) Helium Leak Test (기밀/누설 검출)</h2>
+        <svg viewBox="0 0 620 320" role="img" aria-label="NO96 helium leak test diagram">
+          <rect x="20" y="30" width="580" height="260" fill="#0d1a33" stroke="#324a77" stroke-width="2" rx="12" />
+
+          <rect x="70" y="85" width="480" height="32" fill="#3d5a80" />
+          <text x="80" y="106" fill="#f0f5ff" font-size="13">NO96 Barrier Joint</text>
+
+          <rect x="70" y="117" width="480" height="95" fill="#1f3558" />
+          <text x="80" y="170" fill="#d4e4ff" font-size="13">시험 구획(Test compartment)</text>
+
+          <rect x="70" y="212" width="480" height="40" fill="#162740" />
+          <text x="80" y="236" fill="#b3c7ec" font-size="12">Back structure / support</text>
+
+          <rect x="90" y="42" width="120" height="28" rx="6" fill="#f6ae2d" />
+          <text x="99" y="61" fill="#1d1400" font-size="12">He 주입 라인</text>
+          <line x1="210" y1="56" x2="290" y2="101" stroke="#f6ae2d" stroke-width="3" marker-end="url(#arrow)"/>
+
+          <rect x="410" y="42" width="150" height="28" rx="6" fill="#7fd4ff" />
+          <text x="418" y="61" fill="#00192a" font-size="12">Mass spectrometer</text>
+          <line x1="485" y1="70" x2="430" y2="100" stroke="#7fd4ff" stroke-width="3" marker-end="url(#arrowBlue)"/>
+
+          <circle cx="320" cy="102" r="6" fill="#ff6b6b" />
+          <circle cx="350" cy="114" r="5" fill="#ff6b6b" />
+          <circle cx="375" cy="100" r="4" fill="#ff6b6b" />
+          <text x="330" y="90" fill="#ffb3b3" font-size="11">누설 경로(예시)</text>
+
+          <text x="80" y="273" fill="#a9b8db" font-size="12">판정: 누설률(leak rate)이 허용치 이하인지 확인</text>
+
+          <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 10 3, 0 6" fill="#f6ae2d"/>
+            </marker>
+            <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+              <polygon points="0 0, 10 3, 0 6" fill="#7fd4ff"/>
+            </marker>
+          </defs>
+        </svg>
+        <ul>
+          <li>목적: 용접선/조인트/관통부의 미세 누설 정량 평가</li>
+          <li>관찰 포인트: He 추적가스 검출값, 시험 구역별 누설 지도화</li>
+        </ul>
+      </section>
+    </div>
+
+    <div class="legend">
+      <span><span class="dot" style="background:#5bc0be"></span>Bearing 하중/접촉 포인트</span>
+      <span><span class="dot" style="background:#f6ae2d"></span>Helium 주입 경로</span>
+      <span><span class="dot" style="background:#ff6b6b"></span>잠재 누설 신호</span>
+    </div>
+
+    <div class="note">
+      본 도식은 교육/커뮤니케이션용 개념도입니다. 실제 NO96 시공/검사 절차의 계측 조건, 합격 기준, 안전 요구사항은 GTT/LR/선급 승인 문서를 우선 적용해야 합니다.
+    </div>
+  </body>
+</html>
