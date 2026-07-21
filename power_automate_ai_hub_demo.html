@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>OCR &amp; Auto-Mail System using AI Hub in Power Automate</title>
+<style>
+  :root {
+    --lr-teal: #00a99d;
+    --ms-blue: #0078d4;
+    --ms-blue-dark: #005a9e;
+    --ink: #1a1a2e;
+    --ink-soft: #4a4a68;
+    --paper: #f4f6f9;
+    --card: #ffffff;
+    --line: #e1e5ec;
+    --ok: #107c10;
+    --ok-bg: #dff6dd;
+    --warn: #a4262c;
+    --annot: #16b8a0;
+    --shadow: 0 2px 10px rgba(20, 30, 60, .08);
+    --shadow-lg: 0 8px 30px rgba(20, 30, 60, .14);
+    --mono: "Consolas", "SF Mono", "Cascadia Code", monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    line-height: 1.5;
+  }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    background: #fff;
+    border-bottom: 4px solid var(--ms-blue);
+    padding: 56px 24px 48px;
+    text-align: center;
+    position: relative;
+  }
+  .hero .lr-mark {
+    position: absolute; top: 20px; left: 24px;
+    width: 54px; height: 54px; background: var(--lr-teal);
+    color: #fff; font-weight: 800; font-size: 26px;
+    display: flex; align-items: center; justify-content: center;
+    letter-spacing: -1px; border-radius: 4px;
+  }
+  .hero h1 {
+    color: var(--ms-blue);
+    font-size: clamp(26px, 4.2vw, 44px);
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  .hero .subtitle {
+    margin-top: 14px;
+    font-size: clamp(16px, 2.2vw, 23px);
+    color: var(--ink);
+    font-weight: 400;
+  }
+  .hero .author {
+    display: inline-block;
+    margin-top: 30px;
+    background: #f1f1f1;
+    border-radius: 6px;
+    padding: 10px 26px;
+    color: var(--ink-soft);
+    font-size: 14px;
+  }
+  .hero .author strong { color: var(--ink); display: block; font-size: 15px; }
+
+  /* ---------- Sections ---------- */
+  section { max-width: 1240px; margin: 0 auto; padding: 52px 24px; }
+  .sec-title {
+    color: var(--ms-blue);
+    font-size: clamp(21px, 3vw, 30px);
+    font-weight: 700;
+    padding-bottom: 12px;
+    border-bottom: 3px solid var(--ms-blue);
+    margin-bottom: 34px;
+  }
+
+  /* ---------- Architecture ---------- */
+  .arch { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: start; }
+  @media (max-width: 900px) { .arch { grid-template-columns: 1fr; } }
+  .steps-list { display: flex; flex-direction: column; gap: 18px; }
+  .step-item { display: flex; gap: 14px; align-items: flex-start; }
+  .step-item .num {
+    flex: 0 0 30px; height: 30px; border-radius: 50%;
+    background: var(--ms-blue); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px; margin-top: 2px;
+  }
+  .step-item h3 { font-size: 16px; font-weight: 700; }
+  .step-item p { font-size: 13.5px; color: var(--ink-soft); margin-top: 2px; }
+
+  .arch-diagram {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 10px; box-shadow: var(--shadow); padding: 28px;
+  }
+  .arch-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .arch-node {
+    border: 2px solid var(--ms-blue-dark); border-radius: 10px;
+    padding: 12px 10px; text-align: center; background: #fff;
+    font-size: 12.5px; font-weight: 600; color: var(--ink);
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    min-height: 92px; justify-content: center;
+  }
+  .arch-node .glyph { font-size: 22px; line-height: 1; }
+  .arch-flow-arrow { text-align: center; color: var(--ms-blue-dark); font-size: 20px; margin: 6px 0; font-weight: 700; }
+  .arch-tools { display: flex; justify-content: space-between; gap: 8px; margin-top: 22px; flex-wrap: wrap; }
+  .arch-tools span {
+    background: #f1f3f6; border-radius: 4px; padding: 7px 12px;
+    font-size: 12px; font-weight: 600; color: var(--ink-soft);
+  }
+
+  /* ---------- Demo player ---------- */
+  .player-shell {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 12px; box-shadow: var(--shadow-lg); overflow: hidden;
+  }
+  .player-controls {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 16px 20px; border-bottom: 1px solid var(--line); background: #fafbfd;
+  }
+  .btn {
+    border: none; border-radius: 6px; cursor: pointer;
+    font-family: inherit; font-size: 14px; font-weight: 600;
+    padding: 9px 18px; transition: background .15s, transform .1s;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn-primary { background: var(--ms-blue); color: #fff; }
+  .btn-primary:hover { background: var(--ms-blue-dark); }
+  .btn-ghost { background: #eef1f5; color: var(--ink); }
+  .btn-ghost:hover { background: #e2e7ee; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .step-caption { flex: 1 1 260px; min-width: 220px; }
+  .step-caption .step-count { font-size: 12px; color: var(--ink-soft); font-weight: 600; letter-spacing: .04em; }
+  .step-caption .step-label { font-size: 15px; font-weight: 700; color: var(--annot); }
+  .progress-track { height: 6px; background: #e6eaf0; }
+  .progress-fill { height: 100%; width: 0; background: linear-gradient(90deg, var(--lr-teal), var(--ms-blue)); transition: width .4s ease; }
+
+  .stage {
+    display: grid; grid-template-columns: 1fr 1.15fr 1fr; gap: 0;
+    min-height: 560px; background: #dfe3ea;
+  }
+  @media (max-width: 980px) { .stage { grid-template-columns: 1fr; } }
+  .panel { background: #fff; border-right: 1px solid var(--line); display: flex; flex-direction: column; overflow: hidden; }
+  .panel:last-child { border-right: none; }
+  .panel-head {
+    background: #2f3640; color: #fff; text-align: center;
+    font-weight: 700; font-size: 14px; padding: 9px 6px; letter-spacing: .03em;
+  }
+  .panel-chrome {
+    background: #f3f4f6; border-bottom: 1px solid var(--line);
+    padding: 6px 12px; font-size: 11px; color: #777; font-family: var(--mono);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .panel-body { flex: 1; padding: 14px; overflow-y: auto; position: relative; }
+
+  /* SharePoint panel */
+  .sp-ticket {
+    border: 2px solid #e23b3b; border-radius: 4px; padding: 10px;
+    background: #fdf9e7; font-size: 11px; color: #6b5d1e; margin-bottom: 14px;
+  }
+  .sp-ticket .t-title { font-weight: 700; font-size: 12px; color: #4a3f12; margin-bottom: 6px; text-align: center; }
+  .sp-ticket .t-row { display: flex; justify-content: space-between; border-top: 1px dashed #d8c86e; padding: 3px 0; }
+  .sp-drop {
+    border: 2px dashed #c5ccd6; border-radius: 8px; padding: 16px 10px;
+    text-align: center; color: #8a93a3; font-size: 12.5px; margin-bottom: 16px;
+    transition: border-color .3s, background .3s;
+  }
+  .sp-drop.active { border-color: var(--ms-blue); background: #eef6fd; color: var(--ms-blue-dark); }
+  .sp-files { margin-bottom: 18px; }
+  .sp-files .files-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-soft); border-bottom: 1px solid var(--line); padding-bottom: 5px; font-weight: 600; }
+  .sp-file-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 2px; font-size: 13px; border-bottom: 1px solid #f0f2f5; }
+  .sp-file-row .fname { display: flex; align-items: center; gap: 7px; }
+  .sp-file-row .fname .pdf-ic { color: #c8402a; font-weight: 800; font-size: 10px; border: 1px solid #c8402a; border-radius: 2px; padding: 1px 3px; }
+  .sp-file-row .fmod { font-size: 11.5px; color: #8a93a3; }
+  .sp-list h4 { font-size: 15px; margin-bottom: 8px; }
+  .sp-list .list-toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
+  .sp-list .list-toolbar .add { background: var(--ms-blue); color: #fff; border-radius: 4px; font-size: 11.5px; padding: 5px 10px; font-weight: 600; }
+  .sp-list .list-toolbar .grid { background: #f1f3f6; color: var(--ink-soft); border-radius: 4px; font-size: 11.5px; padding: 5px 10px; }
+  table.sp-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.sp-table th { text-align: left; color: var(--ink-soft); font-weight: 600; border-bottom: 1px solid var(--line); padding: 6px 4px; }
+  table.sp-table td { padding: 8px 4px; border-bottom: 1px solid #f0f2f5; }
+  tr.row-hit td { background: #dff6dd; transition: background .5s; }
+  .toast {
+    position: absolute; left: 12px; right: 12px; bottom: 12px;
+    background: #1f2430; color: #fff; border-radius: 6px;
+    padding: 10px 14px; font-size: 12.5px; display: flex; align-items: center; gap: 9px;
+    opacity: 0; transform: translateY(12px); transition: opacity .35s, transform .35s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast .spin {
+    width: 14px; height: 14px; border: 2px solid #ffffff55; border-top-color: #fff;
+    border-radius: 50%; animation: rot 1s linear infinite; flex: 0 0 14px;
+  }
+  .toast .done-ic { color: #6ee06e; font-weight: 800; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+
+  /* Power Automate panel */
+  .pa-banner {
+    border-radius: 4px; padding: 8px 12px; font-size: 12.5px; margin-bottom: 14px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .pa-banner.info { background: #eef6fd; color: #20486b; border: 1px solid #c7e0f4; }
+  .pa-banner.success { background: var(--ok-bg); color: var(--ok); border: 1px solid #b7e3b3; font-weight: 600; }
+  .flow-title { font-size: 12px; color: var(--ink-soft); margin-bottom: 12px; font-weight: 600; }
+  .flow-canvas { display: flex; flex-direction: column; align-items: center; }
+  .flow-node {
+    width: 240px; background: #fff; border: 1px solid #cfd6e0; border-radius: 8px;
+    padding: 8px 10px; display: flex; align-items: center; gap: 9px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.07); position: relative;
+    opacity: .45; transition: opacity .35s, border-color .35s, box-shadow .35s;
+    font-size: 12px;
+  }
+  .flow-node .n-icon {
+    flex: 0 0 26px; height: 26px; border-radius: 5px; color: #fff;
+    display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700;
+  }
+  .flow-node .n-name { font-weight: 600; line-height: 1.25; }
+  .flow-node .n-dur { position: absolute; top: -9px; right: 30px; font-size: 10px; color: var(--ink-soft); background: #fff; padding: 0 4px; border-radius: 3px; }
+  .flow-node .n-check {
+    position: absolute; top: -9px; right: 6px; width: 18px; height: 18px; border-radius: 50%;
+    background: var(--ok); color: #fff; font-size: 11px; font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; transform: scale(.4); transition: opacity .3s, transform .3s;
+  }
+  .flow-node.running { opacity: 1; border-color: var(--ms-blue); box-shadow: 0 0 0 3px #0078d433; }
+  .flow-node.done { opacity: 1; }
+  .flow-node.done .n-check { opacity: 1; transform: scale(1); }
+  .flow-link { width: 2px; height: 16px; background: #b9c2cf; flex: 0 0 auto; }
+  .ic-sp { background: #036c70; }
+  .ic-ai { background: #0f6cbd; }
+  .ic-compose { background: #8764b8; }
+  .ic-filter { background: #8764b8; }
+  .ic-items { background: #036c70; }
+  .ic-cond { background: #484f58; }
+  .ic-mail { background: #0f6cbd; }
+  .cond-branches { display: flex; gap: 14px; margin-top: 12px; align-items: flex-start; }
+  .branch { border: 1px dashed #c3cbd7; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 120px; }
+  .branch .b-tag { font-size: 11px; font-weight: 800; color: #fff; padding: 2px 12px; border-radius: 3px; }
+  .branch.true .b-tag { background: var(--ok); }
+  .branch.false .b-tag { background: var(--warn); }
+  .branch.false .no-act { font-size: 11px; color: #8a93a3; padding: 6px 0; }
+  .branch .flow-node { width: 170px; }
+  .annot {
+    color: var(--annot); font-weight: 700; font-size: 16px;
+    text-align: center; margin: 10px 0 14px; min-height: 22px;
+    opacity: 0; transition: opacity .4s;
+  }
+  .annot.show { opacity: 1; }
+  .pa-spinner {
+    width: 34px; height: 34px; border: 3px solid #dbe4ee; border-top-color: var(--ms-blue);
+    border-radius: 50%; animation: rot 1s linear infinite; margin: 60px auto;
+  }
+
+  /* Email panel */
+  .mail-shell { display: flex; height: 100%; min-height: 380px; font-size: 12px; }
+  .mail-nav { flex: 0 0 118px; border-right: 1px solid var(--line); padding-right: 8px; }
+  .mail-nav .acct { font-weight: 700; font-size: 12.5px; }
+  .mail-nav .addr { color: #8a93a3; font-size: 10.5px; margin-bottom: 10px; word-break: break-all; }
+  .mail-nav ul { list-style: none; }
+  .mail-nav li { padding: 5px 6px; border-radius: 4px; color: var(--ink-soft); cursor: default; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mail-nav li.sel { background: #e8f1fb; color: var(--ms-blue-dark); font-weight: 700; }
+  .mail-nav li .cnt { color: var(--ms-blue); font-weight: 700; }
+  .mail-main { flex: 1; padding-left: 12px; display: flex; flex-direction: column; }
+  .mail-toolbar { display: flex; gap: 12px; color: var(--ink-soft); font-size: 11.5px; border-bottom: 1px solid var(--line); padding-bottom: 7px; margin-bottom: 8px; }
+  .mail-empty { color: #a5adba; text-align: center; margin-top: 70px; font-size: 12.5px; }
+  .mail-item {
+    border: 1px solid var(--line); border-left: 4px solid var(--ms-blue);
+    border-radius: 6px; padding: 10px 12px; cursor: default;
+    opacity: 0; transform: translateY(10px); transition: opacity .45s, transform .45s;
+    background: #fff;
+  }
+  .mail-item.show { opacity: 1; transform: translateY(0); }
+  .mail-item .m-from { font-weight: 700; font-size: 12.5px; }
+  .mail-item .m-subj { color: var(--ms-blue-dark); font-weight: 700; margin: 3px 0; font-size: 12.5px; }
+  .mail-item .m-attach { display: inline-flex; align-items: center; gap: 5px; background: #f1f3f6; border-radius: 4px; padding: 3px 8px; font-size: 11px; margin-top: 5px; color: var(--ink-soft); }
+  .mail-open {
+    margin-top: 10px; border: 1px solid var(--line); border-radius: 6px; padding: 12px;
+    background: #fbfcfe; opacity: 0; transform: translateY(10px); transition: opacity .45s .1s, transform .45s .1s;
+  }
+  .mail-open.show { opacity: 1; transform: translateY(0); }
+  .mail-open h5 { font-size: 12.5px; color: var(--ms-blue-dark); margin-bottom: 8px; }
+  .mail-open .kv { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #e6eaf0; }
+  .mail-open .kv .k { color: var(--ink-soft); }
+  .mail-open .kv .v { font-weight: 700; font-family: var(--mono); }
+  .mail-open .note { margin-top: 8px; font-size: 11.5px; color: var(--ink-soft); line-height: 1.55; }
+
+  /* ---------- Results ---------- */
+  .results { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 18px; }
+  .result-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    box-shadow: var(--shadow); padding: 20px;
+  }
+  .result-card .r-ic {
+    width: 34px; height: 34px; border-radius: 50%; background: var(--ms-blue);
+    color: #fff; display: flex; align-items: center; justify-content: center;
+    font-weight: 800; margin-bottom: 12px;
+  }
+  .result-card h3 { font-size: 15px; margin-bottom: 5px; }
+  .result-card p { font-size: 13px; color: var(--ink-soft); }
+  .result-card p b { color: var(--ink); font-family: var(--mono); }
+
+  footer {
+    text-align: center; padding: 34px 20px 44px; color: #8a93a3; font-size: 12.5px;
+    border-top: 1px solid var(--line); margin-top: 20px; background: #fff;
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="lr-mark">LR</div>
+  <h1>OCR &amp; Auto-Mail System<br />using AI Hub in Power Automate</h1>
+  <p class="subtitle">Automation of Employee Speeding Ticket Distribution System</p>
+  <div class="author">
+    <strong>Bae, Hyo-Bum, Senior Surveyor</strong>
+    LR Okpo Office
+  </div>
+</header>
+
+<section id="architecture">
+  <h2 class="sec-title">System Architecture — 6-Step Automated Workflow</h2>
+  <div class="arch">
+    <div class="steps-list">
+      <div class="step-item"><div class="num">1</div><div><h3>Upload PDF to SharePoint</h3><p>Speeding ticket document is uploaded to a designated folder</p></div></div>
+      <div class="step-item"><div class="num">2</div><div><h3>Trigger Flow Automatically</h3><p>Power Automate detects the new file and initiates the workflow</p></div></div>
+      <div class="step-item"><div class="num">3</div><div><h3>OCR Text Extraction</h3><p>AI Hub of Power Automate reads and extracts all text</p></div></div>
+      <div class="step-item"><div class="num">4</div><div><h3>Parse Vehicle Number</h3><p>Clean OCR output and identify the vehicle registration number</p></div></div>
+      <div class="step-item"><div class="num">5</div><div><h3>Match Employee &amp; Car</h3><p>Look up vehicle number in SharePoint list to find the driver</p></div></div>
+      <div class="step-item"><div class="num">6</div><div><h3>Send Notification Email</h3><p>Automated email sent with penalty details and PDF attachment</p></div></div>
+    </div>
+    <div class="arch-diagram">
+      <div class="arch-grid">
+        <div class="arch-node"><span class="glyph">📄</span>Upload PDF to SharePoint</div>
+        <div class="arch-node"><span class="glyph">⚡</span>Trigger Flow Automatically</div>
+        <div class="arch-node"><span class="glyph">🧠</span>OCR Text Extraction</div>
+      </div>
+      <div class="arch-flow-arrow">⤵</div>
+      <div class="arch-grid">
+        <div class="arch-node"><span class="glyph">🔎</span>Parse Vehicle Number</div>
+        <div class="arch-node"><span class="glyph">📋</span>Match Employee &amp; Car</div>
+        <div class="arch-node"><span class="glyph">📧</span>Send Notification Email</div>
+      </div>
+      <div class="arch-tools">
+        <span>SharePoint &amp; List</span>
+        <span>Power Automate</span>
+        <span>Power Automate AI Hub</span>
+        <span>Outlook</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="demo">
+  <h2 class="sec-title">Live Demo Walkthrough — From Document Upload to Employee Inbox</h2>
+  <div class="player-shell">
+    <div class="player-controls">
+      <button class="btn btn-primary" id="btnPlay">▶ Play demo</button>
+      <button class="btn btn-ghost" id="btnPrev">‹ Prev</button>
+      <button class="btn btn-ghost" id="btnNext">Next ›</button>
+      <button class="btn btn-ghost" id="btnReset">↺ Reset</button>
+      <div class="step-caption">
+        <div class="step-count" id="stepCount">STEP 0 / 8</div>
+        <div class="step-label" id="stepLabel">Press "Play demo" to start the test</div>
+      </div>
+    </div>
+    <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+
+    <div class="stage">
+      <!-- SharePoint panel -->
+      <div class="panel">
+        <div class="panel-head">SharePoint / List</div>
+        <div class="panel-chrome">https://sharepoint.com/sites/&hellip;/Shared%20Documents</div>
+        <div class="panel-body" id="spBody">
+          <div class="sp-ticket">
+            <div class="t-title">Speeding Ticket — Penalty Notice (Sample Ticket_1.pdf)</div>
+            <div class="t-row"><span>Vehicle No.</span><span>231Ha1342</span></div>
+            <div class="t-row"><span>Violation</span><span>Speeding</span></div>
+            <div class="t-row"><span>Payment deadline</span><span>2025.12.22</span></div>
+          </div>
+          <div class="sp-drop" id="spDrop">Drag and drop files here to upload to the SharePoint folder</div>
+          <div class="sp-files">
+            <div class="files-head"><span>Name</span><span>Modified</span></div>
+            <div class="sp-file-row" id="spFileRow" style="display:none;">
+              <span class="fname"><span class="pdf-ic">PDF</span>Sample Ticket_1.pdf</span>
+              <span class="fmod">A few seconds ago</span>
+            </div>
+          </div>
+          <div class="sp-list">
+            <h4>List of Employee &amp; Car</h4>
+            <div class="list-toolbar"><span class="add">+ Add new item</span><span class="grid">Edit in grid view</span></div>
+            <table class="sp-table">
+              <thead><tr><th>Title</th><th>EmailAddress</th><th>CarNumber</th></tr></thead>
+              <tbody>
+                <tr id="driverRow"><td>Driver A</td><td>bhb222@hanmail.net</td><td>231Ha1342</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="toast" id="spToast"><span class="spin" id="toastSpin"></span><span id="toastMsg">Uploading Sample Ticket_1.pdf&hellip;</span></div>
+        </div>
+      </div>
+
+      <!-- Power Automate panel -->
+      <div class="panel">
+        <div class="panel-head">Power Automate</div>
+        <div class="panel-chrome">https://make.powerautomate.com &mdash; Automation of Employee Speeding Ticket Distribution System_Rev. Final_B</div>
+        <div class="panel-body">
+          <div class="pa-banner info" id="paBannerInfo">ⓘ To see it work now, add a file to the SharePoint folder you selected.</div>
+          <div class="pa-banner success" id="paBannerOk" style="display:none;">✔ Your flow ran successfully.</div>
+          <div class="annot" id="paAnnot"></div>
+          <div class="pa-spinner" id="paSpinner"></div>
+          <div class="flow-canvas" id="flowCanvas" style="display:none;">
+            <div class="flow-node" data-node="0"><span class="n-dur">0.4s</span><span class="n-check">✓</span><span class="n-icon ic-sp">S</span><span class="n-name">When a file is created in a folder (deprecated)</span></div>
+            <div class="flow-link"></div>
+            <div class="flow-node" data-node="1"><span class="n-dur">0.5s</span><span class="n-check">✓</span><span class="n-icon ic-sp">S</span><span class="n-name">Get file content</span></div>
+            <div class="flow-link"></div>
+            <div class="flow-node" data-node="2"><span class="n-dur">4s</span><span class="n-check">✓</span><span class="n-icon ic-ai">AI</span><span class="n-name">Recognize text in image or document</span></div>
+            <div class="flow-link"></div>
+            <div class="flow-node" data-node="3"><span class="n-dur">0s</span><span class="n-check">✓</span><span class="n-icon ic-compose">{&hellip;}</span><span class="n-name">Compose / Compose CleanText</span></div>
+            <div class="flow-link"></div>
+            <div class="flow-node" data-node="4"><span class="n-dur">0s</span><span class="n-check">✓</span><span class="n-icon ic-filter">▽</span><span class="n-name">Filter array &middot; VehicleCandidates</span></div>
+            <div class="flow-link"></div>
+            <div class="flow-node" data-node="5"><span class="n-dur">0s</span><span class="n-check">✓</span><span class="n-icon ic-compose">{&hellip;}</span><span class="n-name">Compose VehicleRaw &middot; Compose 1&ndash;4</span></div>
+            <div class="flow-link"></div>
+            <div class="flow-node" data-node="6"><span class="n-dur">0.2s</span><span class="n-check">✓</span><span class="n-icon ic-items">S</span><span class="n-name">Get items (List of Employee &amp; Car)</span></div>
+            <div class="flow-link"></div>
+            <div class="flow-node" data-node="7"><span class="n-dur">1s</span><span class="n-check">✓</span><span class="n-icon ic-cond">≟</span><span class="n-name">Condition &mdash; vehicle number matched?</span></div>
+            <div class="cond-branches">
+              <div class="branch true">
+                <span class="b-tag">True</span>
+                <div class="flow-node" data-node="8"><span class="n-dur">1s</span><span class="n-check">✓</span><span class="n-icon ic-mail">✉</span><span class="n-name">Send an email (V2)</span></div>
+              </div>
+              <div class="branch false">
+                <span class="b-tag">False</span>
+                <div class="no-act">No Actions</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Email panel -->
+      <div class="panel">
+        <div class="panel-head">Employee&rsquo;s Email</div>
+        <div class="panel-chrome">https://mail.daum.net &mdash; Tickets</div>
+        <div class="panel-body">
+          <div class="mail-shell">
+            <nav class="mail-nav">
+              <div class="acct">Hyo-BumBae</div>
+              <div class="addr">bhb222@daum.net</div>
+              <ul>
+                <li>All Emails</li>
+                <li>Inbox <span class="cnt">42666</span></li>
+                <li>Sent Mailbox</li>
+                <li>Draft Storage</li>
+                <li class="sel">Tickets <span class="cnt" id="ticketCnt">2</span></li>
+                <li>Invoice Box</li>
+                <li>Scrap Box</li>
+              </ul>
+            </nav>
+            <div class="mail-main">
+              <div class="mail-toolbar"><span>Delete</span><span>Report spam</span><span>Delivery</span><span>Go</span></div>
+              <div class="mail-empty" id="mailEmpty">No new mail in this folder yet.</div>
+              <div class="mail-item" id="mailItem">
+                <div class="m-from">Bae, Hyo-Bum (Power Automate)</div>
+                <div class="m-subj">[Action Required] Speeding Ticket Notice — Vehicle 231Ha1342</div>
+                <div class="m-attach">📎 Sample Ticket_1.pdf</div>
+              </div>
+              <div class="mail-open" id="mailOpen">
+                <h5>Automated notification — penalty details</h5>
+                <div class="kv"><span class="k">Driver</span><span class="v">Driver A</span></div>
+                <div class="kv"><span class="k">Vehicle number</span><span class="v">231Ha1342</span></div>
+                <div class="kv"><span class="k">Violation</span><span class="v">Speeding</span></div>
+                <div class="kv"><span class="k">Payment deadline</span><span class="v">2025.12.22</span></div>
+                <div class="note">This email was generated automatically by Power Automate. The original speeding ticket PDF is attached. Please review the penalty details and complete the payment before the deadline.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="results">
+  <h2 class="sec-title">Key Results from Demo</h2>
+  <div class="results">
+    <div class="result-card"><div class="r-ic">✓</div><h3>Input</h3><p>Korean police speeding ticket PDF uploaded to SharePoint</p></div>
+    <div class="result-card"><div class="r-ic">✓</div><h3>OCR Extraction</h3><p>Successfully identified vehicle number <b>231Ha1342</b> and deadline <b>2025.12.22</b></p></div>
+    <div class="result-card"><div class="r-ic">✓</div><h3>Matching</h3><p>Accurately linked to <b>Driver A</b> in the Employee &amp; Car list</p></div>
+    <div class="result-card"><div class="r-ic">✓</div><h3>Output</h3><p>Auto-generated email with full penalty details and the original PDF attached</p></div>
+    <div class="result-card"><div class="r-ic">✓</div><h3>Performance</h3><p>Helps administrative staff facilitate their work efficiency</p></div>
+  </div>
+</section>
+
+<footer>
+  OCR &amp; Auto-Mail System using AI Hub in Power Automate &mdash; demo walkthrough page &middot; Bae, Hyo-Bum, Senior Surveyor, LR Okpo Office
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  var steps = [
+    { label: "Press \u201CPlay demo\u201D to start the test", annot: "" },
+    { label: "Test starts", annot: "Test starts" },
+    { label: "Uploading Sample Ticket_1.pdf to SharePoint", annot: "Test starts" },
+    { label: "Upload complete \u2014 file appears in the document library", annot: "Trigger by uploading document" },
+    { label: "Flow triggered \u2014 Power Automate detects the new file", annot: "Flow triggered" },
+    { label: "AI Hub OCR reads the ticket and parses the vehicle number", annot: "Flow triggered" },
+    { label: "Vehicle number matched against the SharePoint list \u2014 Condition: True", annot: "Email sent to the address in LIST" },
+    { label: "Send an email (V2) \u2014 notification delivered", annot: "Email sent to the address in LIST" },
+    { label: "Employee receives the ticket email \u2014 test ends", annot: "Test ends" }
+  ];
+  var TOTAL = steps.length - 1;
+
+  var cur = 0;
+  var playing = false;
+  var timer = null;
+
+  var el = function (id) { return document.getElementById(id); };
+  var stepCount = el("stepCount"), stepLabel = el("stepLabel"), progressFill = el("progressFill");
+  var spDrop = el("spDrop"), spFileRow = el("spFileRow"), spToast = el("spToast"),
+      toastSpin = el("toastSpin"), toastMsg = el("toastMsg"), driverRow = el("driverRow");
+  var paBannerInfo = el("paBannerInfo"), paBannerOk = el("paBannerOk"),
+      paSpinner = el("paSpinner"), flowCanvas = el("flowCanvas"), paAnnot = el("paAnnot");
+  var mailEmpty = el("mailEmpty"), mailItem = el("mailItem"), mailOpen = el("mailOpen"), ticketCnt = el("ticketCnt");
+  var btnPlay = el("btnPlay"), btnPrev = el("btnPrev"), btnNext = el("btnNext"), btnReset = el("btnReset");
+  var nodes = Array.prototype.slice.call(document.querySelectorAll(".flow-node"));
+
+  function setNodeStates(doneUpTo, runningIdx) {
+    nodes.forEach(function (n) {
+      var i = parseInt(n.getAttribute("data-node"), 10);
+      n.classList.toggle("done", i <= doneUpTo);
+      n.classList.toggle("running", i === runningIdx);
+    });
+  }
+
+  function render() {
+    var s = steps[cur];
+    stepCount.textContent = "STEP " + cur + " / " + TOTAL;
+    stepLabel.textContent = s.label;
+    progressFill.style.width = (cur / TOTAL * 100) + "%";
+
+    /* SharePoint panel */
+    spDrop.classList.toggle("active", cur === 2);
+    spFileRow.style.display = cur >= 3 ? "flex" : "none";
+    var toastOn = cur === 2 || cur === 3;
+    spToast.classList.toggle("show", toastOn);
+    if (cur === 2) {
+      toastSpin.className = "spin"; toastSpin.textContent = "";
+      toastMsg.textContent = "Uploading Sample Ticket_1.pdf to \u201CFile to be sent\u201D\u2026";
+    } else if (cur === 3) {
+      toastSpin.className = "done-ic"; toastSpin.textContent = "\u2714";
+      toastMsg.textContent = "Uploaded Sample Ticket_1.pdf to \u201CFile to be sent\u201D";
+    }
+    driverRow.classList.toggle("row-hit", cur >= 6);
+
+    /* Power Automate panel */
+    var flowVisible = cur >= 4;
+    paBannerInfo.style.display = flowVisible ? "none" : "flex";
+    paBannerOk.style.display = flowVisible ? "flex" : "none";
+    paSpinner.style.display = flowVisible ? "none" : "block";
+    flowCanvas.style.display = flowVisible ? "flex" : "none";
+    paAnnot.textContent = s.annot;
+    paAnnot.classList.toggle("show", !!s.annot);
+
+    if (cur < 4)      setNodeStates(-1, -1);
+    else if (cur === 4) setNodeStates(1, 2);
+    else if (cur === 5) setNodeStates(5, 6);
+    else if (cur === 6) setNodeStates(7, 8);
+    else                setNodeStates(8, -1);
+
+    /* Email panel */
+    var mailArrived = cur >= 7;
+    mailEmpty.style.display = mailArrived ? "none" : "block";
+    mailItem.classList.toggle("show", mailArrived);
+    mailOpen.classList.toggle("show", cur >= 8);
+    ticketCnt.textContent = mailArrived ? "3" : "2";
+
+    btnPrev.disabled = cur === 0;
+    btnNext.disabled = cur === TOTAL;
+  }
+
+  function stop() {
+    playing = false;
+    if (timer) { clearTimeout(timer); timer = null; }
+    btnPlay.textContent = "\u25B6 Play demo";
+  }
+
+  function tick() {
+    if (!playing) return;
+    if (cur >= TOTAL) { stop(); return; }
+    cur += 1;
+    render();
+    if (cur >= TOTAL) { stop(); return; }
+    timer = setTimeout(tick, cur === 5 ? 2600 : 1800);
+  }
+
+  btnPlay.addEventListener("click", function () {
+    if (playing) { stop(); return; }
+    if (cur >= TOTAL) { cur = 0; render(); }
+    playing = true;
+    btnPlay.textContent = "\u275A\u275A Pause";
+    timer = setTimeout(tick, 700);
+  });
+  btnNext.addEventListener("click", function () { stop(); if (cur < TOTAL) { cur += 1; render(); } });
+  btnPrev.addEventListener("click", function () { stop(); if (cur > 0) { cur -= 1; render(); } });
+  btnReset.addEventListener("click", function () { stop(); cur = 0; render(); });
+
+  render();
+})();
+</script>
+</body>
+</html>
