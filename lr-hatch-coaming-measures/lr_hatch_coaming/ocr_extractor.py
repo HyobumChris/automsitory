@@ -97,6 +97,60 @@ def _ocr_pdf_page(pdf_path: str, page: int = 0) -> Tuple[str, float]:
         return "", 0.0
 
 
+def _extract_pdf_all_pages(
+    pdf_path: str,
+    max_pages: Optional[int] = None,
+) -> Tuple[str, float, int]:
+    """Extract text from ALL pages of a PDF.
+
+    Uses embedded text when available, falling back to per-page OCR for
+    scanned pages. Returns (combined_text, avg_confidence, page_count).
+    """
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        logger.warning("PyMuPDF not available; falling back to first-page OCR for %s", pdf_path)
+        text, conf = _ocr_pdf_page(pdf_path, page=0)
+        return text, conf, 1 if text else 0
+
+    doc = fitz.open(pdf_path)
+    n_pages = doc.page_count
+    if max_pages is not None:
+        n_pages = min(n_pages, max_pages)
+
+    parts: List[str] = []
+    confs: List[float] = []
+
+    for i in range(n_pages):
+        page = doc.load_page(i)
+        text = page.get_text()
+        if text and text.strip():
+            parts.append(text)
+            confs.append(0.95)
+            continue
+        # Scanned page → render + OCR if a backend is available
+        if _HAS_TESSERACT or _HAS_EASYOCR:
+            try:
+                pix = page.get_pixmap(dpi=200)
+                img_path = f"/tmp/_ocr_{os.getpid()}_p{i}.png"
+                pix.save(img_path)
+                t, c = _ocr_image(img_path)
+                try:
+                    os.remove(img_path)
+                except OSError:
+                    pass
+                if t.strip():
+                    parts.append(t)
+                    confs.append(c)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("OCR failed on page %d of %s: %s", i, pdf_path, exc)
+
+    doc.close()
+    combined = "\n\n".join(parts)
+    avg = sum(confs) / len(confs) if confs else 0.0
+    return combined, avg, len(parts)
+
+
 # ── Table parsers ───────────────────────────────────────────────────────────
 
 _STATUS_MAP = {
@@ -318,7 +372,9 @@ def extract_rules(
 
         ext = os.path.splitext(fpath)[1].lower()
         if ext == ".pdf":
-            text, conf = _ocr_pdf_page(fpath, page=0)
+            text, conf, n_pages = _extract_pdf_all_pages(fpath)
+            if n_pages:
+                logger.info("Extracted text from %d page(s) of %s", n_pages, fpath)
         elif ext in (".png", ".jpg", ".jpeg", ".tiff", ".bmp"):
             text, conf = _ocr_image(fpath)
         else:

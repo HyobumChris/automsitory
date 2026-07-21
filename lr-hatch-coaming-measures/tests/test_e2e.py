@@ -197,3 +197,33 @@ class TestE2EPipeline:
         # Run again (simulating add of new measure) — should not decrease
         summary2 = run_pipeline(pi)
         assert summary2["total_applications"] >= count1
+
+    def test_learning_outputs_generated(self, output_dir):
+        pi = _sample_input(output_dir, Measure3Option.enhanced_NDE)
+        summary = run_pipeline(pi)
+
+        assert summary["learning_modules_count"] >= 1
+        assert summary["learning_quizzes_count"] >= 3
+        assert summary["ndt_clauses_count"] >= 1
+
+        learning_dir = os.path.join(output_dir, "learning")
+        assert os.path.isfile(os.path.join(learning_dir, "modules_index.json"))
+        assert os.path.isfile(os.path.join(learning_dir, "quiz_bank.json"))
+        assert os.path.isfile(os.path.join(output_dir, "evidence", "ndt_clauses.json"))
+
+        with open(os.path.join(learning_dir, "quiz_bank.json")) as f:
+            quizzes = json.load(f)
+        ctod_q = next((q for q in quizzes if "CTOD" in q["question_en"]), None)
+        assert ctod_q is not None
+        assert ctod_q["correct_answer"] == "False"
+
+    def test_evidence_snippet_key_on_applications(self, output_dir):
+        pi = _sample_input(output_dir, Measure3Option.enhanced_NDE)
+        run_pipeline(pi)
+
+        with open(os.path.join(output_dir, "decision_results.json")) as f:
+            decision = json.load(f)
+
+        m1_apps = [a for a in decision["applications"] if a["measure_id"] == 1]
+        if m1_apps:
+            assert m1_apps[0].get("evidence_snippet_key") == "measure_1_ut"

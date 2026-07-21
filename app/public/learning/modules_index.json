@@ -1,0 +1,169 @@
+{
+  "modules": [
+    {
+      "module_id": "M1_100pct_UT",
+      "title_ko": "Measure 1 — 건조 중 100% NDE (UT)",
+      "title_en": "Measure 1 — 100% NDE (UT) During Construction",
+      "measure_ids": [
+        1
+      ],
+      "difficulty": "basic",
+      "file": "modules/M1_100pct_UT.md",
+      "quiz_ids": [
+        "Q-M1-001"
+      ],
+      "evidence_refs": []
+    },
+    {
+      "module_id": "M2_in_service_NDE",
+      "title_ko": "Measure 2 — 운항 중 주기적 NDE",
+      "title_en": "Measure 2 — Periodic In-Service NDE",
+      "measure_ids": [
+        2
+      ],
+      "difficulty": "intermediate",
+      "file": "modules/M2_in_service_NDE.md",
+      "quiz_ids": [
+        "Q-M2-NOTE2-001"
+      ],
+      "evidence_refs": [
+        "measure_2_in_service"
+      ]
+    },
+    {
+      "module_id": "M3_enhanced_NDE",
+      "title_ko": "Measure 3 — Enhanced NDE",
+      "title_en": "Measure 3 — Enhanced NDE with Stricter Acceptance",
+      "measure_ids": [
+        3
+      ],
+      "difficulty": "advanced",
+      "file": "modules/M3_enhanced_NDE.md",
+      "quiz_ids": [
+        "Q-M2-NOTE2-001",
+        "Q-M3-CTOD-TF-001",
+        "Q-M3-EGW-001",
+        "Q-M3-METHOD-001"
+      ],
+      "evidence_refs": [
+        "measure_3_ctod",
+        "measure_3_acceptance",
+        "egw_prohibition",
+        "measure_3_enhanced_nde"
+      ]
+    },
+    {
+      "module_id": "M3_enhanced_NDE_CTOD",
+      "title_ko": "Measure 3 — CTOD 요건",
+      "title_en": "Measure 3 — CTOD Requirement",
+      "measure_ids": [
+        3
+      ],
+      "difficulty": "advanced",
+      "file": "modules/M3_enhanced_NDE_CTOD.md",
+      "quiz_ids": [
+        "Q-M2-NOTE2-001",
+        "Q-M3-CTOD-TF-001",
+        "Q-M3-EGW-001",
+        "Q-M3-METHOD-001"
+      ],
+      "evidence_refs": [
+        "measure_3_ctod"
+      ]
+    },
+    {
+      "module_id": "NDT_service_supplier",
+      "title_ko": "서비스 공급자 관리 (Service Supplier)",
+      "title_en": "Service Supplier Management",
+      "measure_ids": [],
+      "difficulty": "advanced",
+      "file": "modules/NDT_service_supplier.md",
+      "quiz_ids": [
+        "Q-SS-001"
+      ],
+      "evidence_refs": [
+        "ndt_service_supplier_01"
+      ]
+    },
+    {
+      "module_id": "NDT_qualification",
+      "title_ko": "검사원·절차 자격 (Qualification)",
+      "title_en": "Personnel & Procedure Qualification",
+      "measure_ids": [],
+      "difficulty": "intermediate",
+      "file": "modules/NDT_qualification.md",
+      "quiz_ids": [
+        "Q-QUAL-001"
+      ],
+      "evidence_refs": [
+        "ndt_qualification_01"
+      ]
+    },
+    {
+      "module_id": "NDT_survey",
+      "title_ko": "선체 검사 체크포인트 (Hull Survey Checkpoints)",
+      "title_en": "Hull Survey Checkpoints",
+      "measure_ids": [],
+      "difficulty": "advanced",
+      "file": "modules/NDT_survey.md",
+      "quiz_ids": [
+        "Q-SURVEY-001"
+      ],
+      "evidence_refs": [
+        "ndt_survey_01"
+      ]
+    },
+    {
+      "module_id": "NDT_method",
+      "title_ko": "NDT 방법론 (UT/RT/MT/PT/VT/ET)",
+      "title_en": "NDT Methods (UT/RT/MT/PT/VT/ET)",
+      "measure_ids": [],
+      "difficulty": "basic",
+      "file": "modules/NDT_method.md",
+      "quiz_ids": [
+        "Q-METHOD-001"
+      ],
+      "evidence_refs": [
+        "ndt_method_01"
+      ]
+    },
+    {
+      "module_id": "NDT_extent",
+      "title_ko": "검사 범위 및 비율 (Extent of Examination)",
+      "title_en": "Extent of Examination",
+      "measure_ids": [],
+      "difficulty": "intermediate",
+      "file": "modules/NDT_extent.md",
+      "quiz_ids": [],
+      "evidence_refs": [
+        "ndt_extent_01"
+      ]
+    },
+    {
+      "module_id": "NDT_acceptance",
+      "title_ko": "합격 기준 (Acceptance Criteria)",
+      "title_en": "Acceptance Criteria",
+      "measure_ids": [],
+      "difficulty": "intermediate",
+      "file": "modules/NDT_acceptance.md",
+      "quiz_ids": [],
+      "evidence_refs": [
+        "ndt_acceptance_01"
+      ]
+    },
+    {
+      "module_id": "NDT_timing",
+      "title_ko": "검사 시점 (Timing)",
+      "title_en": "Inspection Timing",
+      "measure_ids": [],
+      "difficulty": "basic",
+      "file": "modules/NDT_timing.md",
+      "quiz_ids": [],
+      "evidence_refs": [
+        "ndt_timing_01"
+      ]
+    }
+  ],
+  "total_modules": 11,
+  "total_quizzes": 9
+}
