@@ -588,7 +588,7 @@
   };
 
   var steps = [
-    { label: "Press \u201CPlay demo\u201D to start the test", annot: "", scene: "input", journey: 1,
+    { label: "Press \u201CPlay demo\u201D \u2014 or step through with \u201CNext \u203A\u201D", annot: "", scene: "input", journey: 1,
       emoji: "\uD83D\uDC4B",
       story: "One thing happens at a time, and we\u2019ll tell you exactly what you\u2019re looking at. Press <b>Play demo</b>." },
     { label: "Test starts", annot: "Test starts", scene: "input", journey: 1,
@@ -723,7 +723,7 @@
     cur += 1;
     render();
     if (cur >= TOTAL) { stop(); return; }
-    timer = setTimeout(tick, cur === 5 ? 4200 : 3400);
+    timer = setTimeout(tick, cur === 5 ? 5000 : 4200);
   }
 
   btnPlay.addEventListener("click", function () {
