@@ -156,14 +156,45 @@
   .panel-role.r2 { background: var(--ms-blue); }
   .panel-role.r3 { background: #8764b8; }
 
-  .stage {
-    display: grid; grid-template-columns: 1fr 1.15fr 1fr; gap: 0;
-    min-height: 560px; background: #dfe3ea;
+  /* Journey map — where are we in the story? */
+  .journey {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    padding: 14px 16px 4px; background: #fff; flex-wrap: wrap;
   }
-  @media (max-width: 980px) { .stage { grid-template-columns: 1fr; } }
-  .panel { background: #fff; border-right: 1px solid var(--line); display: flex; flex-direction: column; overflow: hidden; transition: opacity .45s, filter .45s; }
-  .panel:last-child { border-right: none; }
-  .panel.dim { opacity: .38; filter: saturate(.55); }
+  .j-chip {
+    display: flex; align-items: center; gap: 7px;
+    border: 2px solid var(--line); border-radius: 999px;
+    padding: 7px 18px; font-size: 13.5px; font-weight: 700; color: #8a93a3;
+    background: #fafbfd; transition: all .35s;
+  }
+  .j-chip .j-done { display: none; color: var(--ok); font-weight: 800; }
+  .j-chip.active { border-color: var(--ms-blue); color: var(--ms-blue-dark); background: #eef6fd; box-shadow: 0 0 0 4px #0078d422; transform: scale(1.05); }
+  .j-chip.done { border-color: #b7e3b3; color: var(--ok); background: var(--ok-bg); }
+  .j-chip.done .j-done { display: inline; }
+  .j-arrow { color: #b9c2cf; font-size: 17px; font-weight: 800; }
+
+  /* Scene banner — what screen are we looking at? */
+  .scene-banner {
+    display: flex; align-items: center; gap: 13px;
+    margin: 10px 16px 12px; padding: 11px 16px;
+    background: #fffbea; border: 1px solid #f0e2ae; border-left: 5px solid #e3b53a;
+    border-radius: 8px;
+  }
+  .scene-banner .s-emoji { font-size: 24px; }
+  .scene-banner .s-txt { font-size: 13px; color: var(--ink-soft); line-height: 1.45; }
+  .scene-banner .s-txt b { color: var(--ink); font-size: 13.5px; }
+
+  .stage {
+    display: block; min-height: 520px; background: #fff; padding: 0 16px 16px;
+  }
+  .panel {
+    background: #fff; border: 1px solid var(--line); border-radius: 10px;
+    display: none; flex-direction: column; overflow: hidden;
+    max-width: 760px; margin: 0 auto; min-height: 500px;
+    box-shadow: var(--shadow); animation: sceneIn .45s ease;
+  }
+  .panel.active { display: flex; }
+  @keyframes sceneIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
   .panel-head {
     background: #2f3640; color: #fff; text-align: center;
     font-weight: 700; font-size: 14px; padding: 9px 6px; letter-spacing: .03em;
@@ -391,7 +422,20 @@
     <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
     <div class="narrator" id="narrator">
       <span class="n-emoji" id="narEmoji">👋</span>
-      <span class="n-text" id="narText">Three screens, one story: a document goes in on the <b>left</b>, a robot works in the <b>middle</b>, and an email comes out on the <b>right</b>. Press <b>Play demo</b>.</span>
+      <span class="n-text" id="narText">One thing happens at a time, and we&rsquo;ll tell you exactly what you&rsquo;re looking at. Press <b>Play demo</b>.</span>
+    </div>
+
+    <div class="journey">
+      <div class="j-chip" id="chip1"><span class="j-done">✓</span>📄 Ticket arrives</div>
+      <span class="j-arrow">→</span>
+      <div class="j-chip" id="chip2"><span class="j-done">✓</span>🤖 Robot reads &amp; matches</div>
+      <span class="j-arrow">→</span>
+      <div class="j-chip" id="chip3"><span class="j-done">✓</span>📧 Email delivered</div>
+    </div>
+
+    <div class="scene-banner">
+      <span class="s-emoji" id="sceneEmoji">🗂️</span>
+      <span class="s-txt" id="sceneTxt"><b>You are looking at: the shared folder (SharePoint).</b> Just an online folder the whole team can access — documents get dropped here.</span>
     </div>
 
     <div class="stage">
@@ -532,32 +576,43 @@
 (function () {
   "use strict";
 
+  var scenes = {
+    input: { emoji: "\uD83D\uDDC2\uFE0F",
+      txt: "<b>You are looking at: the shared folder (SharePoint).</b> Nothing fancy \u2014 just an online folder the whole team can access. Documents get dropped here." },
+    list: { emoji: "\uD83D\uDCCB",
+      txt: "<b>You are looking at: the staff list (also in SharePoint).</b> A simple table of who drives which company car. Watch the matching row light up green." },
+    robot: { emoji: "\uD83E\uDD16",
+      txt: "<b>You are looking at: the robot\u2019s checklist (Power Automate).</b> Each box is one task it performs by itself, top to bottom. Green ticks = done." },
+    result: { emoji: "\uD83D\uDCE7",
+      txt: "<b>You are looking at: the driver\u2019s personal email inbox.</b> This message was written, addressed and sent entirely by the robot." }
+  };
+
   var steps = [
-    { label: "Press \u201CPlay demo\u201D to start the test", annot: "", focus: "",
+    { label: "Press \u201CPlay demo\u201D to start the test", annot: "", scene: "input", journey: 1,
       emoji: "\uD83D\uDC4B",
-      story: "Three screens, one story: a document goes in on the <b>left</b>, a robot works in the <b>middle</b>, and an email comes out on the <b>right</b>. Press <b>Play demo</b>." },
-    { label: "Test starts", annot: "Test starts", focus: "input",
+      story: "One thing happens at a time, and we\u2019ll tell you exactly what you\u2019re looking at. Press <b>Play demo</b>." },
+    { label: "Test starts", annot: "Test starts", scene: "input", journey: 1,
       emoji: "\uD83C\uDFAC",
       story: "A speeding ticket has arrived for company car <b>231Ha1342</b>. Normally a person would now read it, find the driver and write an email\u2026 let\u2019s see the robot do it instead." },
-    { label: "Uploading Sample Ticket_1.pdf to SharePoint", annot: "Test starts", focus: "input",
+    { label: "Uploading Sample Ticket_1.pdf to SharePoint", annot: "Test starts", scene: "input", journey: 1,
       emoji: "\uD83D\uDCE4",
-      story: "A colleague drags the ticket PDF into a shared folder. <b>This is the only thing a human does</b> in the entire process." },
-    { label: "Upload complete \u2014 file appears in the document library", annot: "Trigger by uploading document", focus: "input",
+      story: "A colleague drags the ticket PDF into the shared folder. <b>This is the only thing a human does</b> in the entire process." },
+    { label: "Upload complete \u2014 file appears in the document library", annot: "Trigger by uploading document", scene: "input", journey: 1,
       emoji: "\uD83D\uDCC1",
       story: "The file is now in the folder. Hands off the keyboard \u2014 <b>from this moment on, everything happens by itself</b>." },
-    { label: "Flow triggered \u2014 Power Automate detects the new file", annot: "Flow triggered", focus: "robot",
+    { label: "Flow triggered \u2014 Power Automate detects the new file", annot: "Flow triggered", scene: "robot", journey: 2,
       emoji: "\uD83D\uDC40",
-      story: "The robot was watching that folder like a doorbell. New file? <b>It wakes up instantly</b> and starts working through its checklist." },
-    { label: "AI Hub OCR reads the ticket and parses the vehicle number", annot: "Flow triggered", focus: "robot",
+      story: "Now we switch to the robot\u2019s side. It was watching that folder like a doorbell \u2014 new file? <b>It wakes up instantly</b> and starts its checklist." },
+    { label: "AI Hub OCR reads the ticket and parses the vehicle number", annot: "Flow triggered", scene: "robot", journey: 2,
       emoji: "\uD83E\uDDE0",
-      story: "Now the AI \u201Ceyes\u201D scan the document \u2014 just like a person reading it \u2014 and pick out the plate number: <b>231Ha1342</b>." },
-    { label: "Vehicle number matched against the SharePoint list \u2014 Condition: True", annot: "Email sent to the address in LIST", focus: "",
+      story: "The AI \u201Ceyes\u201D scan the document \u2014 just like a person reading it \u2014 and pick out the plate number: <b>231Ha1342</b>." },
+    { label: "Vehicle number matched against the SharePoint list \u2014 Condition: True", annot: "Email sent to the address in LIST", scene: "list", journey: 2,
       emoji: "\uD83D\uDD0E",
-      story: "The robot looks that plate up in the staff list (left screen, highlighted green) and finds the owner: <b>Driver A</b>. Now it knows exactly who to notify." },
-    { label: "Send an email (V2) \u2014 notification delivered", annot: "Email sent to the address in LIST", focus: "robot",
+      story: "Quick peek at the staff list: the robot looks up plate <b>231Ha1342</b>\u2026 and finds the owner, <b>Driver A</b> \u2014 highlighted in green. Now it knows who to notify." },
+    { label: "Send an email (V2) \u2014 notification delivered", annot: "Email sent to the address in LIST", scene: "robot", journey: 2,
       emoji: "\u2709\uFE0F",
-      story: "It writes the notification email, <b>attaches the original ticket</b>, and presses Send \u2014 no human involved." },
-    { label: "Employee receives the ticket email \u2014 test ends", annot: "Test ends", focus: "result",
+      story: "Back on the checklist: it writes the notification email, <b>attaches the original ticket</b>, and presses Send \u2014 no human involved." },
+    { label: "Employee receives the ticket email \u2014 test ends", annot: "Test ends", scene: "result", journey: 3,
       emoji: "\uD83C\uDF89",
       story: "Done! Driver A has the notice in their inbox with every detail filled in. Total time: <b>about 7 seconds, zero manual work</b>. That was the whole trick." }
   ];
@@ -576,6 +631,8 @@
   var mailEmpty = el("mailEmpty"), mailItem = el("mailItem"), mailOpen = el("mailOpen"), ticketCnt = el("ticketCnt");
   var narrator = el("narrator"), narEmoji = el("narEmoji"), narText = el("narText");
   var panelInput = el("panelInput"), panelRobot = el("panelRobot"), panelResult = el("panelResult");
+  var sceneEmoji = el("sceneEmoji"), sceneTxt = el("sceneTxt");
+  var chips = [el("chip1"), el("chip2"), el("chip3")];
   var btnPlay = el("btnPlay"), btnPrev = el("btnPrev"), btnNext = el("btnNext"), btnReset = el("btnReset");
   var nodes = Array.prototype.slice.call(document.querySelectorAll(".flow-node"));
 
@@ -593,13 +650,26 @@
     stepLabel.textContent = s.label;
     progressFill.style.width = (cur / TOTAL * 100) + "%";
 
-    /* Narrator strip + panel focus */
+    /* Narrator strip */
     narEmoji.textContent = s.emoji;
     narText.innerHTML = s.story;
     narrator.classList.toggle("celebrate", cur === TOTAL);
-    panelInput.classList.toggle("dim", !!s.focus && s.focus !== "input");
-    panelRobot.classList.toggle("dim", !!s.focus && s.focus !== "robot");
-    panelResult.classList.toggle("dim", !!s.focus && s.focus !== "result");
+
+    /* Journey chips */
+    chips.forEach(function (chip, i) {
+      var stage = i + 1;
+      chip.classList.toggle("active", s.journey === stage && cur !== TOTAL);
+      chip.classList.toggle("done", s.journey > stage || cur === TOTAL);
+    });
+
+    /* Scene: show one screen at a time */
+    var sc = scenes[s.scene];
+    sceneEmoji.textContent = sc.emoji;
+    sceneTxt.innerHTML = sc.txt;
+    var showInput = s.scene === "input" || s.scene === "list";
+    panelInput.classList.toggle("active", showInput);
+    panelRobot.classList.toggle("active", s.scene === "robot");
+    panelResult.classList.toggle("active", s.scene === "result");
 
     /* SharePoint panel */
     spDrop.classList.toggle("active", cur === 2);
