@@ -61,6 +61,12 @@
     font-size: 14px;
   }
   .hero .author strong { color: var(--ink); display: block; font-size: 15px; }
+  .hero .plain-intro {
+    max-width: 640px; margin: 22px auto 0; font-size: 14.5px; line-height: 1.6;
+    color: var(--ink-soft); background: #f5fbf9; border: 1px solid #cdeae4;
+    border-radius: 10px; padding: 14px 20px;
+  }
+  .hero .plain-intro b { color: var(--ink); }
 
   /* ---------- Sections ---------- */
   section { max-width: 1240px; margin: 0 auto; padding: 52px 24px; }
@@ -71,6 +77,39 @@
     padding-bottom: 12px;
     border-bottom: 3px solid var(--ms-blue);
     margin-bottom: 34px;
+  }
+
+  /* ---------- Story intro ---------- */
+  .story-grid { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: 14px; align-items: stretch; margin-bottom: 26px; }
+  @media (max-width: 900px) { .story-grid { grid-template-columns: 1fr; } .story-arrow { transform: rotate(90deg); margin: -4px auto; } }
+  .story-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: var(--shadow); padding: 22px 20px; display: flex; flex-direction: column;
+  }
+  .story-card .tag {
+    align-self: flex-start; font-size: 11px; font-weight: 800; letter-spacing: .08em;
+    border-radius: 999px; padding: 4px 12px; margin-bottom: 12px; text-transform: uppercase;
+  }
+  .story-card.before .tag { background: #fdecea; color: var(--warn); }
+  .story-card.how .tag { background: #eef6fd; color: var(--ms-blue-dark); }
+  .story-card.after .tag { background: var(--ok-bg); color: var(--ok); }
+  .story-card .big { font-size: 34px; line-height: 1; margin-bottom: 12px; }
+  .story-card h3 { font-size: 16.5px; margin-bottom: 7px; }
+  .story-card p { font-size: 13.5px; color: var(--ink-soft); }
+  .story-card p b { color: var(--ink); }
+  .story-arrow { align-self: center; font-size: 26px; color: var(--ms-blue); font-weight: 800; }
+  .pa-explain {
+    background: linear-gradient(120deg, #eef6fd 0%, #f5fbf9 100%);
+    border: 1px solid #c7e0f4; border-left: 5px solid var(--ms-blue);
+    border-radius: 10px; padding: 18px 22px; display: flex; gap: 16px; align-items: flex-start;
+  }
+  .pa-explain .q-ic { font-size: 28px; line-height: 1.2; }
+  .pa-explain h3 { font-size: 15.5px; color: var(--ms-blue-dark); margin-bottom: 5px; }
+  .pa-explain p { font-size: 13.5px; color: var(--ink-soft); }
+  .pa-explain p b { color: var(--ink); }
+  .pa-explain code {
+    font-family: var(--mono); font-size: 12.5px; background: #fff;
+    border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px;
   }
 
   /* ---------- Demo player ---------- */
@@ -99,13 +138,32 @@
   .progress-track { height: 6px; background: #e6eaf0; }
   .progress-fill { height: 100%; width: 0; background: linear-gradient(90deg, var(--lr-teal), var(--ms-blue)); transition: width .4s ease; }
 
+  /* Narrator strip — plain-language commentary */
+  .narrator {
+    display: flex; align-items: center; gap: 14px;
+    background: #1f2430; color: #fff; padding: 13px 20px;
+  }
+  .narrator .n-emoji { font-size: 26px; flex: 0 0 auto; }
+  .narrator .n-text { font-size: 14px; line-height: 1.45; }
+  .narrator .n-text b { color: #7fd4c9; }
+  .narrator.celebrate { background: linear-gradient(100deg, #0b5c55, #107c10); }
+
+  .panel-role {
+    text-align: center; color: #fff; font-size: 11px; font-weight: 800;
+    letter-spacing: .07em; padding: 6px 4px; text-transform: uppercase;
+  }
+  .panel-role.r1 { background: #036c70; }
+  .panel-role.r2 { background: var(--ms-blue); }
+  .panel-role.r3 { background: #8764b8; }
+
   .stage {
     display: grid; grid-template-columns: 1fr 1.15fr 1fr; gap: 0;
     min-height: 560px; background: #dfe3ea;
   }
   @media (max-width: 980px) { .stage { grid-template-columns: 1fr; } }
-  .panel { background: #fff; border-right: 1px solid var(--line); display: flex; flex-direction: column; overflow: hidden; }
+  .panel { background: #fff; border-right: 1px solid var(--line); display: flex; flex-direction: column; overflow: hidden; transition: opacity .45s, filter .45s; }
   .panel:last-child { border-right: none; }
+  .panel.dim { opacity: .38; filter: saturate(.55); }
   .panel-head {
     background: #2f3640; color: #fff; text-align: center;
     font-weight: 700; font-size: 14px; padding: 9px 6px; letter-spacing: .03em;
@@ -275,14 +333,50 @@
 <header class="hero">
   <h1>OCR &amp; Auto-Mail System<br />using AI Hub in Power Automate</h1>
   <p class="subtitle">Automation of Employee Speeding Ticket Distribution System</p>
+  <p class="plain-intro">In plain words: <b>a computer watches a folder — when a speeding ticket arrives, it reads it, finds the driver, and emails them. By itself.</b><br />New to Power Automate? No problem — this page explains everything as it plays.</p>
   <div class="author">
     <strong>Bae, Hyo-Bum, Senior Surveyor</strong>
     LR Okpo Office
   </div>
 </header>
 
+<section id="story">
+  <h2 class="sec-title">The Story — What Problem Does This Solve?</h2>
+  <div class="story-grid">
+    <div class="story-card before">
+      <span class="tag">Before &middot; Manual</span>
+      <div class="big">😩</div>
+      <h3>A tedious chore</h3>
+      <p>A speeding ticket arrives for a company car. Someone must <b>open the PDF, squint at the plate number, search the staff list, and write an email</b> to the right driver. Every single time.</p>
+    </div>
+    <div class="story-arrow">→</div>
+    <div class="story-card how">
+      <span class="tag">The Idea</span>
+      <div class="big">🤖</div>
+      <h3>Teach a robot the routine</h3>
+      <p>We wrote the routine down as a recipe: <b>&ldquo;WHEN a ticket lands in the folder, READ it, FIND the driver, SEND the mail.&rdquo;</b> A software robot now follows that recipe 24/7.</p>
+    </div>
+    <div class="story-arrow">→</div>
+    <div class="story-card after">
+      <span class="tag">After &middot; Automatic</span>
+      <div class="big">☕</div>
+      <h3>Done in ~7 seconds</h3>
+      <p>Drop the ticket in a shared folder — that&rsquo;s the only human action. <b>The driver has the notice in their inbox before you finish your sip of coffee.</b> No typos, nothing forgotten.</p>
+    </div>
+  </div>
+  <div class="pa-explain">
+    <div class="q-ic">💡</div>
+    <div>
+      <h3>What is &ldquo;Power Automate&rdquo;? (30-second version)</h3>
+      <p>It is a Microsoft tool that lets you give a computer a simple instruction sheet: <code>WHEN this happens &rarr; DO these steps</code>.
+      No programming degree needed — you snap together ready-made blocks like &ldquo;watch this folder&rdquo;, &ldquo;read text from a document&rdquo; (that part is the <b>AI Hub</b>, the robot&rsquo;s eyes) and &ldquo;send an email&rdquo;.
+      Think of it as <b>a very reliable intern who never sleeps</b>.</p>
+    </div>
+  </div>
+</section>
+
 <section id="demo">
-  <h2 class="sec-title">Live Demo Walkthrough — From Document Upload to Employee Inbox</h2>
+  <h2 class="sec-title">Watch It Happen — One Upload, Zero Manual Work</h2>
   <div class="player-shell">
     <div class="player-controls">
       <button class="btn btn-primary" id="btnPlay">▶ Play demo</button>
@@ -295,10 +389,15 @@
       </div>
     </div>
     <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+    <div class="narrator" id="narrator">
+      <span class="n-emoji" id="narEmoji">👋</span>
+      <span class="n-text" id="narText">Three screens, one story: a document goes in on the <b>left</b>, a robot works in the <b>middle</b>, and an email comes out on the <b>right</b>. Press <b>Play demo</b>.</span>
+    </div>
 
     <div class="stage">
       <!-- SharePoint panel -->
-      <div class="panel">
+      <div class="panel" id="panelInput">
+        <div class="panel-role r1">① Input — where the ticket arrives</div>
         <div class="panel-head">SharePoint / List</div>
         <div class="panel-chrome">https://sharepoint.com/sites/&hellip;/Shared%20Documents</div>
         <div class="panel-body" id="spBody">
@@ -331,7 +430,8 @@
       </div>
 
       <!-- Power Automate panel -->
-      <div class="panel">
+      <div class="panel" id="panelRobot">
+        <div class="panel-role r2">② The robot — works by itself</div>
         <div class="panel-head">Power Automate</div>
         <div class="panel-chrome">https://make.powerautomate.com &mdash; Automation of Employee Speeding Ticket Distribution System_Rev. Final_B</div>
         <div class="panel-body">
@@ -370,7 +470,8 @@
       </div>
 
       <!-- Email panel -->
-      <div class="panel">
+      <div class="panel" id="panelResult">
+        <div class="panel-role r3">③ Result — the driver&rsquo;s inbox</div>
         <div class="panel-head">Employee&rsquo;s Email</div>
         <div class="panel-chrome">https://mail.daum.net &mdash; Tickets</div>
         <div class="panel-body">
@@ -432,15 +533,33 @@
   "use strict";
 
   var steps = [
-    { label: "Press \u201CPlay demo\u201D to start the test", annot: "" },
-    { label: "Test starts", annot: "Test starts" },
-    { label: "Uploading Sample Ticket_1.pdf to SharePoint", annot: "Test starts" },
-    { label: "Upload complete \u2014 file appears in the document library", annot: "Trigger by uploading document" },
-    { label: "Flow triggered \u2014 Power Automate detects the new file", annot: "Flow triggered" },
-    { label: "AI Hub OCR reads the ticket and parses the vehicle number", annot: "Flow triggered" },
-    { label: "Vehicle number matched against the SharePoint list \u2014 Condition: True", annot: "Email sent to the address in LIST" },
-    { label: "Send an email (V2) \u2014 notification delivered", annot: "Email sent to the address in LIST" },
-    { label: "Employee receives the ticket email \u2014 test ends", annot: "Test ends" }
+    { label: "Press \u201CPlay demo\u201D to start the test", annot: "", focus: "",
+      emoji: "\uD83D\uDC4B",
+      story: "Three screens, one story: a document goes in on the <b>left</b>, a robot works in the <b>middle</b>, and an email comes out on the <b>right</b>. Press <b>Play demo</b>." },
+    { label: "Test starts", annot: "Test starts", focus: "input",
+      emoji: "\uD83C\uDFAC",
+      story: "A speeding ticket has arrived for company car <b>231Ha1342</b>. Normally a person would now read it, find the driver and write an email\u2026 let\u2019s see the robot do it instead." },
+    { label: "Uploading Sample Ticket_1.pdf to SharePoint", annot: "Test starts", focus: "input",
+      emoji: "\uD83D\uDCE4",
+      story: "A colleague drags the ticket PDF into a shared folder. <b>This is the only thing a human does</b> in the entire process." },
+    { label: "Upload complete \u2014 file appears in the document library", annot: "Trigger by uploading document", focus: "input",
+      emoji: "\uD83D\uDCC1",
+      story: "The file is now in the folder. Hands off the keyboard \u2014 <b>from this moment on, everything happens by itself</b>." },
+    { label: "Flow triggered \u2014 Power Automate detects the new file", annot: "Flow triggered", focus: "robot",
+      emoji: "\uD83D\uDC40",
+      story: "The robot was watching that folder like a doorbell. New file? <b>It wakes up instantly</b> and starts working through its checklist." },
+    { label: "AI Hub OCR reads the ticket and parses the vehicle number", annot: "Flow triggered", focus: "robot",
+      emoji: "\uD83E\uDDE0",
+      story: "Now the AI \u201Ceyes\u201D scan the document \u2014 just like a person reading it \u2014 and pick out the plate number: <b>231Ha1342</b>." },
+    { label: "Vehicle number matched against the SharePoint list \u2014 Condition: True", annot: "Email sent to the address in LIST", focus: "",
+      emoji: "\uD83D\uDD0E",
+      story: "The robot looks that plate up in the staff list (left screen, highlighted green) and finds the owner: <b>Driver A</b>. Now it knows exactly who to notify." },
+    { label: "Send an email (V2) \u2014 notification delivered", annot: "Email sent to the address in LIST", focus: "robot",
+      emoji: "\u2709\uFE0F",
+      story: "It writes the notification email, <b>attaches the original ticket</b>, and presses Send \u2014 no human involved." },
+    { label: "Employee receives the ticket email \u2014 test ends", annot: "Test ends", focus: "result",
+      emoji: "\uD83C\uDF89",
+      story: "Done! Driver A has the notice in their inbox with every detail filled in. Total time: <b>about 7 seconds, zero manual work</b>. That was the whole trick." }
   ];
   var TOTAL = steps.length - 1;
 
@@ -455,6 +574,8 @@
   var paBannerInfo = el("paBannerInfo"), paBannerOk = el("paBannerOk"),
       paSpinner = el("paSpinner"), flowCanvas = el("flowCanvas"), paAnnot = el("paAnnot");
   var mailEmpty = el("mailEmpty"), mailItem = el("mailItem"), mailOpen = el("mailOpen"), ticketCnt = el("ticketCnt");
+  var narrator = el("narrator"), narEmoji = el("narEmoji"), narText = el("narText");
+  var panelInput = el("panelInput"), panelRobot = el("panelRobot"), panelResult = el("panelResult");
   var btnPlay = el("btnPlay"), btnPrev = el("btnPrev"), btnNext = el("btnNext"), btnReset = el("btnReset");
   var nodes = Array.prototype.slice.call(document.querySelectorAll(".flow-node"));
 
@@ -471,6 +592,14 @@
     stepCount.textContent = "STEP " + cur + " / " + TOTAL;
     stepLabel.textContent = s.label;
     progressFill.style.width = (cur / TOTAL * 100) + "%";
+
+    /* Narrator strip + panel focus */
+    narEmoji.textContent = s.emoji;
+    narText.innerHTML = s.story;
+    narrator.classList.toggle("celebrate", cur === TOTAL);
+    panelInput.classList.toggle("dim", !!s.focus && s.focus !== "input");
+    panelRobot.classList.toggle("dim", !!s.focus && s.focus !== "robot");
+    panelResult.classList.toggle("dim", !!s.focus && s.focus !== "result");
 
     /* SharePoint panel */
     spDrop.classList.toggle("active", cur === 2);
@@ -524,7 +653,7 @@
     cur += 1;
     render();
     if (cur >= TOTAL) { stop(); return; }
-    timer = setTimeout(tick, cur === 5 ? 2600 : 1800);
+    timer = setTimeout(tick, cur === 5 ? 4200 : 3400);
   }
 
   btnPlay.addEventListener("click", function () {
