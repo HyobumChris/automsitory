@@ -1,0 +1,1246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ISO 19285 PAUT Acceptance Levels — Hatch Coaming UT Inspection</title>
+  <style>
+    :root {
+      --bg:        #0a1628;
+      --surface:   #101d33;
+      --surface-2: #162440;
+      --border:    #1e3054;
+      --text:      #e2e8f0;
+      --muted:     #7a8ca0;
+      --cyan:      #00e5ff;
+      --amber:     #ffab00;
+      --emerald:   #00e676;
+      --red:       #ff1744;
+      --al1:       #00e5ff;
+      --al2:       #ffab00;
+      --al3:       #94a3b8;
+      --weld:      #c8a96e;
+      --haz:       #2a3f55;
+      --base:      #1a2d44;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: linear-gradient(160deg, #060e1e 0%, #0a1628 50%, #0d1f3c 100%);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 20px;
+    }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--surface-2); }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(18px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes pulse-glow {
+      0%, 100% { opacity: 0.55; }
+      50%       { opacity: 1; }
+    }
+    @keyframes scan-sweep {
+      0%   { transform: translateX(0); opacity: 0.7; }
+      90%  { opacity: 0.7; }
+      100% { transform: translateX(680px); opacity: 0; }
+    }
+
+    .container {
+      max-width: 1360px;
+      margin: 0 auto;
+    }
+
+    /* ── HEADER ── */
+    .header {
+      background: linear-gradient(135deg, #0a1628 0%, #12223f 60%, #1a2f4a 100%);
+      border: 1px solid rgba(0,229,255,0.18);
+      border-radius: 14px;
+      padding: 36px 40px;
+      margin-bottom: 24px;
+      animation: fadeIn 0.7s ease both;
+      position: relative;
+      overflow: hidden;
+    }
+    .header::before {
+      content: '';
+      position: absolute;
+      top: -60px; right: -60px;
+      width: 280px; height: 280px;
+      background: radial-gradient(circle, rgba(0,229,255,0.07) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .header h1 {
+      font-size: 1.85rem;
+      font-weight: 700;
+      color: var(--cyan);
+      letter-spacing: 0.02em;
+      text-shadow: 0 0 20px rgba(0,229,255,0.4);
+      margin-bottom: 8px;
+    }
+    .header p {
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.5;
+    }
+    .header .badges {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+    .badge {
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 20px;
+      letter-spacing: 0.04em;
+      border: 1px solid;
+    }
+    .badge-cyan  { color: var(--cyan);   border-color: rgba(0,229,255,0.4);  background: rgba(0,229,255,0.08); }
+    .badge-amber { color: var(--amber);  border-color: rgba(255,171,0,0.4);  background: rgba(255,171,0,0.08); }
+    .badge-slate { color: var(--muted);  border-color: rgba(148,163,184,0.3); background: rgba(148,163,184,0.06); }
+
+    /* ── SECTION WRAPPER ── */
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 28px 32px;
+      margin-bottom: 20px;
+      animation: fadeIn 0.7s ease both;
+    }
+    .section-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--cyan);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(0,229,255,0.15);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .section-title .num {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 22px; height: 22px;
+      background: rgba(0,229,255,0.12);
+      border: 1px solid rgba(0,229,255,0.3);
+      border-radius: 50%;
+      font-size: 0.72rem;
+      color: var(--cyan);
+    }
+
+    /* ── CONTROLS ── */
+    .controls-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    @media (max-width: 800px) { .controls-grid { grid-template-columns: 1fr; } }
+    .ctrl-group label {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--muted);
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .ctrl-group label span {
+      color: var(--cyan);
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+    input[type=range] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 6px;
+      border-radius: 3px;
+      background: var(--surface-2);
+      outline: none;
+      cursor: pointer;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 10px rgba(0,229,255,0.5);
+      cursor: pointer;
+    }
+    .slider-marks {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 5px;
+      font-size: 0.7rem;
+      color: var(--muted);
+    }
+    .slider-marks span { position: relative; }
+    .slider-marks .hl { color: var(--amber); font-weight: 600; }
+
+    .tab-row {
+      display: flex;
+      gap: 6px;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+      letter-spacing: 0.03em;
+    }
+    .tab-btn:hover { color: var(--text); border-color: var(--cyan); }
+    .tab-btn.active-al1 { color: var(--al1); border-color: var(--al1); background: rgba(0,229,255,0.1); box-shadow: 0 0 12px rgba(0,229,255,0.2); }
+    .tab-btn.active-al2 { color: var(--al2); border-color: var(--al2); background: rgba(255,171,0,0.1);  box-shadow: 0 0 12px rgba(255,171,0,0.2); }
+    .tab-btn.active-al3 { color: var(--al3); border-color: var(--al3); background: rgba(148,163,184,0.08); }
+    .tab-btn.active-pl  { color: var(--cyan); border-color: var(--cyan); background: rgba(0,229,255,0.1); }
+    .tab-btn.active-vo  { color: var(--emerald); border-color: var(--emerald); background: rgba(0,230,118,0.1); }
+
+    .lr-context-row {
+      grid-column: 1 / -1;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 12px 16px;
+      background: var(--surface-2);
+      border-radius: 8px;
+      border: 1px solid rgba(255,171,0,0.2);
+      font-size: 0.8rem;
+    }
+    .lr-ctx-item { color: var(--muted); }
+    .lr-ctx-item strong { color: var(--amber); }
+    .lr-ctx-item.active-ctx { color: var(--text); }
+    .lr-ctx-sep { color: var(--border); }
+
+    /* ── B-SCAN SVG ── */
+    .bscan-wrap {
+      width: 100%;
+      background: #06101e;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      overflow: hidden;
+      position: relative;
+    }
+    .bscan-wrap svg { display: block; width: 100%; }
+    .scan-label {
+      font-size: 0.72rem;
+      fill: var(--muted);
+      font-family: 'Segoe UI', sans-serif;
+    }
+    .scan-axis { stroke: #1e3054; stroke-width: 1; }
+    .grid-minor { stroke: #0d1a2d; stroke-width: 0.5; }
+    .grid-major { stroke: #122030; stroke-width: 0.8; }
+
+    #bscan-tooltip {
+      position: absolute;
+      background: rgba(10,22,40,0.95);
+      border: 1px solid rgba(0,229,255,0.3);
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 0.78rem;
+      color: var(--text);
+      pointer-events: none;
+      display: none;
+      max-width: 200px;
+      line-height: 1.5;
+      z-index: 10;
+    }
+    #bscan-tooltip .tt-depth { color: var(--cyan); font-weight: 700; }
+    #bscan-tooltip .tt-nsz  { color: var(--red); }
+    #bscan-tooltip .tt-ok   { color: var(--emerald); }
+
+    /* ── TABLE ── */
+    .crit-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.83rem;
+    }
+    .crit-table th, .crit-table td {
+      padding: 9px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .crit-table th {
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      background: var(--surface-2);
+      white-space: nowrap;
+    }
+    .crit-table td:first-child {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.78rem;
+      white-space: nowrap;
+    }
+    .crit-table td .calc { color: var(--cyan); font-weight: 700; margin-left: 4px; font-size: 0.88rem; }
+    .crit-table td .formula { color: var(--muted); font-size: 0.76rem; }
+    .crit-table tr:hover td { background: rgba(255,255,255,0.02); }
+    .col-al1 { transition: background 0.3s, border 0.3s; }
+    .col-al2 { transition: background 0.3s, border 0.3s; }
+    .col-al3 { transition: background 0.3s, border 0.3s; }
+    .col-al1.active { background: rgba(0,229,255,0.08); border-top: 2px solid var(--al1); }
+    .col-al2.active { background: rgba(255,171,0,0.08);  border-top: 2px solid var(--al2); }
+    .col-al3.active { background: rgba(148,163,184,0.06); border-top: 2px solid var(--al3); }
+    .th-al1 { color: var(--al1) !important; }
+    .th-al2 { color: var(--al2) !important; }
+    .th-al3 { color: var(--al3) !important; }
+    .tag-prohibited { color: var(--red);    font-size: 0.72rem; font-weight: 700; }
+    .tag-permitted  { color: var(--emerald); font-size: 0.72rem; font-weight: 700; }
+    .tag-warn       { color: var(--amber);  font-size: 0.72rem; font-weight: 700; }
+
+    /* ── ASSESSMENT ── */
+    .assessment-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    @media (max-width: 600px) { .assessment-grid { grid-template-columns: 1fr; } }
+    .inp-group label {
+      display: block;
+      font-size: 0.78rem;
+      color: var(--muted);
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .inp-group input[type=number] {
+      width: 100%;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 9px 12px;
+      color: var(--text);
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.2s;
+      font-family: 'Segoe UI', monospace, sans-serif;
+    }
+    .inp-group input[type=number]:focus { border-color: var(--cyan); }
+    .inp-group .inp-unit { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+
+    .results-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+    @media (max-width: 600px) { .results-grid { grid-template-columns: 1fr; } }
+    .result-card {
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      padding: 18px 16px;
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+    .result-card .rc-header {
+      font-size: 0.78rem;
+      color: var(--muted);
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    .result-card .rc-badge {
+      display: inline-block;
+      font-size: 1.1rem;
+      font-weight: 800;
+      padding: 5px 18px;
+      border-radius: 6px;
+      letter-spacing: 0.08em;
+      margin-bottom: 12px;
+    }
+    .rc-badge.pass { background: rgba(0,230,118,0.15); color: var(--emerald); border: 1px solid rgba(0,230,118,0.4); }
+    .rc-badge.fail { background: rgba(255,23,68,0.15);  color: var(--red);     border: 1px solid rgba(255,23,68,0.4); }
+    .rc-badge.na   { background: rgba(148,163,184,0.1); color: var(--muted);   border: 1px solid var(--border); }
+    .result-card .rc-gauge-track {
+      width: 100%;
+      height: 6px;
+      background: var(--surface);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .result-card .rc-gauge-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.4s ease;
+      background: linear-gradient(90deg, var(--emerald) 0%, var(--amber) 60%, var(--red) 100%);
+    }
+    .result-card .rc-limits {
+      font-size: 0.72rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .result-card .rc-limits span { color: var(--text); }
+    .result-card .rc-failure {
+      font-size: 0.72rem;
+      color: var(--red);
+      margin-top: 4px;
+      line-height: 1.4;
+    }
+    .result-card .rc-nsz-warn {
+      font-size: 0.72rem;
+      color: var(--amber);
+      margin-top: 4px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* ── LR RULES ── */
+    .lr-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 16px;
+    }
+    .lr-card {
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      padding: 20px;
+      transition: border-color 0.3s, box-shadow 0.3s;
+    }
+    .lr-card.highlight-m3 { border-color: rgba(0,229,255,0.5); box-shadow: 0 0 16px rgba(0,229,255,0.12); }
+    .lr-card.highlight-m1 { border-color: rgba(255,171,0,0.5);  box-shadow: 0 0 16px rgba(255,171,0,0.12); }
+    .lr-card .lrc-header {
+      font-size: 0.95rem;
+      font-weight: 700;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .lrc-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      animation: pulse-glow 2s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+    .lr-card .lrc-row {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      line-height: 1.4;
+    }
+    .lr-card .lrc-row strong { color: var(--text); }
+    .lr-card .lrc-row .key {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      min-width: 90px;
+      color: var(--muted);
+    }
+    .lrc-al-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      border: 1px solid;
+      letter-spacing: 0.04em;
+    }
+
+    /* ── FOOTER ── */
+    .footer {
+      text-align: center;
+      padding: 24px;
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.6;
+    }
+    .footer a { color: var(--cyan); text-decoration: none; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <!-- HEADER -->
+  <div class="header">
+    <h1>ISO 19285 PAUT Acceptance Levels</h1>
+    <p>Phased Array Ultrasonic Testing acceptance criteria for hatch coaming weld inspection<br>
+       Applied to LR Rules for Ships, Pt 4, Ch 8 — Brittle Crack Arrest Measures</p>
+    <div class="badges">
+      <span class="badge badge-cyan">ISO 19285:2021</span>
+      <span class="badge badge-amber">LR Pt 4 Ch 8 §2.3.8</span>
+      <span class="badge badge-slate">ISO 5817 Quality Levels</span>
+      <span class="badge badge-slate">PAUT · TOFD · UT</span>
+    </div>
+  </div>
+
+  <!-- SECTION 1: CONTROLS -->
+  <div class="section" style="animation-delay:0.05s">
+    <div class="section-title"><span class="num">1</span>Parameters</div>
+    <div class="controls-grid">
+      <!-- Thickness -->
+      <div class="ctrl-group">
+        <label>Weld Thickness (t) &nbsp;<span id="t-display">60 mm</span></label>
+        <input type="range" id="thickness" min="10" max="100" value="60">
+        <div class="slider-marks">
+          <span>10</span><span class="hl">50</span><span class="hl">80</span><span>100 mm</span>
+        </div>
+      </div>
+
+      <!-- AL selector -->
+      <div class="ctrl-group">
+        <label>Acceptance Level</label>
+        <div class="tab-row">
+          <button class="tab-btn" id="btn-al1" onclick="setAL('AL1')">AL 1<br><small style="font-weight:400;font-size:0.68rem">Measure 3</small></button>
+          <button class="tab-btn active-al2" id="btn-al2" onclick="setAL('AL2')">AL 2<br><small style="font-weight:400;font-size:0.68rem">Measure 1</small></button>
+          <button class="tab-btn" id="btn-al3" onclick="setAL('AL3')">AL 3<br><small style="font-weight:400;font-size:0.68rem">General</small></button>
+        </div>
+      </div>
+
+      <!-- Indication type -->
+      <div class="ctrl-group">
+        <label>Indication Type</label>
+        <div class="tab-row">
+          <button class="tab-btn active-pl" id="btn-planar" onclick="setType('planar')">Planar<br><small style="font-weight:400;font-size:0.68rem">Crack / LOF / IP</small></button>
+          <button class="tab-btn" id="btn-volumetric" onclick="setType('volumetric')">Volumetric<br><small style="font-weight:400;font-size:0.68rem">Porosity / Inclusion</small></button>
+        </div>
+      </div>
+
+      <!-- LR context strip -->
+      <div class="lr-context-row">
+        <div class="lr-ctx-item"><strong>Measure 1</strong> → AL2 &nbsp;|&nbsp; Standard UT, 100% block-to-block butt joints during construction</div>
+        <div class="lr-ctx-sep">·</div>
+        <div class="lr-ctx-item"><strong>Measure 3 Enhanced NDE</strong> → AL1 &nbsp;|&nbsp; CTOD ≥ 0.18 mm &nbsp;|&nbsp; EGW prohibited</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 2: B-SCAN VIEW -->
+  <div class="section" style="animation-delay:0.1s">
+    <div class="section-title"><span class="num">2</span>Weld Cross-Section — B-Scan View</div>
+    <div class="bscan-wrap" id="bscan-wrap">
+      <svg id="bscan" viewBox="0 0 800 420" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <filter id="glow-cyan" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur stdDeviation="5" result="blur"/>
+            <feFlood flood-color="#00e5ff" flood-opacity="0.5" result="col"/>
+            <feComposite in2="blur" operator="in" result="g"/>
+            <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <filter id="glow-red" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur stdDeviation="4" result="blur"/>
+            <feFlood flood-color="#ff1744" flood-opacity="0.4" result="col"/>
+            <feComposite in2="blur" operator="in" result="g"/>
+            <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <pattern id="hatch-nsz" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)">
+            <line x1="0" y1="0" x2="0" y2="8" stroke="#ff1744" stroke-width="1" opacity="0.3"/>
+          </pattern>
+          <pattern id="hatch-weld" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(60)">
+            <line x1="0" y1="0" x2="0" y2="6" stroke="#c8a96e" stroke-width="0.6" opacity="0.18"/>
+          </pattern>
+          <!-- Grid -->
+          <pattern id="grid-minor" patternUnits="userSpaceOnUse" width="10" height="10">
+            <path d="M10 0 L0 0 0 10" fill="none" stroke="#0d1a2d" stroke-width="0.4"/>
+          </pattern>
+          <pattern id="grid-major" patternUnits="userSpaceOnUse" width="50" height="50">
+            <path d="M50 0 L0 0 0 50" fill="none" stroke="#122030" stroke-width="0.9"/>
+          </pattern>
+        </defs>
+
+        <!-- Background grid -->
+        <rect x="60" y="30" width="700" height="360" fill="url(#grid-minor)"/>
+        <rect x="60" y="30" width="700" height="360" fill="url(#grid-major)"/>
+
+        <!-- Base metal left -->
+        <rect id="base-left"  x="60"  y="30" width="260" height="360" fill="#1a2d44" opacity="0.9"/>
+        <!-- Base metal right -->
+        <rect id="base-right" x="480" y="30" width="280" height="360" fill="#1a2d44" opacity="0.9"/>
+
+        <!-- HAZ left -->
+        <rect id="haz-left"  x="290" y="30" width="30" height="360" fill="#2a3f55" opacity="0.85"/>
+        <!-- HAZ right -->
+        <rect id="haz-right" x="480" y="30" width="30" height="360" fill="#2a3f55" opacity="0.85"/>
+
+        <!-- Weld metal (trapezoid) -->
+        <polygon id="weld-poly" fill="#c8a96e" opacity="0.55"/>
+        <polygon id="weld-hatch" fill="url(#hatch-weld)"/>
+
+        <!-- NSZ top -->
+        <rect id="nsz-top"    x="60" y="30" width="700" height="28" fill="url(#hatch-nsz)" opacity="0.7"/>
+        <!-- NSZ bottom -->
+        <rect id="nsz-bot"    x="60" y="362" width="700" height="28" fill="url(#hatch-nsz)" opacity="0.7"/>
+
+        <!-- Acceptance envelope (drawn over weld) -->
+        <rect id="env-reject" fill="rgba(255,23,68,0.12)" stroke="rgba(255,23,68,0.4)" stroke-width="1" stroke-dasharray="4,3" rx="2"/>
+        <rect id="env-accept" fill="rgba(0,230,118,0.18)" stroke="rgba(0,230,118,0.5)" stroke-width="1.5" rx="2"/>
+
+        <!-- Scan line -->
+        <line id="scan-line" y1="30" y2="390" stroke="#00e5ff" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.6"/>
+        <ellipse id="scan-dot" ry="5" rx="5" fill="#00e5ff" filter="url(#glow-cyan)" opacity="0.8"/>
+
+        <!-- Hover crosshair -->
+        <line id="ch-h" x1="60" x2="760" stroke="#00e5ff" stroke-width="0.8" stroke-dasharray="3,3" opacity="0" pointer-events="none"/>
+        <line id="ch-v" y1="30" y2="390" stroke="#00e5ff" stroke-width="0.8" stroke-dasharray="3,3" opacity="0" pointer-events="none"/>
+
+        <!-- Hover capture zone -->
+        <rect id="hover-rect" x="60" y="30" width="700" height="360" fill="transparent" cursor="crosshair"
+          onmousemove="bscanHover(event)" onmouseleave="bscanLeave()"/>
+
+        <!-- Axis labels -->
+        <!-- Y axis: Depth -->
+        <text x="14" y="210" fill="#7a8ca0" font-size="10" text-anchor="middle" transform="rotate(-90,14,210)" font-family="Segoe UI,sans-serif">Depth (mm)</text>
+        <text id="y-0"   x="52" y="35"  fill="#4a6070" font-size="9" text-anchor="end" font-family="monospace">0</text>
+        <text id="y-t4"  x="52" y="120" fill="#4a6070" font-size="9" text-anchor="end" font-family="monospace">t/4</text>
+        <text id="y-t2"  x="52" y="210" fill="#4a6070" font-size="9" text-anchor="end" font-family="monospace">t/2</text>
+        <text id="y-3t4" x="52" y="300" fill="#4a6070" font-size="9" text-anchor="end" font-family="monospace">3t/4</text>
+        <text id="y-t"   x="52" y="390" fill="#4a6070" font-size="9" text-anchor="end" font-family="monospace">t</text>
+        <!-- Y tick lines -->
+        <line x1="55" y1="34"  x2="60" y2="34"  stroke="#1e3054" stroke-width="1"/>
+        <line x1="55" y1="120" x2="60" y2="120" stroke="#1e3054" stroke-width="1"/>
+        <line x1="55" y1="210" x2="60" y2="210" stroke="#1e3054" stroke-width="1"/>
+        <line x1="55" y1="300" x2="60" y2="300" stroke="#1e3054" stroke-width="1"/>
+        <line x1="55" y1="390" x2="60" y2="390" stroke="#1e3054" stroke-width="1"/>
+
+        <!-- X axis label -->
+        <text x="410" y="415" fill="#7a8ca0" font-size="10" text-anchor="middle" font-family="Segoe UI,sans-serif">Scan Position →</text>
+
+        <!-- Legend -->
+        <rect x="560" y="38" width="12" height="10" fill="#1a2d44" stroke="#2a3f55" stroke-width="1"/>
+        <text x="576" y="47" fill="#7a8ca0" font-size="9" font-family="Segoe UI,sans-serif">Base Metal / HAZ</text>
+        <rect x="560" y="54" width="12" height="10" fill="#c8a96e" opacity="0.55"/>
+        <text x="576" y="63" fill="#7a8ca0" font-size="9" font-family="Segoe UI,sans-serif">Weld Metal</text>
+        <rect x="560" y="70" width="12" height="10" fill="url(#hatch-nsz)" opacity="0.9"/>
+        <text x="576" y="79" fill="#7a8ca0" font-size="9" font-family="Segoe UI,sans-serif">Near-Surface Zone (5mm)</text>
+        <rect x="560" y="86" width="12" height="10" fill="rgba(0,230,118,0.25)" stroke="rgba(0,230,118,0.5)" stroke-width="1"/>
+        <text x="576" y="95" fill="#7a8ca0" font-size="9" font-family="Segoe UI,sans-serif">Acceptable zone</text>
+        <rect x="560" y="102" width="12" height="10" fill="rgba(255,23,68,0.15)" stroke="rgba(255,23,68,0.4)" stroke-width="1" stroke-dasharray="3,2"/>
+        <text x="576" y="111" fill="#7a8ca0" font-size="9" font-family="Segoe UI,sans-serif">Reject zone</text>
+
+        <!-- Zone text labels inside SVG -->
+        <text x="170" y="215" fill="#2a3f55" font-size="11" text-anchor="middle" font-family="Segoe UI,sans-serif" font-weight="600">BASE METAL</text>
+        <text id="weld-label" x="395" y="215" fill="rgba(200,169,110,0.6)" font-size="10" text-anchor="middle" font-family="Segoe UI,sans-serif" font-weight="600">WELD</text>
+        <text x="635" y="215" fill="#2a3f55" font-size="11" text-anchor="middle" font-family="Segoe UI,sans-serif" font-weight="600">BASE METAL</text>
+        <text x="110" y="20" fill="rgba(255,23,68,0.7)" font-size="9" text-anchor="middle" font-family="Segoe UI,sans-serif" font-weight="700">NSZ</text>
+        <text x="110" y="405" fill="rgba(255,23,68,0.7)" font-size="9" text-anchor="middle" font-family="Segoe UI,sans-serif" font-weight="700">NSZ (root)</text>
+
+        <!-- Accept envelope labels (updated by JS) -->
+        <text id="env-label-h" fill="rgba(0,230,118,0.7)" font-size="8" text-anchor="middle" font-family="monospace"/>
+        <text id="env-label-l" fill="rgba(0,230,118,0.7)" font-size="8" text-anchor="middle" font-family="monospace"/>
+      </svg>
+      <div id="bscan-tooltip"></div>
+    </div>
+  </div>
+
+  <!-- SECTION 3: CRITERIA TABLE -->
+  <div class="section" style="animation-delay:0.15s">
+    <div class="section-title"><span class="num">3</span>Acceptance Criteria — ISO 19285 Comparison</div>
+    <div style="overflow-x:auto">
+      <table class="crit-table" id="crit-table">
+        <thead>
+          <tr>
+            <th>Parameter</th>
+            <th class="th-al1">AL 1</th>
+            <th class="th-al2">AL 2</th>
+            <th class="th-al3">AL 3</th>
+          </tr>
+        </thead>
+        <tbody id="crit-tbody">
+          <!-- Populated by JS -->
+        </tbody>
+      </table>
+    </div>
+    <p style="font-size:0.72rem;color:var(--muted);margin-top:12px;line-height:1.5">
+      * All height and length limits in mm. Values in <span style="color:var(--cyan)">cyan</span> are computed for the current thickness t.
+      Cumulative length applies to any 100 mm run of weld. SDH = side-drilled hole reference reflector.
+      NSZ = near-surface zone, 5 mm from cap and root faces.
+    </p>
+  </div>
+
+  <!-- SECTION 4: ASSESSMENT TOOL -->
+  <div class="section" style="animation-delay:0.2s">
+    <div class="section-title"><span class="num">4</span>Real-Time Indication Assessment</div>
+    <div class="assessment-grid">
+      <div class="inp-group">
+        <label>Indication Height h</label>
+        <input type="number" id="inp-h" min="0" max="50" step="0.1" value="0" oninput="runAssessment()">
+        <div class="inp-unit">mm</div>
+      </div>
+      <div class="inp-group">
+        <label>Indication Length L</label>
+        <input type="number" id="inp-l" min="0" max="200" step="0.5" value="0" oninput="runAssessment()">
+        <div class="inp-unit">mm</div>
+      </div>
+      <div class="inp-group">
+        <label>Depth from surface</label>
+        <input type="number" id="inp-d" min="0" max="100" step="0.5" value="20" oninput="runAssessment()">
+        <div class="inp-unit">mm (0 = cap face)</div>
+      </div>
+    </div>
+    <div class="results-grid" id="results-grid">
+      <!-- Populated by JS -->
+    </div>
+  </div>
+
+  <!-- SECTION 5: LR RULES CONTEXT -->
+  <div class="section" style="animation-delay:0.25s">
+    <div class="section-title"><span class="num">5</span>LR Rules Integration — Measures &amp; Acceptance Levels</div>
+    <div class="lr-cards">
+
+      <div class="lr-card" id="lrc-m1">
+        <div class="lrc-header">
+          <div class="lrc-dot" style="background:var(--amber)"></div>
+          <span style="color:var(--amber)">Measure 1 — Standard UT</span>
+          <span class="lrc-al-chip" style="color:var(--al2);border-color:rgba(255,171,0,0.4);background:rgba(255,171,0,0.08)">AL 2</span>
+        </div>
+        <div class="lrc-row"><div class="key">Rule Ref</div><strong>LR Pt 4, Ch 8, §2.3.8</strong></div>
+        <div class="lrc-row"><div class="key">Scope</div>100% of block-to-block butt joints in upper flange longitudinals (cargo hold region)</div>
+        <div class="lrc-row"><div class="key">Timing</div>During construction (pre-delivery)</div>
+        <div class="lrc-row"><div class="key">Methods</div>UT, PAUT, TOFD, RT</div>
+        <div class="lrc-row"><div class="key">AL</div><strong>ISO 19285 AL2</strong> — ISO 5817 Level C quality</div>
+        <div class="lrc-row"><div class="key">EGW</div><span class="tag-permitted">✔ PERMITTED</span></div>
+        <div class="lrc-row"><div class="key">Applies when</div>t &gt; 50 mm for EH36/EH40/EH47 (per Table 8.2.1)</div>
+      </div>
+
+      <div class="lr-card" id="lrc-m3">
+        <div class="lrc-header">
+          <div class="lrc-dot" style="background:var(--cyan)"></div>
+          <span style="color:var(--cyan)">Measure 3 — Enhanced NDE</span>
+          <span class="lrc-al-chip" style="color:var(--al1);border-color:rgba(0,229,255,0.4);background:rgba(0,229,255,0.08)">AL 1</span>
+        </div>
+        <div class="lrc-row"><div class="key">Rule Ref</div><strong>ShipRight Enhanced NDE Criteria</strong></div>
+        <div class="lrc-row"><div class="key">Scope</div>Block-to-block butt joints — all upper flange longitudinals, stiffeners, coaming plates</div>
+        <div class="lrc-row"><div class="key">CTOD</div><strong>≥ 0.18 mm</strong> at minimum design temperature (mandatory)</div>
+        <div class="lrc-row"><div class="key">Methods</div>PAUT or TOFD required (conventional UT not sufficient)</div>
+        <div class="lrc-row"><div class="key">AL</div><strong>ISO 19285 AL1</strong> — ISO 5817 Level B quality (most stringent)</div>
+        <div class="lrc-row"><div class="key">EGW</div><span class="tag-prohibited">✖ PROHIBITED</span></div>
+        <div class="lrc-row"><div class="key">Applies when</div>t &gt; 85 mm (EH40/EH47) or where crack arrest design is mandated</div>
+        <div class="lrc-row"><div class="key">Note</div>When Measure 3 uses Enhanced NDE, Measure 2 becomes conditional (Note 2)</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <p>ISO 19285:2021 · LR Rules for Ships Pt 4, Ch 8, Sec 8.2 · ShipRight Enhanced NDE Criteria</p>
+    <p style="margin-top:4px">EH36 (355 MPa) · EH40 (390 MPa) · EH47 (460 MPa) — High-strength hull structural steel</p>
+    <p style="margin-top:4px">Acceptance criteria are indicative based on ISO 19285. Always verify against the current revision of the applicable classification society rules and agreed inspection procedures.</p>
+  </div>
+
+</div><!-- .container -->
+
+<div id="bscan-tooltip"></div>
+
+<script>
+// ── STATE ──────────────────────────────────────────────────────────────────
+const S = {
+  t: 60,
+  al: 'AL2',
+  type: 'planar',
+};
+
+const NSZ = 5; // mm
+
+// ── ACCEPTANCE CRITERIA DATA ───────────────────────────────────────────────
+const AL = {
+  AL1: {
+    color: '#00e5ff', iso5817: 'ISO 5817 Level B', threshold: '−6 dB',
+    lrMeasure: 'Measure 3 Enhanced NDE', egw: false,
+    sdh: '1.5 mm SDH @ ¼t, ½t, ¾t',
+    planar: {
+      maxH: t => Math.min(1.0, t / 10),
+      maxL: t => Math.min(t / 3, 10),
+      cumL: t => Math.min(t, 25),
+      nsz: 'NOT PERMITTED',
+    },
+    volumetric: {
+      maxH: t => Math.min(1.0, t / 10),
+      maxL: t => Math.min(t / 2, 15),
+      cumL: t => Math.min(2 * t / 3, 20),
+      nsz: 'h ≤ maxH/2',
+    },
+  },
+  AL2: {
+    color: '#ffab00', iso5817: 'ISO 5817 Level C', threshold: '0 dB',
+    lrMeasure: 'Measure 1 Standard UT', egw: true,
+    sdh: '2 mm SDH @ ¼t, ½t, ¾t',
+    planar: {
+      maxH: t => Math.min(2.0, t / 8),
+      maxL: t => Math.min(t / 2, 15),
+      cumL: t => Math.min(2 * t / 3, 20),
+      nsz: 'NOT PERMITTED',
+    },
+    volumetric: {
+      maxH: t => Math.min(2.0, t / 8),
+      maxL: t => Math.min(2 * t / 3, 20),
+      cumL: t => Math.min(t, 25),
+      nsz: 'Permitted if h ≤ maxH',
+    },
+  },
+  AL3: {
+    color: '#94a3b8', iso5817: 'ISO 5817 Level D', threshold: '+4 dB',
+    lrMeasure: 'General / baseline', egw: true,
+    sdh: '3 mm SDH @ ¼t, ½t, ¾t',
+    planar: {
+      maxH: t => Math.min(3.0, t / 6),
+      maxL: t => Math.min(2 * t / 3, 20),
+      cumL: t => t,
+      nsz: 'h ≤ 1 mm only',
+    },
+    volumetric: {
+      maxH: t => Math.min(3.0, t / 6),
+      maxL: t => Math.min(t, 25),
+      cumL: t => Math.min(1.5 * t, 35),
+      nsz: 'Permitted if h ≤ maxH',
+    },
+  },
+};
+
+// ── B-SCAN GEOMETRY ────────────────────────────────────────────────────────
+// SVG layout:  x: 60–760 (700px wide), y: 30–390 (360px tall)
+const SX = 60, SW = 700;            // scan x start, width
+const SY = 30, SH = 360;            // scan y start, height
+const WELD_CX = SX + SW / 2;        // weld center x = 410
+const NSZ_PX = 28;                   // NSZ band height in px (fixed 5mm visual)
+
+function toPx(depthMm) {
+  // convert depth in mm to SVG y coordinate
+  return SY + (depthMm / S.t) * SH;
+}
+
+function weldPoints(t) {
+  // Weld trapezoid: cap wider, root narrower, centered at WELD_CX
+  const capHalf  = Math.min(60, 18 + t * 0.42); // px, cap half-width
+  const rootHalf = Math.max(8, 5 + t * 0.05);   // px, root half-width
+  const yTop = SY, yBot = SY + SH;
+  return [
+    [WELD_CX - capHalf,  yTop],
+    [WELD_CX + capHalf,  yTop],
+    [WELD_CX + rootHalf, yBot],
+    [WELD_CX - rootHalf, yBot],
+  ];
+}
+
+function ptsToAttr(pts) {
+  return pts.map(p => p.join(',')).join(' ');
+}
+
+// Convert max-height mm to px (proportional to SVG height)
+function mmToPxH(mm) { return (mm / S.t) * SH; }
+// Convert max-length mm to px (scale: 200mm weld = 700px → 3.5px/mm)
+function mmToPxW(mm) { return mm * (SW / 200); }
+
+// ── RENDER: B-SCAN ─────────────────────────────────────────────────────────
+function renderBScan() {
+  const t = S.t;
+  const alData = AL[S.al];
+  const criteria = alData[S.type];
+
+  // Weld polygon
+  const pts = weldPoints(t);
+  const ptsAttr = ptsToAttr(pts);
+  document.getElementById('weld-poly').setAttribute('points', ptsAttr);
+  document.getElementById('weld-hatch').setAttribute('points', ptsAttr);
+
+  // HAZ flanking the weld
+  const capHalf = parseFloat(pts[1][0]) - WELD_CX;
+  const rootHalf = parseFloat(pts[2][0]) - WELD_CX;
+  const hazW = 28;
+  document.getElementById('haz-left').setAttribute('x', WELD_CX - capHalf - hazW);
+  document.getElementById('haz-left').setAttribute('width', hazW);
+  document.getElementById('haz-right').setAttribute('x', WELD_CX + capHalf);
+  document.getElementById('haz-right').setAttribute('width', hazW);
+
+  // Base metal blocks
+  document.getElementById('base-left').setAttribute('width',  WELD_CX - capHalf - hazW - SX);
+  document.getElementById('base-right').setAttribute('x', WELD_CX + capHalf + hazW);
+  document.getElementById('base-right').setAttribute('width', SX + SW - (WELD_CX + capHalf + hazW));
+
+  // NSZ height in px (capped to 5mm or 10% of SH, whichever is smaller visually)
+  const nszPx = Math.max(NSZ_PX, mmToPxH(NSZ));
+  document.getElementById('nsz-top').setAttribute('height', nszPx);
+  document.getElementById('nsz-bot').setAttribute('y', SY + SH - nszPx);
+  document.getElementById('nsz-bot').setAttribute('height', nszPx);
+
+  // Acceptance envelope — centered in weld zone, vertically centered
+  const maxH = criteria.maxH(t);
+  const maxL = criteria.maxL(t);
+  const envH = mmToPxH(maxH);
+  const envW = mmToPxW(maxL);
+  const envCX = WELD_CX;
+  const envCY = SY + SH / 2;
+
+  // Reject envelope = full weld trapezoid bounding box
+  const weldW = capHalf * 2;
+  const rejX = WELD_CX - capHalf;
+  const rejY = SY;
+  document.getElementById('env-reject').setAttribute('x', rejX);
+  document.getElementById('env-reject').setAttribute('y', rejY);
+  document.getElementById('env-reject').setAttribute('width',  weldW);
+  document.getElementById('env-reject').setAttribute('height', SH);
+
+  // Accept envelope = green box for max limits, centered
+  const accX = envCX - envW / 2;
+  const accY = envCY - envH / 2;
+  document.getElementById('env-accept').setAttribute('x', Math.max(rejX + 2, accX));
+  document.getElementById('env-accept').setAttribute('y', Math.max(SY + nszPx + 2, accY));
+  document.getElementById('env-accept').setAttribute('width',  Math.min(envW, weldW - 4));
+  document.getElementById('env-accept').setAttribute('height', Math.min(envH, SH - nszPx * 2 - 4));
+
+  // Labels on envelope
+  const lblH = document.getElementById('env-label-h');
+  const lblL = document.getElementById('env-label-l');
+  lblH.setAttribute('x', accX + Math.min(envW, weldW - 4) / 2);
+  lblH.setAttribute('y', Math.max(SY + nszPx + 2, accY) - 4);
+  lblH.textContent = `h ≤ ${maxH.toFixed(1)} mm`;
+  lblL.setAttribute('x', accX + Math.min(envW, weldW - 4) / 2);
+  lblL.setAttribute('y', Math.max(SY + nszPx + 2, accY) + Math.min(envH, SH - nszPx * 2 - 4) + 10);
+  lblL.textContent = `L ≤ ${maxL.toFixed(1)} mm`;
+
+  // Update Y-axis depth labels
+  document.getElementById('y-t4').textContent  = fmt1(t / 4);
+  document.getElementById('y-t2').textContent  = fmt1(t / 2);
+  document.getElementById('y-3t4').textContent = fmt1(3 * t / 4);
+  document.getElementById('y-t').textContent   = t + ' mm';
+}
+
+// ── SCAN ANIMATION ─────────────────────────────────────────────────────────
+let beamX = SX;
+let lastTs = 0;
+function animateBeam(ts) {
+  const dt = ts - lastTs;
+  lastTs = ts;
+  beamX += dt * 0.12; // px per ms → ~120px/s
+  if (beamX > SX + SW) beamX = SX;
+  const x = beamX;
+  const scanLine = document.getElementById('scan-line');
+  const scanDot  = document.getElementById('scan-dot');
+  if (scanLine && scanDot) {
+    scanLine.setAttribute('x1', x);
+    scanLine.setAttribute('x2', x);
+    // Dot pulses along weld zone
+    const dotY = SY + SH * 0.5 + Math.sin(ts / 600) * SH * 0.15;
+    scanDot.setAttribute('cx', x);
+    scanDot.setAttribute('cy', dotY);
+    // Fade out when outside weld
+    const capHalf = parseFloat(document.getElementById('weld-poly').getAttribute('points').split(' ')[1].split(',')[0]) - WELD_CX;
+    const inWeld = Math.abs(x - WELD_CX) < capHalf;
+    scanDot.setAttribute('opacity', inWeld ? '0.9' : '0.2');
+  }
+  requestAnimationFrame(animateBeam);
+}
+requestAnimationFrame(animateBeam);
+
+// ── B-SCAN HOVER ───────────────────────────────────────────────────────────
+function bscanHover(evt) {
+  const svg    = document.getElementById('bscan');
+  const wrap   = document.getElementById('bscan-wrap');
+  const tt     = document.getElementById('bscan-tooltip');
+  const rect   = svg.getBoundingClientRect();
+  const viewW  = 800, viewH = 420;
+  const scaleX = rect.width  / viewW;
+  const scaleY = rect.height / viewH;
+  const svgX   = (evt.clientX - rect.left) / scaleX;
+  const svgY   = (evt.clientY - rect.top)  / scaleY;
+
+  // Clamp to scan area
+  if (svgX < SX || svgX > SX + SW || svgY < SY || svgY > SY + SH) {
+    bscanLeave(); return;
+  }
+
+  const depthMm = ((svgY - SY) / SH) * S.t;
+  const inNSZ   = depthMm < NSZ || depthMm > (S.t - NSZ);
+  const alData  = AL[S.al];
+  const crit    = alData[S.type];
+  const maxH    = crit.maxH(S.t);
+  const maxL    = crit.maxL(S.t);
+
+  // Draw crosshair
+  document.getElementById('ch-h').setAttribute('y1', svgY);
+  document.getElementById('ch-h').setAttribute('y2', svgY);
+  document.getElementById('ch-h').setAttribute('opacity', '0.4');
+  document.getElementById('ch-v').setAttribute('x1', svgX);
+  document.getElementById('ch-v').setAttribute('x2', svgX);
+  document.getElementById('ch-v').setAttribute('opacity', '0.4');
+
+  // Tooltip content
+  let html = `<div class="tt-depth">Depth: ${fmt1(depthMm)} mm</div>`;
+  if (inNSZ) {
+    html += `<div class="tt-nsz">⚠ Near-Surface Zone</div>`;
+    if (S.type === 'planar' && (S.al === 'AL1' || S.al === 'AL2')) {
+      html += `<div class="tt-nsz" style="font-size:0.7rem">Planar not permitted here</div>`;
+    }
+  }
+  html += `<div style="margin-top:4px;font-size:0.72rem;color:#7a8ca0">${S.al} limits:</div>`;
+  html += `<div class="tt-ok">max h = ${fmt2(maxH)} mm</div>`;
+  html += `<div class="tt-ok">max L = ${fmt2(maxL)} mm</div>`;
+
+  tt.innerHTML = html;
+  tt.style.display = 'block';
+
+  // Position tooltip relative to wrap
+  const wrapRect = wrap.getBoundingClientRect();
+  const tx = evt.clientX - wrapRect.left + 14;
+  const ty = evt.clientY - wrapRect.top  - 10;
+  tt.style.left = Math.min(tx, wrapRect.width - 220) + 'px';
+  tt.style.top  = Math.max(0, ty) + 'px';
+}
+function bscanLeave() {
+  document.getElementById('bscan-tooltip').style.display = 'none';
+  document.getElementById('ch-h').setAttribute('opacity', '0');
+  document.getElementById('ch-v').setAttribute('opacity', '0');
+}
+
+// ── RENDER: TABLE ──────────────────────────────────────────────────────────
+function renderTable() {
+  const t = S.t;
+  const rows = [
+    {
+      label: 'ISO 5817 Quality Level',
+      al1: AL.AL1.iso5817,
+      al2: AL.AL2.iso5817,
+      al3: AL.AL3.iso5817,
+    },
+    {
+      label: 'Recording threshold (ref. sensitivity)',
+      al1: AL.AL1.threshold,
+      al2: AL.AL2.threshold,
+      al3: AL.AL3.threshold,
+    },
+    {
+      label: 'Screening sensitivity (SDH)',
+      al1: AL.AL1.sdh,
+      al2: AL.AL2.sdh,
+      al3: AL.AL3.sdh,
+    },
+    {
+      label: 'Max height h — Planar (crack/LOF)',
+      al1: calcCell('AL1','planar','maxH', t),
+      al2: calcCell('AL2','planar','maxH', t),
+      al3: calcCell('AL3','planar','maxH', t),
+    },
+    {
+      label: 'Max height h — Volumetric (porosity)',
+      al1: calcCell('AL1','volumetric','maxH', t),
+      al2: calcCell('AL2','volumetric','maxH', t),
+      al3: calcCell('AL3','volumetric','maxH', t),
+    },
+    {
+      label: 'Max length L — Planar',
+      al1: calcCell('AL1','planar','maxL', t),
+      al2: calcCell('AL2','planar','maxL', t),
+      al3: calcCell('AL3','planar','maxL', t),
+    },
+    {
+      label: 'Max length L — Volumetric',
+      al1: calcCell('AL1','volumetric','maxL', t),
+      al2: calcCell('AL2','volumetric','maxL', t),
+      al3: calcCell('AL3','volumetric','maxL', t),
+    },
+    {
+      label: 'Cumulative length (per 100 mm weld)',
+      al1: calcCell('AL1', S.type,'cumL', t),
+      al2: calcCell('AL2', S.type,'cumL', t),
+      al3: calcCell('AL3', S.type,'cumL', t),
+    },
+    {
+      label: 'Near-Surface Zone — Planar',
+      al1: '<span class="tag-prohibited">NOT PERMITTED</span>',
+      al2: '<span class="tag-prohibited">NOT PERMITTED</span>',
+      al3: '<span class="tag-warn">h ≤ 1 mm only</span>',
+      raw: true,
+    },
+    {
+      label: 'Near-Surface Zone — Volumetric',
+      al1: '<span class="tag-warn">h ≤ maxH/2</span>',
+      al2: '<span class="tag-permitted">Permitted if h ≤ maxH</span>',
+      al3: '<span class="tag-permitted">Permitted if h ≤ maxH</span>',
+      raw: true,
+    },
+    {
+      label: 'EGW welding process',
+      al1: '<span class="tag-prohibited">PROHIBITED</span>',
+      al2: '<span class="tag-permitted">Permitted</span>',
+      al3: '<span class="tag-permitted">Permitted</span>',
+      raw: true,
+    },
+    {
+      label: 'Applicable LR Measure',
+      al1: '<strong style="color:#00e5ff">Measure 3 Enhanced NDE</strong>',
+      al2: '<strong style="color:#ffab00">Measure 1 Standard UT</strong>',
+      al3: '<span style="color:#94a3b8">General / Baseline</span>',
+      raw: true,
+    },
+  ];
+
+  const tbody = document.getElementById('crit-tbody');
+  const alOrder = ['al1', 'al2', 'al3'];
+  const alKeys  = ['AL1', 'AL2', 'AL3'];
+
+  tbody.innerHTML = rows.map(row => {
+    const cells = alOrder.map((k, i) => {
+      const alKey  = alKeys[i];
+      const active = S.al === alKey ? 'active' : '';
+      const val    = row[k] || '—';
+      return `<td class="col-${k} ${active}">${row.raw ? val : val}</td>`;
+    }).join('');
+    return `<tr><td>${row.label}</td>${cells}</tr>`;
+  }).join('');
+}
+
+function calcCell(alKey, type, fn, t) {
+  const crit = AL[alKey][type];
+  if (!crit || !crit[fn]) return '—';
+  const formulaMap = {
+    AL1: {
+      planar:     { maxH: `min(1.0, t/10)`, maxL: `min(t/3, 10)`, cumL: `min(t, 25)` },
+      volumetric: { maxH: `min(1.0, t/10)`, maxL: `min(t/2, 15)`, cumL: `min(2t/3, 20)` },
+    },
+    AL2: {
+      planar:     { maxH: `min(2.0, t/8)`,  maxL: `min(t/2, 15)`, cumL: `min(2t/3, 20)` },
+      volumetric: { maxH: `min(2.0, t/8)`,  maxL: `min(2t/3, 20)`, cumL: `min(t, 25)` },
+    },
+    AL3: {
+      planar:     { maxH: `min(3.0, t/6)`,  maxL: `min(2t/3, 20)`, cumL: `t` },
+      volumetric: { maxH: `min(3.0, t/6)`,  maxL: `min(t, 25)`,    cumL: `min(1.5t, 35)` },
+    },
+  };
+  const formula = (formulaMap[alKey][type] || {})[fn] || '';
+  const val     = crit[fn](t);
+  return `<span class="formula">${formula} =</span><span class="calc">${fmt2(val)} mm</span>`;
+}
+
+// ── RENDER: ASSESSMENT ─────────────────────────────────────────────────────
+function runAssessment() {
+  const h     = parseFloat(document.getElementById('inp-h').value) || 0;
+  const l     = parseFloat(document.getElementById('inp-l').value) || 0;
+  const depth = parseFloat(document.getElementById('inp-d').value) || 0;
+  const t     = S.t;
+  const type  = S.type;
+  const inNSZ = depth < NSZ || depth > (t - NSZ);
+
+  const grid = document.getElementById('results-grid');
+  const cards = ['AL1','AL2','AL3'].map(alKey => {
+    const alData = AL[alKey];
+    const crit   = alData[type];
+    const maxH   = crit.maxH(t);
+    const maxL   = crit.maxL(t);
+
+    let pass = true;
+    const fails = [];
+
+    if (h > maxH) { pass = false; fails.push(`h = ${fmt2(h)} mm > max ${fmt2(maxH)} mm`); }
+    if (l > maxL) { pass = false; fails.push(`L = ${fmt2(l)} mm > max ${fmt2(maxL)} mm`); }
+    if (inNSZ && type === 'planar' && (alKey === 'AL1' || alKey === 'AL2')) {
+      pass = false;
+      fails.push(`Planar in NSZ: not permitted for ${alKey}`);
+    }
+    if (inNSZ && type === 'volumetric' && alKey === 'AL1' && h > maxH / 2) {
+      pass = false;
+      fails.push(`Volumetric in NSZ: h must be ≤ ${fmt2(maxH/2)} mm`);
+    }
+
+    const hMargin = maxH > 0 ? Math.max(0, Math.min(100, (maxH - h) / maxH * 100)) : 0;
+    const lMargin = maxL > 0 ? Math.max(0, Math.min(100, (maxL - l) / maxL * 100)) : 0;
+    const margin  = (h === 0 && l === 0) ? 100 : Math.min(hMargin, lMargin);
+
+    const noData = h === 0 && l === 0;
+    const badgeClass = noData ? 'na' : pass ? 'pass' : 'fail';
+    const badgeText  = noData ? '—' : pass ? 'PASS' : 'FAIL';
+    const borderCol  = noData ? 'var(--border)' : pass ? 'rgba(0,230,118,0.35)' : 'rgba(255,23,68,0.35)';
+    const shadowCol  = noData ? 'none' : pass ? '0 0 14px rgba(0,230,118,0.12)' : '0 0 14px rgba(255,23,68,0.12)';
+
+    const nszWarn = inNSZ ? `<div class="rc-nsz-warn">⚠ Near-Surface Zone (${fmt1(depth)} mm depth)</div>` : '';
+    const failHtml = fails.map(f => `<div class="rc-failure">✖ ${f}</div>`).join('');
+
+    return `
+      <div class="result-card" style="border-color:${borderCol};box-shadow:${shadowCol}">
+        <div class="rc-header" style="color:${alData.color}">${alKey} — ${alData.iso5817.split(' ').pop()}</div>
+        <div class="rc-badge ${badgeClass}">${badgeText}</div>
+        <div class="rc-gauge-track"><div class="rc-gauge-fill" style="width:${margin}%"></div></div>
+        <div class="rc-limits">
+          Max h: <span>${fmt2(maxH)} mm</span> &nbsp;|&nbsp; Max L: <span>${fmt2(maxL)} mm</span>
+        </div>
+        ${nszWarn}
+        ${failHtml}
+      </div>`;
+  }).join('');
+  grid.innerHTML = cards;
+}
+
+// ── RENDER: LR CARDS ───────────────────────────────────────────────────────
+function renderLRCards() {
+  const m1 = document.getElementById('lrc-m1');
+  const m3 = document.getElementById('lrc-m3');
+  if (S.al === 'AL1') {
+    m3.classList.add('highlight-m3'); m1.classList.remove('highlight-m1');
+  } else if (S.al === 'AL2') {
+    m1.classList.add('highlight-m1'); m3.classList.remove('highlight-m3');
+  } else {
+    m1.classList.remove('highlight-m1'); m3.classList.remove('highlight-m3');
+  }
+}
+
+// ── MASTER RENDER ──────────────────────────────────────────────────────────
+function render() {
+  renderBScan();
+  renderTable();
+  runAssessment();
+  renderLRCards();
+}
+
+// ── CONTROLS ───────────────────────────────────────────────────────────────
+document.getElementById('thickness').addEventListener('input', function() {
+  S.t = parseInt(this.value);
+  document.getElementById('t-display').textContent = S.t + ' mm';
+  render();
+});
+
+function setAL(al) {
+  S.al = al;
+  ['AL1','AL2','AL3'].forEach(a => {
+    const btn = document.getElementById('btn-' + a.toLowerCase());
+    btn.className = 'tab-btn';
+    if (a === al) btn.classList.add('active-al' + a.slice(-1));
+  });
+  render();
+}
+
+function setType(type) {
+  S.type = type;
+  document.getElementById('btn-planar').className     = 'tab-btn' + (type === 'planar'     ? ' active-pl' : '');
+  document.getElementById('btn-volumetric').className = 'tab-btn' + (type === 'volumetric' ? ' active-vo' : '');
+  render();
+}
+
+// ── HELPERS ────────────────────────────────────────────────────────────────
+function fmt1(n) { return (Math.round(n * 10) / 10).toFixed(1); }
+function fmt2(n) { return (Math.round(n * 100) / 100).toFixed(2); }
+
+// ── INIT ───────────────────────────────────────────────────────────────────
+render();
+</script>
+</body>
+</html>
