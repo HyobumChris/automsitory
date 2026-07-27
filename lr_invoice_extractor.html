@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LR Invoice Extractor — 인보이스 정보 자동 추출</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" onerror="window.__cdnFailPdf=true"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js" onerror="window.__cdnFailTess=true"></script>
+<style>
+  :root {
+    --lr-teal: #00a99d;
+    --ms-blue: #0078d4;
+    --ms-blue-dark: #005a9e;
+    --ink: #1a1a2e;
+    --ink-soft: #4a4a68;
+    --paper: #f4f6f9;
+    --card: #ffffff;
+    --line: #e1e5ec;
+    --ok: #107c10;
+    --ok-bg: #dff6dd;
+    --warn: #a4262c;
+    --warn-bg: #fde7e9;
+    --amber: #9a6a00;
+    --amber-bg: #fff4ce;
+    --annot: #16b8a0;
+    --shadow: 0 2px 10px rgba(20, 30, 60, .08);
+    --shadow-lg: 0 8px 30px rgba(20, 30, 60, .14);
+    --mono: "Consolas", "SF Mono", "Cascadia Code", monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Malgun Gothic", sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    line-height: 1.5;
+  }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    background: #fff;
+    border-bottom: 4px solid var(--ms-blue);
+    padding: 48px 24px 40px;
+    text-align: center;
+    position: relative;
+  }
+  .hero .lr-mark {
+    position: absolute; top: 20px; left: 24px;
+    width: 54px; height: 54px; background: var(--lr-teal);
+    color: #fff; font-weight: 800; font-size: 26px;
+    display: flex; align-items: center; justify-content: center;
+    letter-spacing: -1px; border-radius: 4px;
+  }
+  .hero h1 {
+    color: var(--ms-blue);
+    font-size: clamp(24px, 4vw, 40px);
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  .hero .subtitle {
+    margin-top: 12px;
+    font-size: clamp(14px, 2vw, 18px);
+    color: var(--ink-soft);
+    max-width: 780px;
+    margin-left: auto; margin-right: auto;
+  }
+  .hero .author {
+    display: inline-block;
+    margin-top: 24px;
+    background: #f1f1f1;
+    border-radius: 6px;
+    padding: 8px 22px;
+    color: var(--ink-soft);
+    font-size: 13px;
+  }
+  .hero .author strong { color: var(--ink); display: block; font-size: 14px; }
+
+  section { max-width: 1240px; margin: 0 auto; padding: 40px 24px; }
+  .sec-title {
+    color: var(--ms-blue);
+    font-size: clamp(19px, 2.6vw, 26px);
+    font-weight: 700;
+    padding-bottom: 10px;
+    border-bottom: 3px solid var(--ms-blue);
+    margin-bottom: 26px;
+  }
+
+  /* ---------- Pipeline strip ---------- */
+  .pipe { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .pipe .node {
+    background: var(--card); border: 2px solid var(--ms-blue-dark); border-radius: 10px;
+    padding: 12px 16px; text-align: center; min-width: 150px; flex: 1 1 150px; max-width: 220px;
+    box-shadow: var(--shadow);
+  }
+  .pipe .node .glyph { font-size: 22px; }
+  .pipe .node h3 { font-size: 13.5px; margin-top: 4px; }
+  .pipe .node p { font-size: 11.5px; color: var(--ink-soft); margin-top: 2px; }
+  .pipe .arrow { align-self: center; color: var(--ms-blue-dark); font-size: 20px; font-weight: 700; }
+  @media (max-width: 760px) { .pipe .arrow { display: none; } }
+
+  /* ---------- Upload ---------- */
+  .upload-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: var(--shadow-lg); padding: 24px;
+  }
+  .dropzone {
+    border: 2.5px dashed #b9c4d4; border-radius: 10px;
+    padding: 38px 18px; text-align: center; cursor: pointer;
+    color: var(--ink-soft); transition: border-color .25s, background .25s;
+    font-size: 15px;
+  }
+  .dropzone .big { font-size: 34px; display: block; margin-bottom: 8px; }
+  .dropzone.active { border-color: var(--ms-blue); background: #eef6fd; color: var(--ms-blue-dark); }
+  .dropzone input { display: none; }
+  .upload-opts {
+    display: flex; gap: 18px; flex-wrap: wrap; align-items: center;
+    margin-top: 16px; font-size: 13px; color: var(--ink-soft);
+  }
+  .upload-opts label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .upload-opts select { font-family: inherit; font-size: 13px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 5px; }
+  .privacy {
+    margin-top: 14px; font-size: 12.5px; color: var(--ink-soft);
+    background: #f6f8fb; border: 1px solid var(--line); border-radius: 6px; padding: 9px 12px;
+  }
+  .cdn-banner {
+    display: none; margin-top: 14px; font-size: 13px; font-weight: 600;
+    background: var(--warn-bg); color: var(--warn); border: 1px solid #f1b8bd;
+    border-radius: 6px; padding: 10px 12px;
+  }
+  .cdn-banner.show { display: block; }
+
+  /* ---------- Queue ---------- */
+  .queue { margin-top: 18px; display: flex; flex-direction: column; gap: 10px; }
+  .q-item {
+    background: #fbfcfe; border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .q-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .q-name { font-weight: 700; font-size: 13.5px; }
+  .q-status { font-size: 12px; color: var(--ink-soft); margin-left: auto; }
+  .q-chip {
+    font-size: 11px; font-weight: 700; border-radius: 20px; padding: 2px 10px;
+  }
+  .q-chip.wait { background: #eef1f5; color: var(--ink-soft); }
+  .q-chip.run  { background: #e8f1fb; color: var(--ms-blue-dark); }
+  .q-chip.done { background: var(--ok-bg); color: var(--ok); }
+  .q-chip.err  { background: var(--warn-bg); color: var(--warn); }
+  .q-bar { height: 5px; background: #e6eaf0; border-radius: 3px; margin-top: 8px; overflow: hidden; }
+  .q-fill { height: 100%; width: 0; background: linear-gradient(90deg, var(--lr-teal), var(--ms-blue)); transition: width .3s ease; }
+
+  /* ---------- Toolbar ---------- */
+  .toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+  .btn {
+    border: none; border-radius: 6px; cursor: pointer;
+    font-family: inherit; font-size: 13.5px; font-weight: 600;
+    padding: 9px 16px; transition: background .15s, transform .1s;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn-primary { background: var(--ms-blue); color: #fff; }
+  .btn-primary:hover { background: var(--ms-blue-dark); }
+  .btn-ghost { background: #eef1f5; color: var(--ink); }
+  .btn-ghost:hover { background: #e2e7ee; }
+  .btn-danger { background: #fdeef0; color: var(--warn); }
+  .btn-danger:hover { background: #f9dde1; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .toolbar .hint { align-self: center; font-size: 12px; color: var(--ink-soft); }
+
+  /* ---------- Summary table ---------- */
+  .table-wrap { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); }
+  table.sum { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 900px; }
+  table.sum th {
+    text-align: left; background: #f2f5f9; color: var(--ink-soft);
+    font-weight: 700; padding: 9px 10px; border-bottom: 2px solid var(--line); white-space: nowrap;
+  }
+  table.sum td { padding: 8px 10px; border-bottom: 1px solid #f0f2f5; white-space: nowrap; }
+  table.sum td.num, table.sum th.num { text-align: right; font-family: var(--mono); }
+  table.sum tr:last-child td { border-bottom: none; }
+  table.sum .empty { text-align: center; color: #a5adba; padding: 22px; }
+
+  /* ---------- Result cards ---------- */
+  .rcard {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: var(--shadow); margin-top: 24px; overflow: hidden;
+  }
+  .rcard-head {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 13px 18px; background: #2f3640; color: #fff;
+  }
+  .rcard-head .inv-no { font-weight: 800; font-size: 15px; letter-spacing: .02em; }
+  .rcard-head .fname { font-size: 12px; opacity: .75; }
+  .rcard-head .score { margin-left: auto; font-size: 12px; font-weight: 700; color: #9be59b; }
+  .rcard-head .score.low { color: #ffd47f; }
+  .rcard-body { display: grid; grid-template-columns: 340px 1fr; gap: 0; }
+  @media (max-width: 980px) { .rcard-body { grid-template-columns: 1fr; } }
+  .preview-pane { border-right: 1px solid var(--line); background: #f6f8fb; padding: 14px; text-align: center; }
+  .preview-pane img {
+    max-width: 100%; border: 1px solid var(--line); border-radius: 6px;
+    box-shadow: var(--shadow); cursor: zoom-in; background: #fff;
+  }
+  .preview-pane .pv-cap { font-size: 11.5px; color: var(--ink-soft); margin-top: 8px; }
+  .fields-pane { padding: 18px 20px; }
+  .fgroup { margin-bottom: 18px; }
+  .fgroup h4 {
+    font-size: 12.5px; color: var(--ms-blue-dark); text-transform: uppercase; letter-spacing: .05em;
+    border-bottom: 1px solid var(--line); padding-bottom: 5px; margin-bottom: 10px;
+  }
+  .fgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: 10px 14px; }
+  .field label { display: block; font-size: 11px; color: var(--ink-soft); font-weight: 700; margin-bottom: 2px; }
+  .field label .en { font-weight: 400; color: #8a93a3; }
+  .field input, .field textarea {
+    width: 100%; font-family: inherit; font-size: 13px; color: var(--ink);
+    border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; background: #fff;
+  }
+  .field input:focus, .field textarea:focus { outline: 2px solid #9ecbf0; border-color: var(--ms-blue); }
+  .field input.miss { background: var(--amber-bg); border-color: #e0c26a; }
+  .field input.mono { font-family: var(--mono); }
+  .field.wide { grid-column: 1 / -1; }
+  .checks { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 14px; }
+  .check {
+    font-size: 11.5px; font-weight: 700; border-radius: 20px; padding: 3px 11px;
+  }
+  .check.ok { background: var(--ok-bg); color: var(--ok); }
+  .check.bad { background: var(--warn-bg); color: var(--warn); }
+  .check.info { background: var(--amber-bg); color: var(--amber); }
+  details.raw { margin-top: 6px; }
+  details.raw summary { font-size: 12px; color: var(--ink-soft); cursor: pointer; font-weight: 600; }
+  details.raw textarea {
+    width: 100%; height: 170px; margin-top: 8px; font-family: var(--mono); font-size: 11px;
+    color: var(--ink-soft); border: 1px solid var(--line); border-radius: 6px; padding: 8px; background: #fbfcfe;
+  }
+  .rcard-foot { padding: 10px 18px 16px; }
+
+  /* ---------- Modal ---------- */
+  .modal {
+    display: none; position: fixed; inset: 0; z-index: 50;
+    background: rgba(15, 20, 30, .78); padding: 24px; overflow: auto;
+    text-align: center; cursor: zoom-out;
+  }
+  .modal.show { display: block; }
+  .modal img { max-width: min(1100px, 96vw); border-radius: 6px; box-shadow: var(--shadow-lg); background: #fff; }
+
+  footer {
+    text-align: center; padding: 30px 20px 40px; color: #8a93a3; font-size: 12.5px;
+    border-top: 1px solid var(--line); margin-top: 24px; background: #fff;
+  }
+
+  @media print {
+    .hero .author, .no-print, .dropzone, .upload-opts, .privacy, .queue, .toolbar, .preview-pane, details.raw, footer { display: none !important; }
+    .hero { padding: 20px; border-bottom-width: 2px; }
+    body { background: #fff; }
+    section { padding: 14px 8px; }
+    .rcard, .table-wrap { box-shadow: none; }
+    .rcard-body { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="lr-mark">LR</div>
+  <h1>Invoice Information Extractor</h1>
+  <p class="subtitle">스캔된 인보이스 PDF·이미지를 업로드하면 인보이스 번호 · 발행일 · 프로젝트/선박 정보 · 금액 · 환율 등
+    각종 정보를 브라우저 안에서 OCR로 자동 추출합니다. 추출값은 수정 후 CSV/JSON으로 내보낼 수 있습니다.</p>
+  <div class="author">
+    <strong>Bae, Hyo-Bum, Senior Surveyor</strong>
+    LR Okpo Office
+  </div>
+</header>
+
+<section id="how">
+  <h2 class="sec-title">Processing Pipeline — 처리 과정</h2>
+  <div class="pipe">
+    <div class="node"><span class="glyph">📤</span><h3>1. 파일 업로드</h3><p>PDF · JPG · PNG 다중 선택</p></div>
+    <div class="arrow">➜</div>
+    <div class="node"><span class="glyph">🖼️</span><h3>2. 페이지 렌더링</h3><p>PDF.js로 고해상도 이미지 변환</p></div>
+    <div class="arrow">➜</div>
+    <div class="node"><span class="glyph">🧠</span><h3>3. 문자 인식 (OCR)</h3><p>Tesseract 엔진 · 브라우저 내 실행</p></div>
+    <div class="arrow">➜</div>
+    <div class="node"><span class="glyph">🔎</span><h3>4. 필드 추출·검증</h3><p>번호/일자/금액 파싱 + 금액·환율 검산</p></div>
+    <div class="arrow">➜</div>
+    <div class="node"><span class="glyph">📊</span><h3>5. 결과 활용</h3><p>수정 · CSV/JSON 내보내기 · 인쇄</p></div>
+  </div>
+</section>
+
+<section id="app">
+  <h2 class="sec-title">Upload — 인보이스 업로드</h2>
+  <div class="upload-card">
+    <label class="dropzone" id="dropzone">
+      <span class="big">📄</span>
+      인보이스 파일을 끌어다 놓거나 <b>클릭하여 선택</b>하세요
+      <div style="font-size:12.5px; margin-top:6px; color:#8a93a3;">PDF · JPG · PNG — 여러 파일 동시 처리 가능 (파일당 최대 4페이지 인식)</div>
+      <input type="file" id="fileInput" multiple accept=".pdf,.jpg,.jpeg,.png,image/jpeg,image/png,application/pdf" />
+    </label>
+    <div class="upload-opts no-print">
+      <label><input type="checkbox" id="optKor" /> 한국어 OCR 포함 <span style="color:#8a93a3">(문서에 한글 항목이 많을 때 · 처리 느려짐)</span></label>
+      <label>인식 해상도
+        <select id="optScale">
+          <option value="2000" selected>보통 (권장)</option>
+          <option value="2600">고해상도 (느림)</option>
+          <option value="1500">빠름 (저화질 스캔 비권장)</option>
+        </select>
+      </label>
+    </div>
+    <div class="privacy">🔒 업로드한 파일은 서버로 전송되지 않으며, 모든 인식·추출은 이 브라우저 안에서만 처리됩니다.
+      최초 실행 시 OCR 엔진(약 15MB) 다운로드를 위해 인터넷 연결이 필요합니다.</div>
+    <div class="cdn-banner" id="cdnBanner">⚠ 필수 라이브러리(PDF.js / Tesseract.js)를 불러오지 못했습니다. 인터넷 연결 또는 사내 네트워크의 CDN 차단 여부를 확인해 주세요.</div>
+    <div class="queue" id="queue"></div>
+  </div>
+</section>
+
+<section id="resultsSec">
+  <h2 class="sec-title">Results — 추출 결과</h2>
+  <div class="toolbar no-print">
+    <button class="btn btn-primary" id="btnCsv" disabled>⬇ CSV 내보내기 (Excel)</button>
+    <button class="btn btn-ghost" id="btnJson" disabled>📋 JSON 복사</button>
+    <button class="btn btn-ghost" id="btnPrint" disabled>🖨 요약 인쇄</button>
+    <button class="btn btn-danger" id="btnClear" disabled>🗑 전체 지우기</button>
+    <span class="hint" id="hint">추출된 값은 각 카드에서 직접 수정할 수 있으며, 수정 내용이 표와 내보내기에 반영됩니다.</span>
+  </div>
+  <div class="table-wrap">
+    <table class="sum" id="sumTable">
+      <thead>
+        <tr>
+          <th>#</th><th>파일</th><th>Invoice No.</th><th>발행일</th><th>Yard</th><th>선박/프로젝트</th><th>이벤트</th>
+          <th class="num">Net</th><th class="num">VAT</th><th class="num">Total</th><th>통화</th><th class="num">환율</th><th class="num">KRW 환산</th>
+        </tr>
+      </thead>
+      <tbody id="sumBody">
+        <tr><td colspan="13" class="empty">아직 처리된 인보이스가 없습니다. 위에서 파일을 업로드하세요.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div id="cards"></div>
+</section>
+
+<div class="modal" id="modal"><img id="modalImg" alt="invoice preview" /></div>
+
+<footer>
+  Invoice Information Extractor — client-side OCR tool · 추출 결과는 참고용이며, 최종 확정 값은 반드시 원본 인보이스로 확인하세요.
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------------- state ---------------- */
+  var results = [];            // {id, fileName, status, fields, checks, rawText, previewUrl, largeUrl}
+  var seq = 0;
+  var queueChain = Promise.resolve();
+  var ocrWorker = null;
+  var ocrWorkerLangs = "";
+  window.__results = results;  // test/debug hook
+
+  var $ = function (id) { return document.getElementById(id); };
+  var dropzone = $("dropzone"), fileInput = $("fileInput"), queueEl = $("queue");
+  var cardsEl = $("cards"), sumBody = $("sumBody");
+  var btnCsv = $("btnCsv"), btnJson = $("btnJson"), btnClear = $("btnClear"), btnPrint = $("btnPrint");
+  var modal = $("modal"), modalImg = $("modalImg");
+
+  window.addEventListener("load", function () {
+    if (window.__cdnFailPdf || window.__cdnFailTess || !window.pdfjsLib || !window.Tesseract) {
+      $("cdnBanner").classList.add("show");
+    } else {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = window.PDFJS_WORKER_SRC ||
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    }
+  });
+
+  /* ---------------- helpers ---------------- */
+  function parseNum(s) {
+    if (s == null) return null;
+    var n = parseFloat(String(s).replace(/,/g, ""));
+    return isNaN(n) ? null : n;
+  }
+  function fmtNum(n, dec) {
+    if (n == null || n === "" || isNaN(n)) return "";
+    return Number(n).toLocaleString("en-US", { minimumFractionDigits: dec == null ? 0 : dec, maximumFractionDigits: dec == null ? 2 : dec });
+  }
+  var MONTHS = { jan:1, feb:2, mar:3, apr:4, may:5, jun:6, jul:7, aug:8, sep:9, oct:10, nov:11, dec:12 };
+  function isoFromEnglishDate(s) {
+    if (!s) return "";
+    var m = s.match(/(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\.?,?\s+(\d{4})/);
+    if (!m) return "";
+    var mon = MONTHS[m[2].slice(0, 3).toLowerCase()];
+    if (!mon) return "";
+    return m[3] + "-" + String(mon).padStart(2, "0") + "-" + String(m[1]).padStart(2, "0");
+  }
+  function isoFromSlashDate(s) { // LR format DD/MM/YYYY
+    if (!s) return "";
+    var m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (!m) return "";
+    return m[3] + "-" + String(m[2]).padStart(2, "0") + "-" + String(m[1]).padStart(2, "0");
+  }
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  /* ---------------- invoice text parser ---------------- */
+  var EVENT_TYPES = [
+    ["steel cutting", "Steel Cutting", "강재 절단 (S/C)"],
+    ["keel laying", "Keel Laying", "용골 거치 (K/L)"],
+    ["launching", "Launching", "진수 (L/C)"],
+    ["delivery", "Delivery", "인도 (D/L)"],
+    ["sea trial", "Sea Trial", "시운전"],
+    ["inclining", "Inclining Test", "경사 시험"],
+    ["dock", "Docking", "도킹"]
+  ];
+  var RIGHT_LABEL_RE = /(Invoice\s*Number|Invoice\s*Issue\s*Date|Sales\s*Order\s*Number|Project\s*Number|Client\s*Number)\s*[:;]?.*$/i;
+  var MONEY_RE = /([\d][\d,]*(?:\.\d{1,2})?)\s*(USD|KRW|EUR|GBP|JPY)/g;
+
+  function parseInvoiceText(raw) {
+    var text = String(raw || "")
+      .replace(/ /g, " ")
+      .replace(/[’‘]/g, "'")
+      .replace(/[–—]/g, "-")
+      .split("\n").map(function (l) { return l.replace(/\s+/g, " ").trim(); }).join("\n");
+    var lines = text.split("\n");
+    var f = {
+      invoiceNumber: "", issueDate: "", issueDateISO: "",
+      salesOrderNumber: "", projectNumber: "", clientNumber: "",
+      lrNo: "", yardNo: "", vesselDesc: "",
+      eventType: "", eventTypeKo: "", eventDate: "", eventDateISO: "", description: "",
+      netAmount: null, taxRatePct: null, taxAmount: null, grossAmount: null, currency: "",
+      fxUsdBase: null, fxRate: null, krwAmount: null, krwVat: null,
+      paymentTerms: "", billTo: "", contractedTo: "",
+      issuerEmail: "", issuerPhone: "", bankWon: "", swiftWon: "", bankUsd: "", swiftUsd: ""
+    };
+    var m;
+
+    m = text.match(/Invoice\s*Number\s*[:;]?\s*(\d{3}\s*-\s*\d{4,8})/i) || text.match(/Invoice\s*[:;]\s*(\d{3}\s*-\s*\d{4,8})/i);
+    if (m) f.invoiceNumber = m[1].replace(/\s+/g, "");
+
+    m = text.match(/Issue\s*Date\s*[:;]?\s*(\d{1,2}\/\d{1,2}\/\d{4})/i);
+    if (m) { f.issueDate = m[1]; f.issueDateISO = isoFromSlashDate(m[1]); }
+
+    m = text.match(/Sales\s*Order\s*(?:Number)?\s*[:;]?\s*(\d{5,10})/i);
+    if (m) f.salesOrderNumber = m[1];
+
+    m = text.match(/Project\s*Number\s*[:;]?\s*([A-Z]{2,4}\s?\d{6,14})/i);
+    if (m) f.projectNumber = m[1].replace(/\s+/g, "");
+
+    m = text.match(/Client\s*Number\s*[:;]?\s*(\d{4,10})/i);
+    if (m) f.clientNumber = m[1];
+
+    m = text.match(/LR\s*No\.?\s*[:;]?\s*(\d{6,8})/i);
+    if (m) f.lrNo = m[1];
+
+    m = text.match(/Yard\s*no\.?\s*[:;]?\s*(\d{3,5})\s*[,.]?\s*([^\n]*)/i);
+    if (m) {
+      f.yardNo = m[1];
+      f.vesselDesc = (m[2] || "").replace(/\s+/g, " ").trim();
+    }
+
+    /* FX conversion lines e.g. "USD 117,500 X @1,232.80 = KRW 144,854,000" or "... = 80,029,250 KRW" */
+    var fxAll = Array.from(
+      text.matchAll(/USD\s*([\d][\d,]*(?:\.\d+)?)\s*[xX×]\s*@?\s*([\d][\d,]*\.\d+)\s*=+\s*(?:KRW\s*)?([\d][\d,]*)(?:\s*KRW)?/g)
+    );
+    if (fxAll.length) {
+      var fx = fxAll[fxAll.length - 1];
+      f.fxUsdBase = parseNum(fx[1]);
+      f.fxRate = parseNum(fx[2]);
+      f.krwAmount = parseNum(fx[3]);
+    }
+    m = text.match(/KRW\s*([\d][\d,]*)\s*[xX×]\s*[l1]?0\s*%\s*=+\s*(?:KRW\s*)?([\d][\d,]*(?:\.\d+)?)(?:\s*KRW)?/i);
+    if (m) {
+      if (f.krwAmount == null) f.krwAmount = parseNum(m[1]);
+      f.krwVat = parseNum(m[2]);
+    }
+
+    /* line item: "<milestone> on <date>  net  rate%  tax  gross" */
+    for (var i = 0; i < lines.length; i++) {
+      var ln = lines[i];
+      var dm = ln.match(/^(.{3,60}?)\s+on\s+((\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+\s+\d{4})|(\d{1,2}\/\d{1,2}\/\d{4}))/i);
+      if (!dm) continue;
+      if (/quoted|payment/i.test(ln)) continue;
+      f.description = (dm[1] + " on " + dm[2]).trim();
+      f.eventDate = dm[2];
+      f.eventDateISO = dm[3] ? isoFromEnglishDate(dm[3]) : isoFromSlashDate(dm[4]);
+      var low = dm[1].toLowerCase();
+      for (var e = 0; e < EVENT_TYPES.length; e++) {
+        if (low.indexOf(EVENT_TYPES[e][0]) >= 0) { f.eventType = EVENT_TYPES[e][1]; f.eventTypeKo = EVENT_TYPES[e][2]; break; }
+      }
+      if (!f.eventType) { f.eventType = dm[1].trim(); f.eventTypeKo = ""; }
+      var monies = Array.from(ln.matchAll(MONEY_RE));
+      if (monies.length >= 3) {
+        f.netAmount = parseNum(monies[0][1]);
+        f.taxAmount = parseNum(monies[1][1]);
+        f.grossAmount = parseNum(monies[2][1]);
+        f.currency = monies[0][2];
+      }
+      var rm = ln.match(/([\d]+(?:\.\d+)?)\s*%/);
+      if (rm) f.taxRatePct = parseNum(rm[1]);
+      break;
+    }
+
+    /* totals block (authoritative when present) */
+    m = text.match(/Total\s*Item\s*Net\s*Value[^0-9\n]*([\d][\d,]*(?:\.\d{1,2})?)\s*(USD|KRW|EUR|GBP)?/i);
+    if (m) { f.netAmount = parseNum(m[1]); if (m[2]) f.currency = m[2]; }
+    m = text.match(/Value\s*Added\s*Tax[^\n]*?([\d]+(?:\.\d+)?)\s*%[^0-9\n]*([\d][\d,]*(?:\.\d{1,2})?)\s*(USD|KRW|EUR|GBP)?/i);
+    if (m) { f.taxRatePct = parseNum(m[1]); f.taxAmount = parseNum(m[2]); if (m[3] && !f.currency) f.currency = m[3]; }
+    var grandRe = /^Total\b(?!\s*Item)[^0-9\n]*([\d][\d,]*(?:\.\d{1,2})?)\s*(USD|KRW|EUR|GBP)?/gim;
+    var g, lastG = null;
+    while ((g = grandRe.exec(text)) !== null) lastG = g;
+    if (lastG) { f.grossAmount = parseNum(lastG[1]); if (lastG[2]) f.currency = lastG[2]; }
+    if (f.grossAmount == null && f.netAmount != null && f.taxAmount != null) f.grossAmount = f.netAmount + f.taxAmount;
+
+    m = text.match(/Payment\s*Terms\s*[:;]?\s*([^\n]{2,60})/i);
+    if (m) f.paymentTerms = m[1].trim();
+
+    /* bill to / contracted to (left column, right labels stripped) */
+    function collectBlock(startRe, stopRe, maxLines) {
+      var idx = -1;
+      for (var i2 = 0; i2 < lines.length; i2++) if (startRe.test(lines[i2])) { idx = i2; break; }
+      if (idx < 0) return "";
+      var out = [];
+      for (var j = idx + 1; j < lines.length && out.length < maxLines; j++) {
+        if (stopRe.test(lines[j])) break;
+        var v = lines[j].replace(RIGHT_LABEL_RE, "").trim();
+        if (v) out.push(v);
+      }
+      return out.join(", ");
+    }
+    f.billTo = collectBlock(/Bill\s*To\s*Party/i, /Contracted\s*To\s*Party|LR\s*No/i, 6);
+    f.contractedTo = collectBlock(/Contracted\s*To\s*Party/i, /LR\s*No\.?|In\s*accordance|Description/i, 6);
+
+    m = text.match(/[A-Za-z][\w.+-]*@[\w-]+\.[\w.-]+/);
+    if (m) f.issuerEmail = m[0].replace(/[.,;]+$/, "").replace(/@[1Il]r\.org$/i, "@lr.org");
+    m = text.match(/Phone\s*[:;]?\s*(\+?[\d][\d\s()-]{7,20})/i);
+    if (m) f.issuerPhone = m[1].trim();
+
+    for (var b = 0; b < lines.length; b++) {
+      var lb = lines[b];
+      if (/WON\s*Invoice/i.test(lb)) {
+        f.bankWon = (lb.split(/WON\s*Invoice\s*[:;]?/i)[1] || "").split(/Swift/i)[0].replace(/^[\s:;-]+|[\s:;-]+$/g, "");
+        var sw = lb.match(/Swift\s*Code\s*[:;]?\s*([A-Z0-9]{6,11})/i); if (sw) f.swiftWon = sw[1];
+      }
+      if (/USD\s*Invoice/i.test(lb)) {
+        f.bankUsd = (lb.split(/USD\s*Invoice\s*[:;]?/i)[1] || "").split(/Swift/i)[0].replace(/^[\s:;-]+|[\s:;-]+$/g, "");
+        var sw2 = lb.match(/Swift\s*Code\s*[:;]?\s*([A-Z0-9]{6,11})/i); if (sw2) f.swiftUsd = sw2[1];
+      }
+    }
+    if (!f.currency && /USD/.test(text)) f.currency = "USD";
+    return f;
+  }
+  window.__parseInvoiceText = parseInvoiceText; // test hook
+
+  /* ---------------- validation checks ---------------- */
+  function computeChecks(f) {
+    var checks = [];
+    var net = parseNum(f.netAmount), tax = parseNum(f.taxAmount), gross = parseNum(f.grossAmount);
+    if (net != null && tax != null && gross != null) {
+      var okSum = Math.abs(net + tax - gross) <= Math.max(0.03, gross * 0.001);
+      checks.push({ ok: okSum, label: okSum ? "금액 검산 ✓ Net + Tax = Gross" : "금액 검산 불일치: " + fmtNum(net + tax, 2) + " ≠ " + fmtNum(gross, 2) });
+    }
+    var rate = parseNum(f.fxRate), krw = parseNum(f.krwAmount);
+    if (net != null && rate != null && krw != null) {
+      var calc = net * rate;
+      var okFx = Math.abs(calc - krw) / krw <= 0.005;
+      checks.push({ ok: okFx, label: okFx ? "환율 검산 ✓ Net × " + fmtNum(rate, 2) + " = KRW " + fmtNum(krw) : "환율 검산 불일치: 계산값 KRW " + fmtNum(Math.round(calc)) });
+    }
+    var tr = parseNum(f.taxRatePct), kv = parseNum(f.krwVat);
+    if (krw != null && kv != null && tr != null) {
+      var calcVat = krw * tr / 100;
+      var okKv = Math.abs(calcVat - kv) / Math.max(1, kv) <= 0.005;
+      checks.push({ ok: okKv, label: okKv ? "KRW 부가세 검산 ✓ " + fmtNum(kv) : "KRW 부가세 불일치: 계산값 " + fmtNum(Math.round(calcVat)) });
+    }
+    if (f.issueDateISO && f.eventDateISO && f.issueDateISO !== f.eventDateISO) {
+      checks.push({ ok: null, label: "참고: 이벤트 일자(" + f.eventDateISO + ")와 발행일(" + f.issueDateISO + ")이 다릅니다" });
+    }
+    return checks;
+  }
+  var CORE_KEYS = ["invoiceNumber", "issueDate", "salesOrderNumber", "projectNumber", "clientNumber",
+    "lrNo", "yardNo", "vesselDesc", "eventType", "netAmount", "taxAmount", "grossAmount"];
+  function scoreOf(f) {
+    var n = 0;
+    CORE_KEYS.forEach(function (k) { var v = f[k]; if (v !== null && v !== "" && v !== undefined) n++; });
+    return n;
+  }
+
+  /* ---------------- OCR / rendering ---------------- */
+  function setStatus(res, chipClass, chipText, statusText, pct) {
+    res.status = chipClass;
+    var el = $("q-" + res.id);
+    if (!el) return;
+    el.querySelector(".q-chip").className = "q-chip " + chipClass;
+    el.querySelector(".q-chip").textContent = chipText;
+    el.querySelector(".q-status").textContent = statusText || "";
+    if (pct != null) el.querySelector(".q-fill").style.width = Math.round(pct) + "%";
+  }
+
+  async function getOcrWorker(langs, onProgress) {
+    if (ocrWorker && ocrWorkerLangs === langs) { ocrWorker.__onProgress = onProgress; return ocrWorker; }
+    if (ocrWorker) { try { await ocrWorker.terminate(); } catch (e) {} ocrWorker = null; }
+    var holder = { cb: onProgress };
+    var opts = Object.assign({
+      logger: function (msg) {
+        if (msg.status === "recognizing text" && holder.cb) holder.cb(msg.progress);
+      }
+    }, window.TESSERACT_OPTS || {}); // optional self-host override (offline/CDN-blocked env)
+    var w = await Tesseract.createWorker(langs, 1, opts);
+    w.__setProgress = function (cb) { holder.cb = cb; };
+    ocrWorker = w; ocrWorkerLangs = langs;
+    return w;
+  }
+
+  async function renderPdfToCanvases(file, targetW, maxPages) {
+    var buf = await file.arrayBuffer();
+    var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    var n = Math.min(pdf.numPages, maxPages);
+    var canvases = [], textLayer = "";
+    for (var p = 1; p <= n; p++) {
+      var page = await pdf.getPage(p);
+      try {
+        var tc = await page.getTextContent();
+        textLayer += tc.items.map(function (it) { return it.str; }).join(" ") + "\n";
+      } catch (e) {}
+      var vp1 = page.getViewport({ scale: 1 });
+      var scale = Math.min(5, Math.max(1, targetW / vp1.width));
+      var vp = page.getViewport({ scale: scale });
+      var cv = document.createElement("canvas");
+      cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+      var ctx = cv.getContext("2d", { willReadFrequently: true });
+      await page.render({ canvasContext: ctx, viewport: vp }).promise;
+      canvases.push(cv);
+    }
+    /* structured text lines (only meaningful for text-layer PDFs) */
+    var structured = "";
+    if (textLayer.replace(/\s+/g, "").length > 60) {
+      structured = "";
+      for (var p2 = 1; p2 <= n; p2++) {
+        var page2 = await pdf.getPage(p2);
+        var tc2 = await page2.getTextContent();
+        var rows = {};
+        tc2.items.forEach(function (it) {
+          var y = Math.round(it.transform[5] / 4) * 4;
+          (rows[y] = rows[y] || []).push({ x: it.transform[4], s: it.str });
+        });
+        Object.keys(rows).map(Number).sort(function (a, b) { return b - a; }).forEach(function (y) {
+          structured += rows[y].sort(function (a, b) { return a.x - b.x; }).map(function (o) { return o.s; }).join(" ") + "\n";
+        });
+      }
+    }
+    return { canvases: canvases, nativeText: structured, pageCount: pdf.numPages };
+  }
+
+  async function imageToCanvas(file, targetW) {
+    var bmp = await createImageBitmap(file);
+    var scale = Math.min(1.6, Math.max(0.2, targetW / bmp.width));
+    if (bmp.width <= targetW) scale = 1;
+    var cv = document.createElement("canvas");
+    cv.width = Math.round(bmp.width * scale); cv.height = Math.round(bmp.height * scale);
+    cv.getContext("2d").drawImage(bmp, 0, 0, cv.width, cv.height);
+    bmp.close();
+    return cv;
+  }
+
+  function previewFrom(canvas, maxW, q) {
+    var scale = Math.min(1, maxW / canvas.width);
+    var cv = document.createElement("canvas");
+    cv.width = Math.round(canvas.width * scale); cv.height = Math.round(canvas.height * scale);
+    cv.getContext("2d").drawImage(canvas, 0, 0, cv.width, cv.height);
+    return cv.toDataURL("image/jpeg", q);
+  }
+
+  async function processFile(file, res) {
+    var targetW = parseInt($("optScale").value, 10) || 2000;
+    var langs = $("optKor").checked ? "eng+kor" : "eng";
+    var isPdf = /pdf$/i.test(file.type) || /\.pdf$/i.test(file.name);
+    var canvases = [], nativeText = "", pageCount = 1;
+
+    setStatus(res, "run", "처리 중", isPdf ? "PDF 페이지 렌더링…" : "이미지 준비…", 8);
+    if (isPdf) {
+      var r = await renderPdfToCanvases(file, targetW, 4);
+      canvases = r.canvases; nativeText = r.nativeText; pageCount = r.pageCount;
+    } else {
+      canvases = [await imageToCanvas(file, targetW)];
+    }
+    if (!canvases.length) throw new Error("페이지를 렌더링하지 못했습니다");
+    res.previewUrl = previewFrom(canvases[0], 700, 0.72);
+    res.largeUrl = previewFrom(canvases[0], 1500, 0.82);
+    res.pageCount = pageCount;
+
+    var fullText = "";
+    if (nativeText) {
+      setStatus(res, "run", "처리 중", "텍스트 레이어 감지 — OCR 생략", 70);
+      fullText = nativeText;
+      res.ocrMode = "text-layer";
+    } else {
+      res.ocrMode = "ocr(" + langs + ")";
+      var worker = await getOcrWorker(langs, null);
+      for (var i = 0; i < canvases.length; i++) {
+        (function (pageIdx, total) {
+          worker.__setProgress(function (p) {
+            var base = 15 + 75 * (pageIdx + p) / total;
+            setStatus(res, "run", "OCR", "문자 인식 중 — " + (pageIdx + 1) + "/" + total + " 페이지 " + Math.round(p * 100) + "%", base);
+          });
+        })(i, canvases.length);
+        setStatus(res, "run", "OCR", "문자 인식 중 — " + (i + 1) + "/" + canvases.length + " 페이지", 15 + 75 * i / canvases.length);
+        var out = await worker.recognize(canvases[i]);
+        fullText += out.data.text + "\n";
+      }
+    }
+    res.rawText = fullText.trim();
+
+    setStatus(res, "run", "파싱", "필드 추출·검증…", 93);
+    res.fields = parseInvoiceText(res.rawText);
+    res.checks = computeChecks(res.fields);
+    res.score = scoreOf(res.fields);
+    setStatus(res, "done", "완료", "추출 완료 — 핵심 필드 " + res.score + "/" + CORE_KEYS.length, 100);
+  }
+
+  /* ---------------- queue ---------------- */
+  function enqueueFiles(fileList) {
+    if ($("cdnBanner").classList.contains("show")) return;
+    Array.prototype.slice.call(fileList).forEach(function (file) {
+      if (!/\.(pdf|jpe?g|png)$/i.test(file.name)) return;
+      var res = { id: ++seq, fileName: file.name, status: "wait", fields: null, checks: [], rawText: "", previewUrl: "", largeUrl: "", score: 0, ocrMode: "", pageCount: 0 };
+      results.push(res);
+      var q = document.createElement("div");
+      q.className = "q-item"; q.id = "q-" + res.id;
+      q.innerHTML = '<div class="q-top"><span class="q-chip wait">대기</span><span class="q-name">' + esc(file.name) +
+        '</span><span class="q-status">대기열에 추가됨</span></div><div class="q-bar"><div class="q-fill"></div></div>';
+      queueEl.appendChild(q);
+      queueChain = queueChain.then(function () {
+        return processFile(file, res).then(function () {
+          renderResultCard(res);
+        }).catch(function (err) {
+          console.error(err);
+          setStatus(res, "err", "오류", String(err && err.message || err), 100);
+          res.status = "err";
+        }).then(function () {
+          refreshSummary(); refreshButtons();
+        });
+      });
+    });
+    refreshButtons();
+  }
+
+  /* ---------------- rendering results ---------------- */
+  var FIELD_GROUPS = [
+    { title: "문서 정보 Document", fields: [
+      ["invoiceNumber", "인보이스 번호", "Invoice Number", "mono"],
+      ["issueDate", "발행일", "Issue Date (DD/MM/YYYY)", "mono"],
+      ["salesOrderNumber", "세일즈 오더", "Sales Order No.", "mono"],
+      ["projectNumber", "프로젝트 번호", "Project No.", "mono"],
+      ["clientNumber", "클라이언트 번호", "Client No.", "mono"]
+    ]},
+    { title: "선박 · 검사 Vessel & Milestone", fields: [
+      ["lrNo", "LR 번호", "LR No.", "mono"],
+      ["yardNo", "야드 선번", "Yard No.", "mono"],
+      ["vesselDesc", "선박/프로젝트 설명", "Vessel", "", "wide"],
+      ["eventType", "검사 이벤트", "Milestone", ""],
+      ["eventTypeKo", "이벤트(한글)", "Milestone KO", ""],
+      ["eventDate", "이벤트 일자", "Event Date", "mono"],
+      ["description", "청구 내역", "Description", "", "wide"]
+    ]},
+    { title: "금액 Amounts", fields: [
+      ["netAmount", "공급가액", "Net Amount", "mono num"],
+      ["taxRatePct", "세율 %", "Tax Rate", "mono num"],
+      ["taxAmount", "세액", "Tax Amount", "mono num"],
+      ["grossAmount", "합계", "Gross Amount", "mono num"],
+      ["currency", "통화", "Currency", "mono"],
+      ["fxRate", "적용 환율", "FX Rate (KRW/USD)", "mono num"],
+      ["krwAmount", "원화 환산액", "KRW Amount", "mono num"],
+      ["krwVat", "원화 부가세", "KRW VAT", "mono num"]
+    ]},
+    { title: "거래처 · 결제 Parties & Payment", fields: [
+      ["billTo", "청구처", "Bill To Party", "", "wide"],
+      ["contractedTo", "계약처", "Contracted To Party", "", "wide"],
+      ["paymentTerms", "지급 조건", "Payment Terms", ""],
+      ["issuerEmail", "발행처 이메일", "Issuer E-mail", "mono"],
+      ["issuerPhone", "발행처 전화", "Issuer Phone", "mono"],
+      ["bankWon", "원화 입금계좌", "For WON Invoice", "", "wide"],
+      ["swiftWon", "SWIFT (WON)", "Swift Code", "mono"],
+      ["bankUsd", "달러 입금계좌", "For USD Invoice", "", "wide"],
+      ["swiftUsd", "SWIFT (USD)", "Swift Code", "mono"]
+    ]}
+  ];
+  var NUM_KEYS = { netAmount: 2, taxAmount: 2, grossAmount: 2, fxRate: 2, krwAmount: 0, krwVat: 1, taxRatePct: 2 };
+
+  function renderResultCard(res) {
+    var f = res.fields;
+    var card = document.createElement("div");
+    card.className = "rcard"; card.id = "card-" + res.id;
+    var scoreCls = res.score >= 9 ? "" : " low";
+    var html = '<div class="rcard-head"><span class="inv-no">Invoice ' + esc(f.invoiceNumber || "번호 미인식") + "</span>" +
+      '<span class="fname">' + esc(res.fileName) + " · " + res.pageCount + "p · " + esc(res.ocrMode) + "</span>" +
+      '<span class="score' + scoreCls + '">핵심 필드 ' + res.score + "/" + CORE_KEYS.length + " 인식</span></div>";
+    html += '<div class="rcard-body"><div class="preview-pane">' +
+      '<img src="' + res.previewUrl + '" data-large="' + res.id + '" alt="preview" />' +
+      '<div class="pv-cap">클릭하면 크게 볼 수 있습니다 (1페이지)</div></div>';
+    html += '<div class="fields-pane"><div class="checks" id="checks-' + res.id + '"></div>';
+    FIELD_GROUPS.forEach(function (gr) {
+      html += '<div class="fgroup"><h4>' + esc(gr.title) + '</h4><div class="fgrid">';
+      gr.fields.forEach(function (fd) {
+        var key = fd[0], ko = fd[1], en = fd[2], cls = fd[3] || "", wide = fd[4] === "wide" ? " wide" : "";
+        var val = f[key];
+        if (NUM_KEYS[key] !== undefined && val != null && val !== "") val = fmtNum(val, NUM_KEYS[key]);
+        var missing = val == null || val === "";
+        html += '<div class="field' + wide + '"><label>' + esc(ko) + ' <span class="en">' + esc(en) + "</span></label>" +
+          '<input type="text" data-res="' + res.id + '" data-key="' + key + '" class="' + cls + (missing ? " miss" : "") +
+          '" value="' + esc(missing ? "" : val) + '" placeholder="미인식 — 직접 입력" /></div>';
+      });
+      html += "</div></div>";
+    });
+    html += '<details class="raw"><summary>원본 인식 텍스트 보기 (OCR raw text)</summary><textarea readonly>' +
+      esc(res.rawText) + "</textarea></details>";
+    html += "</div></div>";
+    html += '<div class="rcard-foot"></div>';
+    card.innerHTML = html;
+    cardsEl.appendChild(card);
+    renderChecks(res);
+
+    card.querySelector(".preview-pane img").addEventListener("click", function () {
+      modalImg.src = res.largeUrl || res.previewUrl;
+      modal.classList.add("show");
+    });
+    Array.prototype.forEach.call(card.querySelectorAll("input[data-key]"), function (inp) {
+      inp.addEventListener("input", function () {
+        var r = results.find(function (x) { return x.id === Number(inp.getAttribute("data-res")); });
+        if (!r) return;
+        var key = inp.getAttribute("data-key");
+        var v = inp.value.trim();
+        r.fields[key] = (NUM_KEYS[key] !== undefined) ? (v === "" ? null : parseNum(v)) : v;
+        inp.classList.toggle("miss", v === "");
+        r.checks = computeChecks(r.fields);
+        r.score = scoreOf(r.fields);
+        renderChecks(r);
+        var head = card.querySelector(".score");
+        head.textContent = "핵심 필드 " + r.score + "/" + CORE_KEYS.length + " 인식";
+        head.className = "score" + (r.score >= 9 ? "" : " low");
+        card.querySelector(".inv-no").textContent = "Invoice " + (r.fields.invoiceNumber || "번호 미인식");
+        refreshSummary();
+      });
+    });
+  }
+
+  function renderChecks(res) {
+    var box = $("checks-" + res.id);
+    if (!box) return;
+    box.innerHTML = res.checks.map(function (c) {
+      var cls = c.ok === true ? "ok" : (c.ok === false ? "bad" : "info");
+      return '<span class="check ' + cls + '">' + esc(c.label) + "</span>";
+    }).join("") || '<span class="check info">검산할 금액 정보가 부족합니다</span>';
+  }
+
+  function refreshSummary() {
+    var done = results.filter(function (r) { return r.status === "done"; });
+    if (!done.length) {
+      sumBody.innerHTML = '<tr><td colspan="13" class="empty">아직 처리된 인보이스가 없습니다. 위에서 파일을 업로드하세요.</td></tr>';
+      return;
+    }
+    var rows = done.map(function (r, i) {
+      var f = r.fields;
+      return "<tr><td>" + (i + 1) + "</td><td>" + esc(r.fileName) + "</td><td>" + esc(f.invoiceNumber) + "</td><td>" +
+        esc(f.issueDate) + "</td><td>" + esc(f.yardNo) + "</td><td>" + esc(f.vesselDesc) + "</td><td>" +
+        esc(f.eventType) + (f.eventDate ? " (" + esc(f.eventDate) + ")" : "") + "</td>" +
+        '<td class="num">' + fmtNum(f.netAmount, 2) + '</td><td class="num">' + fmtNum(f.taxAmount, 2) +
+        '</td><td class="num">' + fmtNum(f.grossAmount, 2) + "</td><td>" + esc(f.currency) +
+        '</td><td class="num">' + fmtNum(f.fxRate, 2) + '</td><td class="num">' + fmtNum(f.krwAmount, 0) + "</td></tr>";
+    }).join("");
+    /* totals per currency */
+    var sums = {};
+    done.forEach(function (r) {
+      var c = r.fields.currency || "?";
+      sums[c] = sums[c] || { net: 0, tax: 0, gross: 0, krw: 0 };
+      sums[c].net += parseNum(r.fields.netAmount) || 0;
+      sums[c].tax += parseNum(r.fields.taxAmount) || 0;
+      sums[c].gross += parseNum(r.fields.grossAmount) || 0;
+      sums[c].krw += parseNum(r.fields.krwAmount) || 0;
+    });
+    Object.keys(sums).forEach(function (c) {
+      var s = sums[c];
+      rows += '<tr style="background:#f6f9fc;font-weight:700;"><td></td><td colspan="6">합계 (' + esc(c) + " · " +
+        done.filter(function (r) { return (r.fields.currency || "?") === c; }).length + "건)</td>" +
+        '<td class="num">' + fmtNum(s.net, 2) + '</td><td class="num">' + fmtNum(s.tax, 2) + '</td><td class="num">' +
+        fmtNum(s.gross, 2) + "</td><td>" + esc(c) + '</td><td></td><td class="num">' + fmtNum(s.krw, 0) + "</td></tr>";
+    });
+    sumBody.innerHTML = rows;
+  }
+
+  function refreshButtons() {
+    var has = results.some(function (r) { return r.status === "done"; });
+    btnCsv.disabled = !has; btnJson.disabled = !has; btnClear.disabled = !results.length; btnPrint.disabled = !has;
+  }
+
+  /* ---------------- export ---------------- */
+  var CSV_COLS = [
+    ["fileName", "파일명"], ["invoiceNumber", "Invoice Number"], ["issueDate", "Issue Date"], ["issueDateISO", "Issue Date (ISO)"],
+    ["salesOrderNumber", "Sales Order No"], ["projectNumber", "Project No"], ["clientNumber", "Client No"],
+    ["lrNo", "LR No"], ["yardNo", "Yard No"], ["vesselDesc", "Vessel"], ["eventType", "Milestone"], ["eventTypeKo", "Milestone KO"],
+    ["eventDate", "Event Date"], ["eventDateISO", "Event Date (ISO)"], ["description", "Description"],
+    ["netAmount", "Net Amount"], ["taxRatePct", "Tax Rate %"], ["taxAmount", "Tax Amount"], ["grossAmount", "Gross Amount"],
+    ["currency", "Currency"], ["fxRate", "FX Rate"], ["krwAmount", "KRW Amount"], ["krwVat", "KRW VAT"],
+    ["paymentTerms", "Payment Terms"], ["billTo", "Bill To"], ["contractedTo", "Contracted To"],
+    ["issuerEmail", "Issuer Email"], ["bankWon", "Bank (WON)"], ["swiftWon", "SWIFT (WON)"], ["bankUsd", "Bank (USD)"], ["swiftUsd", "SWIFT (USD)"]
+  ];
+  function doneResults() { return results.filter(function (r) { return r.status === "done"; }); }
+  function rowOf(r) {
+    var o = { fileName: r.fileName };
+    CSV_COLS.forEach(function (c) { if (c[0] !== "fileName") o[c[0]] = r.fields[c[0]]; });
+    return o;
+  }
+
+  btnCsv.addEventListener("click", function () {
+    var lines = [CSV_COLS.map(function (c) { return c[1]; }).join(",")];
+    doneResults().forEach(function (r) {
+      var row = rowOf(r);
+      lines.push(CSV_COLS.map(function (c) {
+        var v = row[c[0]];
+        v = v == null ? "" : String(v);
+        return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+      }).join(","));
+    });
+    var blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    var a = document.createElement("a");
+    var d = new Date(), pad = function (n) { return String(n).padStart(2, "0"); };
+    a.href = URL.createObjectURL(blob);
+    a.download = "invoice_extract_" + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + "_" + pad(d.getHours()) + pad(d.getMinutes()) + ".csv";
+    document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 800);
+  });
+
+  btnJson.addEventListener("click", function () {
+    var payload = JSON.stringify(doneResults().map(rowOf), null, 2);
+    function fallback() {
+      var ta = document.createElement("textarea");
+      ta.value = payload; document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); } catch (e) {}
+      ta.remove();
+      btnJson.textContent = "📋 복사됨!"; setTimeout(function () { btnJson.textContent = "📋 JSON 복사"; }, 1400);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(payload).then(function () {
+        btnJson.textContent = "📋 복사됨!"; setTimeout(function () { btnJson.textContent = "📋 JSON 복사"; }, 1400);
+      }).catch(fallback);
+    } else fallback();
+  });
+
+  btnPrint.addEventListener("click", function () { window.print(); });
+
+  btnClear.addEventListener("click", function () {
+    if (!confirm("모든 결과를 지울까요?")) return;
+    results.length = 0; seq = 0;
+    queueEl.innerHTML = ""; cardsEl.innerHTML = "";
+    refreshSummary(); refreshButtons();
+  });
+
+  /* ---------------- dropzone events ---------------- */
+  fileInput.addEventListener("change", function () {
+    enqueueFiles(fileInput.files);
+    fileInput.value = "";
+  });
+  ["dragenter", "dragover"].forEach(function (ev) {
+    dropzone.addEventListener(ev, function (e) { e.preventDefault(); e.stopPropagation(); dropzone.classList.add("active"); });
+  });
+  ["dragleave", "drop"].forEach(function (ev) {
+    dropzone.addEventListener(ev, function (e) { e.preventDefault(); e.stopPropagation(); dropzone.classList.remove("active"); });
+  });
+  dropzone.addEventListener("drop", function (e) {
+    if (e.dataTransfer && e.dataTransfer.files) enqueueFiles(e.dataTransfer.files);
+  });
+  document.addEventListener("dragover", function (e) { e.preventDefault(); });
+  document.addEventListener("drop", function (e) { e.preventDefault(); });
+
+  modal.addEventListener("click", function () { modal.classList.remove("show"); modalImg.src = ""; });
+})();
+</script>
+</body>
+</html>
