@@ -5,11 +5,13 @@ import { defectBeamHits, foldDepth, legAtPath, toRad } from './geometry.js'
 
 export const V_COMP = 5.92 // compression wave in steel, mm/us (5920 m/s)
 export const V_SHEAR = 3.24 // shear wave in steel, mm/us (3240 m/s)
+export const V_SURFACE = 2.98 // Rayleigh/creeping wave, ~0.92 * shear
 
 export const ATTEN_DB_PER_MM = { comp: 0.005, shear: 0.01 } // material attenuation
 export const REF_GAIN_DB = 30 // gain at which a full reflector at s0 reads REF_AMP_PCT
-export const REF_DISTANCE_MM = 50 // s0 - reference distance (near-field-ish)
+export const REF_DISTANCE_MM = 50 // s0 - reference distance for the distance law
 export const REF_AMP_PCT = 80
+export const TCG_TARGET_PCT = 80 // TCG flattens DAC reference echoes to this level
 
 export const RANGE_STEPS = [50, 100, 200, 250, 500]
 export const GAIN_STEPS = [0.5, 2, 6]
@@ -22,9 +24,20 @@ export function velocityForAngle(angleDeg) {
   return angleDeg === 0 ? V_COMP : V_SHEAR
 }
 
-/** Simple distance-amplitude law: s0/s beyond the near field (in dB, <= 0). */
-export function distanceLawDb(s) {
-  const sEff = Math.max(s, REF_DISTANCE_MM)
+/** Near-field length N = D^2 f / (4 v). D in mm, f in MHz, v in mm/us. */
+export function nearFieldLength(probe) {
+  const D = probe.crystalMm ?? 10
+  const f = probe.freqMHz ?? 4
+  const v = velocityForAngle(probe.angle)
+  return (D * D * f) / (4 * v)
+}
+
+/**
+ * Distance-amplitude law: flat (plateau) inside the near field N, then
+ * s0/s spherical-ish decay beyond it. In dB relative to the s0 reference.
+ */
+export function distanceLawDb(s, nearField = REF_DISTANCE_MM) {
+  const sEff = Math.max(s, Math.max(nearField, 1))
   return 20 * Math.log10(REF_DISTANCE_MM / sEff)
 }
 
@@ -33,11 +46,11 @@ export function attenuationDb(s, wave) {
 }
 
 /** Echo amplitude in %FSH, clamped 0..110. extraDb is a positive penalty. */
-export function echoAmplitudePct({ reflectivity, beamPath, gain, wave, extraDb = 0 }) {
+export function echoAmplitudePct({ reflectivity, beamPath, gain, wave, extraDb = 0, nearField = REF_DISTANCE_MM }) {
   if (reflectivity <= 0 || beamPath <= 0) return 0
   const db =
     20 * Math.log10(reflectivity) +
-    distanceLawDb(beamPath) +
+    distanceLawDb(beamPath, nearField) +
     attenuationDb(beamPath, wave) -
     extraDb +
     (gain - REF_GAIN_DB)
@@ -59,11 +72,14 @@ export function orientationDb(defect, angleDeg) {
 }
 
 export function effectiveThickness(specimen, params = {}) {
-  if (specimen.type === 'v1') {
+  if (specimen.faces) {
     const face = params.face ?? specimen.defaultFace
     return specimen.faces[face].thickness
   }
-  if (specimen.type === 'tky') return specimen.mainThickness
+  if (specimen.type === 'tky') {
+    return (params.scanSurface ?? 'main') === 'brace' ? specimen.braceThickness : specimen.mainThickness
+  }
+  if (specimen.type === 'pipe') return params.wt ?? specimen.wt
   return params.thickness ?? specimen.thickness
 }
 
@@ -79,16 +95,28 @@ function laminationCoverage(defect, probeX) {
   return Math.max(0, Math.min(1, overlap / (2 * PROBE_HALF_FOOT)))
 }
 
-function activeFeatures(specimen, params) {
-  const face = specimen.type === 'v1' ? (params.face ?? specimen.defaultFace) : null
+/** Feature list active for the current face; ASME SDHs are generated from T. */
+export function activeFeatures(specimen, params) {
+  if (specimen.type === 'asme') {
+    const t = effectiveThickness(specimen, params)
+    return [1, 2, 3].map((n) => ({
+      type: 'sdh',
+      x: specimen.sdhX,
+      depth: (n * t) / 4,
+      size: specimen.sdhDiaMm,
+      label: n === 1 ? 'T/4' : n === 2 ? 'T/2' : '3T/4',
+    }))
+  }
+  const face = specimen.faces ? (params.face ?? specimen.defaultFace) : null
   return (specimen.features ?? []).filter((f) => !f.face || f.face === face)
 }
 
 /** 0-degree compression probe: backwall multiples, laminations, cal features. */
-function zeroDegreeEchoes({ specimen, params, defects, probeX }) {
+function zeroDegreeEchoes({ specimen, params, defects, probeX, secondary }) {
   const t = effectiveThickness(specimen, params)
   const out = []
-  if (specimen.type === 'v2') return out // curved block - no parallel backwall here
+  // V2 profile face is curved - no parallel backwall; the through face (12.5mm) works.
+  if (specimen.type === 'v2' && (params.face ?? specimen.defaultFace) !== 'through') return out
 
   let backwallFactor = 1
 
@@ -137,7 +165,7 @@ function zeroDegreeEchoes({ specimen, params, defects, probeX }) {
           reflectivity: 0.5,
           extraDb: 6 * Math.pow(dx / 3, 2),
           source: 'feature',
-          label: 'SDH ' + f.depth + ' mm',
+          label: 'SDH ' + (f.label ?? f.depth + ' mm'),
         })
       }
     }
@@ -151,11 +179,23 @@ function zeroDegreeEchoes({ specimen, params, defects, probeX }) {
       label: n === 1 ? 'Backwall' : 'BW x' + n,
     })
   }
+
+  // Mode conversion (teaching signal): part of the spread beam converts to
+  // shear at the backwall; the down-comp/back-shear path arrives at an
+  // apparent (comp-calibrated) range of t/2 * (1 + Vc/Vs) ≈ 1.41 t.
+  if (secondary) {
+    out.push({
+      s: (t / 2) * (1 + V_COMP / V_SHEAR),
+      reflectivity: backwallFactor * 0.12,
+      source: 'secondary',
+      label: 'Mode-converted (BW)',
+    })
+  }
   return out
 }
 
 /** Angle shear probes: radius targets, SDH features and placed defects. */
-function angleEchoes({ specimen, params, defects, probe, probeX, probeDir }) {
+function angleEchoes({ specimen, params, defects, probe, probeX, probeDir, secondary }) {
   const t = effectiveThickness(specimen, params)
   const out = []
 
@@ -190,7 +230,7 @@ function angleEchoes({ specimen, params, defects, probe, probeX, probeDir }) {
           reflectivity: 0.5,
           extraDb: h.spreadDb,
           source: 'feature',
-          label: 'SDH leg ' + h.leg,
+          label: 'SDH ' + (f.label ? f.label + ' ' : '') + 'leg ' + h.leg,
           leg: h.leg,
         })
       }
@@ -218,6 +258,24 @@ function angleEchoes({ specimen, params, defects, probe, probeX, probeDir }) {
         leg: h.leg,
       })
     }
+
+    // Creeping / surface wave (teaching signal): a 70° probe near a defect
+    // that breaks the scanning surface also receives a weak surface wave.
+    // It travels at ~2.98 mm/us; on a shear-calibrated screen it therefore
+    // reads distance * (Vs / Vsurf) ≈ 1.09 x the true surface distance.
+    if (secondary && probe.angle === 70 && d.depth - (d.size ?? 4) / 2 <= 1.5) {
+      const dist = (d.x - probeX) * probeDir
+      if (dist > 5 && dist < 70) {
+        out.push({
+          s: dist * (V_SHEAR / V_SURFACE),
+          reflectivity: 0.12,
+          extraDb: dist * 0.3,
+          source: 'secondary',
+          defectId: d.id,
+          label: 'Surface wave (creeping)',
+        })
+      }
+    }
   }
   return out
 }
@@ -227,24 +285,34 @@ function angleEchoes({ specimen, params, defects, probe, probeX, probeDir }) {
  * { id, s, apparent, amp, source, label, defectId?, leg? }
  * apparent = true beam path + zero error (wedge delay minus the user's
  * probe-zero setting) - a mis-set zero shifts every reading.
+ * With tcg on (and >= 2 DAC points) the recorded DAC curve is applied as
+ * time-corrected gain: reference echoes flatten to TCG_TARGET_PCT.
  */
-export function computeEchoes({ specimen, specimenParams, defects, probe, probeX, probeDir, settings }) {
-  const args = { specimen, params: specimenParams, defects, probe, probeX, probeDir }
+export function computeEchoes({ specimen, specimenParams, defects, probe, probeX, probeDir, settings, secondary = true, dacPoints = [], tcg = false }) {
+  const args = { specimen, params: specimenParams, defects, probe, probeX, probeDir, secondary }
   const raw = probe.angle === 0 ? zeroDegreeEchoes(args) : angleEchoes(args)
   const wave = waveForAngle(probe.angle)
+  const nearField = nearFieldLength(probe)
   const zeroError = (probe.wedgeDelayMm ?? 0) - settings.probeZero
+  const applyTcg = tcg && dacPoints.length >= 2
   const echoes = []
   raw.forEach((r, i) => {
-    const amp = echoAmplitudePct({
+    let amp = echoAmplitudePct({
       reflectivity: r.reflectivity,
       beamPath: r.s,
       gain: settings.gain,
       wave,
       extraDb: r.extraDb ?? 0,
+      nearField,
     })
+    const apparent = r.s + zeroError
+    if (applyTcg) {
+      const ref = dacAmpAt(dacPoints, apparent)
+      if (ref > 0.5) amp = Math.min(110, (amp * TCG_TARGET_PCT) / ref)
+    }
     if (amp < 0.5) return
     if (settings.reject > 0 && amp < settings.reject) return
-    echoes.push({ id: i, ...r, amp, apparent: r.s + zeroError })
+    echoes.push({ id: i, ...r, amp, apparent })
   })
   echoes.sort((a, b) => a.apparent - b.apparent)
   return echoes
@@ -268,10 +336,22 @@ export function dacAmpAt(dacPoints, s) {
 }
 
 /**
+ * Chord -> arc correction for a curved (pipe OD) scanning surface: the flat
+ * model projects the surface distance as a chord; along the OD surface the
+ * true scan distance is the arc 2R asin(chord / 2R).
+ */
+export function arcSurfaceDistance(chord, radius) {
+  if (!radius || radius <= 0) return chord
+  const a = Math.min(1, chord / (2 * radius))
+  return 2 * radius * Math.asin(a)
+}
+
+/**
  * Live readouts derived from the highest (gated) echo, using APPARENT beam
  * path - so a wrongly-set probe zero produces wrong readings, as it should.
+ * curvatureRadius (pipe OD/2) arc-corrects the surface distance readout.
  */
-export function deriveReadout({ echoes, gate, dacPoints, probe, thickness }) {
+export function deriveReadout({ echoes, gate, dacPoints, probe, thickness, curvatureRadius = null, tcg = false }) {
   const pool = gate.on
     ? echoes.filter((e) => e.apparent >= gate.start && e.apparent <= gate.start + gate.width)
     : echoes
@@ -280,33 +360,29 @@ export function deriveReadout({ echoes, gate, dacPoints, probe, thickness }) {
   if (!peak) return { peak: null }
   const s = peak.apparent
   const th = toRad(probe.angle)
-  const surfaceDist = probe.angle === 0 ? 0 : s * Math.sin(th)
+  const chord = probe.angle === 0 ? 0 : s * Math.sin(th)
+  const surfaceDist = curvatureRadius ? arcSurfaceDistance(chord, curvatureRadius) : chord
   const depth = probe.angle === 0 ? s : foldDepth(s * Math.cos(th), thickness)
   const leg = probe.angle === 0 ? 1 : legAtPath(s, probe.angle, thickness)
+  const applyTcg = tcg && dacPoints.length >= 2
   const dacRef = dacPoints.length >= 2 ? dacAmpAt(dacPoints, s) : null
-  const dbToDac =
-    dacRef != null && dacRef > 0.5 && peak.amp > 0
-      ? 20 * Math.log10(peak.amp / dacRef)
-      : null
+  let dbToDac = null
+  if (applyTcg) {
+    dbToDac = peak.amp > 0 ? 20 * Math.log10(peak.amp / TCG_TARGET_PCT) : null
+  } else if (dacRef != null && dacRef > 0.5 && peak.amp > 0) {
+    dbToDac = 20 * Math.log10(peak.amp / dacRef)
+  }
   return { peak, s, surfaceDist, depth, leg, amp: peak.amp, dbToDac }
 }
 
 /* ------------------------------------------------------------------ */
 /* TOFD (Time-of-Flight Diffraction)                                   */
-/* Transmitter and receiver straddle the weld at +/- sHalf mm from the */
-/* pair centre. Time axis in microseconds, compression wave 5.92 mm/us.*/
 /* ------------------------------------------------------------------ */
 
 function clampPct(v) {
   return Math.min(110, Math.max(0, v))
 }
 
-/**
- * TOFD signal set: lateral wave, backwall, and top/bottom tip
- * diffraction for each defect between the probes. Tip signals are weak
- * and phase-inverted relative to their neighbours (drawn as bipolar
- * wiggles on the RF display).
- */
 export function computeTofdSignals({ thickness, sHalf, pairCenter, defects, gain }) {
   const v = V_COMP
   const g = Math.pow(10, (gain - 40) / 20)

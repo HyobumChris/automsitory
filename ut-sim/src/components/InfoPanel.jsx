@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react'
 import { motion } from 'framer-motion' // eslint-disable-line no-unused-vars
+import WinWindow from './WinWindow.jsx'
 
 const GUIDES = {
   basic: {
@@ -19,6 +19,7 @@ const GUIDES = {
       'Set RANGE 100 on the 25 mm plate: you should see backwall multiples.',
       'Adjust ZERO until the echoes sit exactly at 25 / 50 / 75 / 100 mm (교정 완료).',
       'On the EPOCH skin, F1 AUTO CAL computes and applies the zero from two gated echoes.',
+      'A weak trailing echo at ≈1.41 t is the mode-converted (comp→shear) backwall signal — toggle it under Options → Secondary signals.',
     ],
   },
   v1: {
@@ -58,6 +59,8 @@ const GUIDES = {
       'Read Surface distance + Depth in the status bar to plot each indication.',
       'Planar defects (LOF, crack) are orientation-sensitive — try 45° vs 60° vs 70°.',
       'Porosity is weak and omnidirectional; slag is intermediate. DEFECT button opens the editor.',
+      'With the 70° probe near a surface-breaking defect, a weak creeping/surface-wave signal appears (Options → Secondary signals).',
+      'RAD opens the simulated radiograph — note which defect types RT sees well, and that laminations do not show at all.',
     ],
   },
   dac: {
@@ -98,6 +101,26 @@ const GUIDES = {
       'Adjust the probe-centre spacing with TOFD PCS (2S) and watch every arrival time change.',
     ],
   },
+  asme: {
+    title: 'ASME Basic Block — DAC/TCG (ASME 교정)',
+    steps: [
+      'The ASME basic calibration block has three 3 mm SDHs at T/4, T/2 and 3T/4 depth (T selectable 20–50 mm in the Step Wedge menu).',
+      'With the 45° probe, peak the leg-1 echo of the T/4 hole and press DAC PT.',
+      'Repeat for T/2 and 3T/4 — a 3-point DAC curve is drawn on the screen.',
+      'Press TCG: the curve is applied as time-corrected gain and all three reference echoes flatten to 80 % FSH.',
+      'The 0° probe sees the holes too — and backwall multiples of T for range calibration.',
+    ],
+  },
+  pipe: {
+    title: 'Pipe Circumferential Weld (배관 원주 용접부)',
+    steps: [
+      'The pipe is shown UNROLLED: the strip is the weld cross-section and the ruler reads circumferential position 0 → πD mm.',
+      'Select OD (6/8/12 in) and wall thickness in the Weld menu; the strip length is the circumference C = πD.',
+      'DEFECT opens the Circle View dialog: the pipe as an annulus with mm spokes, red defect arcs, APPLY TO ALL, and Save/Load Def.',
+      'The 3D Pipe window shows defect clock positions live (0 at top).',
+      'Readouts: the surface distance is arc-corrected for OD curvature (SD shown as mm(arc)); RAD shows the radiograph.',
+    ],
+  },
   aut: {
     title: 'AUT — Automated UT (자동 초음파 탐상)',
     steps: [
@@ -109,53 +132,20 @@ const GUIDES = {
   },
 }
 
-function useDragWindow(initial) {
-  const [pos, setPos] = useState(initial)
-  const drag = useRef(null)
-  const onPointerDown = (e) => {
-    drag.current = { sx: e.clientX, sy: e.clientY, ox: pos.x, oy: pos.y }
-    e.currentTarget.setPointerCapture(e.pointerId)
-  }
-  const onPointerMove = (e) => {
-    if (!drag.current) return
-    setPos({ x: drag.current.ox + e.clientX - drag.current.sx, y: drag.current.oy + e.clientY - drag.current.sy })
-  }
-  const onPointerUp = () => {
-    drag.current = null
-  }
-  return { pos, handlers: { onPointerDown, onPointerMove, onPointerUp } }
-}
-
 export default function InfoPanel({ modeId, onClose }) {
-  const { pos, handlers } = useDragWindow({ x: 850, y: 40 })
   const guide = GUIDES[modeId] ?? GUIDES.basic
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.15 }}
-      className="absolute z-50 w-[340px] select-none"
-      style={{ left: pos.x, top: pos.y }}
-    >
-      <div className="bevel-out shadow-[4px_4px_8px_rgba(0,0,0,0.35)]">
-        <div
-          {...handlers}
-          className="flex cursor-move touch-none items-center bg-[linear-gradient(90deg,#000080,#1084d0)] px-1.5 py-0.5 text-[11px] font-bold text-white"
-        >
-          Exercise Guide — {guide.title}
-          <button type="button" onClick={onClose} className="bevel-out ml-auto h-[15px] w-[17px] text-[9px] leading-none text-black">✕</button>
+    <WinWindow title={'Exercise Guide — ' + guide.title} initial={{ x: 850, y: 40 }} width={340} onClose={onClose}>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }} className="p-2">
+        <ol className="list-decimal space-y-1 pl-5 text-[11px] leading-snug text-black">
+          {guide.steps.map((s, i) => (
+            <li key={i}>{s}</li>
+          ))}
+        </ol>
+        <div className="mt-2 flex justify-end">
+          <button type="button" onClick={onClose} className="bevel-out px-4 py-0.5 text-[11px] font-bold text-black">OK</button>
         </div>
-        <div className="p-2">
-          <ol className="list-decimal space-y-1 pl-5 text-[11px] leading-snug text-black">
-            {guide.steps.map((s, i) => (
-              <li key={i}>{s}</li>
-            ))}
-          </ol>
-          <div className="mt-2 flex justify-end">
-            <button type="button" onClick={onClose} className="bevel-out px-4 py-0.5 text-[11px] font-bold text-black">OK</button>
-          </div>
-        </div>
-      </div>
-    </motion.div>
+      </motion.div>
+    </WinWindow>
   )
 }

@@ -1,27 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { RANGE_STEPS, GAIN_STEPS } from '../lib/ultrasound.js'
+import WinWindow from './WinWindow.jsx'
 
 /* ---------- shared helpers ---------- */
-
-function useDragWindow(initial) {
-  const [pos, setPos] = useState(initial)
-  const drag = useRef(null)
-  const onPointerDown = (e) => {
-    drag.current = { sx: e.clientX, sy: e.clientY, ox: pos.x, oy: pos.y }
-    e.currentTarget.setPointerCapture(e.pointerId)
-  }
-  const onPointerMove = (e) => {
-    if (!drag.current) return
-    setPos({
-      x: drag.current.ox + e.clientX - drag.current.sx,
-      y: drag.current.oy + e.clientY - drag.current.sy,
-    })
-  }
-  const onPointerUp = () => {
-    drag.current = null
-  }
-  return { pos, handlers: { onPointerDown, onPointerMove, onPointerUp } }
-}
 
 function HoldBtn({ onTrigger, children, className = '', title }) {
   const timers = useRef({ t: null, i: null })
@@ -233,6 +214,15 @@ function Usk7Panel({ state, dispatch, tofdMode, onRecordDac, onAddMarker }) {
           <button type="button" onClick={() => dispatch({ type: 'CLEAR_DAC' })} className="bevel-out px-1 text-[8px]">CLR DAC</button>
           <button type="button" onClick={onAddMarker} className="bevel-out px-1 text-[8px] font-bold">MARK {beamMarkers.length}</button>
           <button type="button" onClick={() => dispatch({ type: 'CLEAR_MARKERS' })} className="bevel-out px-1 text-[8px]">CLR MK</button>
+          <button
+            type="button"
+            disabled={dacPoints.length < 2}
+            onClick={() => dispatch({ type: 'SET_SETTING', key: 'tcg', value: !settings.tcg })}
+            className={(settings.tcg ? 'bevel-in ' : 'bevel-out ') + 'col-span-2 px-1 text-[8px] font-bold disabled:embossed'}
+            title="Time-corrected gain: flattens DAC reference echoes to 80%"
+          >
+            TCG {settings.tcg ? 'ON' : 'OFF'}
+          </button>
         </div>
       </div>
     </div>
@@ -283,7 +273,15 @@ function EpochBody({ state, dispatch, tofdMode, onRecordDac, onAddMarker, onOpen
     { cap: 'P3', label: 'MARK', onClick: onAddMarker },
     { cap: 'P4', label: 'CLR MK', onClick: () => dispatch({ type: 'CLEAR_MARKERS' }) },
     { cap: 'P5', label: 'FLIP', onClick: () => dispatch({ type: 'FLIP_PROBE' }) },
-    { cap: 'P6', label: tofdMode ? 'PCS −' : '—', onClick: tofdMode ? () => dispatch({ type: 'SET_TOFD_S', delta: -1 }) : null },
+    {
+      cap: 'P6',
+      label: tofdMode ? 'PCS −' : settings.tcg ? 'TCG ON' : 'TCG OFF',
+      onClick: tofdMode
+        ? () => dispatch({ type: 'SET_TOFD_S', delta: -1 })
+        : state.dacPoints.length >= 2
+          ? () => dispatch({ type: 'SET_SETTING', key: 'tcg', value: !settings.tcg })
+          : null,
+    },
     { cap: 'P7', label: tofdMode ? 'PCS +' : '—', onClick: tofdMode ? () => dispatch({ type: 'SET_TOFD_S', delta: 1 }) : null },
   ]
   const keyCls = 'bevel-out flex h-7 flex-col items-center justify-center px-1 text-[8px] leading-tight text-black active:bevel-in'
@@ -418,7 +416,6 @@ function StripChart({ scan, gate, dispatch }) {
 /* ---------- AUTO CAL dialog (EPOCH) ---------- */
 
 function AutoCalDialog({ readout, settings, dispatch, onClose }) {
-  const { pos, handlers } = useDragWindow({ x: 120, y: 60 })
   const [ref1, setRef1] = useState(25)
   const [ref2, setRef2] = useState(50)
   const [m1, setM1] = useState(null)
@@ -447,13 +444,8 @@ function AutoCalDialog({ readout, settings, dispatch, onClose }) {
     />
   )
   return (
-    <div className="absolute z-50 w-[300px]" style={{ left: pos.x, top: pos.y }}>
-      <div className="bevel-out">
-        <div {...handlers} className="flex cursor-move touch-none items-center bg-[linear-gradient(90deg,#000080,#1084d0)] px-1.5 py-0.5 text-[11px] font-bold text-white">
-          AUTO CAL (자동 교정)
-          <button type="button" onClick={onClose} className="bevel-out ml-auto h-[15px] w-[17px] text-[9px] leading-none text-black">✕</button>
-        </div>
-        <div className="space-y-1.5 p-2 text-[11px]">
+    <WinWindow title="AUTO CAL (자동 교정)" initial={{ x: 120, y: 60 }} width={300} onClose={onClose}>
+      <div className="space-y-1.5 p-2 text-[11px]">
           <p>Gate echo 1, capture. Gate echo 2, capture. Then Apply — the computed probe zero is set automatically.</p>
           <div className="flex items-center gap-1">
             Ref 1 {num(ref1, setRef1)} mm
@@ -470,28 +462,28 @@ function AutoCalDialog({ readout, settings, dispatch, onClose }) {
             <button type="button" onClick={onClose} className="bevel-out px-2 py-0.5 text-[11px]">OK</button>
           </div>
           {result && <p className="text-defect-red">{result}</p>}
-        </div>
       </div>
-    </div>
+    </WinWindow>
   )
 }
 
 /* ---------- floating instrument window ---------- */
 
 export default function ControlPanel({ state, dispatch, readout, tofdMode, autMode, onRecordDac, onAddMarker, children }) {
-  const { pos, handlers } = useDragWindow({ x: 22, y: 8 })
   const [autoCal, setAutoCal] = useState(false)
   const epoch = state.instrument === 'epoch'
   return (
-    <div className="absolute z-40 select-none" style={{ left: pos.x, top: pos.y }}>
-      <div className="bevel-out shadow-[4px_4px_8px_rgba(0,0,0,0.35)]">
-        <div
-          {...handlers}
-          className="flex cursor-move touch-none items-center gap-2 bg-[linear-gradient(90deg,#000080,#1084d0)] px-2 py-0.5 text-[11px] font-bold text-white"
-        >
-          {epoch ? 'EPOCH-SIM 600 — Digital Flaw Detector (디지털 탐상기)' : 'USK-7 SIM — Flaw Detector (탐상기)'}
-          <span className="ml-auto text-[9px] font-normal opacity-75">drag to move</span>
-        </div>
+    <>
+      <WinWindow
+        title={
+          <>
+            {epoch ? 'EPOCH-SIM 600 — Digital Flaw Detector (디지털 탐상기)' : 'USK-7 SIM — Flaw Detector (탐상기)'}
+            <span className="ml-auto text-[9px] font-normal opacity-75">drag to move</span>
+          </>
+        }
+        initial={{ x: 22, y: 8 }}
+        className="z-40"
+      >
         {epoch ? (
           <EpochBody
             state={state}
@@ -510,10 +502,10 @@ export default function ControlPanel({ state, dispatch, readout, tofdMode, autMo
           </div>
         )}
         {autMode && <StripChart scan={state.scan} gate={state.gate} dispatch={dispatch} />}
-      </div>
+      </WinWindow>
       {autoCal && (
         <AutoCalDialog readout={readout} settings={state.settings} dispatch={dispatch} onClose={() => setAutoCal(false)} />
       )}
-    </div>
+    </>
   )
 }

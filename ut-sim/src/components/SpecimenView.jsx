@@ -1,5 +1,7 @@
 import { useRef } from 'react'
 import { beamPolyline, sampleArc, toRad } from '../lib/geometry.js'
+import { activeFeatures } from '../lib/ultrasound.js'
+import { effectiveLength, weldCenterOf } from '../data/specimens.js'
 
 const BODY = '#a8a8a8'
 const BODY_BACK = '#c6c6c6'
@@ -11,24 +13,26 @@ function pts2str(pts) {
   return pts.map(([x, y]) => x.toFixed(2) + ',' + y.toFixed(2)).join(' ')
 }
 
-function profilePoints(specimen, params, thickness) {
-  const L = specimen.length
+function profilePoints(specimen, params, thickness, length) {
   switch (specimen.type) {
     case 'v1': {
       if ((params.face ?? specimen.defaultFace) === 'edge') {
-        return [[0, 0], [L, 0], [L, thickness], [0, thickness]]
+        return [[0, 0], [length, 0], [length, thickness], [0, thickness]]
       }
       const arc = sampleArc(100, 0, 100, 180, 90, 28)
-      return [[L, 0], [0, 0], ...arc.slice(1), [L, 100]]
+      return [[length, 0], [0, 0], ...arc.slice(1), [length, 100]]
     }
     case 'v2': {
+      if ((params.face ?? specimen.defaultFace) === 'through') {
+        return [[25, 0], [100, 0], [100, 12.5], [25, 12.5]]
+      }
       const f = specimen.focusX
       const a25 = sampleArc(f, 0, 25, 180, 90, 20)
       const a50 = sampleArc(f, 0, 50, 90, 0, 24)
       return [...a25, [f, 50], ...a50.slice(1)]
     }
     default:
-      return [[0, 0], [L, 0], [L, thickness], [0, thickness]]
+      return [[0, 0], [length, 0], [length, thickness], [0, thickness]]
   }
 }
 
@@ -126,27 +130,35 @@ export default function SpecimenView({
   const svgRef = useRef(null)
   const dragging = useRef(false)
 
-  const L = specimen.length
   const params = specimenParams
-  const profile = profilePoints(specimen, params, thickness)
+  const L = effectiveLength(specimen, params)
+  const profile = profilePoints(specimen, params, thickness, L)
   const profileHeight = Math.max(...profile.map(([, y]) => y))
   const isTky = specimen.type === 'tky'
-  const isBlock = specimen.type === 'v1' || specimen.type === 'v2'
+  const isPipe = specimen.type === 'pipe'
+  const isBlock = specimen.type === 'v1' || specimen.type === 'v2' || specimen.type === 'asme'
   const v1Side = specimen.type === 'v1' && (params.face ?? specimen.defaultFace) === 'side'
+  const v2Profile = specimen.type === 'v2' && (params.face ?? specimen.defaultFace) === 'profile'
+  const braceScan = isTky && (params.scanSurface ?? 'main') === 'brace'
 
   const topPad = isTky ? 88 : 52
   const botPad = 16
   const vb = '-34 ' + -topPad + ' ' + (L + 70) + ' ' + (profileHeight + topPad + botPad)
   const fs = Math.max(L * 0.022, 4.5)
 
-  const cx = specimen.type === 'weld' ? specimen.weldCenterX : L / 2
+  const cx = weldCenterOf(specimen, params)
 
-  /* --- beam geometry --- */
-  const radiusFeature = (specimen.features ?? []).find(
-    (f) =>
-      f.type === 'radius' &&
-      (!f.face || f.face === (params.face ?? specimen.defaultFace)) &&
-      (!f.dir || f.dir === probeDir),
+  /* --- TKY brace scan-surface transform (local flat coords -> world) --- */
+  const beta = toRad(params.braceAngle ?? specimen.braceAngle ?? 45)
+  const braceU = [Math.cos(beta), -Math.sin(beta)] // up along the brace face
+  const braceN = [Math.sin(beta), Math.cos(beta)] // into the brace material
+  const bx0 = specimen.braceX ?? 0
+  const braceMatrix =
+    'matrix(' + braceU[0] + ' ' + braceU[1] + ' ' + braceN[0] + ' ' + braceN[1] + ' ' + bx0 * (1 - braceU[0]) + ' ' + -braceU[1] * bx0 + ')'
+
+  /* --- beam geometry (in scan-surface local coordinates) --- */
+  const radiusFeature = activeFeatures(specimen, params).find(
+    (f) => f.type === 'radius' && (!f.dir || f.dir === probeDir),
   )
   const aimedAtRadius = !tofdMode && probe.angle > 0 && radiusFeature && Math.abs(probeX - radiusFeature.focusX) <= 15
 
@@ -176,13 +188,15 @@ export default function SpecimenView({
     }
   }
 
-  /* --- drag --- */
+  /* --- drag (projected onto the active scan surface) --- */
   const svgX = (e) => {
     const svg = svgRef.current
     const pt = svg.createSVGPoint()
     pt.x = e.clientX
     pt.y = e.clientY
-    return pt.matrixTransform(svg.getScreenCTM().inverse()).x
+    const p = pt.matrixTransform(svg.getScreenCTM().inverse())
+    if (braceScan) return bx0 + (p.x - bx0) * braceU[0] + p.y * braceU[1]
+    return p.x
   }
   const onPointerDown = (e) => {
     dragging.current = true
@@ -211,46 +225,90 @@ export default function SpecimenView({
       )
     }
   }
-  const maxHalf = Math.max(20, Math.min(100, Math.floor(Math.min(cx, L - cx) / 10) * 10))
   const scaleY = -30
-  const scale = [
-    <line key="base" x1={cx - maxHalf} y1={scaleY} x2={cx + maxHalf} y2={scaleY} stroke="#000" strokeWidth={0.4} />,
-  ]
-  for (let v = -maxHalf; v <= maxHalf; v += 5) {
-    const x = cx + v
-    if (x < 0 || x > L) continue
-    const major = v % 10 === 0
-    scale.push(<line key={'t' + v} x1={x} y1={scaleY} x2={x} y2={scaleY - (major ? 4 : 2.5)} stroke="#000" strokeWidth={0.3} />)
-    if (major) {
-      scale.push(
-        <text key={'n' + v} x={x} y={scaleY - 6} fontSize={fs * 0.72} textAnchor="middle" fill="#000">
-          {Math.abs(v)}
-        </text>,
-      )
+  const scale = []
+  if (isPipe) {
+    // absolute circumferential scale: 0 .. pi*OD
+    scale.push(<line key="base" x1={0} y1={scaleY} x2={L} y2={scaleY} stroke="#000" strokeWidth={0.4} />)
+    for (let v = 0; v <= L; v += 20) {
+      const major = v % 100 === 0
+      scale.push(<line key={'t' + v} x1={v} y1={scaleY} x2={v} y2={scaleY - (major ? 4 : 2.5)} stroke="#000" strokeWidth={0.3} />)
+      if (major) {
+        scale.push(
+          <text key={'n' + v} x={v} y={scaleY - 6} fontSize={fs * 0.72} textAnchor="middle" fill="#000">{v}</text>,
+        )
+      }
+    }
+    scale.push(
+      <text key="cap" x={L} y={scaleY - 14} fontSize={fs * 0.8} textAnchor="end" fill="#000">
+        circumference C = πD = {L} mm
+      </text>,
+    )
+  } else {
+    const maxHalf = Math.max(20, Math.min(100, Math.floor(Math.min(cx, L - cx) / 10) * 10))
+    scale.push(<line key="base" x1={cx - maxHalf} y1={scaleY} x2={cx + maxHalf} y2={scaleY} stroke="#000" strokeWidth={0.4} />)
+    for (let v = -maxHalf; v <= maxHalf; v += 5) {
+      const x = cx + v
+      if (x < 0 || x > L) continue
+      const major = v % 10 === 0
+      scale.push(<line key={'t' + v} x1={x} y1={scaleY} x2={x} y2={scaleY - (major ? 4 : 2.5)} stroke="#000" strokeWidth={0.3} />)
+      if (major) {
+        scale.push(
+          <text key={'n' + v} x={x} y={scaleY - 6} fontSize={fs * 0.72} textAnchor="middle" fill="#000">
+            {Math.abs(v)}
+          </text>,
+        )
+      }
     }
   }
 
   /* --- weld / brace overlays --- */
   let weld = null
-  if (specimen.type === 'weld') {
+  if (specimen.type === 'weld' || isPipe) {
     const ho = thickness * Math.tan(toRad(specimen.prepHalfAngleDeg)) + 1.5
-    weld = { wx: specimen.weldCenterX, ho }
+    weld = { wx: cx, ho }
   }
   let brace = null
   if (isTky) {
-    const beta = toRad(params.braceAngle ?? specimen.braceAngle)
     const bt = specimen.braceThickness
     const bl = 74
-    const x0 = specimen.braceX
-    const u = [Math.cos(beta), -Math.sin(beta)]
-    const x1 = x0 + bt / Math.sin(beta)
-    brace = { poly: [[x0, 0], [x0 + bl * u[0], bl * u[1]], [x1 + bl * u[0], bl * u[1]], [x1, 0]], x0, x1 }
+    const x1 = bx0 + bt / Math.sin(beta)
+    brace = {
+      poly: [[bx0, 0], [bx0 + bl * braceU[0], bl * braceU[1]], [x1 + bl * braceU[0], bl * braceU[1]], [x1, 0]],
+      x0: bx0,
+      x1,
+    }
   }
 
   /* --- plan view pointer --- */
   const planA = (probeDir > 0 ? 0 : Math.PI) + ((probeX - cx) / Math.max(L, 1)) * (Math.PI / 3) * (probeDir > 0 ? 1 : -1)
 
   const contextTitle = isBlock ? 'Carbon Steel Block' : specimen.name
+
+  const probeAndBeam = (
+    <>
+      {!tofdMode && showBeamFan && fanA && (
+        <g stroke="#fafafa" strokeWidth={0.5} strokeDasharray="1 1.6" fill="none">
+          <polyline points={pts2str(fanA)} />
+          <polyline points={pts2str(fanB)} />
+        </g>
+      )}
+      {!tofdMode && beamPts && <polyline points={pts2str(beamPts)} fill="none" stroke={BLUE} strokeWidth={0.8} />}
+      {tofdMode ? (
+        <g style={{ cursor: 'ew-resize' }}>
+          <ProbeWedge x={probeX - tofdS} dir={1} angle={60} tofdLabel="Tx" />
+          <ProbeWedge x={probeX + tofdS} dir={-1} angle={60} tofdLabel="Rx" />
+        </g>
+      ) : (
+        <g style={{ cursor: 'ew-resize' }}>
+          <ProbeWedge x={probeX} dir={probeDir} angle={probe.angle} />
+          <text x={probeX} y={-19} fontSize={fs * 0.9} fontWeight="700" fill="#000" textAnchor="middle">
+            {probe.angle}°{braceScan ? ' brace' : ''}
+          </text>
+        </g>
+      )}
+    </>
+  )
 
   return (
     <div className="relative h-full w-full" style={{ background: WORKSPACE }}>
@@ -274,20 +332,16 @@ export default function SpecimenView({
           </pattern>
         </defs>
 
-        {/* workspace title */}
         <text x={-28} y={-topPad + 10} fontSize={fs * 1.25} fontWeight="700" fill="#000">
           {contextTitle} — {specimen.nameKo}
+          {isPipe ? ' (' + (params.odIn ?? specimen.odIn) + '" OD, WT ' + thickness + 'mm, unrolled)' : ''}
         </text>
 
-        {/* pseudo-3D back face for cal blocks */}
         {isBlock && (
           <polygon points={pts2str(profile)} transform="translate(8,-6)" fill={BODY_BACK} stroke="#000" strokeWidth={0.4} />
         )}
-
-        {/* specimen body */}
         <polygon points={pts2str(profile)} fill={BODY} stroke="#000" strokeWidth={0.6} />
 
-        {/* rulers + probe position scale */}
         {rulers}
         {scale}
 
@@ -326,14 +380,32 @@ export default function SpecimenView({
             <text x={100} y={-10} fontSize={fs * 0.85} fill="#000" textAnchor="middle">focus ▼ R100</text>
           </g>
         )}
-        {specimen.type === 'v2' && (
+        {v2Profile && (
           <g>
             <text x={72} y={26} fontSize={fs * 2.4} fontWeight="700" fill="#000" textAnchor="middle">V2</text>
             <circle cx={specimen.focusX} cy={12} r={2.5} fill="#fff" stroke="#000" strokeWidth={0.4} />
           </g>
         )}
+        {specimen.type === 'v2' && !v2Profile && (
+          <text x={62} y={9} fontSize={fs * 1.4} fontWeight="700" fill="#000" textAnchor="middle">V2 — 12.5 mm</text>
+        )}
 
-        {/* weld overlay: hatched weld zone + cap/root */}
+        {/* ASME basic block SDHs at T/4, T/2, 3T/4 */}
+        {specimen.type === 'asme' && (
+          <g>
+            <text x={70} y={thickness * 0.62} fontSize={fs * 2.2} fontWeight="700" fill="#000" textAnchor="middle">ASME</text>
+            {activeFeatures(specimen, params).map((f, i) => (
+              <g key={i}>
+                <circle cx={f.x} cy={f.depth} r={Math.max(f.size / 2, 1.2)} fill="#fff" stroke="#000" strokeWidth={0.4} />
+                <text x={f.x + 6} y={f.depth + 2} fontSize={fs * 0.8} fill="#000">
+                  {f.label} = {f.depth.toFixed(1)}
+                </text>
+              </g>
+            ))}
+          </g>
+        )}
+
+        {/* weld overlay (butt weld + pipe circumferential weld) */}
         {weld && (
           <g>
             <polygon
@@ -364,20 +436,9 @@ export default function SpecimenView({
             <polygon points={pts2str([[brace.x0 - 4, 0], [brace.x0, 0], [brace.x0, -4]])} fill="url(#weldHatch)" stroke="#444" strokeWidth={0.3} />
             <polygon points={pts2str([[brace.x1, 0], [brace.x1 + 4, 0], [brace.x1, -4]])} fill="url(#weldHatch)" stroke="#444" strokeWidth={0.3} />
             <text x={brace.x0 - 6} y={-34} fontSize={fs} fill="#000" textAnchor="end">
-              brace {params.braceAngle ?? specimen.braceAngle}°
+              brace {params.braceAngle ?? specimen.braceAngle}° t={specimen.braceThickness}mm
             </text>
           </g>
-        )}
-
-        {/* beam: spread fan (dotted) + centreline (solid blue) */}
-        {!tofdMode && showBeamFan && fanA && (
-          <g stroke="#fafafa" strokeWidth={0.5} strokeDasharray="1 1.6" fill="none">
-            <polyline points={pts2str(fanA)} />
-            <polyline points={pts2str(fanB)} />
-          </g>
-        )}
-        {!tofdMode && beamPts && (
-          <polyline points={pts2str(beamPts)} fill="none" stroke={BLUE} strokeWidth={0.8} />
         )}
 
         {/* TOFD: lateral wave, backwall V-path, tip paths */}
@@ -418,20 +479,8 @@ export default function SpecimenView({
           </g>
         ))}
 
-        {/* probe(s) */}
-        {tofdMode ? (
-          <g style={{ cursor: 'ew-resize' }}>
-            <ProbeWedge x={probeX - tofdS} dir={1} angle={60} tofdLabel="Tx" />
-            <ProbeWedge x={probeX + tofdS} dir={-1} angle={60} tofdLabel="Rx" />
-          </g>
-        ) : (
-          <g style={{ cursor: 'ew-resize' }}>
-            <ProbeWedge x={probeX} dir={probeDir} angle={probe.angle} />
-            <text x={probeX} y={-19} fontSize={fs * 0.9} fontWeight="700" fill="#000" textAnchor="middle">
-              {probe.angle}°
-            </text>
-          </g>
-        )}
+        {/* probe + beam, on the main surface or rotated onto the brace face */}
+        {braceScan ? <g transform={braceMatrix}>{probeAndBeam}</g> : probeAndBeam}
       </svg>
 
       {/* PLAN VIEW (top-right) */}

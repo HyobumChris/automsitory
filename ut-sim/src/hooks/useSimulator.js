@@ -7,7 +7,14 @@ import {
   tofdDepthFromTime,
 } from '../lib/ultrasound.js'
 import { getProbe } from '../data/probes.js'
-import { getSpecimen, defaultSpecimenParams, makeDefect } from '../data/specimens.js'
+import {
+  getSpecimen,
+  defaultSpecimenParams,
+  makeDefect,
+  effectiveLength,
+  surfaceRangeOf,
+  weldCenterOf,
+} from '../data/specimens.js'
 
 // Exercise modes mirroring the UTman playlist. Each preset selects a sensible
 // specimen + probe + instrument setup; guidance text lives in InfoPanel.
@@ -53,6 +60,16 @@ export const MODES = [
     settings: { range: 250, gain: 42, xShift: 0, probeZero: 0, reject: 0 },
   },
   {
+    id: 'asme',
+    label: 'ASME 교정',
+    labelEn: 'ASME Block DAC/TCG',
+    specimen: 'asme',
+    probe: 'shear-45',
+    probeX: 130,
+    probeDir: 1,
+    settings: { range: 100, gain: 44, xShift: 0, probeZero: 8, reject: 0 },
+  },
+  {
     id: 'lam',
     label: '라미네이션',
     labelEn: 'Lamination',
@@ -75,6 +92,20 @@ export const MODES = [
     defects: [
       { kind: 'lof', x: 145, depth: 8, tilt: 30 },
       { kind: 'porosity', x: 152, depth: 14 },
+    ],
+  },
+  {
+    id: 'pipe',
+    label: '배관 용접부',
+    labelEn: 'Pipe Circ. Weld',
+    specimen: 'pipe',
+    probe: 'shear-60',
+    probeX: 285,
+    probeDir: 1,
+    settings: { range: 200, gain: 46, xShift: 0, probeZero: 10, reject: 0 },
+    defects: [
+      { kind: 'lof', x: 314, depth: 6, tilt: 30 },
+      { kind: 'porosity', x: 322, depth: 9 },
     ],
   },
   {
@@ -154,13 +185,15 @@ const SETTING_CLAMPS = {
   reject: [0, 80],
 }
 
+const RAW_SETTINGS = new Set(['dbStep', 'tcg'])
+
 function clampSetting(key, value) {
   const [lo, hi] = SETTING_CLAMPS[key] ?? [-1e9, 1e9]
   return Math.min(hi, Math.max(lo, Math.round(value * 100) / 100))
 }
 
-function clampProbeX(specimen, x) {
-  const [lo, hi] = specimen.surfaceRange ?? [2, specimen.length - 2]
+function clampProbeX(specimen, params, x) {
+  const [lo, hi] = surfaceRangeOf(specimen, params)
   return Math.min(hi, Math.max(lo, Math.round(x * 10) / 10))
 }
 
@@ -174,32 +207,43 @@ function stateForMode(modeId) {
     specimenId: specimen.id,
     specimenParams: params,
     probeId: mode.probe,
-    probeX: clampProbeX(specimen, mode.probeX),
+    probeX: clampProbeX(specimen, params, mode.probeX),
     probeDir: mode.probeDir ?? 1,
-    settings: { dbStep: 2, ...mode.settings },
+    settings: { dbStep: 2, tcg: false, ...mode.settings },
     gate: { on: true, start: 10, width: 60, level: 40, ...(mode.gate ?? {}) },
     dacPoints: [],
     beamMarkers: [],
     defects: (mode.defects ?? []).map((d) => makeDefect(d.kind, d)),
     selectedDefectId: null,
     instrument: 'usk7', // 'usk7' | 'epoch'
+    secondary: true, // teaching-level mode conversion / surface wave signals
     tofdS: Math.round(t * 0.7), // TOFD half probe-centre spacing (mm)
     tofdCursorUs: null,
     scan: { running: false, span: mode.scanSpan ?? [40, 260], data: [] },
   }
 }
 
+function sanitizeDefect(d) {
+  return makeDefect(typeof d.kind === 'string' ? d.kind : 'crack', {
+    x: Number.isFinite(+d.x) ? +d.x : 150,
+    depth: Number.isFinite(+d.depth) ? +d.depth : 10,
+    size: Number.isFinite(+d.size) ? +d.size : 5,
+    tilt: Number.isFinite(+d.tilt) ? +d.tilt : 0,
+  })
+}
+
 function reducer(state, action) {
   switch (action.type) {
     case 'SET_MODE':
-      return { ...stateForMode(action.modeId), instrument: state.instrument }
+      return { ...stateForMode(action.modeId), instrument: state.instrument, secondary: state.secondary }
     case 'SET_SPECIMEN': {
       const specimen = getSpecimen(action.specimenId)
+      const params = defaultSpecimenParams(specimen)
       return {
         ...state,
         specimenId: specimen.id,
-        specimenParams: defaultSpecimenParams(specimen),
-        probeX: clampProbeX(specimen, state.probeX),
+        specimenParams: params,
+        probeX: clampProbeX(specimen, params, state.probeX),
         defects: [],
         selectedDefectId: null,
         dacPoints: [],
@@ -207,25 +251,27 @@ function reducer(state, action) {
         scan: { ...state.scan, running: false, data: [] },
       }
     }
-    case 'SET_SPECIMEN_PARAM':
-      return {
-        ...state,
-        specimenParams: { ...state.specimenParams, [action.key]: action.value },
-      }
+    case 'SET_SPECIMEN_PARAM': {
+      const specimen = getSpecimen(state.specimenId)
+      const params = { ...state.specimenParams, [action.key]: action.value }
+      return { ...state, specimenParams: params, probeX: clampProbeX(specimen, params, state.probeX) }
+    }
     case 'SET_PROBE':
       return { ...state, probeId: action.probeId }
     case 'SET_PROBE_X': {
       const specimen = getSpecimen(state.specimenId)
-      return { ...state, probeX: clampProbeX(specimen, action.x) }
+      return { ...state, probeX: clampProbeX(specimen, state.specimenParams, action.x) }
     }
     case 'MOVE_PROBE': {
       const specimen = getSpecimen(state.specimenId)
-      return { ...state, probeX: clampProbeX(specimen, state.probeX + action.delta) }
+      return { ...state, probeX: clampProbeX(specimen, state.specimenParams, state.probeX + action.delta) }
     }
     case 'FLIP_PROBE':
       return { ...state, probeDir: -state.probeDir }
     case 'SET_INSTRUMENT':
       return { ...state, instrument: action.instrument }
+    case 'TOGGLE_SECONDARY':
+      return { ...state, secondary: !state.secondary }
     case 'SET_TOFD_S':
       return { ...state, tofdS: Math.min(80, Math.max(5, state.tofdS + action.delta)) }
     case 'SET_TOFD_CURSOR':
@@ -235,8 +281,7 @@ function reducer(state, action) {
         ...state,
         settings: {
           ...state.settings,
-          [action.key]:
-            action.key === 'dbStep' ? action.value : clampSetting(action.key, action.value),
+          [action.key]: RAW_SETTINGS.has(action.key) ? action.value : clampSetting(action.key, action.value),
         },
       }
     case 'ADJUST_SETTING':
@@ -265,7 +310,7 @@ function reducer(state, action) {
       const specimen = getSpecimen(state.specimenId)
       const t = effectiveThickness(specimen, state.specimenParams)
       const defect = makeDefect(action.kind, {
-        x: specimen.type === 'weld' ? specimen.weldCenterX : Math.round(specimen.length / 2),
+        x: weldCenterOf(specimen, state.specimenParams),
         depth: Math.round((t / 2) * 10) / 10,
         ...action.overrides,
       })
@@ -278,6 +323,13 @@ function reducer(state, action) {
           d.id === action.id ? { ...d, ...action.patch } : d,
         ),
       }
+    case 'UPDATE_ALL_DEFECTS':
+      return { ...state, defects: state.defects.map((d) => ({ ...d, ...action.patch })) }
+    case 'LOAD_DEFECTS': {
+      if (!Array.isArray(action.defects)) return state
+      const defects = action.defects.slice(0, 8).map(sanitizeDefect)
+      return { ...state, defects, selectedDefectId: defects[0]?.id ?? null }
+    }
     case 'REMOVE_DEFECT':
       return {
         ...state,
@@ -293,7 +345,7 @@ function reducer(state, action) {
       const specimen = getSpecimen(state.specimenId)
       return {
         ...state,
-        probeX: clampProbeX(specimen, state.scan.span[0]),
+        probeX: clampProbeX(specimen, state.specimenParams, state.scan.span[0]),
         scan: { ...state.scan, running: true, data: [] },
       }
     }
@@ -316,6 +368,7 @@ export default function useSimulator() {
   const specimen = getSpecimen(state.specimenId)
   const probe = getProbe(state.probeId)
   const thickness = effectiveThickness(specimen, state.specimenParams)
+  const length = effectiveLength(specimen, state.specimenParams)
   const tofdMode = state.modeId === 'tofd'
 
   const echoes = useMemo(() => {
@@ -336,8 +389,11 @@ export default function useSimulator() {
       probeX: state.probeX,
       probeDir: state.probeDir,
       settings: state.settings,
+      secondary: state.secondary,
+      dacPoints: state.dacPoints,
+      tcg: state.settings.tcg,
     })
-  }, [tofdMode, specimen, state.specimenParams, state.defects, probe, state.probeX, state.probeDir, state.settings, state.tofdS, thickness])
+  }, [tofdMode, specimen, state.specimenParams, state.defects, probe, state.probeX, state.probeDir, state.settings, state.secondary, state.dacPoints, state.tofdS, thickness])
 
   const readout = useMemo(() => {
     if (tofdMode) return { peak: null }
@@ -347,8 +403,11 @@ export default function useSimulator() {
       dacPoints: state.dacPoints,
       probe,
       thickness,
+      curvatureRadius:
+        specimen.type === 'pipe' ? ((state.specimenParams.odIn ?? specimen.odIn) * 25.4) / 2 : null,
+      tcg: state.settings.tcg,
     })
-  }, [tofdMode, echoes, state.gate, state.dacPoints, probe, thickness])
+  }, [tofdMode, echoes, state.gate, state.dacPoints, probe, thickness, specimen, state.specimenParams, state.settings.tcg])
 
   const tofdInfo = useMemo(() => {
     if (!tofdMode) return null
@@ -360,5 +419,5 @@ export default function useSimulator() {
     }
   }, [tofdMode, state.tofdCursorUs, state.tofdS])
 
-  return { state, dispatch, specimen, probe, thickness, echoes, readout, tofdMode, tofdInfo }
+  return { state, dispatch, specimen, probe, thickness, length, echoes, readout, tofdMode, tofdInfo }
 }

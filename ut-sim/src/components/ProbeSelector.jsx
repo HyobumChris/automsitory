@@ -1,4 +1,5 @@
 import { PROBES } from '../data/probes.js'
+import { nearFieldLength } from '../lib/ultrasound.js'
 
 // Contents of the "Probes" menu (classic Windows dropdown).
 export default function ProbeSelector({ probeId, probeDir, dispatch }) {
@@ -12,7 +13,7 @@ export default function ProbeSelector({ probeId, probeDir, dispatch }) {
           onClick={() => dispatch({ type: 'SET_PROBE', probeId: p.id })}
         >
           <span className="check">{p.id === probeId ? '✓' : ''}</span>
-          {p.name} — {p.nameKo}
+          {p.name} — {p.nameKo} · N={nearFieldLength(p).toFixed(0)}mm
         </button>
       ))}
       <div className="menu-sep" />

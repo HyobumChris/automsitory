@@ -8,6 +8,8 @@ import SpecimenSelector from './components/SpecimenSelector.jsx'
 import DefectEditor from './components/DefectEditor.jsx'
 import ReadoutBar from './components/ReadoutBar.jsx'
 import InfoPanel from './components/InfoPanel.jsx'
+import Pipe3DWindow from './components/Pipe3DWindow.jsx'
+import RadiographWindow from './components/RadiographWindow.jsx'
 
 /* ---------- toolbar glyphs (small colored icons) ---------- */
 const GLYPHS = {
@@ -39,7 +41,7 @@ const GLYPHS = {
     <svg width="16" height="11"><line x1="2" y1="1" x2="14" y2="10" stroke="#0000ff" strokeWidth="1" /><line x1="2" y1="1" x2="10" y2="10" stroke="#8888ff" strokeWidth="0.7" strokeDasharray="1.5 1" /><line x1="2" y1="1" x2="15" y2="6" stroke="#8888ff" strokeWidth="0.7" strokeDasharray="1.5 1" /></svg>
   ),
   rad: (
-    <svg width="16" height="11"><path d="M2,10 A8 8 0 0 1 14,10" fill="none" stroke="#555" strokeWidth="1" /></svg>
+    <svg width="16" height="11"><rect x="1" y="2" width="14" height="7" fill="#1a1a1a" stroke="#555" strokeWidth="0.6" /><rect x="3" y="4" width="10" height="3" fill="#3c3c3c" /><circle cx="6" cy="5.5" r="0.8" fill="#000" /><line x1="9" y1="5.5" x2="12" y2="5.5" stroke="#000" strokeWidth="0.8" /></svg>
   ),
   pipe: (
     <svg width="16" height="11"><circle cx="8" cy="6" r="4.5" fill="none" stroke="#555" strokeWidth="1" /><circle cx="8" cy="6" r="2" fill="none" stroke="#555" strokeWidth="0.8" /></svg>
@@ -85,9 +87,12 @@ function MenuEntry({ label, checked, disabled, onClick }) {
 
 export default function App() {
   const { state, dispatch, specimen, probe, thickness, echoes, readout, tofdMode, tofdInfo } = useSimulator()
+  const isPipeMode = specimen.type === 'pipe'
   const [menu, setMenu] = useState(null)
   const [showDefectEditor, setShowDefectEditor] = useState(false)
   const [showHelp, setShowHelp] = useState(true)
+  const [showRad, setShowRad] = useState(false)
+  const [show3dPipe, setShow3dPipe] = useState(true)
   const [hideDefects, setHideDefects] = useState(false)
   const [showBeamFan, setShowBeamFan] = useState(true)
   const [damp, setDamp] = useState(false)
@@ -149,19 +154,19 @@ export default function App() {
     { sep: true },
     { cap: 'V2', glyph: GLYPHS.block, active: state.modeId === 'v2', onClick: () => setMode('v2'), title: 'V2 calibration block' },
     { cap: 'V1', glyph: GLYPHS.block, active: state.modeId === 'v1', onClick: () => setMode('v1'), title: 'V1 / IIW calibration block' },
-    { cap: 'ASME', glyph: GLYPHS.block, disabled: true, title: 'ASME block — not implemented' },
+    { cap: 'ASME', glyph: GLYPHS.block, active: state.modeId === 'asme', onClick: () => setMode('asme'), title: 'ASME basic calibration block — DAC/TCG' },
     { sep: true },
     { cap: 'PLOT', glyph: GLYPHS.plot, active: state.modeId === 'dac', onClick: () => setMode('dac'), title: 'DAC plotting exercise' },
     { cap: 'DAMP', glyph: GLYPHS.damp, active: damp, onClick: () => setDamp((d) => !d), title: 'Damped (smoothed) trace' },
     { cap: 'SIZE', glyph: GLYPHS.size, active: state.modeId === 'spread', onClick: () => setMode('spread'), title: 'Beam-spread 20% sizing' },
     { sep: true },
-    { cap: 'DEFECT', glyph: GLYPHS.defect, active: state.modeId === 'weld', onClick: () => { setMode('weld'); setShowDefectEditor(true) }, title: 'Weld defects + editor' },
+    { cap: 'DEFECT', glyph: GLYPHS.defect, active: showDefectEditor, onClick: () => { if (!specimen.allowDefects) setMode('weld'); setShowDefectEditor(true) }, title: 'Defect editor (Circle View on pipe)' },
     { cap: 'HIDE', glyph: GLYPHS.hide, active: hideDefects, onClick: () => setHideDefects((h) => !h), title: 'Hide defects in the workspace' },
     { sep: true },
     { cap: 'BEAM', glyph: GLYPHS.beam, active: showBeamFan, onClick: () => setShowBeamFan((b) => !b), title: 'Show beam spread fan' },
-    { cap: 'RAD', glyph: GLYPHS.rad, disabled: true, title: 'Radius scanning — not implemented' },
+    { cap: 'RAD', glyph: GLYPHS.rad, active: showRad, onClick: () => setShowRad((r) => !r), title: 'Simulated radiograph of the weld' },
     { sep: true },
-    { cap: 'PIPE', glyph: GLYPHS.pipe, disabled: true, title: 'Pipe geometry — not implemented' },
+    { cap: 'PIPE', glyph: GLYPHS.pipe, active: state.modeId === 'pipe', onClick: () => { setMode('pipe'); setShow3dPipe(true) }, title: 'Pipe circumferential butt weld' },
     { cap: 'TKY', glyph: GLYPHS.tky, active: state.modeId === 'tky', onClick: () => setMode('tky'), title: 'T/K/Y joint configurations' },
     { cap: 'TOFD', glyph: GLYPHS.tofd, active: tofdMode, onClick: () => setMode('tofd'), title: 'Time-of-Flight Diffraction' },
     { sep: true },
@@ -207,6 +212,10 @@ export default function App() {
             <div className="menu-sep" />
             <MenuEntry label="Beam spread fan" checked={showBeamFan} onClick={() => setShowBeamFan((b) => !b)} />
             <MenuEntry label="Damped trace" checked={damp} onClick={() => setDamp((d) => !d)} />
+            <MenuEntry label="Secondary signals (mode conv. / surface wave)" checked={state.secondary} onClick={() => dispatch({ type: 'TOGGLE_SECONDARY' })} />
+            <MenuEntry label="TCG (time-corrected gain)" disabled={state.dacPoints.length < 2} checked={state.settings.tcg} onClick={() => dispatch({ type: 'SET_SETTING', key: 'tcg', value: !state.settings.tcg })} />
+            <MenuEntry label="Radiograph window (RAD)" checked={showRad} onClick={() => setShowRad((r) => !r)} />
+            <MenuEntry label="3D Pipe window" disabled={!isPipeMode} checked={show3dPipe && isPipeMode} onClick={() => setShow3dPipe((v) => !v)} />
           </>
         )
       case 'Help':
@@ -316,11 +325,28 @@ export default function App() {
         {showDefectEditor && (
           <DefectEditor
             specimen={specimen}
+            specimenParams={state.specimenParams}
             thickness={thickness}
             defects={state.defects}
             selectedDefectId={state.selectedDefectId}
             dispatch={dispatch}
             onClose={() => setShowDefectEditor(false)}
+          />
+        )}
+        {showRad && (
+          <RadiographWindow
+            specimen={specimen}
+            specimenParams={state.specimenParams}
+            defects={state.defects}
+            onClose={() => setShowRad(false)}
+          />
+        )}
+        {show3dPipe && isPipeMode && (
+          <Pipe3DWindow
+            specimen={specimen}
+            specimenParams={state.specimenParams}
+            defects={state.defects}
+            onClose={() => setShow3dPipe(false)}
           />
         )}
         {showHelp && <InfoPanel modeId={state.modeId} onClose={() => setShowHelp(false)} />}

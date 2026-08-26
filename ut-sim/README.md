@@ -34,13 +34,16 @@ as the sibling `app/` project in this repository.
 | Weld Defects (용접부 결함) — toolbar **DEFECT** | Single-V butt weld scanning: half-skip / full-skip, crack, lack of side-wall fusion, lack of root penetration, porosity, slag, toe crack |
 | DAC — toolbar **PLOT** | Recording a distance–amplitude correction curve off SDHs at 1/4t, 1/2t, 3/4t and grading indications in dB relative to DAC |
 | Beam Spread 20% — toolbar **SIZE** | 20 % drop probe-movement sizing with markers plotted on the cross-section |
-| TKY — toolbar **TKY** | T / K / Y variable-configuration joints with settable brace angle |
+| TKY — toolbar **TKY** | T / K / Y variable-configuration joints with settable brace angle AND selectable scan surface (main plate / brace, correct thickness per surface) |
+| ASME — toolbar **ASME** | ASME basic calibration block: three 3 mm SDHs at T/4, T/2, 3T/4 (T = 20–50 mm) for 3-point DAC construction and TCG |
+| PIPE — toolbar **PIPE** | "Drawing Defects II" pipe videos: circumferential butt weld on selectable OD (6/8/12") and WT (10–25 mm), unrolled strip with 0 → πD circumferential ruler, Circle View defect dialog (annulus, spokes, red arcs, APPLY TO ALL, Save/Load Def), live "3D Pipe" window |
+| RAD — toolbar **RAD** | Simulated radiograph window: film-style weld view with per-type RT indications (crack/LOF/LORP/porosity/slag), IQI wires — and laminations invisible on RT (the teaching point) |
 | TOFD — toolbar **TOFD** | Time-of-Flight Diffraction: transmitter/receiver pair, lateral wave, top/bottom tip diffraction, backwall, click-to-measure depth |
 | AUT — toolbar **AUT** | Automated UT: animated scan run with a live strip chart of gate amplitude vs position |
 | EPOCH-SIM 600 — toolbar **EPOCH** | "How to use the EPOCH" / "EPOCH AUTO Calibration" / "UTman600": digital detector skin + AUTO CAL |
 
-Toolbar buttons **ASME**, **RAD** and **PIPE** render disabled (grayed
-embossed), like the real app when a mode is unavailable.
+Every toolbar button is live: 0°/45°/60°/70°, V2, V1, ASME, PLOT, DAMP,
+SIZE, DEFECT, HIDE, BEAM, RAD, PIPE, TKY, TOFD, AUT, EPOCH.
 
 ## Commands
 
@@ -62,11 +65,18 @@ npm run preview
   range steps 50/100/200/250/500 mm plus fine control; gain 0–110 dB in
   0.5 / 2 / 6 dB steps.
 - Amplitude (%FSH): `A = 80 × reflectivity × 10^((ΔdB)/20)` where ΔdB combines
-  a simple distance law `s0/s` beyond a 50 mm reference distance, material
-  attenuation (0.005 dB/mm compression, 0.01 dB/mm shear), gaussian beam-spread
-  falloff (−6 dB at the probe half-angle, 4–6°), orientation penalty for planar
-  reflectors, and `gain − 30 dB`. Clamped 0–110 %. SUPPRESSION (reject) drops
-  echoes below the threshold.
+  a distance law `s0/s`, material attenuation (0.005 dB/mm compression,
+  0.01 dB/mm shear), gaussian beam-spread falloff (−6 dB at the probe
+  half-angle, 4–6°), orientation penalty for planar reflectors, and
+  `gain − 30 dB`. Clamped 0–110 %. SUPPRESSION (reject) drops echoes below
+  the threshold.
+- **Near field**: each probe carries crystal size + frequency (0°: Ø10 mm
+  4 MHz → N ≈ 17 mm; 45/60°: 9 mm 4 MHz shear → N ≈ 25 mm; 70°: 9 mm 2 MHz →
+  N ≈ 12.5 mm), with N = D²f/(4v). Inside N the distance-amplitude law
+  plateaus (no 1/s decay); the Probes menu shows each probe's N.
+- **TCG**: with ≥ 2 recorded DAC points, the TCG toggle (USK-7 panel key,
+  EPOCH P6, or Options menu) applies the DAC curve as time-corrected gain —
+  reference echoes flatten to 80 % FSH and "dB TCG" reads relative to that.
 - 0° probe: backwall multiples at t, 2t, 3t… with per-bounce loss; a lamination
   at depth d echoes at d, 2d, 3d… and suppresses the backwall in proportion to
   how much of the probe footprint it covers.
@@ -82,6 +92,21 @@ npm run preview
   `apparent = true + (wedgeDelay − probeZero)`, so a mis-set PROBE ZERO shifts
   every reading — exactly what the calibration exercises (and the EPOCH AUTO
   CAL) train you to fix.
+- **V2 through face**: the V2 block can be flipped onto its 12.5 mm through
+  thickness (Step Wedge menu) — the 0° probe then reads multiples
+  12.5 / 25 / 37.5 / 50 mm.
+- **TKY brace scanning**: the Weld menu selects the scan surface (main plate
+  t = 20 mm or brace t = 14 mm). On the brace, the probe and skip legs are
+  computed in the brace's own frame (its thickness) and drawn rotated onto the
+  brace face at the selected brace angle.
+- **Pipe curvature**: echoes use the unrolled (flat) model; the surface-distance
+  readout is arc-corrected for OD curvature, `arc = 2R·asin(chord / 2R)`
+  (shown as "mm(arc)"), and Pos reads circumferential mm of C = πD.
+- **Secondary signals** (Options toggle, default on — teaching level): 0°
+  probes show a weak mode-converted backwall echo at an apparent
+  `t/2 × (1 + Vc/Vs) ≈ 1.41 t`; the 70° probe near a top-surface-breaking
+  defect shows a weak creeping/surface wave at ~2.98 mm/µs (reads ≈1.09× the
+  true surface distance on the shear-calibrated screen).
 - **TOFD**: probe pair at ±S from the pair centre, compression 5.92 mm/µs.
   Lateral wave `t = 2S/v`; backwall `t = 2√(S²+t²)/v`; each defect contributes
   weak, phase-inverted top/bottom **tip diffraction** wiggles at
@@ -89,15 +114,26 @@ npm run preview
 - **AUT**: a requestAnimationFrame-driven scan traverses the span, recording
   the gate peak per position into a strip chart (red above the gate level).
 
-## Known simplifications
+## Remaining approximations (stated precisely)
 
-- Near-field structure, mode conversion and surface waves are not modelled.
-- The V2 block is drawn as its fan-shaped profile only; its 12.5 mm through
-  thickness is not used for 0° work.
-- The TKY joint uses the main-plate thickness for skip geometry; the brace is
-  geometric drawing plus a weld-line defect.
-- TOFD assumes the ideal symmetric pair geometry (defect mid-way weighting via
-  a gaussian falloff) and shows stylised RF wiggles, not true waveforms.
-- DAC points are recorded from the current gated peak; no TCG.
-- ASME block, radius scanning (RAD) and pipe geometry (PIPE) are intentionally
-  disabled toolbar entries, as in the real app when unavailable.
+- **Ray model**: beam propagation is ray-based with a gaussian angular-spread
+  amplitude penalty; there is no diffraction-based defect response (no GTD/Kirchhoff
+  scattering), so echo amplitudes are calibrated relative levels, not absolute.
+- **Near field**: modelled as a plateau of the distance-amplitude law inside
+  N = D²f/(4v); the on-axis interference oscillations within the true near
+  field are not reproduced.
+- **Pipe**: echo dynamics use the unrolled flat-plate model; curvature is
+  applied only as the chord→arc correction of the surface-distance readout.
+  Beam refraction/refocusing at the curved OD/ID surfaces is not modelled.
+- **Secondary signals**: the 0° mode-converted backwall echo and the 70°
+  creeping/surface wave are fixed-amplitude teaching indications at the correct
+  apparent ranges, not full wave-mode solutions.
+- **TKY brace scanning**: skip legs use the flat-plate model in the brace's
+  local frame; defect coordinates are shared between the main and brace frames
+  (accurate near the weld toe, where the defects live).
+- **TOFD**: ideal symmetric pair geometry with gaussian lateral-offset
+  weighting; the RF wiggles are stylised Morlet pulses, not computed waveforms.
+- **Radiograph**: film density is stylistic (per-defect-type indication
+  shapes), not computed from radiographic attenuation/exposure.
+- Single-frequency probes; no couplant, surface-condition, or grain-noise
+  effects beyond the constant baseline grass.
