@@ -170,8 +170,9 @@ export default function RadiographWindow({ specimen, specimenParams, defects, on
     }
   }, [applicable, defects, specimen.type, x0, x1])
 
+  const vw = typeof window === 'undefined' ? 1280 : window.innerWidth
   return (
-    <WinWindow title="Radiograph (방사선투과사진)" initial={{ x: 560, y: 60 }} onClose={onClose} className="z-[45]">
+    <WinWindow title="Radiograph (방사선투과사진)" initial={{ x: Math.max(8, vw - 510), y: 54 }} onClose={onClose} className="z-[45]">
       <div className="bg-[#0a0a0a] p-1">
         {applicable ? (
           <canvas ref={canvasRef} width={W} height={H} className="block" />

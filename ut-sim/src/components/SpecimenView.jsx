@@ -2,6 +2,7 @@ import { useRef } from 'react'
 import { beamPolyline, sampleArc, toRad } from '../lib/geometry.js'
 import { activeFeatures } from '../lib/ultrasound.js'
 import { effectiveLength, weldCenterOf } from '../data/specimens.js'
+import PlanView from './PlanView.jsx'
 
 const BODY = 'url(#steelGrad)'
 const BODY_BACK = '#b7bdc4'
@@ -114,7 +115,7 @@ function ProbeWedge({ x, dir, angle, tofdLabel }) {
   )
 }
 
-export default function SpecimenView({
+function SectionSVG({
   specimen,
   specimenParams,
   thickness,
@@ -130,6 +131,7 @@ export default function SpecimenView({
   tofdMode,
   tofdS,
   dispatch,
+  dual = false,
 }) {
   const svgRef = useRef(null)
   const dragging = useRef(false)
@@ -145,7 +147,7 @@ export default function SpecimenView({
   const v2Profile = specimen.type === 'v2' && (params.face ?? specimen.defaultFace) === 'profile'
   const braceScan = isTky && (params.scanSurface ?? 'main') === 'brace'
 
-  const topPad = isTky ? 88 : 52
+  const topPad = isTky ? 88 : dual ? 30 : 46
   const botPad = 16
   const vb = '-34 ' + -topPad + ' ' + (L + 70) + ' ' + (profileHeight + topPad + botPad)
   const fs = Math.max(Math.min(L * 0.022, (profileHeight + topPad + botPad) * 0.1), 4.5)
@@ -284,11 +286,6 @@ export default function SpecimenView({
     }
   }
 
-  /* --- plan view pointer --- */
-  const planA = (probeDir > 0 ? 0 : Math.PI) + ((probeX - cx) / Math.max(L, 1)) * (Math.PI / 3) * (probeDir > 0 ? 1 : -1)
-
-  const contextTitle = isBlock ? 'Carbon Steel Block' : specimen.name
-
   const probeAndBeam = (
     <>
       {!tofdMode && showBeamFan && fanA && (
@@ -315,11 +312,11 @@ export default function SpecimenView({
   )
 
   return (
-    <div className="relative h-full w-full" style={{ background: WORKSPACE }}>
+    <div className="relative h-full w-full">
       <svg
         ref={svgRef}
         viewBox={vb}
-        preserveAspectRatio="xMidYMid meet"
+        preserveAspectRatio={dual ? 'xMidYMin meet' : 'xMidYMid meet'}
         className="h-full w-full touch-none select-none"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -345,18 +342,13 @@ export default function SpecimenView({
           </pattern>
         </defs>
 
-        <text x={-28} y={-topPad + 10} fontSize={fs * 1.25} fontWeight="600" fill="#1c2126">
-          {contextTitle} — {specimen.nameKo}
-          {isPipe ? ' (' + (params.odIn ?? specimen.odIn) + '" OD, WT ' + thickness + 'mm, unrolled)' : ''}
-        </text>
-
         {isBlock && (
           <polygon points={pts2str(profile)} transform="translate(8,-6)" fill={BODY_BACK} stroke={OUTLINE} strokeWidth={0.4} />
         )}
         <polygon points={pts2str(profile)} fill={BODY} stroke={OUTLINE} strokeWidth={0.7} />
 
         {rulers}
-        {scale}
+        {!dual && scale}
 
         {/* V1 features */}
         {v1Side && (
@@ -496,17 +488,49 @@ export default function SpecimenView({
         {braceScan ? <g transform={braceMatrix}>{probeAndBeam}</g> : probeAndBeam}
       </svg>
 
-      {/* PLAN VIEW (top-right) */}
-      <div className="pointer-events-none absolute right-2 top-1 flex flex-col items-center gap-0.5">
-        <span className="text-[9px] font-medium uppercase tracking-[0.06em] text-muted">Plan view</span>
-        <svg width="66" height="66">
-          <circle cx={33} cy={33} r={25} fill="#f5f6f8" stroke="#c9ced4" strokeWidth={1} />
-          <circle cx={33} cy={33} r={21} fill="none" stroke="#0e9fbf" strokeOpacity={0.25} strokeWidth={1} />
-          <line x1={33} y1={33} x2={33 + 21 * Math.cos(planA)} y2={33 + 21 * Math.sin(planA)} stroke="#0e9fbf" strokeWidth={1.6} strokeLinecap="round" />
-          <circle cx={33 + 21 * Math.cos(planA)} cy={33 + 21 * Math.sin(planA)} r={2.2} fill="#0e9fbf" />
-          <circle cx={33} cy={33} r={1.6} fill="#5c646c" />
-        </svg>
+    </div>
+  )
+}
+
+/**
+ * Workspace composition (UTman-style packed screen):
+ * weld / pipe / TKY = large top-down PLAN VIEW over a CROSS SECTION strip
+ * (probe-position ruler along the plan's bottom edge); calibration blocks
+ * and plates = one large cross-section filling the workspace.
+ */
+export default function SpecimenView(props) {
+  const { specimen, specimenParams, thickness } = props
+  const dual = specimen.type === 'weld' || specimen.type === 'pipe' || specimen.type === 'tky'
+  const isBlock = specimen.type === 'v1' || specimen.type === 'v2' || specimen.type === 'asme'
+  const caption =
+    (isBlock ? 'Carbon Steel Block' : specimen.name) +
+    ' — ' + specimen.nameKo +
+    (specimen.type === 'pipe'
+      ? ' (' + (specimenParams.odIn ?? specimen.odIn) + '" OD, WT ' + thickness + 'mm, unrolled)'
+      : '')
+  return (
+    <div className="relative flex h-full w-full flex-col" style={{ background: WORKSPACE }}>
+      <div className="pointer-events-none absolute left-2 top-1.5 z-10 rounded border border-hairline bg-panel/85 px-2 py-0.5 text-[10px] font-medium text-ink shadow-sm">
+        {caption}
       </div>
+      {dual ? (
+        <>
+          <div className="relative min-h-0 flex-[11]">
+            <span className="pointer-events-none absolute right-2 top-1.5 z-10 text-[9px] font-medium uppercase tracking-[0.06em] text-muted">
+              Plan View (평면)
+            </span>
+            <PlanView {...props} />
+          </div>
+          <div className="relative min-h-0 flex-[8] border-t border-hairline/60">
+            <span className="pointer-events-none absolute left-2 top-1 z-10 text-[9px] font-medium uppercase tracking-[0.06em] text-muted">
+              Cross Section (단면)
+            </span>
+            <SectionSVG {...props} dual />
+          </div>
+        </>
+      ) : (
+        <SectionSVG {...props} />
+      )}
     </div>
   )
 }

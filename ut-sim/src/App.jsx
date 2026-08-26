@@ -98,6 +98,7 @@ function MenuEntry({ label, checked, disabled, onClick }) {
 export default function App() {
   const { state, dispatch, specimen, probe, thickness, echoes, readout, tofdMode, tofdInfo } = useSimulator()
   const isPipeMode = specimen.type === 'pipe'
+  const radOK = specimen.type === 'weld' || specimen.type === 'pipe' || specimen.type === 'tky'
   const [menu, setMenu] = useState(null)
   const [showDefectEditor, setShowDefectEditor] = useState(false)
   const [showHelp, setShowHelp] = useState(true)
@@ -180,7 +181,7 @@ export default function App() {
         { cap: 'DAMP', glyph: GLYPHS.damp, active: damp, onClick: () => setDamp((d) => !d), title: 'Damped (smoothed) trace' },
         { cap: 'BEAM', glyph: GLYPHS.beam, active: showBeamFan, onClick: () => setShowBeamFan((b) => !b), title: 'Show beam spread fan' },
         { cap: 'HIDE', glyph: GLYPHS.hide, active: hideDefects, onClick: () => setHideDefects((h) => !h), title: 'Hide defects in the workspace' },
-        { cap: 'RAD', glyph: GLYPHS.rad, active: showRad, onClick: () => setShowRad((r) => !r), title: 'Simulated radiograph of the weld' },
+        { cap: 'RAD', glyph: GLYPHS.rad, active: showRad && radOK, disabled: !radOK, onClick: () => setShowRad((r) => !r), title: radOK ? 'Simulated radiograph of the weld' : 'Radiograph — weld / pipe / TKY specimens only' },
       ],
     },
     {
@@ -244,7 +245,7 @@ export default function App() {
             <MenuEntry label="Damped trace" checked={damp} onClick={() => setDamp((d) => !d)} />
             <MenuEntry label="Secondary signals (mode conv. / surface wave)" checked={state.secondary} onClick={() => dispatch({ type: 'TOGGLE_SECONDARY' })} />
             <MenuEntry label="TCG (time-corrected gain)" disabled={state.dacPoints.length < 2} checked={state.settings.tcg} onClick={() => dispatch({ type: 'SET_SETTING', key: 'tcg', value: !state.settings.tcg })} />
-            <MenuEntry label="Radiograph window (RAD)" checked={showRad} onClick={() => setShowRad((r) => !r)} />
+            <MenuEntry label="Radiograph window (RAD)" disabled={!radOK} checked={showRad && radOK} onClick={() => setShowRad((r) => !r)} />
             <MenuEntry label="3D Pipe window" disabled={!isPipeMode} checked={show3dPipe && isPipeMode} onClick={() => setShow3dPipe((v) => !v)} />
           </>
         )
@@ -275,7 +276,7 @@ export default function App() {
       </div>
 
       {/* menu bar */}
-      <div className="relative z-50 flex items-center border-b border-hairline bg-panel px-1.5">
+      <div className="relative z-[70] flex items-center border-b border-hairline bg-panel px-1.5">
         {menuNames.map((name) => (
           <div key={name} className="relative">
             <button
@@ -299,10 +300,10 @@ export default function App() {
           </div>
         ))}
       </div>
-      {menu && <div className="fixed inset-0 z-40" onClick={() => setMenu(null)} />}
+      {menu && <div className="fixed inset-0 z-[60]" onClick={() => setMenu(null)} />}
 
       {/* toolbar: grouped segmented controls */}
-      <div className="flex items-end gap-3 border-b border-hairline bg-panel px-2 pb-1.5 pt-1">
+      <div className="flex flex-wrap items-end gap-x-3 gap-y-1 overflow-x-auto border-b border-hairline bg-panel px-2 pb-1.5 pt-1">
         {toolGroups.map((g, i) => (
           <div key={g.caption} className="flex items-end gap-3">
             {i > 0 && <span className="mb-0.5 h-10 w-px bg-hairline" />}
@@ -365,7 +366,7 @@ export default function App() {
             onClose={() => setShowDefectEditor(false)}
           />
         )}
-        {showRad && (
+        {showRad && radOK && (
           <RadiographWindow
             specimen={specimen}
             specimenParams={state.specimenParams}

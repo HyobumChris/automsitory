@@ -72,8 +72,10 @@ export default function Pipe3DWindow({ specimen, specimenParams, defects, onClos
     ctx.fillText(odIn + '" OD pipe — C = ' + C + ' mm — 0 at top, front = right', 8, H - 8)
   }, [defects, C, odIn])
 
+  const vw = typeof window === 'undefined' ? 1280 : window.innerWidth
+  const vh = typeof window === 'undefined' ? 900 : window.innerHeight
   return (
-    <WinWindow title="3D Pipe" initial={{ x: 630, y: 330 }} onClose={onClose} className="z-[45]">
+    <WinWindow title="3D Pipe" initial={{ x: Math.max(8, vw - 330), y: Math.max(6, vh - 340) }} onClose={onClose} className="z-[45]">
       <div className="bg-black p-1">
         <canvas ref={canvasRef} width={W} height={H} className="block" />
       </div>

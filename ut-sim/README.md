@@ -4,13 +4,24 @@ An interactive browser re-imagining of the classic **UTman II** ultrasonic
 testing (UT) training simulator by Paul Rawlinson (as seen in the "UTman
 Ultrasonic Sim" YouTube playlist), presented in a **modern NDT instrument
 suite skin** (in the spirit of current Olympus/Evident or Krautkramer
-companion software): a slim dark header with a live mode chip, a light
-engineering workspace with the specimen cross-section, fine mm rulers and a
-probe-position scale, a restyled PLAN VIEW dial, a grouped segmented toolbar
-(probes / blocks / display / defects / advanced modes) with a single technical
-cyan accent, floating card-style windows for the instrument and dialogs, and a
-dark status strip with monospaced readout chips. The menu bar
-(File / Probes / Step Wedge / Weld / Defects / Options / Help) and every
+companion software): a slim dark header with a live mode chip, a grouped
+segmented toolbar (probes / blocks / display / defects / advanced modes) with
+a single technical cyan accent, and a dark status strip with monospaced
+readout chips. The workspace reproduces UTman II's packed composition: for
+weld / pipe / TKY modes a **large top-down PLAN VIEW** (plate from above,
+hatched weld band down the centre, probe seen from above, the skip pattern as
+a widening dotted fan with ½S/1S/1½S/2S marks, defects as red plan shapes,
+probe-position ruler along its base) sits over a **CROSS SECTION** strip;
+calibration blocks and plates use one large cross-section filling the
+workspace, with a compact context caption inside the workspace top-left.
+The instruments are **skeuomorphic hardware**: the USK-7 window is a moulded
+analogue set (raised CRT bezel with glass glare, machined knurled rotary
+knobs, a red AMP knob with skirt, a slotted coarse-range lever, indicator
+lamps and a nameplate) and the EPOCH window is a moulded handheld (side
+grips, rubber-look keys, a domed D-pad, LCD bezel, F/P key rows, power LED).
+Floating windows clamp to the viewport, and on narrow screens (< 900 px) the
+instrument docks as a bottom sheet (undockable from its title bar). The menu
+bar (File / Probes / Step Wedge / Weld / Defects / Options / Help) and every
 interaction are unchanged. The earlier retro Windows-2000 UTman II skin is
 preserved in the git history if you want the classic look.
 

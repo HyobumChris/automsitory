@@ -65,7 +65,7 @@ export default function ReadoutBar({ state, specimen, probe, thickness, readout,
         : '')
   }
   return (
-    <div className="flex items-center gap-1.5 border-t border-black/40 bg-chrome px-2 py-1">
+    <div className="flex flex-wrap items-center gap-1.5 border-t border-black/40 bg-chrome px-2 py-1">
       <Chip label="Pos">
         {state.probeX.toFixed(0)} mm{isPipe ? ' / ' + effectiveLength(specimen, state.specimenParams) : ''}
       </Chip>

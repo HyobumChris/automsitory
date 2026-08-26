@@ -134,8 +134,9 @@ const GUIDES = {
 
 export default function InfoPanel({ modeId, onClose }) {
   const guide = GUIDES[modeId] ?? GUIDES.basic
+  const vw = typeof window === 'undefined' ? 1280 : window.innerWidth
   return (
-    <WinWindow title={'Exercise Guide — ' + guide.title} initial={{ x: 850, y: 40 }} width={340} onClose={onClose}>
+    <WinWindow title={'Exercise Guide — ' + guide.title} initial={{ x: Math.max(8, vw - 356), y: 46 }} width={340} onClose={onClose}>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }} className="p-2">
         <ol className="list-decimal space-y-1.5 pl-5 text-[11.5px] leading-snug text-ink marker:text-accent">
           {guide.steps.map((s, i) => (
