@@ -2,12 +2,17 @@
 
 An interactive browser re-imagining of the classic **UTman II** ultrasonic
 testing (UT) training simulator by Paul Rawlinson (as seen in the "UTman
-Ultrasonic Sim" YouTube playlist), **imitating the original retro
-Windows-2000-era desktop-app look**: navy title bar, menu bar
-(File / Probes / Step Wedge / Weld / Defects / Options / Help), a 3D-beveled
-toolbar, a pale-cream workspace with the specimen cross-section, mm rulers and
-probe-position scale, a PLAN VIEW indicator, a floating skeuomorphic flaw
-detector window, classic Windows dialogs, and a sunken-panel status bar.
+Ultrasonic Sim" YouTube playlist), presented in a **modern NDT instrument
+suite skin** (in the spirit of current Olympus/Evident or Krautkramer
+companion software): a slim dark header with a live mode chip, a light
+engineering workspace with the specimen cross-section, fine mm rulers and a
+probe-position scale, a restyled PLAN VIEW dial, a grouped segmented toolbar
+(probes / blocks / display / defects / advanced modes) with a single technical
+cyan accent, floating card-style windows for the instrument and dialogs, and a
+dark status strip with monospaced readout chips. The menu bar
+(File / Probes / Step Wedge / Weld / Defects / Options / Help) and every
+interaction are unchanged. The earlier retro Windows-2000 UTman II skin is
+preserved in the git history if you want the classic look.
 
 Two instrument skins are driven by the same simulator state:
 

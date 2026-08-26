@@ -137,13 +137,13 @@ export default function InfoPanel({ modeId, onClose }) {
   return (
     <WinWindow title={'Exercise Guide — ' + guide.title} initial={{ x: 850, y: 40 }} width={340} onClose={onClose}>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.15 }} className="p-2">
-        <ol className="list-decimal space-y-1 pl-5 text-[11px] leading-snug text-black">
+        <ol className="list-decimal space-y-1.5 pl-5 text-[11.5px] leading-snug text-ink marker:text-accent">
           {guide.steps.map((s, i) => (
             <li key={i}>{s}</li>
           ))}
         </ol>
         <div className="mt-2 flex justify-end">
-          <button type="button" onClick={onClose} className="bevel-out px-4 py-0.5 text-[11px] font-bold text-black">OK</button>
+          <button type="button" onClick={onClose} className="bevel-in px-4 py-0.5 text-[11px] font-semibold">OK</button>
         </div>
       </motion.div>
     </WinWindow>

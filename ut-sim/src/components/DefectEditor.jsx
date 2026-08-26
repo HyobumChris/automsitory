@@ -8,7 +8,7 @@ function SpinField({ label, value, step, min, max, onChange }) {
   const clamp = (v) => Math.min(max, Math.max(min, Math.round(v * 100) / 100))
   return (
     <label className="flex items-center gap-1 text-[11px]">
-      <span className="w-[74px]">{label}</span>
+      <span className="w-[74px] text-[10px] font-medium uppercase tracking-[0.04em] text-muted">{label}</span>
       <input
         type="number"
         value={value}
@@ -19,8 +19,8 @@ function SpinField({ label, value, step, min, max, onChange }) {
         className="sunken-white w-[58px] px-1 text-[11px]"
       />
       <span className="flex flex-col">
-        <button type="button" onClick={() => onChange(clamp(value + step))} className="bevel-out h-[10px] w-[16px] text-[6px] leading-[6px] text-black">▲</button>
-        <button type="button" onClick={() => onChange(clamp(value - step))} className="bevel-out h-[10px] w-[16px] text-[6px] leading-[6px] text-black">▼</button>
+        <button type="button" onClick={() => onChange(clamp(value + step))} className="bevel-out h-[11px] w-[18px] rounded-b-none text-[6px] leading-[6px]">▲</button>
+        <button type="button" onClick={() => onChange(clamp(value - step))} className="bevel-out h-[11px] w-[18px] rounded-t-none border-t-0 text-[6px] leading-[6px]">▼</button>
       </span>
     </label>
   )
@@ -46,11 +46,11 @@ function CircleView({ specimen, specimenParams, defects, selectedDefectId, circu
           y1={c + (innerR - 8) * Math.sin(a)}
           x2={c + (outerR + 3) * Math.cos(a)}
           y2={c + (outerR + 3) * Math.sin(a)}
-          stroke="#666"
+          stroke="#8b939b"
           strokeWidth={0.6}
           strokeDasharray="3 2"
         />
-        <text x={c + (outerR + 12) * Math.cos(a)} y={c + (outerR + 12) * Math.sin(a) + 3} fontSize={8} textAnchor="middle" fill="#000">
+        <text x={c + (outerR + 12) * Math.cos(a)} y={c + (outerR + 12) * Math.sin(a) + 3} fontSize={7.5} textAnchor="middle" fill="#0e9fbf" fontFamily="IBM Plex Mono, ui-monospace, monospace">
           {mm}
         </text>
       </g>,
@@ -67,20 +67,20 @@ function CircleView({ specimen, specimenParams, defects, selectedDefectId, circu
   }
   return (
     <svg width={S} height={S} className="mx-auto block">
-      <circle cx={c} cy={c} r={outerR} fill="#a8a8a8" stroke="#000" strokeWidth={1} />
-      <circle cx={c} cy={c} r={innerR} fill="#f0edcd" stroke="#000" strokeWidth={1} />
+      <circle cx={c} cy={c} r={outerR} fill="#9aa3ab" stroke="#2b3138" strokeWidth={1} />
+      <circle cx={c} cy={c} r={innerR} fill="#e8eaed" stroke="#2b3138" strokeWidth={1} />
       {spokes}
       {defects.map((d) => (
         <path
           key={d.id}
           d={arcPath(d.x - d.size / 2, d.x + d.size / 2)}
           fill="none"
-          stroke={d.id === selectedDefectId ? '#ff6600' : '#dd0000'}
+          stroke={d.id === selectedDefectId ? '#e8a13c' : '#e5484d'}
           strokeWidth={Math.min(outerR - innerR, 7)}
           strokeLinecap="butt"
         />
       ))}
-      <text x={c} y={c + 3} fontSize={9} textAnchor="middle" fill="#000">
+      <text x={c} y={c + 3} fontSize={9} textAnchor="middle" fill="#1c2126" fontFamily="IBM Plex Mono, ui-monospace, monospace">
         {(specimenParams.odIn ?? specimen.odIn) + '" OD'}
       </text>
     </svg>
@@ -145,8 +145,8 @@ export default function DefectEditor({ specimen, specimenParams, thickness, defe
               />
             )}
 
-            <fieldset className="etched relative px-2 pb-1.5 pt-2">
-              <legend className="px-1 text-[11px]">Select Defect</legend>
+            <div className="etched px-2 pb-2 pt-1.5">
+              <div className="mb-1 text-[10px] font-medium uppercase tracking-[0.06em] text-muted">Select Defect</div>
               <div className="grid grid-cols-4 gap-x-2 gap-y-0.5">
                 {Array.from({ length: 8 }, (_, i) => (
                   <label key={i} className={'flex items-center gap-1 text-[11px] ' + (i >= defects.length ? 'text-[#808080]' : '')}>
@@ -161,13 +161,13 @@ export default function DefectEditor({ specimen, specimenParams, thickness, defe
                   </label>
                 ))}
               </div>
-            </fieldset>
+            </div>
 
             {selected && (
-              <fieldset className="etched relative space-y-1 px-2 pb-1.5 pt-2">
-                <legend className="px-1 text-[11px]">
+              <div className="etched space-y-1 px-2 pb-2 pt-1.5">
+                <div className="mb-1 text-[10px] font-medium uppercase tracking-[0.06em] text-muted">
                   Defect {selIndex + 1} — {selected.label}
-                </legend>
+                </div>
                 <SpinField label="SEPARATION" value={selected.x} step={1} min={0} max={length} onChange={(v) => upd({ x: v }, false)} />
                 <SpinField label="DEPTH" value={selected.depth} step={0.5} min={0} max={thickness} onChange={(v) => upd({ depth: v })} />
                 <SpinField label="LENGTH" value={selected.size} step={1} min={1} max={100} onChange={(v) => upd({ size: v })} />
@@ -178,7 +178,7 @@ export default function DefectEditor({ specimen, specimenParams, thickness, defe
                   <input type="checkbox" checked={applyAll} onChange={(e) => setApplyAll(e.target.checked)} />
                   APPLY TO ALL DEFECTS (전체 적용)
                 </label>
-              </fieldset>
+              </div>
             )}
 
             <div className="flex items-center gap-1">
@@ -191,7 +191,7 @@ export default function DefectEditor({ specimen, specimenParams, thickness, defe
                 type="button"
                 onClick={() => defects.length < 8 && dispatch({ type: 'ADD_DEFECT', kind: newKind })}
                 disabled={defects.length >= 8}
-                className="bevel-out px-2 py-0.5 text-[11px] font-bold text-black disabled:embossed"
+                className="bevel-in px-2.5 py-0.5 text-[11px] font-semibold disabled:embossed"
               >
                 Add
               </button>
@@ -211,20 +211,22 @@ export default function DefectEditor({ specimen, specimenParams, thickness, defe
               </button>
               <button type="button" onClick={saveDefects} className="bevel-out px-2 py-0.5 text-[11px] text-black">Save Def</button>
               <button type="button" onClick={loadDefects} className="bevel-out px-2 py-0.5 text-[11px] text-black">Load Def</button>
-              <button type="button" onClick={onClose} className="bevel-out ml-auto px-3 py-0.5 text-[11px] font-bold text-black">
+              <button type="button" onClick={onClose} className="bevel-in ml-auto px-4 py-0.5 text-[11px] font-semibold">
                 OK
               </button>
             </div>
-            {ioMsg && <div className="text-[10px] text-[#000080]">{ioMsg}</div>}
+            {ioMsg && <div className="text-[10px] text-accent">{ioMsg}</div>}
 
-            <div className="space-y-0.5 text-[10px] text-defect-red">
-              {defects.map((d, i) => (
-                <div key={d.id}>
-                  {(d.planar ? 'PLA' : 'VOL') + ' Defect ' + (i + 1) + '  Height=' + d.depth + 'mm Length=' + d.size + 'mm. From ' +
-                    (d.x - d.size / 2).toFixed(0) + 'mm To ' + (d.x + d.size / 2).toFixed(0) + 'mm'}
-                </div>
-              ))}
-            </div>
+            {defects.length > 0 && (
+              <div className="space-y-0.5 rounded border border-defect-red/25 bg-defect-red/6 px-2 py-1.5 font-mono text-[10px] leading-snug text-defect-red">
+                {defects.map((d, i) => (
+                  <div key={d.id}>
+                    {(d.planar ? 'PLA' : 'VOL') + ' Defect ' + (i + 1) + '  Height=' + d.depth + 'mm Length=' + d.size + 'mm. From ' +
+                      (d.x - d.size / 2).toFixed(0) + 'mm To ' + (d.x + d.size / 2).toFixed(0) + 'mm'}
+                  </div>
+                ))}
+              </div>
+            )}
           </>
         )}
       </div>

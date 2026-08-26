@@ -11,49 +11,50 @@ import InfoPanel from './components/InfoPanel.jsx'
 import Pipe3DWindow from './components/Pipe3DWindow.jsx'
 import RadiographWindow from './components/RadiographWindow.jsx'
 
-/* ---------- toolbar glyphs (small colored icons) ---------- */
+/* ---------- toolbar glyphs (line-style, currentColor) ---------- */
+const G = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.1, strokeLinecap: 'round', strokeLinejoin: 'round' }
 const GLYPHS = {
   probe0: (
-    <svg width="16" height="11"><rect x="4" y="1" width="8" height="9" fill="#0000c0" stroke="#000" strokeWidth="0.6" /></svg>
+    <svg width="16" height="12"><rect x="4.5" y="1.5" width="7" height="8" {...G} /><line x1="8" y1="9.5" x2="8" y2="11" {...G} /></svg>
   ),
   wedge: (
-    <svg width="16" height="11"><polygon points="2,10 14,10 14,2 6,2" fill="#00a000" stroke="#000" strokeWidth="0.6" /></svg>
+    <svg width="16" height="12"><polygon points="2,10.5 14,10.5 14,2.5 6.5,2.5" {...G} /><circle cx="10" cy="10.5" r="0.7" fill="currentColor" stroke="none" /></svg>
   ),
   block: (
-    <svg width="16" height="11"><rect x="2" y="3" width="12" height="7" fill="#a8a8a8" stroke="#000" strokeWidth="0.6" /><line x1="2" y1="3" x2="5" y2="1" stroke="#000" strokeWidth="0.6" /><line x1="14" y1="3" x2="16" y2="1" stroke="#000" strokeWidth="0.6" /></svg>
+    <svg width="16" height="12"><rect x="2" y="3.5" width="11" height="7" {...G} /><polyline points="2,3.5 4.5,1.2 15.5,1.2 15.5,8 13,10.5" {...G} strokeWidth="0.8" /></svg>
   ),
   plot: (
-    <svg width="16" height="11"><polyline points="1,10 4,10 5,2 6,10 9,10 10,5 11,10 15,10" fill="none" stroke="#008080" strokeWidth="1" /></svg>
+    <svg width="16" height="12"><polyline points="1,10.5 4,10.5 5,2 6,10.5 9,10.5 10,5.5 11,10.5 15,10.5" {...G} /></svg>
   ),
   damp: (
-    <svg width="16" height="11"><polyline points="1,6 4,2 7,9 10,4 13,7 15,5" fill="none" stroke="#b8860b" strokeWidth="1" /></svg>
+    <svg width="16" height="12"><polyline points="1,6 4,2.5 7,9.5 10,4.5 13,7.5 15,5.5" {...G} /></svg>
   ),
   size: (
-    <svg width="16" height="11"><line x1="1" y1="6" x2="15" y2="6" stroke="#dd0000" strokeWidth="1" /><polygon points="1,6 4,4 4,8" fill="#dd0000" /><polygon points="15,6 12,4 12,8" fill="#dd0000" /></svg>
+    <svg width="16" height="12"><line x1="2" y1="6" x2="14" y2="6" {...G} /><polyline points="4.5,3.5 2,6 4.5,8.5" {...G} /><polyline points="11.5,3.5 14,6 11.5,8.5" {...G} /></svg>
   ),
   defect: (
-    <svg width="16" height="11"><ellipse cx="8" cy="6" rx="5" ry="3" fill="#dd0000" /></svg>
+    <svg width="16" height="12"><ellipse cx="8" cy="6" rx="5" ry="3" fill="currentColor" stroke="none" /></svg>
   ),
   hide: (
-    <svg width="16" height="11"><ellipse cx="8" cy="6" rx="5" ry="3" fill="#a8a8a8" /><line x1="2" y1="10" x2="14" y2="2" stroke="#dd0000" strokeWidth="1.4" /></svg>
+    <svg width="16" height="12"><ellipse cx="8" cy="6" rx="5" ry="3" {...G} /><line x1="2.5" y1="10.5" x2="13.5" y2="1.5" {...G} /></svg>
   ),
   beam: (
-    <svg width="16" height="11"><line x1="2" y1="1" x2="14" y2="10" stroke="#0000ff" strokeWidth="1" /><line x1="2" y1="1" x2="10" y2="10" stroke="#8888ff" strokeWidth="0.7" strokeDasharray="1.5 1" /><line x1="2" y1="1" x2="15" y2="6" stroke="#8888ff" strokeWidth="0.7" strokeDasharray="1.5 1" /></svg>
+    <svg width="16" height="12"><line x1="2" y1="1.5" x2="13.5" y2="10.5" {...G} /><line x1="2" y1="1.5" x2="9.5" y2="10.5" {...G} strokeWidth="0.7" strokeDasharray="1.5 1.2" /><line x1="2" y1="1.5" x2="15" y2="6.5" {...G} strokeWidth="0.7" strokeDasharray="1.5 1.2" /></svg>
   ),
   rad: (
-    <svg width="16" height="11"><rect x="1" y="2" width="14" height="7" fill="#1a1a1a" stroke="#555" strokeWidth="0.6" /><rect x="3" y="4" width="10" height="3" fill="#3c3c3c" /><circle cx="6" cy="5.5" r="0.8" fill="#000" /><line x1="9" y1="5.5" x2="12" y2="5.5" stroke="#000" strokeWidth="0.8" /></svg>
+    <svg width="16" height="12"><rect x="1.5" y="2.5" width="13" height="7" rx="1" {...G} /><circle cx="5.5" cy="6" r="1" fill="currentColor" stroke="none" /><line x1="8.5" y1="6" x2="12" y2="6" {...G} /></svg>
   ),
   pipe: (
-    <svg width="16" height="11"><circle cx="8" cy="6" r="4.5" fill="none" stroke="#555" strokeWidth="1" /><circle cx="8" cy="6" r="2" fill="none" stroke="#555" strokeWidth="0.8" /></svg>
+    <svg width="16" height="12"><circle cx="8" cy="6" r="4.6" {...G} /><circle cx="8" cy="6" r="2" {...G} strokeWidth="0.8" /></svg>
   ),
   tky: (
-    <svg width="16" height="11"><line x1="1" y1="9" x2="15" y2="9" stroke="#000" strokeWidth="1.6" /><line x1="8" y1="9" x2="12" y2="1" stroke="#000" strokeWidth="1.6" /></svg>
+    <svg width="16" height="12"><line x1="1.5" y1="9.5" x2="14.5" y2="9.5" {...G} strokeWidth="1.4" /><line x1="8" y1="9.5" x2="12.5" y2="1.5" {...G} strokeWidth="1.4" /></svg>
   ),
   tofd: (
-    <svg width="16" height="11"><polygon points="1,4 4,1 4,4" fill="#00a000" /><polygon points="15,4 12,1 12,4" fill="#00a000" /><polyline points="2,4 8,9 14,4" fill="none" stroke="#0000ff" strokeWidth="0.9" /></svg>
+    <svg width="16" height="12"><polygon points="1.5,4 4,1.5 4,4" fill="currentColor" stroke="none" /><polygon points="14.5,4 12,1.5 12,4" fill="currentColor" stroke="none" /><polyline points="2,4 8,9.5 14,4" {...G} strokeWidth="0.9" /></svg>
   ),
   epoch: (
-    <svg width="16" height="11"><rect x="2" y="1" width="12" height="9" rx="1.5" fill="#3a3d42" stroke="#000" strokeWidth="0.5" /><rect x="4" y="3" width="8" height="5" fill="#050a05" /><polyline points="4,7 6,7 7,4 8,7 10,7 11,5.5 12,7" fill="none" stroke="#33ee55" strokeWidth="0.7" /></svg>
+    <svg width="16" height="12"><rect x="2" y="1.5" width="12" height="9" rx="1.5" {...G} /><polyline points="4,7.5 6,7.5 7,4 8,7.5 10,7.5 11,5.5 12,7.5" {...G} strokeWidth="0.8" /></svg>
   ),
 }
 
@@ -65,14 +66,23 @@ function ToolButton({ cap, glyph, active, disabled, onClick, title }) {
       disabled={disabled}
       onClick={onClick}
       className={
-        'flex h-[42px] w-[46px] flex-col items-center justify-center gap-0.5 text-[9px] font-bold ' +
+        'flex h-[42px] w-[46px] flex-col items-center justify-center gap-0.5 text-[9px] font-semibold tracking-[0.02em] ' +
         (active ? 'bevel-in' : 'bevel-out') +
-        (disabled ? ' embossed' : ' text-black active:bevel-in')
+        (disabled ? ' embossed' : '')
       }
     >
-      <span style={disabled ? { filter: 'grayscale(1) opacity(0.5)' } : undefined}>{glyph}</span>
+      {glyph}
       {cap}
     </button>
+  )
+}
+
+function ToolGroup({ caption, children }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="px-0.5 text-[8.5px] font-medium uppercase tracking-[0.06em] text-muted">{caption}</span>
+      <div className="flex gap-1">{children}</div>
+    </div>
   )
 }
 
@@ -146,33 +156,53 @@ export default function App() {
   const setMode = (modeId) => dispatch({ type: 'SET_MODE', modeId })
   const setProbe = (probeId) => dispatch({ type: 'SET_PROBE', probeId })
 
-  const tools = [
-    { cap: '0°', glyph: GLYPHS.probe0, active: state.probeId === 'comp-0' && !tofdMode, onClick: () => setProbe('comp-0'), title: '0° compression probe' },
-    { cap: '45°', glyph: GLYPHS.wedge, active: state.probeId === 'shear-45' && !tofdMode, onClick: () => setProbe('shear-45'), title: '45° shear probe' },
-    { cap: '60°', glyph: GLYPHS.wedge, active: state.probeId === 'shear-60' && !tofdMode, onClick: () => setProbe('shear-60'), title: '60° shear probe' },
-    { cap: '70°', glyph: GLYPHS.wedge, active: state.probeId === 'shear-70' && !tofdMode, onClick: () => setProbe('shear-70'), title: '70° shear probe' },
-    { sep: true },
-    { cap: 'V2', glyph: GLYPHS.block, active: state.modeId === 'v2', onClick: () => setMode('v2'), title: 'V2 calibration block' },
-    { cap: 'V1', glyph: GLYPHS.block, active: state.modeId === 'v1', onClick: () => setMode('v1'), title: 'V1 / IIW calibration block' },
-    { cap: 'ASME', glyph: GLYPHS.block, active: state.modeId === 'asme', onClick: () => setMode('asme'), title: 'ASME basic calibration block — DAC/TCG' },
-    { sep: true },
-    { cap: 'PLOT', glyph: GLYPHS.plot, active: state.modeId === 'dac', onClick: () => setMode('dac'), title: 'DAC plotting exercise' },
-    { cap: 'DAMP', glyph: GLYPHS.damp, active: damp, onClick: () => setDamp((d) => !d), title: 'Damped (smoothed) trace' },
-    { cap: 'SIZE', glyph: GLYPHS.size, active: state.modeId === 'spread', onClick: () => setMode('spread'), title: 'Beam-spread 20% sizing' },
-    { sep: true },
-    { cap: 'DEFECT', glyph: GLYPHS.defect, active: showDefectEditor, onClick: () => { if (!specimen.allowDefects) setMode('weld'); setShowDefectEditor(true) }, title: 'Defect editor (Circle View on pipe)' },
-    { cap: 'HIDE', glyph: GLYPHS.hide, active: hideDefects, onClick: () => setHideDefects((h) => !h), title: 'Hide defects in the workspace' },
-    { sep: true },
-    { cap: 'BEAM', glyph: GLYPHS.beam, active: showBeamFan, onClick: () => setShowBeamFan((b) => !b), title: 'Show beam spread fan' },
-    { cap: 'RAD', glyph: GLYPHS.rad, active: showRad, onClick: () => setShowRad((r) => !r), title: 'Simulated radiograph of the weld' },
-    { sep: true },
-    { cap: 'PIPE', glyph: GLYPHS.pipe, active: state.modeId === 'pipe', onClick: () => { setMode('pipe'); setShow3dPipe(true) }, title: 'Pipe circumferential butt weld' },
-    { cap: 'TKY', glyph: GLYPHS.tky, active: state.modeId === 'tky', onClick: () => setMode('tky'), title: 'T/K/Y joint configurations' },
-    { cap: 'TOFD', glyph: GLYPHS.tofd, active: tofdMode, onClick: () => setMode('tofd'), title: 'Time-of-Flight Diffraction' },
-    { sep: true },
-    { cap: 'AUT', glyph: GLYPHS.size, active: autMode, onClick: () => setMode('aut'), title: 'Automated UT scan' },
-    { cap: 'EPOCH', glyph: GLYPHS.epoch, active: state.instrument === 'epoch', onClick: () => dispatch({ type: 'SET_INSTRUMENT', instrument: state.instrument === 'epoch' ? 'usk7' : 'epoch' }), title: 'Toggle EPOCH-SIM 600 digital detector' },
+  const toolGroups = [
+    {
+      caption: 'Probes',
+      tools: [
+        { cap: '0°', glyph: GLYPHS.probe0, active: state.probeId === 'comp-0' && !tofdMode, onClick: () => setProbe('comp-0'), title: '0° compression probe' },
+        { cap: '45°', glyph: GLYPHS.wedge, active: state.probeId === 'shear-45' && !tofdMode, onClick: () => setProbe('shear-45'), title: '45° shear probe' },
+        { cap: '60°', glyph: GLYPHS.wedge, active: state.probeId === 'shear-60' && !tofdMode, onClick: () => setProbe('shear-60'), title: '60° shear probe' },
+        { cap: '70°', glyph: GLYPHS.wedge, active: state.probeId === 'shear-70' && !tofdMode, onClick: () => setProbe('shear-70'), title: '70° shear probe' },
+      ],
+    },
+    {
+      caption: 'Blocks',
+      tools: [
+        { cap: 'V2', glyph: GLYPHS.block, active: state.modeId === 'v2', onClick: () => setMode('v2'), title: 'V2 calibration block' },
+        { cap: 'V1', glyph: GLYPHS.block, active: state.modeId === 'v1', onClick: () => setMode('v1'), title: 'V1 / IIW calibration block' },
+        { cap: 'ASME', glyph: GLYPHS.block, active: state.modeId === 'asme', onClick: () => setMode('asme'), title: 'ASME basic calibration block — DAC/TCG' },
+      ],
+    },
+    {
+      caption: 'Display',
+      tools: [
+        { cap: 'DAMP', glyph: GLYPHS.damp, active: damp, onClick: () => setDamp((d) => !d), title: 'Damped (smoothed) trace' },
+        { cap: 'BEAM', glyph: GLYPHS.beam, active: showBeamFan, onClick: () => setShowBeamFan((b) => !b), title: 'Show beam spread fan' },
+        { cap: 'HIDE', glyph: GLYPHS.hide, active: hideDefects, onClick: () => setHideDefects((h) => !h), title: 'Hide defects in the workspace' },
+        { cap: 'RAD', glyph: GLYPHS.rad, active: showRad, onClick: () => setShowRad((r) => !r), title: 'Simulated radiograph of the weld' },
+      ],
+    },
+    {
+      caption: 'Defects',
+      tools: [
+        { cap: 'DEFECT', glyph: GLYPHS.defect, active: showDefectEditor, onClick: () => { if (!specimen.allowDefects) setMode('weld'); setShowDefectEditor(true) }, title: 'Defect editor (Circle View on pipe)' },
+        { cap: 'PLOT', glyph: GLYPHS.plot, active: state.modeId === 'dac', onClick: () => setMode('dac'), title: 'DAC plotting exercise' },
+        { cap: 'SIZE', glyph: GLYPHS.size, active: state.modeId === 'spread', onClick: () => setMode('spread'), title: 'Beam-spread 20% sizing' },
+      ],
+    },
+    {
+      caption: 'Advanced modes',
+      tools: [
+        { cap: 'PIPE', glyph: GLYPHS.pipe, active: state.modeId === 'pipe', onClick: () => { setMode('pipe'); setShow3dPipe(true) }, title: 'Pipe circumferential butt weld' },
+        { cap: 'TKY', glyph: GLYPHS.tky, active: state.modeId === 'tky', onClick: () => setMode('tky'), title: 'T/K/Y joint configurations' },
+        { cap: 'TOFD', glyph: GLYPHS.tofd, active: tofdMode, onClick: () => setMode('tofd'), title: 'Time-of-Flight Diffraction' },
+        { cap: 'AUT', glyph: GLYPHS.size, active: autMode, onClick: () => setMode('aut'), title: 'Automated UT scan' },
+        { cap: 'EPOCH', glyph: GLYPHS.epoch, active: state.instrument === 'epoch', onClick: () => dispatch({ type: 'SET_INSTRUMENT', instrument: state.instrument === 'epoch' ? 'usk7' : 'epoch' }), title: 'Toggle EPOCH-SIM 600 digital detector' },
+      ],
+    },
   ]
+  const currentMode = MODES.find((m) => m.id === state.modeId) ?? MODES[0]
 
   const menuNames = ['File', 'Probes', 'Step Wedge', 'Weld', 'Defects', 'Options', 'Help']
   const renderMenu = (name) => {
@@ -231,34 +261,33 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-win-gray text-black">
-      {/* title bar */}
-      <div className="flex items-center gap-1.5 bg-[linear-gradient(90deg,#000080,#1084d0)] px-1.5 py-[3px]">
-        <svg width="16" height="14">
-          <rect x="0" y="1" width="16" height="12" fill="#d4d0c8" stroke="#000" strokeWidth="0.5" />
-          <polyline points="2,10 5,10 6,3 7,10 10,10 11,6 12,10 14,10" fill="none" stroke="#008000" strokeWidth="1" />
+    <div className="flex h-full flex-col overflow-hidden bg-workspace text-ink">
+      {/* app header */}
+      <div className="flex h-9 shrink-0 items-center gap-2.5 bg-chrome px-3">
+        <svg width="18" height="14">
+          <polyline points="1,11 5,11 6.5,3 8,11 11,11 12.5,6.5 14,11 17,11" fill="none" stroke="#3ce6ff" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        <span className="text-[12px] font-bold text-white">
-          UTman-Sim — Ultrasonic Simulator — NDT Verification and Training
+        <span className="text-[13px] font-medium tracking-[0.02em] text-white">UT-SIM</span>
+        <span className="text-[11px] text-white/45">Ultrasonic Simulator — NDT Verification and Training</span>
+        <span className="ml-auto rounded-full border border-accent/40 bg-accent/15 px-2.5 py-0.5 font-mono text-[10px] text-[#7fd8ea]">
+          {currentMode.labelEn} · {currentMode.label}
         </span>
-        <div className="ml-auto flex gap-0.5">
-          {['🗕', '🗖', '✕'].map((c) => (
-            <span key={c} className="bevel-out flex h-[17px] w-[19px] items-center justify-center text-[9px] leading-none text-black">
-              {c}
-            </span>
-          ))}
-        </div>
       </div>
 
       {/* menu bar */}
-      <div className="relative z-50 flex items-center border-b border-win-gray-dark bg-win-gray px-0.5">
+      <div className="relative z-50 flex items-center border-b border-hairline bg-panel px-1.5">
         {menuNames.map((name) => (
           <div key={name} className="relative">
             <button
               type="button"
               onClick={() => setMenu(menu === name ? null : name)}
               onMouseEnter={() => menu && setMenu(name)}
-              className={'px-2 py-0.5 text-[12px] ' + (menu === name ? 'bg-title-blue text-white' : 'hover:bg-title-blue hover:text-white')}
+              className={
+                'border-b-2 px-2.5 py-1 text-[12px] transition-colors duration-75 ' +
+                (menu === name
+                  ? 'border-accent bg-accent/8 text-accent'
+                  : 'border-transparent text-ink hover:bg-accent/8 hover:text-accent')
+              }
             >
               {name}
             </button>
@@ -272,15 +301,18 @@ export default function App() {
       </div>
       {menu && <div className="fixed inset-0 z-40" onClick={() => setMenu(null)} />}
 
-      {/* toolbar */}
-      <div className="flex items-center gap-0.5 border-b border-win-gray-dark bg-win-gray px-1 py-0.5">
-        {tools.map((t, i) =>
-          t.sep ? (
-            <span key={'s' + i} className="mx-1 h-9 w-px bg-win-gray-dark shadow-[1px_0_0_#fff]" />
-          ) : (
-            <ToolButton key={t.cap} {...t} />
-          ),
-        )}
+      {/* toolbar: grouped segmented controls */}
+      <div className="flex items-end gap-3 border-b border-hairline bg-panel px-2 pb-1.5 pt-1">
+        {toolGroups.map((g, i) => (
+          <div key={g.caption} className="flex items-end gap-3">
+            {i > 0 && <span className="mb-0.5 h-10 w-px bg-hairline" />}
+            <ToolGroup caption={g.caption}>
+              {g.tools.map((t) => (
+                <ToolButton key={t.cap} {...t} />
+              ))}
+            </ToolGroup>
+          </div>
+        ))}
       </div>
 
       {/* workspace */}

@@ -79,7 +79,7 @@ export default function RadiographWindow({ specimen, specimenParams, defects, on
       ctx.fillRect(wx, 52, Math.max(0.6, 3 - i * 0.4), 72)
     }
     ctx.fillStyle = '#8a8a8a'
-    ctx.font = '8px Tahoma, sans-serif'
+    ctx.font = '8px "IBM Plex Mono", ui-monospace, monospace'
     ctx.textAlign = 'left'
     ctx.fillText('EN 462', 16, 46)
     ctx.fillText('W10', 16, 136)
@@ -162,7 +162,7 @@ export default function RadiographWindow({ specimen, specimenParams, defects, on
 
     // film scale labels
     ctx.fillStyle = '#777'
-    ctx.font = '9px Tahoma, sans-serif'
+    ctx.font = '9px "IBM Plex Mono", ui-monospace, monospace'
     ctx.textAlign = 'center'
     const step = specimen.type === 'pipe' ? 100 : 50
     for (let mm = Math.ceil(x0 / step) * step; mm <= x1; mm += step) {
@@ -171,7 +171,7 @@ export default function RadiographWindow({ specimen, specimenParams, defects, on
   }, [applicable, defects, specimen.type, x0, x1])
 
   return (
-    <WinWindow title="Radiograph (방사선투과사진)" initial={{ x: 560, y: 60 }} onClose={onClose} className="z-45">
+    <WinWindow title="Radiograph (방사선투과사진)" initial={{ x: 560, y: 60 }} onClose={onClose} className="z-[45]">
       <div className="bg-[#0a0a0a] p-1">
         {applicable ? (
           <canvas ref={canvasRef} width={W} height={H} className="block" />
@@ -182,7 +182,7 @@ export default function RadiographWindow({ specimen, specimenParams, defects, on
         )}
       </div>
       {applicable && hasLam && (
-        <div className="bg-win-gray px-2 py-1 text-[10px] text-defect-red">
+        <div className="border-t border-defect-red/25 bg-defect-red/6 px-2 py-1 text-[10px] font-medium text-defect-red">
           Lamination NOT visible on RT — planar and parallel to the film. Use 0° UT! (라미네이션은 RT에 나타나지 않음)
         </div>
       )}

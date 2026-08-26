@@ -37,10 +37,18 @@ function contextInfo({ specimen, specimenParams, probeDir, thickness, modeId }) 
   }
 }
 
+function Chip({ label, children }) {
+  return (
+    <div className="flex items-baseline gap-1.5 whitespace-nowrap rounded border border-white/10 bg-white/5 px-2 py-0.5">
+      <span className="text-[9px] font-medium uppercase tracking-[0.06em] text-white/40">{label}</span>
+      <span className="font-mono text-[11px] text-white">{children}</span>
+    </div>
+  )
+}
+
 export default function ReadoutBar({ state, specimen, probe, thickness, readout, tofdInfo }) {
   const s = state.settings
   const isPipe = specimen.type === 'pipe'
-  const panel = 'sunken flex items-center px-2 whitespace-nowrap'
   let echoTxt = 'no echo in gate'
   if (tofdInfo) {
     echoTxt =
@@ -57,17 +65,19 @@ export default function ReadoutBar({ state, specimen, probe, thickness, readout,
         : '')
   }
   return (
-    <div className="flex items-stretch gap-1 border-t border-white bg-win-gray px-1 py-0.5 text-[11px] text-black">
-      <div className={panel}>
-        Pos: {state.probeX.toFixed(0)} mm{isPipe ? ' / ' + effectiveLength(specimen, state.specimenParams) : ''}
-      </div>
-      <div className={panel}>Range {s.range.toFixed(1)}{state.modeId === 'tofd' ? 'µs' : 'mm'}</div>
-      <div className={panel}>AMP= {s.gain.toFixed(0)}dB{s.tcg ? ' TCG' : ''}</div>
-      <div className={panel}>{echoTxt}</div>
-      <div className={panel + ' min-w-0 flex-1 overflow-hidden'}>LEFT mouse button/drag to move the UT Probe</div>
-      <div className={panel + ' max-w-[380px] overflow-hidden'}>
+    <div className="flex items-center gap-1.5 border-t border-black/40 bg-chrome px-2 py-1">
+      <Chip label="Pos">
+        {state.probeX.toFixed(0)} mm{isPipe ? ' / ' + effectiveLength(specimen, state.specimenParams) : ''}
+      </Chip>
+      <Chip label="Range">{s.range.toFixed(1)}{state.modeId === 'tofd' ? 'µs' : 'mm'}</Chip>
+      <Chip label="Amp">{s.gain.toFixed(0)}dB{s.tcg ? ' TCG' : ''}</Chip>
+      <Chip label="Echo">{echoTxt}</Chip>
+      <span className="min-w-0 flex-1 truncate px-2 text-[10.5px] italic text-white/35">
+        LEFT mouse button/drag to move the UT Probe
+      </span>
+      <span className="max-w-[380px] truncate text-right text-[10.5px] text-white/55">
         {contextInfo({ specimen, specimenParams: state.specimenParams, probeDir: state.probeDir, thickness, modeId: state.modeId, probe })}
-      </div>
+      </span>
     </div>
   )
 }

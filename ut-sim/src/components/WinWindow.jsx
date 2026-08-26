@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 
-/** Classic-Windows draggable floating window frame (drag by the title bar). */
+/** Modern draggable floating panel (drag by the title bar). */
 export default function WinWindow({ title, initial, width, onClose, children, className = '' }) {
   const [pos, setPos] = useState(initial)
   const drag = useRef(null)
@@ -19,14 +19,19 @@ export default function WinWindow({ title, initial, width, onClose, children, cl
   }
   return (
     <div className={'absolute select-none ' + (className || 'z-50')} style={{ left: pos.x, top: pos.y, width }}>
-      <div className="bevel-out shadow-[4px_4px_8px_rgba(0,0,0,0.35)]">
+      <div className="overflow-hidden rounded-lg bg-white shadow-[0_12px_32px_rgb(0_0_0/0.18)] ring-1 ring-hairline">
         <div
           {...handlers}
-          className="flex cursor-move touch-none items-center gap-2 bg-[linear-gradient(90deg,#000080,#1084d0)] px-1.5 py-0.5 text-[11px] font-bold text-white"
+          className="flex h-7 cursor-move touch-none items-center gap-2 bg-chrome px-2.5 text-[11px] font-medium text-white"
         >
           {title}
           {onClose && (
-            <button type="button" onClick={onClose} className="bevel-out ml-auto h-[15px] w-[17px] text-[9px] leading-none text-black">
+            <button
+              type="button"
+              onClick={onClose}
+              title="Close"
+              className="ml-auto flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#e5484d] text-[8px] font-bold leading-none text-[#7a1216] transition-opacity hover:opacity-80"
+            >
               ✕
             </button>
           )}

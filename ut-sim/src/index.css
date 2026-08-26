@@ -1,22 +1,36 @@
 @import "tailwindcss";
 
 @theme {
-  --color-win-gray: #d4d0c8;
-  --color-win-gray-dark: #808080;
-  --color-win-shadow: #404040;
-  --color-workspace: #f0edcd;
-  --color-workspace-2: #f5f2d0;
-  --color-crt-blue: #0000a0;
-  --color-crt-grid: #3333cc;
-  --color-trace: #7fffff;
-  --color-title-blue: #000080;
-  --color-title-blue2: #1084d0;
-  --color-probe-green: #00a000;
-  --color-beam-blue: #0000ff;
-  --color-defect-red: #dd0000;
-  --color-panel-olive: #1c261c;
-  --color-knob-green: #40ff40;
-  --font-sans: Tahoma, "MS Sans Serif", "Segoe UI", Verdana, sans-serif;
+  /* modern NDT instrument suite palette */
+  --color-chrome: #141a20;
+  --color-workspace: #e8eaed;
+  --color-panel: #f5f6f8;
+  --color-hairline: #c9ced4;
+  --color-ink: #1c2126;
+  --color-muted: #66707a;
+  --color-accent: #0e9fbf;
+  --color-amber: #e8a13c;
+  --color-ok: #3fb27f;
+  --color-defect-red: #e5484d;
+  --color-steel-1: #9aa3ab;
+  --color-steel-2: #7d868e;
+  --color-steel-line: #2b3138;
+  --color-hatch: #5c646c;
+  --color-crt-blue: #061178;
+  --color-crt-grid: #1e2fa8;
+  --color-trace: #3ce6ff;
+
+  /* legacy token names still referenced by components, remapped */
+  --color-win-gray: #f5f6f8;
+  --color-win-gray-dark: #c9ced4;
+  --color-title-blue: #141a20;
+  --color-panel-olive: #0d1117;
+  --color-probe-green: #2f9e5f;
+  --color-beam-blue: #0e9fbf;
+  --color-knob-green: #9fe8c0;
+
+  --font-sans: "IBM Plex Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 html, body, #root {
@@ -26,103 +40,158 @@ html, body, #root {
 }
 
 body {
-  font-family: Tahoma, "MS Sans Serif", "Segoe UI", Verdana, sans-serif;
-  font-size: 12px;
-  background: #d4d0c8;
-  color: #000;
+  font-family: "IBM Plex Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 12.5px;
+  background: #e8eaed;
+  color: #1c2126;
 }
 
-/* Classic Windows 3D bevels */
+.font-mono,
+input[type="number"] {
+  font-variant-numeric: tabular-nums;
+}
+
+input {
+  accent-color: #0e9fbf;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid #0e9fbf;
+  outline-offset: 1px;
+}
+
+/* ---- control primitives (legacy class names, modern styling) ---- */
+
+/* standard button */
 .bevel-out {
-  border: 2px solid;
-  border-color: #ffffff #404040 #404040 #ffffff;
-  background-color: #d4d0c8;
-}
-.bevel-out-thin {
-  border: 1px solid;
-  border-color: #ffffff #808080 #808080 #ffffff;
-  background-color: #d4d0c8;
-}
-.bevel-in {
-  border: 2px solid;
-  border-color: #404040 #ffffff #ffffff #404040;
-  background-color: #c8c4bc;
-}
-.sunken {
-  border: 1px solid;
-  border-color: #808080 #ffffff #ffffff #808080;
-  background-color: #d4d0c8;
-}
-.sunken-white {
-  border: 2px solid;
-  border-color: #808080 #ffffff #ffffff #808080;
+  border: 1px solid #c9ced4;
   background-color: #ffffff;
+  color: #1c2126;
+  border-radius: 3px;
+  transition: background-color 80ms ease, border-color 80ms ease, color 80ms ease;
 }
-.etched {
-  border: 1px solid #808080;
-  box-shadow: inset 1px 1px 0 #ffffff, 1px 1px 0 #ffffff;
+.bevel-out:hover:not(:disabled) {
+  border-color: #0e9fbf;
+}
+.bevel-out:active:not(:disabled) {
+  background-color: #e3f4f8;
 }
 
-/* Classic menu dropdowns */
+/* active / pressed-in state: accent fill */
+.bevel-in {
+  border: 1px solid #0c8aa6;
+  background-color: #0e9fbf;
+  color: #ffffff;
+  border-radius: 3px;
+  transition: background-color 80ms ease, border-color 80ms ease;
+}
+
+/* neutral inset container (no fill of its own) */
+.sunken {
+  border: 1px solid #c9ced4;
+  border-radius: 3px;
+}
+
+/* input field */
+.sunken-white {
+  border: 1px solid #c9ced4;
+  border-radius: 3px;
+  background-color: #ffffff;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.sunken-white:focus {
+  border-color: #0e9fbf;
+  outline: none;
+}
+
+/* section box (was: etched group box) */
+.etched {
+  border: 1px solid #dfe3e8;
+  border-radius: 6px;
+  background: #fbfcfd;
+}
+
+/* disabled treatment */
+.embossed {
+  opacity: 0.4;
+  color: inherit;
+  text-shadow: none;
+}
+
+/* ---- menus ---- */
 .menu-pop {
   position: absolute;
   top: 100%;
   left: 0;
   z-index: 60;
-  min-width: 190px;
-  padding: 2px;
-  background: #d4d0c8;
-  border: 2px solid;
-  border-color: #ffffff #404040 #404040 #ffffff;
-  box-shadow: 3px 3px 5px rgba(0, 0, 0, 0.35);
+  min-width: 210px;
+  padding: 4px;
+  background: #ffffff;
+  border: 1px solid #c9ced4;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
 }
 .menu-item {
   display: flex;
   align-items: center;
   width: 100%;
   text-align: left;
-  padding: 3px 18px 3px 24px;
+  padding: 4px 14px 4px 26px;
   font-size: 12px;
-  color: #000;
+  color: #1c2126;
   position: relative;
   white-space: nowrap;
   background: transparent;
   border: 0;
+  border-radius: 4px;
   cursor: default;
 }
 .menu-item:hover:not(:disabled) {
-  background: #000080;
-  color: #fff;
+  background: rgb(14 159 191 / 0.08);
+  color: #0b7f99;
 }
 .menu-item:disabled {
-  color: #808080;
+  opacity: 0.45;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 .menu-item .check {
   position: absolute;
-  left: 8px;
+  left: 9px;
+  color: #0e9fbf;
+  font-weight: 600;
 }
 .menu-sep {
   height: 1px;
-  margin: 3px 2px;
-  background: #808080;
-  border-bottom: 1px solid #ffffff;
-}
-
-/* Embossed disabled toolbar text */
-.embossed {
-  color: #808080;
-  text-shadow: 1px 1px 0 #ffffff;
+  margin: 4px 6px;
+  background: #e2e6ea;
 }
 
 ::-webkit-scrollbar {
-  width: 14px;
-  height: 14px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-track {
-  background: #e8e4dc;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #d4d0c8;
-  border: 1px solid;
-  border-color: #ffffff #808080 #808080 #ffffff;
+  background: #c9ced4;
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9aa3ab;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }

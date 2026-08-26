@@ -12,26 +12,26 @@ const PH = H - MT - MB
 
 const SKINS = {
   usk7: {
-    panel: '#101010',
-    screen: '#0000a0',
-    grid: '#3333cc',
-    gridMajor: '#5555dd',
-    trace: '#7fffff',
-    traceFill: 'rgba(127,255,255,0.85)',
+    panel: '#0d1117',
+    screen: '#061178',
+    grid: '#1e2fa8',
+    gridMajor: '#2f43c4',
+    trace: '#3ce6ff',
+    traceFill: 'rgba(60,230,255,0.82)',
     text: '#ffffff',
     dac: '#ffffff',
-    gate: '#ff2020',
+    gate: '#e8a13c',
   },
   epoch: {
-    panel: '#0a0e0a',
+    panel: '#0d1117',
     screen: '#050a05',
-    grid: '#1c5c1c',
-    gridMajor: '#2a7c2a',
-    trace: '#33ee55',
-    traceFill: 'rgba(51,238,85,0.85)',
+    grid: '#173a17',
+    gridMajor: '#245c24',
+    trace: '#37e05c',
+    traceFill: 'rgba(55,224,92,0.82)',
     text: '#d0ffd0',
-    dac: '#ffff66',
-    gate: '#ff3030',
+    dac: '#ffe08a',
+    gate: '#e8a13c',
   },
 }
 
@@ -90,13 +90,13 @@ export default function AScanDisplay({ echoes, settings, gate, dacPoints, skin =
 
     // white numerals 0 2 4 6 8 10 below the screen, on the dark panel
     ctx.fillStyle = C.text
-    ctx.font = 'bold 12px Tahoma, sans-serif'
+    ctx.font = '600 11px "IBM Plex Mono", ui-monospace, monospace'
     ctx.textAlign = 'center'
     for (let i = 0; i <= 10; i += 2) {
       ctx.fillText(String(i), ML + (PW * i) / 10, H - 12)
     }
     ctx.textAlign = 'right'
-    ctx.font = '10px Tahoma, sans-serif'
+    ctx.font = '10px "IBM Plex Mono", ui-monospace, monospace'
     ctx.fillText(isTofd ? 'µs  (0-' + range.toFixed(0) + ')' : 'mm  (0-' + range.toFixed(0) + ')', W - 6, H - 2)
 
     // DAC curve (dashed) - conventional modes only
@@ -143,6 +143,8 @@ export default function AScanDisplay({ echoes, settings, gate, dacPoints, skin =
       }
       ctx.strokeStyle = C.trace
       ctx.lineWidth = 1.4
+      ctx.shadowColor = C.trace
+      ctx.shadowBlur = 2
       ctx.beginPath()
       for (let px = 0; px <= PW; px++) {
         const y = baseY - (Math.max(-100, Math.min(100, sig[px])) / 100) * (PH * 0.46)
@@ -150,6 +152,7 @@ export default function AScanDisplay({ echoes, settings, gate, dacPoints, skin =
         else ctx.lineTo(ML + px, y)
       }
       ctx.stroke()
+      ctx.shadowBlur = 0
       // picked cursor + depth label
       if (tofd.cursorUs != null) {
         const cx = xOfUnit(tofd.cursorUs)
@@ -163,7 +166,7 @@ export default function AScanDisplay({ echoes, settings, gate, dacPoints, skin =
           ctx.setLineDash([])
           ctx.fillStyle = '#ffffff'
           ctx.textAlign = 'left'
-          ctx.font = 'bold 11px Tahoma, sans-serif'
+          ctx.font = '600 11px "IBM Plex Mono", ui-monospace, monospace'
           const lbl = tofd.cursorUs.toFixed(2) + 'µs  d=' + (tofd.depth != null ? tofd.depth.toFixed(1) : '--') + 'mm'
           ctx.fillText(lbl, Math.min(cx + 4, W - 120), MT + 14)
         }
@@ -188,6 +191,8 @@ export default function AScanDisplay({ echoes, settings, gate, dacPoints, skin =
       ctx.fillStyle = C.traceFill
       ctx.strokeStyle = C.trace
       ctx.lineWidth = 1.2
+      ctx.shadowColor = C.trace
+      ctx.shadowBlur = 2
       ctx.beginPath()
       ctx.moveTo(ML, baseY)
       for (let px = 0; px <= PW; px++) {
@@ -197,8 +202,9 @@ export default function AScanDisplay({ echoes, settings, gate, dacPoints, skin =
       ctx.closePath()
       ctx.fill()
       ctx.stroke()
+      ctx.shadowBlur = 0
 
-      // gate bar (red, EPOCH-style)
+      // gate bar (amber)
       if (gate.on) {
         const gx0 = Math.max(ML, xOfUnit(gate.start))
         const gx1 = Math.min(ML + PW, xOfUnit(gate.start + gate.width))

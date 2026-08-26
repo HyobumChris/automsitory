@@ -67,13 +67,13 @@ export default function Pipe3DWindow({ specimen, specimenParams, defects, onClos
 
     // caption
     ctx.fillStyle = '#c8c8c8'
-    ctx.font = '10px Tahoma, sans-serif'
+    ctx.font = '10px "IBM Plex Mono", ui-monospace, monospace'
     ctx.textAlign = 'left'
     ctx.fillText(odIn + '" OD pipe — C = ' + C + ' mm — 0 at top, front = right', 8, H - 8)
   }, [defects, C, odIn])
 
   return (
-    <WinWindow title="3D Pipe" initial={{ x: 630, y: 330 }} onClose={onClose} className="z-45">
+    <WinWindow title="3D Pipe" initial={{ x: 630, y: 330 }} onClose={onClose} className="z-[45]">
       <div className="bg-black p-1">
         <canvas ref={canvasRef} width={W} height={H} className="block" />
       </div>
