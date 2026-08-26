@@ -1,195 +1,243 @@
 import { useEffect, useRef } from 'react'
 
 // Internal canvas resolution (scaled by CSS)
-const W = 800
-const H = 520
-const ML = 46 // left margin (percent scale)
-const MR = 14
-const MT = 16
+const W = 520
+const H = 400
+const ML = 10
+const MR = 10
+const MT = 10
 const MB = 30
 const PW = W - ML - MR
 const PH = H - MT - MB
 
-const BG = '#03120a'
-const GRID = 'rgba(57, 255, 90, 0.16)'
-const GRID_MAJOR = 'rgba(57, 255, 90, 0.34)'
-const TRACE = '#39ff5a'
-const TEXT = 'rgba(140, 255, 160, 0.85)'
-const GATE = '#ffab00'
-const DAC = '#00e5ff'
+const SKINS = {
+  usk7: {
+    panel: '#101010',
+    screen: '#0000a0',
+    grid: '#3333cc',
+    gridMajor: '#5555dd',
+    trace: '#7fffff',
+    traceFill: 'rgba(127,255,255,0.85)',
+    text: '#ffffff',
+    dac: '#ffffff',
+    gate: '#ff2020',
+  },
+  epoch: {
+    panel: '#0a0e0a',
+    screen: '#050a05',
+    grid: '#1c5c1c',
+    gridMajor: '#2a7c2a',
+    trace: '#33ee55',
+    traceFill: 'rgba(51,238,85,0.85)',
+    text: '#d0ffd0',
+    dac: '#ffff66',
+    gate: '#ff3030',
+  },
+}
 
 function fract(v) {
   return v - Math.floor(v)
 }
 
-/** CRT-style pulse: rectified oscillation under a gaussian envelope. */
-function pulse(d, w) {
+/** Rectified CRT pulse: oscillation lobes under a gaussian envelope. */
+function pulse(d, w, damp) {
   const env = Math.exp(-(d * d) / (2 * w * w * 4))
+  if (damp) return env
   return Math.abs(Math.cos((Math.PI * d) / (2 * w))) * env
 }
 
-export default function AScanDisplay({ echoes, settings, gate, dacPoints, probe }) {
+/** Bipolar TOFD wiggle (Morlet-like). */
+function wiggle(d, w) {
+  return Math.sin((Math.PI * d) / w) * Math.exp(-(d * d) / (2 * w * w))
+}
+
+export default function AScanDisplay({ echoes, settings, gate, dacPoints, skin = 'usk7', damp = false, tofd = null, onPick }) {
   const canvasRef = useRef(null)
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
-    const { range, xShift, gain, probeZero } = settings
+    const C = SKINS[skin] ?? SKINS.usk7
+    const { range, xShift } = settings
+    const isTofd = !!(tofd && tofd.active)
 
-    const xOfMm = (mm) => ML + ((mm - xShift) / range) * PW
+    const xOfUnit = (u) => ML + ((u - xShift) / range) * PW
     const yOfPct = (pct) => MT + PH - (Math.min(pct, 104) / 100) * PH
 
-    // background
-    ctx.fillStyle = BG
+    // panel + screen
+    ctx.fillStyle = C.panel
     ctx.fillRect(0, 0, W, H)
+    ctx.fillStyle = C.screen
+    ctx.fillRect(ML, MT, PW, PH)
 
     // graticule 10 x 10
     ctx.lineWidth = 1
     for (let i = 0; i <= 10; i++) {
       const x = ML + (PW * i) / 10
-      ctx.strokeStyle = i === 5 ? GRID_MAJOR : GRID
+      ctx.strokeStyle = i === 5 ? C.gridMajor : C.grid
       ctx.beginPath()
       ctx.moveTo(x, MT)
       ctx.lineTo(x, MT + PH)
       ctx.stroke()
       const y = MT + (PH * i) / 10
-      ctx.strokeStyle = i === 5 ? GRID_MAJOR : GRID
+      ctx.strokeStyle = i === 5 ? C.gridMajor : C.grid
       ctx.beginPath()
       ctx.moveTo(ML, y)
       ctx.lineTo(ML + PW, y)
       ctx.stroke()
     }
-    // minor ticks along the baseline
-    ctx.strokeStyle = GRID_MAJOR
-    for (let i = 0; i <= 50; i++) {
-      const x = ML + (PW * i) / 50
-      ctx.beginPath()
-      ctx.moveTo(x, MT + PH - 4)
-      ctx.lineTo(x, MT + PH)
-      ctx.stroke()
-    }
 
-    // axis labels
-    ctx.fillStyle = TEXT
-    ctx.font = '11px "IBM Plex Mono", monospace'
+    // white numerals 0 2 4 6 8 10 below the screen, on the dark panel
+    ctx.fillStyle = C.text
+    ctx.font = 'bold 12px Tahoma, sans-serif'
     ctx.textAlign = 'center'
     for (let i = 0; i <= 10; i += 2) {
-      const mm = xShift + (range * i) / 10
-      ctx.fillText(mm.toFixed(0), ML + (PW * i) / 10, H - 12)
+      ctx.fillText(String(i), ML + (PW * i) / 10, H - 12)
     }
-    ctx.fillText('mm (beam path)', ML + PW / 2, H - 1)
     ctx.textAlign = 'right'
-    for (let i = 0; i <= 100; i += 20) {
-      ctx.fillText(i + '%', ML - 6, yOfPct(i) + 4)
-    }
+    ctx.font = '10px Tahoma, sans-serif'
+    ctx.fillText(isTofd ? 'µs  (0-' + range.toFixed(0) + ')' : 'mm  (0-' + range.toFixed(0) + ')', W - 6, H - 2)
 
-    // DAC curve (dashed cyan)
-    if (dacPoints.length >= 2) {
-      ctx.strokeStyle = DAC
-      ctx.setLineDash([7, 5])
+    // DAC curve (dashed) - conventional modes only
+    if (!isTofd && dacPoints.length >= 2) {
+      ctx.strokeStyle = C.dac
+      ctx.setLineDash([6, 4])
       ctx.lineWidth = 1.5
       ctx.beginPath()
       dacPoints.forEach((p, i) => {
-        const x = xOfMm(p.s)
+        const x = xOfUnit(p.s)
         const y = yOfPct(p.amp)
         if (i === 0) ctx.moveTo(x, y)
         else ctx.lineTo(x, y)
       })
       ctx.stroke()
       ctx.setLineDash([])
+      ctx.fillStyle = C.dac
+      for (const p of dacPoints) {
+        const x = xOfUnit(p.s)
+        if (x < ML || x > ML + PW) continue
+        ctx.beginPath()
+        ctx.arc(x, yOfPct(p.amp), 2.5, 0, Math.PI * 2)
+        ctx.fill()
+      }
     }
-    // DAC recorded points
-    ctx.fillStyle = DAC
-    for (const p of dacPoints) {
-      const x = xOfMm(p.s)
-      if (x < ML || x > ML + PW) continue
+
+    const unitPerPx = range / PW
+
+    if (isTofd) {
+      // RF (bipolar) display around a mid-screen baseline
+      const baseY = MT + PH * 0.5
+      const sig = new Float32Array(PW + 1)
+      for (let px = 0; px <= PW; px++) {
+        sig[px] = 0.8 * (fract(Math.sin((px + 1) * 12.9898) * 43758.5453) - 0.5)
+      }
+      for (const e of echoes) {
+        const w = e.tip ? Math.max(range / 90, 0.12) : Math.max(range / 55, 0.2)
+        const centerPx = ((e.apparent - xShift) / range) * PW
+        const span = Math.ceil((w / unitPerPx) * 4)
+        for (let px = Math.max(0, Math.floor(centerPx - span)); px <= Math.min(PW, Math.ceil(centerPx + span)); px++) {
+          const dU = (px - centerPx) * unitPerPx
+          sig[px] += (e.phase ?? 1) * e.amp * wiggle(dU, w)
+        }
+      }
+      ctx.strokeStyle = C.trace
+      ctx.lineWidth = 1.4
       ctx.beginPath()
-      ctx.arc(x, yOfPct(p.amp), 3, 0, Math.PI * 2)
+      for (let px = 0; px <= PW; px++) {
+        const y = baseY - (Math.max(-100, Math.min(100, sig[px])) / 100) * (PH * 0.46)
+        if (px === 0) ctx.moveTo(ML + px, y)
+        else ctx.lineTo(ML + px, y)
+      }
+      ctx.stroke()
+      // picked cursor + depth label
+      if (tofd.cursorUs != null) {
+        const cx = xOfUnit(tofd.cursorUs)
+        if (cx >= ML && cx <= ML + PW) {
+          ctx.strokeStyle = '#ffffff'
+          ctx.setLineDash([4, 3])
+          ctx.beginPath()
+          ctx.moveTo(cx, MT)
+          ctx.lineTo(cx, MT + PH)
+          ctx.stroke()
+          ctx.setLineDash([])
+          ctx.fillStyle = '#ffffff'
+          ctx.textAlign = 'left'
+          ctx.font = 'bold 11px Tahoma, sans-serif'
+          const lbl = tofd.cursorUs.toFixed(2) + 'µs  d=' + (tofd.depth != null ? tofd.depth.toFixed(1) : '--') + 'mm'
+          ctx.fillText(lbl, Math.min(cx + 4, W - 120), MT + 14)
+        }
+      }
+    } else {
+      // rectified filled-spike trace
+      const sig = new Float32Array(PW + 1)
+      for (let px = 0; px <= PW; px++) {
+        sig[px] = 0.6 + 1.1 * fract(Math.sin((px + 1) * 12.9898) * 43758.5453)
+      }
+      const wU = Math.max(range / 130, 0.35)
+      for (const e of echoes) {
+        const centerPx = ((e.apparent - xShift) / range) * PW
+        const span = Math.ceil((wU / unitPerPx) * 7)
+        for (let px = Math.max(0, Math.floor(centerPx - span)); px <= Math.min(PW, Math.ceil(centerPx + span)); px++) {
+          const dU = (px - centerPx) * unitPerPx
+          const v = e.amp * pulse(dU, wU, damp)
+          if (v > sig[px]) sig[px] = v
+        }
+      }
+      const baseY = MT + PH
+      ctx.fillStyle = C.traceFill
+      ctx.strokeStyle = C.trace
+      ctx.lineWidth = 1.2
+      ctx.beginPath()
+      ctx.moveTo(ML, baseY)
+      for (let px = 0; px <= PW; px++) {
+        ctx.lineTo(ML + px, yOfPct(sig[px]))
+      }
+      ctx.lineTo(ML + PW, baseY)
+      ctx.closePath()
       ctx.fill()
-    }
+      ctx.stroke()
 
-    // build the trace signal (max-combined echoes + faint baseline noise)
-    const sig = new Float32Array(PW + 1)
-    for (let px = 0; px <= PW; px++) {
-      sig[px] = 0.6 + 1.1 * fract(Math.sin((px + 1) * 12.9898) * 43758.5453)
-    }
-    const wMm = Math.max(range / 130, 0.35) // pulse half-width in mm
-    const mmPerPx = range / PW
-    const wPx = wMm / mmPerPx
-    for (const e of echoes) {
-      const centerPx = ((e.apparent - xShift) / range) * PW
-      const span = Math.ceil(wPx * 7)
-      const lo = Math.max(0, Math.floor(centerPx - span))
-      const hi = Math.min(PW, Math.ceil(centerPx + span))
-      for (let px = lo; px <= hi; px++) {
-        const dMm = (px - centerPx) * mmPerPx
-        const v = e.amp * pulse(dMm, wMm)
-        if (v > sig[px]) sig[px] = v
+      // gate bar (red, EPOCH-style)
+      if (gate.on) {
+        const gx0 = Math.max(ML, xOfUnit(gate.start))
+        const gx1 = Math.min(ML + PW, xOfUnit(gate.start + gate.width))
+        if (gx1 > gx0) {
+          const gy = yOfPct(gate.level)
+          ctx.strokeStyle = C.gate
+          ctx.lineWidth = 3
+          ctx.beginPath()
+          ctx.moveTo(gx0, gy)
+          ctx.lineTo(gx1, gy)
+          ctx.stroke()
+          ctx.lineWidth = 1.5
+          ctx.beginPath()
+          ctx.moveTo(gx0, gy - 6)
+          ctx.lineTo(gx0, gy + 6)
+          ctx.moveTo(gx1, gy - 6)
+          ctx.lineTo(gx1, gy + 6)
+          ctx.stroke()
+        }
       }
     }
+  }, [echoes, settings, gate, dacPoints, skin, damp, tofd])
 
-    // trace with phosphor glow
-    ctx.save()
-    ctx.strokeStyle = TRACE
-    ctx.lineWidth = 1.6
-    ctx.shadowColor = TRACE
-    ctx.shadowBlur = 7
-    ctx.beginPath()
-    for (let px = 0; px <= PW; px++) {
-      const x = ML + px
-      const y = yOfPct(sig[px])
-      if (px === 0) ctx.moveTo(x, y)
-      else ctx.lineTo(x, y)
-    }
-    ctx.stroke()
-    ctx.restore()
-
-    // gate bar (amber)
-    if (gate.on) {
-      const gx0 = Math.max(ML, xOfMm(gate.start))
-      const gx1 = Math.min(ML + PW, xOfMm(gate.start + gate.width))
-      if (gx1 > gx0) {
-        const gy = yOfPct(gate.level)
-        ctx.strokeStyle = GATE
-        ctx.lineWidth = 3
-        ctx.shadowColor = GATE
-        ctx.shadowBlur = 5
-        ctx.beginPath()
-        ctx.moveTo(gx0, gy)
-        ctx.lineTo(gx1, gy)
-        ctx.stroke()
-        ctx.shadowBlur = 0
-        ctx.lineWidth = 1.5
-        ctx.beginPath()
-        ctx.moveTo(gx0, gy - 7)
-        ctx.lineTo(gx0, gy + 7)
-        ctx.moveTo(gx1, gy - 7)
-        ctx.lineTo(gx1, gy + 7)
-        ctx.stroke()
-      }
-    }
-
-    // status line (top of the screen)
-    ctx.fillStyle = TEXT
-    ctx.font = '12px "IBM Plex Mono", monospace'
-    ctx.textAlign = 'left'
-    const status =
-      'RANGE ' + range.toFixed(0) + 'mm  GAIN ' + gain.toFixed(1) + 'dB  X-SHIFT ' +
-      xShift.toFixed(1) + '  ZERO ' + probeZero.toFixed(1) + '  ' +
-      (probe.angle === 0 ? '0° COMP 5.92 mm/µs' : probe.angle + '° SHEAR 3.24 mm/µs')
-    ctx.fillText(status, ML + 2, MT - 4)
-  }, [echoes, settings, gate, dacPoints, probe])
+  const handleClick = (e) => {
+    if (!onPick || !(tofd && tofd.active)) return
+    const rect = canvasRef.current.getBoundingClientRect()
+    const px = ((e.clientX - rect.left) * W) / rect.width - ML
+    if (px < 0 || px > PW) return
+    onPick(settings.xShift + (px / PW) * settings.range)
+  }
 
   return (
-    <div className="rounded-lg border border-marine-600 bg-black/60 p-2 shadow-[0_0_24px_rgba(0,229,255,0.08)]">
-      <canvas
-        ref={canvasRef}
-        width={W}
-        height={H}
-        className="w-full rounded"
-        style={{ aspectRatio: W + ' / ' + H }}
-      />
-    </div>
+    <canvas
+      ref={canvasRef}
+      width={W}
+      height={H}
+      onClick={handleClick}
+      className="block"
+      style={{ width: W, height: H, cursor: tofd && tofd.active ? 'crosshair' : 'default' }}
+    />
   )
 }

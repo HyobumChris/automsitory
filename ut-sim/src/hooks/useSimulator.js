@@ -1,5 +1,11 @@
 import { useMemo, useReducer } from 'react'
-import { computeEchoes, deriveReadout, effectiveThickness } from '../lib/ultrasound.js'
+import {
+  computeEchoes,
+  computeTofdSignals,
+  deriveReadout,
+  effectiveThickness,
+  tofdDepthFromTime,
+} from '../lib/ultrasound.js'
 import { getProbe } from '../data/probes.js'
 import { getSpecimen, defaultSpecimenParams, makeDefect } from '../data/specimens.js'
 
@@ -108,13 +114,43 @@ export const MODES = [
     settings: { range: 200, gain: 44, xShift: 0, probeZero: 8, reject: 0 },
     defects: [{ kind: 'toeCrack', x: 190, depth: 3, size: 4 }],
   },
+  {
+    id: 'tofd',
+    label: 'TOFD',
+    labelEn: 'Time-of-Flight Diffraction',
+    specimen: 'weld',
+    probe: 'comp-0',
+    probeX: 150,
+    probeDir: 1,
+    // in TOFD mode the screen axis is MICROSECONDS - range is in us
+    settings: { range: 16, gain: 40, xShift: 0, probeZero: 0, reject: 0 },
+    gate: { on: false, start: 2, width: 10, level: 30 },
+    defects: [{ kind: 'crack', x: 150, depth: 10, size: 6, tilt: 0 }],
+  },
+  {
+    id: 'aut',
+    label: 'AUT',
+    labelEn: 'Automated UT Scan',
+    specimen: 'weld',
+    probe: 'shear-60',
+    probeX: 60,
+    probeDir: 1,
+    settings: { range: 200, gain: 46, xShift: 0, probeZero: 10, reject: 0 },
+    gate: { on: true, start: 10, width: 120, level: 25 },
+    defects: [
+      { kind: 'lof', x: 130, depth: 8, tilt: 30 },
+      { kind: 'sdh', x: 170, depth: 12 },
+      { kind: 'slag', x: 205, depth: 10 },
+    ],
+    scanSpan: [40, 260],
+  },
 ]
 
 const SETTING_CLAMPS = {
-  range: [20, 1000],
+  range: [4, 1000],
   gain: [0, 110],
   xShift: [-50, 500],
-  probeZero: [0, 30],
+  probeZero: [-10, 30],
   reject: [0, 80],
 }
 
@@ -131,26 +167,32 @@ function clampProbeX(specimen, x) {
 function stateForMode(modeId) {
   const mode = MODES.find((m) => m.id === modeId) ?? MODES[0]
   const specimen = getSpecimen(mode.specimen)
+  const params = defaultSpecimenParams(specimen)
+  const t = effectiveThickness(specimen, params)
   return {
     modeId: mode.id,
     specimenId: specimen.id,
-    specimenParams: defaultSpecimenParams(specimen),
+    specimenParams: params,
     probeId: mode.probe,
     probeX: clampProbeX(specimen, mode.probeX),
     probeDir: mode.probeDir ?? 1,
     settings: { dbStep: 2, ...mode.settings },
-    gate: { on: true, start: 10, width: 60, level: 40 },
+    gate: { on: true, start: 10, width: 60, level: 40, ...(mode.gate ?? {}) },
     dacPoints: [],
     beamMarkers: [],
     defects: (mode.defects ?? []).map((d) => makeDefect(d.kind, d)),
     selectedDefectId: null,
+    instrument: 'usk7', // 'usk7' | 'epoch'
+    tofdS: Math.round(t * 0.7), // TOFD half probe-centre spacing (mm)
+    tofdCursorUs: null,
+    scan: { running: false, span: mode.scanSpan ?? [40, 260], data: [] },
   }
 }
 
 function reducer(state, action) {
   switch (action.type) {
     case 'SET_MODE':
-      return stateForMode(action.modeId)
+      return { ...stateForMode(action.modeId), instrument: state.instrument }
     case 'SET_SPECIMEN': {
       const specimen = getSpecimen(action.specimenId)
       return {
@@ -162,6 +204,7 @@ function reducer(state, action) {
         selectedDefectId: null,
         dacPoints: [],
         beamMarkers: [],
+        scan: { ...state.scan, running: false, data: [] },
       }
     }
     case 'SET_SPECIMEN_PARAM':
@@ -181,6 +224,12 @@ function reducer(state, action) {
     }
     case 'FLIP_PROBE':
       return { ...state, probeDir: -state.probeDir }
+    case 'SET_INSTRUMENT':
+      return { ...state, instrument: action.instrument }
+    case 'SET_TOFD_S':
+      return { ...state, tofdS: Math.min(80, Math.max(5, state.tofdS + action.delta)) }
+    case 'SET_TOFD_CURSOR':
+      return { ...state, tofdCursorUs: action.us }
     case 'SET_SETTING':
       return {
         ...state,
@@ -236,8 +285,26 @@ function reducer(state, action) {
         selectedDefectId:
           state.selectedDefectId === action.id ? null : state.selectedDefectId,
       }
+    case 'CLEAR_DEFECTS':
+      return { ...state, defects: [], selectedDefectId: null }
     case 'SELECT_DEFECT':
       return { ...state, selectedDefectId: action.id }
+    case 'SCAN_START': {
+      const specimen = getSpecimen(state.specimenId)
+      return {
+        ...state,
+        probeX: clampProbeX(specimen, state.scan.span[0]),
+        scan: { ...state.scan, running: true, data: [] },
+      }
+    }
+    case 'SCAN_STOP':
+      return { ...state, scan: { ...state.scan, running: false } }
+    case 'SCAN_RESET':
+      return { ...state, scan: { ...state.scan, running: false, data: [] } }
+    case 'SCAN_SPAN':
+      return { ...state, scan: { ...state.scan, span: action.span } }
+    case 'SCAN_RECORD':
+      return { ...state, scan: { ...state.scan, data: [...state.scan.data, action.point] } }
     default:
       return state
   }
@@ -249,32 +316,49 @@ export default function useSimulator() {
   const specimen = getSpecimen(state.specimenId)
   const probe = getProbe(state.probeId)
   const thickness = effectiveThickness(specimen, state.specimenParams)
+  const tofdMode = state.modeId === 'tofd'
 
-  const echoes = useMemo(
-    () =>
-      computeEchoes({
-        specimen,
-        specimenParams: state.specimenParams,
-        defects: state.defects,
-        probe,
-        probeX: state.probeX,
-        probeDir: state.probeDir,
-        settings: state.settings,
-      }),
-    [specimen, state.specimenParams, state.defects, probe, state.probeX, state.probeDir, state.settings],
-  )
-
-  const readout = useMemo(
-    () =>
-      deriveReadout({
-        echoes,
-        gate: state.gate,
-        dacPoints: state.dacPoints,
-        probe,
+  const echoes = useMemo(() => {
+    if (tofdMode) {
+      return computeTofdSignals({
         thickness,
-      }),
-    [echoes, state.gate, state.dacPoints, probe, thickness],
-  )
+        sHalf: state.tofdS,
+        pairCenter: state.probeX,
+        defects: state.defects,
+        gain: state.settings.gain,
+      })
+    }
+    return computeEchoes({
+      specimen,
+      specimenParams: state.specimenParams,
+      defects: state.defects,
+      probe,
+      probeX: state.probeX,
+      probeDir: state.probeDir,
+      settings: state.settings,
+    })
+  }, [tofdMode, specimen, state.specimenParams, state.defects, probe, state.probeX, state.probeDir, state.settings, state.tofdS, thickness])
 
-  return { state, dispatch, specimen, probe, thickness, echoes, readout }
+  const readout = useMemo(() => {
+    if (tofdMode) return { peak: null }
+    return deriveReadout({
+      echoes,
+      gate: state.gate,
+      dacPoints: state.dacPoints,
+      probe,
+      thickness,
+    })
+  }, [tofdMode, echoes, state.gate, state.dacPoints, probe, thickness])
+
+  const tofdInfo = useMemo(() => {
+    if (!tofdMode) return null
+    const cursorUs = state.tofdCursorUs
+    return {
+      sHalf: state.tofdS,
+      cursorUs,
+      depth: cursorUs != null ? tofdDepthFromTime(cursorUs, state.tofdS) : null,
+    }
+  }, [tofdMode, state.tofdCursorUs, state.tofdS])
+
+  return { state, dispatch, specimen, probe, thickness, echoes, readout, tofdMode, tofdInfo }
 }

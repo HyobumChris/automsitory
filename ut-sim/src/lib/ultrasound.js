@@ -290,3 +290,79 @@ export function deriveReadout({ echoes, gate, dacPoints, probe, thickness }) {
       : null
   return { peak, s, surfaceDist, depth, leg, amp: peak.amp, dbToDac }
 }
+
+/* ------------------------------------------------------------------ */
+/* TOFD (Time-of-Flight Diffraction)                                   */
+/* Transmitter and receiver straddle the weld at +/- sHalf mm from the */
+/* pair centre. Time axis in microseconds, compression wave 5.92 mm/us.*/
+/* ------------------------------------------------------------------ */
+
+function clampPct(v) {
+  return Math.min(110, Math.max(0, v))
+}
+
+/**
+ * TOFD signal set: lateral wave, backwall, and top/bottom tip
+ * diffraction for each defect between the probes. Tip signals are weak
+ * and phase-inverted relative to their neighbours (drawn as bipolar
+ * wiggles on the RF display).
+ */
+export function computeTofdSignals({ thickness, sHalf, pairCenter, defects, gain }) {
+  const v = V_COMP
+  const g = Math.pow(10, (gain - 40) / 20)
+  const sig = []
+  sig.push({
+    apparent: (2 * sHalf) / v,
+    amp: clampPct(55 * g),
+    label: 'Lateral wave',
+    phase: 1,
+    tip: false,
+  })
+  sig.push({
+    apparent: (2 * Math.sqrt(sHalf * sHalf + thickness * thickness)) / v,
+    amp: clampPct(90 * g),
+    label: 'Backwall',
+    phase: -1,
+    tip: false,
+  })
+  for (const d of defects) {
+    const dx = d.x - pairCenter
+    const fall = Math.exp(-Math.pow(dx / Math.max(sHalf, 4), 2) * 2.5)
+    if (fall < 0.05) continue
+    const hv = d.planar
+      ? Math.abs(Math.cos(toRad(d.tilt ?? 0))) * (d.size ?? 4)
+      : (d.size ?? 4) * 0.6
+    const dTop = Math.max(0.5, d.depth - hv / 2)
+    const dBot = Math.min(thickness - 0.3, d.depth + hv / 2)
+    const base = 90 * (d.reflectivity ?? 0.5) * 0.3 * fall * g
+    sig.push({
+      apparent: (2 * Math.sqrt(sHalf * sHalf + dTop * dTop)) / v,
+      amp: clampPct(base),
+      label: (d.kind ?? 'defect') + ' top tip',
+      phase: -1,
+      tip: true,
+      defectId: d.id,
+      tipDepth: dTop,
+    })
+    if (dBot - dTop > 0.4) {
+      sig.push({
+        apparent: (2 * Math.sqrt(sHalf * sHalf + dBot * dBot)) / v,
+        amp: clampPct(base * 0.8),
+        label: (d.kind ?? 'defect') + ' bottom tip',
+        phase: 1,
+        tip: true,
+        defectId: d.id,
+        tipDepth: dBot,
+      })
+    }
+  }
+  sig.sort((a, b) => a.apparent - b.apparent)
+  return sig
+}
+
+/** Depth from a picked TOFD transit time: d = sqrt((v*t/2)^2 - S^2). */
+export function tofdDepthFromTime(tUs, sHalf) {
+  const half = (V_COMP * tUs) / 2
+  const sq = half * half - sHalf * sHalf
+  return sq > 0 ? Math.sqrt(sq) : 0
+}

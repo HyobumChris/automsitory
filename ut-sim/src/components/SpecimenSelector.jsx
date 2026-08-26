@@ -1,83 +1,74 @@
-import { SPECIMENS } from '../data/specimens.js'
+// Contents of the "Step Wedge" and "Weld" menus (classic Windows dropdowns).
 
-export default function SpecimenSelector({ specimen, specimenParams, dispatch }) {
+const BLOCK_ITEMS = [
+  { modeId: 'basic', label: 'Flat Plate 25 mm (기본 조작)' },
+  { modeId: 'zero', label: '0° Probe Zero — Plate 25 mm (0° 탐상)' },
+  { modeId: 'lam', label: 'Plate 12 mm — Lamination (라미네이션)' },
+  { modeId: 'spread', label: 'Plate 25 mm — Beam Spread 20% (빔 확산)' },
+  { modeId: 'v1', label: 'V1 / IIW Block (V1 교정)' },
+  { modeId: 'v2', label: 'V2 Block (V2 교정)' },
+]
+
+const WELD_ITEMS = [
+  { modeId: 'weld', label: 'Single-V Butt Weld (용접부 결함)' },
+  { modeId: 'dac', label: 'DAC Exercise — SDH Plate (DAC)' },
+  { modeId: 'tofd', label: 'TOFD Pair (시간비행회절)' },
+  { modeId: 'aut', label: 'AUT Automated Scan (자동 주사)' },
+  { modeId: 'tky', label: 'T / K / Y Joint (TKY)' },
+]
+
+export default function SpecimenSelector({ section, modeId, specimen, specimenParams, dispatch }) {
+  const items = section === 'weld' ? WELD_ITEMS : BLOCK_ITEMS
+  const setThickness = (v) => {
+    if (specimen.type !== 'weld') dispatch({ type: 'SET_MODE', modeId: 'weld' })
+    dispatch({ type: 'SET_SPECIMEN_PARAM', key: 'thickness', value: v })
+  }
   return (
-    <div className="rounded-lg border border-marine-600 bg-marine-800 p-2">
-      <div className="mb-1.5 text-xs font-semibold text-cyan-glow">Specimen (시험편)</div>
-      <div className="grid grid-cols-2 gap-1.5">
-        {SPECIMENS.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            onClick={() => dispatch({ type: 'SET_SPECIMEN', specimenId: s.id })}
-            className={
-              'rounded border px-2 py-1 text-left transition-colors ' +
-              (s.id === specimen.id
-                ? 'border-amber-glow bg-amber-glow/15 text-amber-glow'
-                : 'border-marine-600 bg-marine-700 text-slate-300 hover:border-amber-glow/50')
-            }
-          >
-            <div className="text-[11px] font-semibold">{s.name}</div>
-            <div className="text-[9px] text-slate-400">{s.nameKo}</div>
-          </button>
-        ))}
-      </div>
-
-      {specimen.type === 'v1' && (
-        <div className="mt-2 flex items-center gap-2 text-[11px]">
-          <span className="text-slate-400">Face (탐상면):</span>
+    <div>
+      {items.map((it) => (
+        <button key={it.modeId} type="button" className="menu-item" onClick={() => dispatch({ type: 'SET_MODE', modeId: it.modeId })}>
+          <span className="check">{modeId === it.modeId ? '✓' : ''}</span>
+          {it.label}
+        </button>
+      ))}
+      {section !== 'weld' && specimen.type === 'v1' && (
+        <>
+          <div className="menu-sep" />
           {Object.entries(specimen.faces).map(([key, f]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => dispatch({ type: 'SET_SPECIMEN_PARAM', key: 'face', value: key })}
-              className={
-                'rounded px-2 py-0.5 transition-colors ' +
-                ((specimenParams.face ?? specimen.defaultFace) === key
-                  ? 'bg-cyan-glow/25 text-cyan-glow'
-                  : 'bg-marine-700 text-slate-400 hover:text-cyan-glow')
-              }
-            >
-              {f.label}
+            <button key={key} type="button" className="menu-item" onClick={() => dispatch({ type: 'SET_SPECIMEN_PARAM', key: 'face', value: key })}>
+              <span className="check">{(specimenParams.face ?? specimen.defaultFace) === key ? '✓' : ''}</span>
+              Face: {f.label}
             </button>
           ))}
-        </div>
+        </>
       )}
-
-      {specimen.type === 'weld' && (
-        <label className="mt-2 flex items-center gap-2 text-[11px] text-slate-400">
-          Plate thickness (판 두께): 
-          <input
-            type="range"
-            min={specimen.minThickness}
-            max={specimen.maxThickness}
-            step={1}
-            value={specimenParams.thickness ?? specimen.thickness}
-            onChange={(e) =>
-              dispatch({ type: 'SET_SPECIMEN_PARAM', key: 'thickness', value: Number(e.target.value) })
-            }
-            className="flex-1 accent-cyan-500"
-          />
-          <span className="font-mono text-cyan-glow">{specimenParams.thickness ?? specimen.thickness} mm</span>
-        </label>
-      )}
-
-      {specimen.type === 'tky' && (
-        <label className="mt-2 flex items-center gap-2 text-[11px] text-slate-400">
-          Brace angle (브레이스 각도): 
-          <input
-            type="range"
-            min={30}
-            max={90}
-            step={5}
-            value={specimenParams.braceAngle ?? specimen.braceAngle}
-            onChange={(e) =>
-              dispatch({ type: 'SET_SPECIMEN_PARAM', key: 'braceAngle', value: Number(e.target.value) })
-            }
-            className="flex-1 accent-cyan-500"
-          />
-          <span className="font-mono text-cyan-glow">{specimenParams.braceAngle ?? specimen.braceAngle}°</span>
-        </label>
+      {section === 'weld' && (
+        <>
+          <div className="menu-sep" />
+          <button type="button" className="menu-item" disabled>
+            Plate thickness (판 두께)
+          </button>
+          {[10, 15, 20, 25, 30, 35, 40].map((v) => (
+            <button key={v} type="button" className="menu-item" onClick={() => setThickness(v)}>
+              <span className="check">{specimen.type === 'weld' && (specimenParams.thickness ?? specimen.thickness) === v ? '✓' : ''}</span>
+              {v} mm
+            </button>
+          ))}
+          {specimen.type === 'tky' && (
+            <>
+              <div className="menu-sep" />
+              <button type="button" className="menu-item" disabled>
+                Brace angle (브레이스 각도)
+              </button>
+              {[30, 45, 60, 75, 90].map((v) => (
+                <button key={v} type="button" className="menu-item" onClick={() => dispatch({ type: 'SET_SPECIMEN_PARAM', key: 'braceAngle', value: v })}>
+                  <span className="check">{(specimenParams.braceAngle ?? specimen.braceAngle) === v ? '✓' : ''}</span>
+                  {v}°
+                </button>
+              ))}
+            </>
+          )}
+        </>
       )}
     </div>
   )

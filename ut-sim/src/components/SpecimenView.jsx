@@ -1,11 +1,11 @@
 import { useRef } from 'react'
 import { beamPolyline, sampleArc, toRad } from '../lib/geometry.js'
 
-const STEEL = '#1e3054'
-const STEEL_EDGE = '#4a6da8'
-const BEAM = '#00e5ff'
-const DEFECT = '#ff1744'
-const NOTE = '#94a3b8'
+const BODY = '#a8a8a8'
+const BODY_BACK = '#c6c6c6'
+const RED = '#dd0000'
+const BLUE = '#0000ff'
+const WORKSPACE = '#f0edcd'
 
 function pts2str(pts) {
   return pts.map(([x, y]) => x.toFixed(2) + ',' + y.toFixed(2)).join(' ')
@@ -18,15 +18,13 @@ function profilePoints(specimen, params, thickness) {
       if ((params.face ?? specimen.defaultFace) === 'edge') {
         return [[0, 0], [L, 0], [L, thickness], [0, thickness]]
       }
-      // 100 mm radius quadrant at the left end, centred on the focus (100, 0)
       const arc = sampleArc(100, 0, 100, 180, 90, 28)
       return [[L, 0], [0, 0], ...arc.slice(1), [L, 100]]
     }
     case 'v2': {
-      // fan shape: r25 arc on the left of the focus, r50 arc on the right
       const f = specimen.focusX
-      const a25 = sampleArc(f, 0, 25, 180, 90, 20) // (f-25,0) -> (f,25)
-      const a50 = sampleArc(f, 0, 50, 90, 0, 24) // (f,50) -> (f+50,0)
+      const a25 = sampleArc(f, 0, 25, 180, 90, 20)
+      const a50 = sampleArc(f, 0, 50, 90, 0, 24)
       return [...a25, [f, 50], ...a50.slice(1)]
     }
     default:
@@ -36,7 +34,6 @@ function profilePoints(specimen, params, thickness) {
 
 function DefectShape({ defect, selected, onSelect }) {
   const { x, depth, size = 4, tilt = 0, kind } = defect
-  const stroke = selected ? '#ffab00' : DEFECT
   const common = {
     onPointerDown: (e) => {
       e.stopPropagation()
@@ -44,41 +41,68 @@ function DefectShape({ defect, selected, onSelect }) {
     },
     style: { cursor: 'pointer' },
   }
+  const sel = selected ? (
+    <circle cx={x} cy={depth} r={Math.max(size * 0.75, 3)} fill="none" stroke={BLUE} strokeWidth={0.4} strokeDasharray="1.5 1" />
+  ) : null
   if (kind === 'porosity') {
     const r = Math.max(size / 6, 0.7)
     const offs = [[-size / 3, -size / 4], [size / 4, -size / 6], [-size / 6, size / 4], [size / 3, size / 5], [0, 0]]
     return (
       <g {...common}>
         {offs.map(([dx, dy], i) => (
-          <circle key={i} cx={x + dx} cy={depth + dy} r={r} fill={stroke} opacity={0.85} />
+          <circle key={i} cx={x + dx} cy={depth + dy} r={r} fill={RED} />
         ))}
+        {sel}
       </g>
     )
   }
   if (kind === 'sdh') {
     return (
-      <circle {...common} cx={x} cy={depth} r={Math.max(size / 2, 1)} fill="none" stroke={stroke} strokeWidth={0.8} />
+      <g {...common}>
+        <circle cx={x} cy={depth} r={Math.max(size / 2, 1)} fill={RED} stroke="#000" strokeWidth={0.2} />
+        {sel}
+      </g>
     )
   }
   if (kind === 'slag') {
     return (
-      <ellipse {...common} cx={x} cy={depth} rx={size / 2} ry={size / 4} fill={stroke} opacity={0.85} />
+      <g {...common}>
+        <ellipse cx={x} cy={depth} rx={size / 2} ry={size / 4} fill={RED} />
+        {sel}
+      </g>
     )
   }
-  // planar defects: line along the plane, tilt measured from vertical
   const hx = (size / 2) * Math.sin(toRad(tilt))
   const hy = (size / 2) * Math.cos(toRad(tilt))
   return (
-    <line
-      {...common}
-      x1={x - hx}
-      y1={depth - hy}
-      x2={x + hx}
-      y2={depth + hy}
-      stroke={stroke}
-      strokeWidth={1.4}
-      strokeLinecap="round"
-    />
+    <g {...common}>
+      <line x1={x - hx} y1={depth - hy} x2={x + hx} y2={depth + hy} stroke={RED} strokeWidth={1.6} strokeLinecap="round" />
+      {sel}
+    </g>
+  )
+}
+
+function ProbeWedge({ x, dir, angle, tofdLabel }) {
+  if (angle === 0 && !tofdLabel) {
+    return (
+      <g>
+        <polygon points={pts2str([[x - 7, -16], [x + 7, -16], [x + 7, 0], [x - 7, 0]])} fill="#0000c0" stroke="#000" strokeWidth={0.4} />
+        <circle cx={x} cy={0} r={1.1} fill="#fff" stroke="#000" strokeWidth={0.2} />
+      </g>
+    )
+  }
+  const heel = x - dir * 14
+  const pts = [[heel, 0], [heel, -13], [x + dir * 3, -13], [x + dir * 7, -5], [x + dir * 7, 0]]
+  return (
+    <g>
+      <polygon points={pts2str(pts)} fill="url(#probeHatch)" stroke="#000" strokeWidth={0.4} />
+      <circle cx={x} cy={0} r={1.1} fill="#fff" stroke="#000" strokeWidth={0.2} />
+      {tofdLabel && (
+        <text x={heel + dir * 5} y={-15} fontSize={5} fontWeight="700" textAnchor="middle" fill="#000">
+          {tofdLabel}
+        </text>
+      )}
+    </g>
   )
 }
 
@@ -93,6 +117,10 @@ export default function SpecimenView({
   probeDir,
   settings,
   beamMarkers,
+  hideDefects,
+  showBeamFan,
+  tofdMode,
+  tofdS,
   dispatch,
 }) {
   const svgRef = useRef(null)
@@ -102,41 +130,53 @@ export default function SpecimenView({
   const params = specimenParams
   const profile = profilePoints(specimen, params, thickness)
   const profileHeight = Math.max(...profile.map(([, y]) => y))
-
   const isTky = specimen.type === 'tky'
-  const topPad = isTky ? 78 : 30
-  const botPad = 20
-  const vb = '-12 ' + -topPad + ' ' + (L + 46) + ' ' + (profileHeight + topPad + botPad)
-  const fs = Math.max(L * 0.024, 5)
+  const isBlock = specimen.type === 'v1' || specimen.type === 'v2'
+  const v1Side = specimen.type === 'v1' && (params.face ?? specimen.defaultFace) === 'side'
 
-  // radius-block special case: probe near the focus firing at the arc -> the
-  // centreline meets the arc perpendicular at distance R (why any angle works)
+  const topPad = isTky ? 88 : 52
+  const botPad = 16
+  const vb = '-34 ' + -topPad + ' ' + (L + 70) + ' ' + (profileHeight + topPad + botPad)
+  const fs = Math.max(L * 0.022, 4.5)
+
+  const cx = specimen.type === 'weld' ? specimen.weldCenterX : L / 2
+
+  /* --- beam geometry --- */
   const radiusFeature = (specimen.features ?? []).find(
     (f) =>
       f.type === 'radius' &&
       (!f.face || f.face === (params.face ?? specimen.defaultFace)) &&
       (!f.dir || f.dir === probeDir),
   )
-  const aimedAtRadius =
-    probe.angle > 0 && radiusFeature && Math.abs(probeX - radiusFeature.focusX) <= 15
+  const aimedAtRadius = !tofdMode && probe.angle > 0 && radiusFeature && Math.abs(probeX - radiusFeature.focusX) <= 15
 
-  let beamPts
-  if (aimedAtRadius) {
-    const th = toRad(probe.angle)
-    beamPts = [
-      [probeX, 0],
-      [probeX + probeDir * radiusFeature.radius * Math.sin(th), radiusFeature.radius * Math.cos(th)],
-    ]
-  } else {
-    beamPts = beamPolyline({
-      probeX,
-      dir: probeDir,
-      angleDeg: probe.angle,
-      thickness,
-      maxPath: Math.min(settings.range + Math.max(settings.xShift, 0), thickness * 8 + 40),
-    })
+  const maxPath = Math.min(settings.range + Math.max(settings.xShift, 0), thickness * 8 + 40)
+  let beamPts = null
+  let fanA = null
+  let fanB = null
+  if (!tofdMode) {
+    if (aimedAtRadius) {
+      const mk = (a) => [
+        [probeX, 0],
+        [probeX + probeDir * radiusFeature.radius * Math.sin(toRad(a)), radiusFeature.radius * Math.cos(toRad(a))],
+      ]
+      beamPts = mk(probe.angle)
+      fanA = mk(probe.angle - (probe.halfAngleDeg ?? 5))
+      fanB = mk(probe.angle + (probe.halfAngleDeg ?? 5))
+    } else if (probe.angle === 0) {
+      beamPts = [[probeX, 0], [probeX, thickness]]
+      const w = thickness * Math.tan(toRad(probe.halfAngleDeg ?? 4))
+      fanA = [[probeX - 3, 0], [probeX - 3 - w, thickness]]
+      fanB = [[probeX + 3, 0], [probeX + 3 + w, thickness]]
+    } else {
+      const mk = (a) => beamPolyline({ probeX, dir: probeDir, angleDeg: a, thickness, maxPath })
+      beamPts = mk(probe.angle)
+      fanA = mk(probe.angle - (probe.halfAngleDeg ?? 5))
+      fanB = mk(probe.angle + (probe.halfAngleDeg ?? 5))
+    }
   }
 
+  /* --- drag --- */
   const svgX = (e) => {
     const svg = svgRef.current
     const pt = svg.createSVGPoint()
@@ -144,7 +184,6 @@ export default function SpecimenView({
     pt.y = e.clientY
     return pt.matrixTransform(svg.getScreenCTM().inverse()).x
   }
-
   const onPointerDown = (e) => {
     dragging.current = true
     svgRef.current.setPointerCapture(e.pointerId)
@@ -158,153 +197,161 @@ export default function SpecimenView({
     dragging.current = false
   }
 
-  // probe body polygon
-  const back = probeX - probeDir * 13
-  const front = probeX + probeDir * 8
-  const probePoly =
-    probe.angle === 0
-      ? [[probeX - 8, -18], [probeX + 8, -18], [probeX + 8, 0], [probeX - 8, 0]]
-      : [[back, -16], [front, -16], [front, 0], [probeX - probeDir * 4, 0], [back, -7]]
-
-  // weld overlay geometry
-  let weld = null
-  if (specimen.type === 'weld') {
-    const wx = specimen.weldCenterX
-    const ho = thickness * Math.tan(toRad(specimen.prepHalfAngleDeg)) + 1.5
-    weld = { wx, ho }
+  /* --- rulers --- */
+  const rulers = []
+  const nStep = profileHeight <= 15 ? 5 : profileHeight <= 60 ? 10 : 25
+  for (let d = 0; d <= profileHeight; d += 5) {
+    const major = d % nStep === 0
+    rulers.push(<line key={'l' + d} x1={-6} y1={d} x2={major ? -11 : -9} y2={d} stroke="#000" strokeWidth={0.3} />)
+    rulers.push(<line key={'r' + d} x1={L + 6} y1={d} x2={L + (major ? 11 : 9)} y2={d} stroke="#000" strokeWidth={0.3} />)
+    if (major) {
+      rulers.push(
+        <text key={'ln' + d} x={-13} y={d + fs * 0.35} fontSize={fs * 0.75} textAnchor="end" fill="#000">{d}</text>,
+        <text key={'rn' + d} x={L + 13} y={d + fs * 0.35} fontSize={fs * 0.75} fill="#000">{d}</text>,
+      )
+    }
+  }
+  const maxHalf = Math.max(20, Math.min(100, Math.floor(Math.min(cx, L - cx) / 10) * 10))
+  const scaleY = -30
+  const scale = [
+    <line key="base" x1={cx - maxHalf} y1={scaleY} x2={cx + maxHalf} y2={scaleY} stroke="#000" strokeWidth={0.4} />,
+  ]
+  for (let v = -maxHalf; v <= maxHalf; v += 5) {
+    const x = cx + v
+    if (x < 0 || x > L) continue
+    const major = v % 10 === 0
+    scale.push(<line key={'t' + v} x1={x} y1={scaleY} x2={x} y2={scaleY - (major ? 4 : 2.5)} stroke="#000" strokeWidth={0.3} />)
+    if (major) {
+      scale.push(
+        <text key={'n' + v} x={x} y={scaleY - 6} fontSize={fs * 0.72} textAnchor="middle" fill="#000">
+          {Math.abs(v)}
+        </text>,
+      )
+    }
   }
 
-  // TKY brace polygon
+  /* --- weld / brace overlays --- */
+  let weld = null
+  if (specimen.type === 'weld') {
+    const ho = thickness * Math.tan(toRad(specimen.prepHalfAngleDeg)) + 1.5
+    weld = { wx: specimen.weldCenterX, ho }
+  }
   let brace = null
   if (isTky) {
     const beta = toRad(params.braceAngle ?? specimen.braceAngle)
     const bt = specimen.braceThickness
-    const bl = 70
+    const bl = 74
     const x0 = specimen.braceX
-    const u = [Math.cos(beta), -Math.sin(beta)] // up along the brace
-    const x1 = x0 + bt / Math.sin(beta) // heel on the surface
-    brace = {
-      poly: [
-        [x0, 0],
-        [x0 + bl * u[0], bl * u[1]],
-        [x1 + bl * u[0], bl * u[1]],
-        [x1, 0],
-      ],
-      x0,
-      x1,
-    }
+    const u = [Math.cos(beta), -Math.sin(beta)]
+    const x1 = x0 + bt / Math.sin(beta)
+    brace = { poly: [[x0, 0], [x0 + bl * u[0], bl * u[1]], [x1 + bl * u[0], bl * u[1]], [x1, 0]], x0, x1 }
   }
 
-  const face = params.face ?? specimen.defaultFace
-  const v1Side = specimen.type === 'v1' && face === 'side'
+  /* --- plan view pointer --- */
+  const planA = (probeDir > 0 ? 0 : Math.PI) + ((probeX - cx) / Math.max(L, 1)) * (Math.PI / 3) * (probeDir > 0 ? 1 : -1)
+
+  const contextTitle = isBlock ? 'Carbon Steel Block' : specimen.name
 
   return (
-    <div className="rounded-lg border border-marine-600 bg-marine-800 p-2">
-      <div className="mb-1 flex items-baseline justify-between px-1">
-        <span className="text-xs font-semibold text-cyan-glow">
-          Specimen View (시험편 단면)
-        </span>
-        <span className="text-[10px] text-slate-400">
-          {specimen.name} · drag probe (탐촉자 드래그)
-        </span>
-      </div>
+    <div className="relative h-full w-full" style={{ background: WORKSPACE }}>
       <svg
         ref={svgRef}
         viewBox={vb}
-        className="w-full touch-none select-none"
+        preserveAspectRatio="xMidYMid meet"
+        className="h-full w-full touch-none select-none"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerUp}
       >
-        {/* specimen body */}
-        <polygon points={pts2str(profile)} fill={STEEL} stroke={STEEL_EDGE} strokeWidth={0.8} />
+        <defs>
+          <pattern id="weldHatch" width="4" height="4" patternUnits="userSpaceOnUse">
+            <path d="M0,4 L4,0" stroke="#555" strokeWidth="0.5" />
+          </pattern>
+          <pattern id="probeHatch" width="3" height="3" patternUnits="userSpaceOnUse">
+            <rect width="3" height="3" fill="#00a000" />
+            <path d="M0,3 L3,0 M0,0 L3,3" stroke="#006600" strokeWidth="0.4" />
+          </pattern>
+        </defs>
 
-        {/* V1 features */}
-        {v1Side &&
-          (specimen.features ?? []).map((f, i) => {
-            if (f.type === 'slot') {
-              return (
-                <g key={i}>
-                  <rect
-                    x={f.x0}
-                    y={f.thickness}
-                    width={f.x1 - f.x0}
-                    height={100 - f.thickness}
-                    fill="#0a1628"
-                    stroke={STEEL_EDGE}
-                    strokeWidth={0.5}
-                  />
-                  <text x={(f.x0 + f.x1) / 2} y={f.thickness - 3} fontSize={fs * 0.8} fill={NOTE} textAnchor="middle">
-                    91
-                  </text>
-                </g>
-              )
-            }
-            if (f.type === 'perspex') {
-              return (
-                <g key={i}>
-                  <rect
-                    x={f.x0}
-                    y={55}
-                    width={f.x1 - f.x0}
-                    height={45}
-                    fill="rgba(255,171,0,0.15)"
-                    stroke="#ffab00"
-                    strokeWidth={0.5}
-                    strokeDasharray="2 2"
-                  />
-                  <text x={(f.x0 + f.x1) / 2} y={80} fontSize={fs * 0.8} fill="#ffab00" textAnchor="middle">
-                    perspex
-                  </text>
-                </g>
-              )
-            }
-            if (f.type === 'sdh') {
-              return (
-                <g key={i}>
-                  <circle cx={f.x} cy={f.depth} r={Math.max(f.size / 2, 1.2)} fill="none" stroke="#e2e8f0" strokeWidth={0.6} />
-                  <text x={f.x + 5} y={f.depth + 2} fontSize={fs * 0.8} fill={NOTE}>
-                    SDH
-                  </text>
-                </g>
-              )
-            }
-            return null
-          })}
-        {specimen.type === 'v2' && (
-          <circle cx={specimen.focusX} cy={12} r={2.5} fill="none" stroke="#e2e8f0" strokeWidth={0.5} />
+        {/* workspace title */}
+        <text x={-28} y={-topPad + 10} fontSize={fs * 1.25} fontWeight="700" fill="#000">
+          {contextTitle} — {specimen.nameKo}
+        </text>
+
+        {/* pseudo-3D back face for cal blocks */}
+        {isBlock && (
+          <polygon points={pts2str(profile)} transform="translate(8,-6)" fill={BODY_BACK} stroke="#000" strokeWidth={0.4} />
         )}
 
-        {/* weld overlay */}
+        {/* specimen body */}
+        <polygon points={pts2str(profile)} fill={BODY} stroke="#000" strokeWidth={0.6} />
+
+        {/* rulers + probe position scale */}
+        {rulers}
+        {scale}
+
+        {/* V1 features */}
+        {v1Side && (
+          <g>
+            <text x={200} y={62} fontSize={fs * 3.2} fontWeight="700" fill="#000" textAnchor="middle">V1</text>
+            {(specimen.features ?? []).map((f, i) => {
+              if (f.type === 'slot') {
+                return (
+                  <g key={i}>
+                    <rect x={f.x0} y={f.thickness} width={f.x1 - f.x0} height={100 - f.thickness} fill={WORKSPACE} stroke="#000" strokeWidth={0.4} />
+                    <text x={(f.x0 + f.x1) / 2} y={f.thickness - 3} fontSize={fs * 0.8} fill="#000" textAnchor="middle">91</text>
+                  </g>
+                )
+              }
+              if (f.type === 'perspex') {
+                const pcx = (f.x0 + f.x1) / 2
+                return (
+                  <g key={i}>
+                    <circle cx={pcx} cy={76} r={15} fill="#e6e2c0" stroke="#000" strokeWidth={0.5} />
+                    <text x={pcx} y={78} fontSize={fs * 0.75} fill="#000" textAnchor="middle">perspex</text>
+                  </g>
+                )
+              }
+              if (f.type === 'sdh') {
+                return (
+                  <g key={i}>
+                    <circle cx={f.x} cy={f.depth} r={Math.max(f.size / 2, 1.2)} fill="#fff" stroke="#000" strokeWidth={0.4} />
+                    <text x={f.x + 5} y={f.depth + 2} fontSize={fs * 0.75} fill="#000">SDH</text>
+                  </g>
+                )
+              }
+              return null
+            })}
+            <text x={100} y={-10} fontSize={fs * 0.85} fill="#000" textAnchor="middle">focus ▼ R100</text>
+          </g>
+        )}
+        {specimen.type === 'v2' && (
+          <g>
+            <text x={72} y={26} fontSize={fs * 2.4} fontWeight="700" fill="#000" textAnchor="middle">V2</text>
+            <circle cx={specimen.focusX} cy={12} r={2.5} fill="#fff" stroke="#000" strokeWidth={0.4} />
+          </g>
+        )}
+
+        {/* weld overlay: hatched weld zone + cap/root */}
         {weld && (
           <g>
-            <path
-              d={
-                'M ' + (weld.wx - weld.ho) + ' 0 L ' + (weld.wx - 1.5) + ' ' + thickness +
-                ' M ' + (weld.wx + weld.ho) + ' 0 L ' + (weld.wx + 1.5) + ' ' + thickness
-              }
-              stroke="#64748b"
-              strokeWidth={0.6}
-              strokeDasharray="2 1.5"
-              fill="none"
+            <polygon
+              points={pts2str([[weld.wx - weld.ho, 0], [weld.wx + weld.ho, 0], [weld.wx + 1.5, thickness], [weld.wx - 1.5, thickness]])}
+              fill="url(#weldHatch)"
+              stroke="#444"
+              strokeWidth={0.4}
             />
             <path
-              d={
-                'M ' + (weld.wx - weld.ho - 2) + ' 0 Q ' + weld.wx + ' ' + -(thickness * 0.18) +
-                ' ' + (weld.wx + weld.ho + 2) + ' 0'
-              }
-              fill="rgba(100,116,139,0.35)"
-              stroke="#64748b"
+              d={'M ' + (weld.wx - weld.ho - 2) + ' 0 Q ' + weld.wx + ' ' + -(thickness * 0.18) + ' ' + (weld.wx + weld.ho + 2) + ' 0'}
+              fill="none"
+              stroke="#444"
               strokeWidth={0.5}
             />
             <path
-              d={
-                'M ' + (weld.wx - 3) + ' ' + thickness + ' Q ' + weld.wx + ' ' +
-                (thickness + thickness * 0.09) + ' ' + (weld.wx + 3) + ' ' + thickness
-              }
-              fill="rgba(100,116,139,0.35)"
-              stroke="#64748b"
+              d={'M ' + (weld.wx - 3) + ' ' + thickness + ' Q ' + weld.wx + ' ' + (thickness + thickness * 0.09) + ' ' + (weld.wx + 3) + ' ' + thickness}
+              fill="none"
+              stroke="#444"
               strokeWidth={0.5}
             />
           </g>
@@ -313,83 +360,89 @@ export default function SpecimenView({
         {/* TKY brace */}
         {brace && (
           <g>
-            <polygon points={pts2str(brace.poly)} fill={STEEL} stroke={STEEL_EDGE} strokeWidth={0.8} />
-            <path
-              d={'M ' + (brace.x0 - 4) + ' 0 L ' + brace.x0 + ' -4 M ' + brace.x1 + ' -4 L ' + (brace.x1 + 4) + ' 0'}
-              stroke="#64748b"
-              strokeWidth={1.2}
-              fill="none"
-            />
-            <text x={brace.x0 - 6} y={-30} fontSize={fs} fill={NOTE} textAnchor="end">
+            <polygon points={pts2str(brace.poly)} fill={BODY} stroke="#000" strokeWidth={0.6} />
+            <polygon points={pts2str([[brace.x0 - 4, 0], [brace.x0, 0], [brace.x0, -4]])} fill="url(#weldHatch)" stroke="#444" strokeWidth={0.3} />
+            <polygon points={pts2str([[brace.x1, 0], [brace.x1 + 4, 0], [brace.x1, -4]])} fill="url(#weldHatch)" stroke="#444" strokeWidth={0.3} />
+            <text x={brace.x0 - 6} y={-34} fontSize={fs} fill="#000" textAnchor="end">
               brace {params.braceAngle ?? specimen.braceAngle}°
             </text>
           </g>
         )}
 
-        {/* beam centreline */}
-        <polyline
-          points={pts2str(beamPts)}
-          fill="none"
-          stroke={BEAM}
-          strokeWidth={1}
-          strokeOpacity={0.85}
-          strokeDasharray="3 1.5"
-        />
+        {/* beam: spread fan (dotted) + centreline (solid blue) */}
+        {!tofdMode && showBeamFan && fanA && (
+          <g stroke="#fafafa" strokeWidth={0.5} strokeDasharray="1 1.6" fill="none">
+            <polyline points={pts2str(fanA)} />
+            <polyline points={pts2str(fanB)} />
+          </g>
+        )}
+        {!tofdMode && beamPts && (
+          <polyline points={pts2str(beamPts)} fill="none" stroke={BLUE} strokeWidth={0.8} />
+        )}
+
+        {/* TOFD: lateral wave, backwall V-path, tip paths */}
+        {tofdMode && (
+          <g>
+            <line x1={probeX - tofdS} y1={0.8} x2={probeX + tofdS} y2={0.8} stroke="#fff" strokeWidth={0.6} strokeDasharray="1.5 1.5" />
+            <polyline
+              points={pts2str([[probeX - tofdS, 0], [probeX, thickness], [probeX + tofdS, 0]])}
+              fill="none"
+              stroke={BLUE}
+              strokeWidth={0.8}
+            />
+            {defects.map((d) => (
+              <polyline
+                key={d.id}
+                points={pts2str([[probeX - tofdS, 0], [d.x, Math.max(0.5, d.depth - (d.size ?? 4) / 2)], [probeX + tofdS, 0]])}
+                fill="none"
+                stroke="#7700cc"
+                strokeWidth={0.5}
+                strokeDasharray="2 1.2"
+              />
+            ))}
+          </g>
+        )}
 
         {/* defects */}
-        {defects.map((d) => (
-          <DefectShape
-            key={d.id}
-            defect={d}
-            selected={d.id === selectedDefectId}
-            onSelect={(id) => dispatch({ type: 'SELECT_DEFECT', id })}
-          />
-        ))}
+        {!hideDefects &&
+          defects.map((d) => (
+            <DefectShape key={d.id} defect={d} selected={d.id === selectedDefectId} onSelect={(id) => dispatch({ type: 'SELECT_DEFECT', id })} />
+          ))}
 
-        {/* beam-spread (20 %) sizing markers */}
+        {/* beam-spread sizing markers */}
         {beamMarkers.map((m, i) => (
-          <g key={i} stroke="#00e676" strokeWidth={0.8}>
+          <g key={i} stroke="#007700" strokeWidth={0.7}>
             <line x1={m.x - 2} y1={m.depth - 2} x2={m.x + 2} y2={m.depth + 2} />
             <line x1={m.x - 2} y1={m.depth + 2} x2={m.x + 2} y2={m.depth - 2} />
-            <line x1={m.probeX} y1={-4} x2={m.probeX} y2={0} stroke="#00e676" strokeWidth={1.4} />
+            <line x1={m.probeX} y1={-4} x2={m.probeX} y2={0} strokeWidth={1.2} />
           </g>
         ))}
 
-        {/* probe */}
-        <g style={{ cursor: 'ew-resize' }}>
-          <polygon points={pts2str(probePoly)} fill="#334155" stroke="#00e5ff" strokeWidth={0.8} />
-          <line x1={probeX} y1={-3} x2={probeX} y2={1.5} stroke="#ffab00" strokeWidth={1} />
-          <text
-            x={probeX}
-            y={-20}
-            fontSize={fs}
-            fill="#00e5ff"
-            textAnchor="middle"
-            fontWeight="600"
-          >
-            {probe.angle === 0 ? '0°' : probe.angle + '°'} x={probeX.toFixed(1)}
-          </text>
-        </g>
-
-        {/* dimensions */}
-        <line x1={L + 8} y1={0} x2={L + 8} y2={profileHeight} stroke={NOTE} strokeWidth={0.5} />
-        <text
-          x={L + 12}
-          y={profileHeight / 2}
-          fontSize={fs}
-          fill={NOTE}
-          dominantBaseline="middle"
-        >
-          {specimen.type === 'v1' || specimen.type === 'v2'
-            ? profileHeight.toFixed(0) + ' mm'
-            : 't=' + thickness + ' mm'}
-        </text>
-        {v1Side && (
-          <text x={100} y={-8} fontSize={fs * 0.9} fill={NOTE} textAnchor="middle">
-            focus ▼ R100
-          </text>
+        {/* probe(s) */}
+        {tofdMode ? (
+          <g style={{ cursor: 'ew-resize' }}>
+            <ProbeWedge x={probeX - tofdS} dir={1} angle={60} tofdLabel="Tx" />
+            <ProbeWedge x={probeX + tofdS} dir={-1} angle={60} tofdLabel="Rx" />
+          </g>
+        ) : (
+          <g style={{ cursor: 'ew-resize' }}>
+            <ProbeWedge x={probeX} dir={probeDir} angle={probe.angle} />
+            <text x={probeX} y={-19} fontSize={fs * 0.9} fontWeight="700" fill="#000" textAnchor="middle">
+              {probe.angle}°
+            </text>
+          </g>
         )}
       </svg>
+
+      {/* PLAN VIEW (top-right) */}
+      <div className="pointer-events-none absolute right-2 top-1 flex flex-col items-center">
+        <span className="text-[10px] font-bold text-black">PLAN VIEW</span>
+        <svg width="66" height="66">
+          <circle cx={33} cy={33} r={25} fill="#0000c0" stroke="#000" strokeWidth={1} />
+          <line x1={33} y1={33} x2={33 + 22 * Math.cos(planA)} y2={33 + 22 * Math.sin(planA)} stroke="#ff2020" strokeWidth={2} />
+          <circle cx={33 + 22 * Math.cos(planA)} cy={33 + 22 * Math.sin(planA)} r={2.5} fill="#ff2020" />
+        </svg>
+      </div>
     </div>
   )
 }
