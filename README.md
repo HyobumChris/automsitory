@@ -31,6 +31,7 @@
 - **Table 8.2.2**: BCA(Brittle Crack Arrest) 강재 요구사항
 - **인터랙티브 다이어그램**: 해치코밍 구조 및 부재별 상세 정보
 - **핵심 요약**: 두께별 요구사항 플로우차트
+- **UT 판정 기준 가이드** (`ut_criteria_visualization.html`): Table 8.2.1 적용 판정 · 사각탐상 빔 기하 · DAC 판정 시뮬레이터 — 단일 파일 인터랙티브 HTML (교육·참고용, `?selftest`로 내장 로직 검증 가능)
 
 ---
 

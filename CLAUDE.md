@@ -20,6 +20,7 @@ automsitory/
 ├── .github/workflows/            # CI/CD — GitHub Pages deployment workflow
 ├── LloydsRulesVibeCodingApp.jsx  # Original monolithic React component (reference/archive)
 ├── hatch_coaming_visualization.html  # Standalone vanilla HTML/CSS/JS visualization
+├── ut_criteria_visualization.html    # Standalone interactive UT criteria guide (Table 8.2.1 lookup, beam geometry, DAC simulator; `?selftest` runs built-in logic checks)
 ├── lloyd_rules_app.html          # Compiled single-file React app (standalone build)
 ├── README.md                     # Project-level documentation (Korean/English)
 └── subautository                 # Empty placeholder file
