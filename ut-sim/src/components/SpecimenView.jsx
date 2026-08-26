@@ -144,7 +144,7 @@ export default function SpecimenView({
   const topPad = isTky ? 88 : 52
   const botPad = 16
   const vb = '-34 ' + -topPad + ' ' + (L + 70) + ' ' + (profileHeight + topPad + botPad)
-  const fs = Math.max(L * 0.022, 4.5)
+  const fs = Math.max(Math.min(L * 0.022, (profileHeight + topPad + botPad) * 0.1), 4.5)
 
   const cx = weldCenterOf(specimen, params)
 
