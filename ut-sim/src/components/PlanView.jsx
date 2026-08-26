@@ -91,7 +91,7 @@ export default function PlanView({
   const cx = weldCenterOf(specimen, params)
   const isPipe = specimen.type === 'pipe'
   const isTky = specimen.type === 'tky'
-  const planH = 160
+  const planH = 100
   const rulerH = 24
   const vb = '-34 -8 ' + (L + 70) + ' ' + (planH + rulerH + 16)
   const fs = Math.max(L * 0.022, 4.5)
