@@ -21,6 +21,7 @@ automsitory/
 ├── LloydsRulesVibeCodingApp.jsx  # Original monolithic React component (reference/archive)
 ├── hatch_coaming_visualization.html  # Standalone vanilla HTML/CSS/JS visualization
 ├── ut_criteria_visualization.html    # Standalone interactive UT criteria guide (Table 8.2.1 lookup, beam geometry, DAC simulator; `?selftest` runs built-in logic checks)
+├── ut_acceptance_level_module.html   # Minimal interactive module explaining the UT acceptance level figures (Fig 13.2.3/13.2.4: reference/acceptance/recording/evaluation levels vs l=n·t; `?selftest`)
 ├── lloyd_rules_app.html          # Compiled single-file React app (standalone build)
 ├── README.md                     # Project-level documentation (Korean/English)
 └── subautository                 # Empty placeholder file

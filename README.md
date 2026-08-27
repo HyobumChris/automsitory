@@ -32,6 +32,7 @@
 - **인터랙티브 다이어그램**: 해치코밍 구조 및 부재별 상세 정보
 - **핵심 요약**: 두께별 요구사항 플로우차트
 - **UT 판정 기준 가이드** (`ut_criteria_visualization.html`): Table 8.2.1 적용 판정 · 사각탐상 빔 기하 · DAC 판정 시뮬레이터 — 단일 파일 인터랙티브 HTML (교육·참고용, `?selftest`로 내장 로직 검증 가능)
+- **UT 합격 레벨 도표 모듈** (`ut_acceptance_level_module.html`): Fig 13.2.3 / 13.2.4 (Acceptance Level) 도표 하나만 아주 단순하게 설명하는 인터랙티브 모듈 — 지시 점 드래그 판정, 4개 레벨(기준·합격·기록·평가) 해설 (`?selftest` 지원)
 
 ---
 
