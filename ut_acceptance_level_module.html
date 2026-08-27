@@ -1,180 +1,119 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="LR Rules UT 합격 레벨 도표(Fig 13.2.3 / 13.2.4)를 설명하는 단일 인터랙티브 모듈">
-<title>UT 합격 레벨 도표 모듈 | Fig 13.2.3 · 13.2.4</title>
+<meta name="description" content="Minimal interactive explainer for the UT acceptance level figures (Fig 13.2.3 / 13.2.4)">
+<title>UT Acceptance Levels | Fig 13.2.3 · 13.2.4</title>
 <style>
 :root{
   --bg:#0a1220; --surface:#101b2e; --panel:#152238;
   --line:#25395a; --line-soft:#1c2c48; --grid:#1b2b45;
   --ink:#e9f0fa; --ink-2:#a9b9d1; --ink-3:#69809f;
-  --cyan:#3fc6e8; --amber:#f5b83d;
-  --ok:#31c48d; --warn:#f0b429; --bad:#f0564a;
-  --ok-soft:rgba(49,196,141,.13); --warn-soft:rgba(240,180,41,.12); --bad-soft:rgba(240,86,74,.12);
-  --sans:"Segoe UI","Pretendard","Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;
-  --mono:"Cascadia Code","JetBrains Mono","SFMono-Regular",Consolas,"Liberation Mono",monospace;
+  --cyan:#3fc6e8; --ok:#31c48d; --warn:#f0b429; --bad:#f0564a;
+  --sans:"Segoe UI",system-ui,-apple-system,sans-serif;
+  --mono:"Cascadia Code","JetBrains Mono","SFMono-Regular",Consolas,monospace;
 }
 *{margin:0;padding:0;box-sizing:border-box}
-[hidden]{display:none !important}
-body{font-family:var(--sans);background:radial-gradient(1000px 460px at 85% -10%,rgba(63,198,232,.07),transparent 60%),var(--bg);color:var(--ink);line-height:1.55}
-.app{max-width:1080px;margin:0 auto;padding:22px 20px 44px}
-header .eyebrow{font-size:11px;letter-spacing:.17em;text-transform:uppercase;color:var(--cyan);font-weight:700}
-header h1{font-size:clamp(20px,3vw,26px);font-weight:700;margin-top:2px}
-header .sub{color:var(--ink-2);font-size:13.5px;margin-top:3px;max-width:68ch}
-
-.toolbar{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin:18px 0 14px}
+body{font-family:var(--sans);background:radial-gradient(900px 420px at 85% -10%,rgba(63,198,232,.07),transparent 60%),var(--bg);color:var(--ink);line-height:1.5}
+.app{max-width:860px;margin:0 auto;padding:24px 20px 40px}
+h1{font-size:21px;font-weight:700}
+.sub{color:var(--ink-2);font-size:13px;margin-top:3px;max-width:70ch}
+.bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:16px 0 12px}
 .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.seg button{appearance:none;background:var(--surface);border:none;border-right:1px solid var(--line);color:var(--ink-2);font:inherit;font-size:13px;font-weight:600;padding:8px 14px;cursor:pointer}
+.seg button{appearance:none;background:var(--surface);border:none;border-right:1px solid var(--line);color:var(--ink-2);font:inherit;font-size:12.5px;font-weight:600;padding:7px 12px;cursor:pointer}
 .seg button:last-child{border-right:none}
 .seg button:hover{color:var(--ink)}
 .seg button[aria-pressed="true"]{background:var(--cyan);color:#062030}
-.t-field{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-2)}
-.numbox{width:70px;background:var(--surface);border:1px solid var(--line);border-radius:7px;color:var(--ink);font-family:var(--mono);font-size:13.5px;padding:5px 8px;text-align:right}
-.unit{font-size:12px;color:var(--ink-3);font-family:var(--mono)}
-button:focus-visible,input:focus-visible,summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--cyan);outline-offset:2px;border-radius:4px}
+.t-field{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-2)}
+.numbox{width:62px;background:var(--surface);border:1px solid var(--line);border-radius:7px;color:var(--ink);font-family:var(--mono);font-size:13px;padding:4px 7px;text-align:right}
+button:focus-visible,input:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--cyan);outline-offset:2px;border-radius:4px}
 
-.layout{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:16px;align-items:start}
-.layout>*{min-width:0}
-@media (max-width:900px){.layout{grid-template-columns:minmax(0,1fr)}}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
-.card h2{font-size:15px;font-weight:700;margin-bottom:8px}
-.svg-wrap{background:var(--surface);border:1px solid var(--line-soft);border-radius:10px;padding:6px}
+.chart-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.svg-wrap{background:var(--surface);border:1px solid var(--line-soft);border-radius:10px;padding:4px}
 .svg-wrap svg{display:block;width:100%;height:auto}
-.fig-name{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);margin-bottom:8px}
+.fig-name{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin:8px 2px 0}
 
-.sliders{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;margin-top:12px}
-@media (max-width:560px){.sliders{grid-template-columns:1fr}}
-.sliders label{font-size:12px;color:var(--ink-2);font-weight:600;display:block;margin-bottom:4px}
-.slider-row{display:flex;align-items:center;gap:10px}
+.verdict{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;border:1px solid var(--line);border-left-width:4px;border-radius:10px;background:var(--surface);padding:10px 14px;margin:12px 0;font-size:13px}
+.verdict .v-title{font-weight:700;font-size:14px}
+.verdict .v-detail{color:var(--ink-2)}
+.verdict .v-pos{color:var(--ink-3);font-family:var(--mono);font-size:12px;margin-left:auto;font-variant-numeric:tabular-nums}
+.verdict.v-rej{border-left-color:var(--bad)}   .verdict.v-rej .v-title{color:var(--bad)}
+.verdict.v-rec{border-left-color:var(--ok)}    .verdict.v-rec .v-title{color:var(--ok)}
+.verdict.v-eval{border-left-color:var(--ok)}   .verdict.v-eval .v-title{color:var(--ok)}
+.verdict.v-dis{border-left-color:var(--ink-3)} .verdict.v-dis .v-title{color:var(--ink-2)}
+
+.sliders{display:flex;gap:18px;flex-wrap:wrap;margin-top:2px}
+.sliders>div{flex:1;min-width:230px}
+.sliders label{font-size:11.5px;color:var(--ink-2);font-weight:600;display:block;margin-bottom:2px}
+.slider-row{display:flex;align-items:center;gap:9px}
 .slider-row input[type="range"]{flex:1;accent-color:var(--cyan);min-width:0}
-.slider-row .val{font-family:var(--mono);font-size:13px;min-width:74px;text-align:right;font-variant-numeric:tabular-nums}
+.slider-row .val{font-family:var(--mono);font-size:12.5px;min-width:80px;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink)}
 
-.verdict{border-radius:12px;padding:14px 16px;border:1px solid var(--line);margin-bottom:14px}
-.verdict.v-rej{border-color:rgba(240,86,74,.6);background:var(--bad-soft)}
-.verdict.v-rec{border-color:rgba(49,196,141,.55);background:var(--ok-soft)}
-.verdict.v-eval{border-color:rgba(49,196,141,.55);background:var(--ok-soft)}
-.verdict.v-dis{border-color:var(--line);background:var(--surface)}
-.verdict .v-head{display:flex;align-items:center;gap:10px}
-.verdict .v-icon{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;flex:none;background:var(--ink-3);color:#0a1220}
-.verdict.v-rej .v-icon{background:var(--bad);color:#1d0605}
-.verdict.v-rec .v-icon,.verdict.v-eval .v-icon{background:var(--ok);color:#04150d}
-.verdict .v-title{font-size:16px;font-weight:700}
-.verdict.v-rej .v-title{color:var(--bad)}
-.verdict.v-rec .v-title,.verdict.v-eval .v-title{color:var(--ok)}
-.verdict.v-dis .v-title{color:var(--ink-2)}
-.verdict ul{margin-top:8px;padding-left:16px;display:flex;flex-direction:column;gap:3px}
-.verdict li{font-size:12.5px;color:var(--ink-2)}
-.readout{font-family:var(--mono);font-size:12.5px;color:var(--ink-2);margin-top:8px;font-variant-numeric:tabular-nums}
-
-.keys{display:flex;flex-direction:column;gap:8px}
-.key-card{display:flex;gap:10px;align-items:flex-start;background:var(--surface);border:1px solid var(--line-soft);border-radius:10px;padding:10px 12px;cursor:default;transition:border-color .15s}
-.key-card:hover,.key-card:focus-visible{border-color:var(--cyan)}
-.key-no{flex:none;width:22px;height:22px;border-radius:50%;border:1.5px solid var(--ink-3);color:var(--ink);font-family:var(--mono);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px}
-.key-card[data-k="1"] .key-no{border-color:var(--cyan);color:var(--cyan)}
-.key-card[data-k="2"] .key-no{border-color:var(--bad);color:var(--bad)}
-.key-card[data-k="3"] .key-no{border-color:var(--warn);color:var(--warn)}
-.key-card h3{font-size:13px;font-weight:700}
-.key-card p{font-size:12px;color:var(--ink-2);margin-top:2px}
-.key-line{display:inline-block;width:26px;height:0;vertical-align:middle;margin-left:6px}
-
-details.adjust{margin-top:14px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 16px}
-details.adjust summary{font-size:13px;font-weight:600;color:var(--ink-2);cursor:pointer}
-.adj-grid{display:flex;flex-wrap:wrap;gap:14px;margin-top:12px}
-.adj-item label{display:block;font-size:11.5px;color:var(--ink-3);margin-bottom:3px}
-footer{margin-top:20px;font-size:11.5px;color:var(--ink-3);border-top:1px solid var(--line);padding-top:12px;line-height:1.7}
+ol.key{list-style:none;margin-top:14px;display:flex;flex-direction:column;gap:5px}
+ol.key li{display:flex;gap:9px;align-items:baseline;font-size:12.5px;color:var(--ink-2);padding:3px 2px;border-radius:6px}
+ol.key li:hover{background:var(--surface)}
+.k-no{flex:none;width:19px;height:19px;border-radius:50%;border:1.5px solid var(--ink-3);color:var(--ink-3);font-family:var(--mono);font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;transform:translateY(3px)}
+li[data-k="1"] .k-no{border-color:var(--cyan);color:var(--cyan)}
+li[data-k="2"] .k-no{border-color:var(--bad);color:var(--bad)}
+li[data-k="3"] .k-no{border-color:var(--warn);color:var(--warn)}
+ol.key b{color:var(--ink);font-weight:600}
+footer{margin-top:16px;font-size:11px;color:var(--ink-3);line-height:1.6}
 svg text{font-family:var(--sans)}
 svg .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
 #chart.hl-1 .ln-1,#chart.hl-2 .ln-2,#chart.hl-3 .ln-3,#chart.hl-4 .ln-4{stroke-width:3.5;filter:drop-shadow(0 0 4px rgba(233,240,250,.6))}
-@media (prefers-reduced-motion:reduce){*{transition:none !important}}
 </style>
 </head>
 <body>
 <div class="app">
-  <header>
-    <div class="eyebrow">LR Rules · UT Acceptance Levels</div>
-    <h1>합격 레벨 도표, 읽는 법</h1>
-    <p class="sub">Fig 13.2.3 / 13.2.4의 계단형 선이 뜻하는 것 — 지시(indication)가 <b>길수록</b>(가로축 l = n·t) 허용되는 <b>에코 높이</b>(세로축 dB, 기준 레벨 H₀ 대비)는 낮아집니다. 흰 점을 끌어 직접 판정해 보세요.</p>
-  </header>
+  <h1>UT acceptance levels</h1>
+  <p class="sub">The longer an indication (x-axis: l = n·t), the lower its echo must be (y-axis: dB vs reference H₀). Drag the white dot to judge an indication.</p>
 
-  <div class="toolbar">
-    <div class="seg" id="rangeSeg" role="group" aria-label="두께 범위">
-      <button data-r="8-15">8 ≤ t &lt; 15 mm · Fig 13.2.3</button>
-      <button data-r="15-100">15 ≤ t ≤ 100 mm · Fig 13.2.4</button>
+  <div class="bar">
+    <div class="seg" id="rangeSeg" role="group" aria-label="Thickness range">
+      <button data-r="8-15">8–15 mm · Fig 13.2.3</button>
+      <button data-r="15-100">15–100 mm · Fig 13.2.4</button>
     </div>
-    <div class="t-field">
-      판 두께 t
-      <input type="number" id="tNum" class="numbox" min="8" max="100" step="1" value="65" aria-label="두께 (mm)">
-      <span class="unit">mm</span>
-      <span style="color:var(--ink-3)">→ 길이 환산 l = n × t</span>
-    </div>
+    <div class="t-field">t <input type="number" id="tNum" class="numbox" min="8" max="100" step="1" value="65" aria-label="Thickness (mm)"> mm</div>
   </div>
 
-  <div class="layout">
-    <div class="card">
-      <div class="fig-name" id="figName">—</div>
-      <div class="svg-wrap"><svg id="chart" viewBox="0 0 760 470" role="img" aria-label="합격 레벨 도표"></svg></div>
-      <div class="sliders">
-        <div>
-          <label for="nSlider">지시 길이 n (= l / t)</label>
-          <div class="slider-row">
-            <input type="range" id="nSlider" min="0.05" max="2.45" step="0.05" value="0.7">
-            <span class="val" id="nVal">—</span>
-          </div>
-        </div>
-        <div>
-          <label for="dbSlider">에코 높이 (H₀ 대비 dB)</label>
-          <div class="slider-row">
-            <input type="range" id="dbSlider" min="-24" max="9" step="0.5" value="-2">
-            <span class="val" id="dbVal">—</span>
-          </div>
-        </div>
-      </div>
-    </div>
+  <div class="chart-card">
+    <div class="svg-wrap"><svg id="chart" viewBox="0 0 760 440" role="img" aria-label="Acceptance level chart"></svg></div>
+    <div class="fig-name" id="figName">—</div>
+  </div>
 
+  <div class="verdict" id="verdictCard">
+    <span class="v-title" id="vTitle">—</span>
+    <span class="v-detail" id="vDetail">—</span>
+    <span class="v-pos" id="vPos">—</span>
+  </div>
+
+  <div class="sliders">
     <div>
-      <div class="verdict" id="verdictCard">
-        <div class="v-head">
-          <div class="v-icon" id="vIcon">✓</div>
-          <div><div class="v-title" id="vTitle">—</div></div>
-        </div>
-        <ul id="vReasons"></ul>
-        <div class="readout" id="vReadout">—</div>
+      <label for="nSlider">Indication length n (= l / t)</label>
+      <div class="slider-row">
+        <input type="range" id="nSlider" min="0.05" max="2.45" step="0.05" value="0.7">
+        <span class="val" id="nVal">—</span>
       </div>
-      <div class="keys">
-        <div class="key-card" data-k="1" tabindex="0">
-          <div class="key-no">1</div>
-          <div><h3>기준 레벨 H₀ (Reference)<span class="key-line" style="border-top:2.5px solid var(--cyan)"></span></h3>
-          <p>Ø3 mm 횡드릴 구멍(SDH) 기준 반사체의 에코 = 0 dB. 모든 높이는 이 선 대비 dB로 읽습니다.</p></div>
-        </div>
-        <div class="key-card" data-k="2" tabindex="0">
-          <div class="key-no">2</div>
-          <div><h3>합격 레벨 (Acceptance)<span class="key-line" style="border-top:2.5px dashed var(--bad)"></span></h3>
-          <p>이 선을 넘으면 <b>불합격</b>. 지시가 길어질수록 계단식으로 낮아집니다. 높이 외에 위치·개수·크기 조건도 함께 적용됩니다.</p></div>
-        </div>
-        <div class="key-card" data-k="3" tabindex="0">
-          <div class="key-no">3</div>
-          <div><h3>기록 레벨 (Recording)<span class="key-line" style="border-top:2.5px dashed var(--warn)"></span></h3>
-          <p>이 선 이상인 에코는 모두 <b>보고서에 기록</b>합니다.</p></div>
-        </div>
-        <div class="key-card" data-k="4" tabindex="0">
-          <div class="key-no">4</div>
-          <div><h3>평가 레벨 (Evaluation)<span class="key-line" style="border-top:2.5px dotted var(--ink-3)"></span></h3>
-          <p>이 선 이상은 <b>평가 대상</b>(신호 해석이 필요하면 추가 확인). 미만이면 무시합니다. 두 도표 모두 −10 dB 고정.</p></div>
-        </div>
+    </div>
+    <div>
+      <label for="dbSlider">Echo height (dB vs H₀)</label>
+      <div class="slider-row">
+        <input type="range" id="dbSlider" min="-24" max="9" step="0.5" value="-2">
+        <span class="val" id="dbVal">—</span>
       </div>
     </div>
   </div>
 
-  <details class="adjust">
-    <summary>레벨 값 조정 — 기본값은 첨부 도면 판독값</summary>
-    <div class="adj-grid" id="adjGrid"></div>
-    <p style="font-size:11.5px;color:var(--ink-3);margin-top:10px">구간은 l ≤ 0.5t / 0.5t &lt; l ≤ t / l &gt; t 기준(8–15 mm 도표는 l ≤ t / l &gt; t 두 구간). 적용 전 규정 원문의 수치와 대조하세요.</p>
-  </details>
+  <ol class="key">
+    <li data-k="1" tabindex="0"><span class="k-no">1</span><span><b>Reference level H₀</b> — echo from a Ø3 mm side-drilled hole = 0 dB; all heights are read against it.</span></li>
+    <li data-k="2" tabindex="0"><span class="k-no">2</span><span><b>Acceptance level</b> — above this line: not acceptable. Steps down as the indication gets longer.</span></li>
+    <li data-k="3" tabindex="0"><span class="k-no">3</span><span><b>Recording level</b> — every echo above it is reported.</span></li>
+    <li data-k="4" tabindex="0"><span class="k-no">4</span><span><b>Evaluation level</b> — evaluate every echo above −10 dB; disregard anything below.</span></li>
+  </ol>
 
   <footer>
-    교육·참고용 모듈입니다. 기본 레벨 값은 첨부 도면(Fig 13.2.3 / 13.2.4)을 판독한 값이며, 실제 판정은 최신 규정 원문(레벨 값·지시 개수·위치·크기 조건 포함)과 승인된 NDE 절차서를 따릅니다.
+    Levels as read from Fig 13.2.3 / 13.2.4 — verify against the current rule text. Acceptance also depends on position, number and size of indications. Educational aid, not a substitute for the rules or an approved NDE procedure.
   </footer>
 </div>
 
@@ -194,16 +133,15 @@ function sv(tag, attrs={}, parent){
 const clamp = (v,a,b) => Math.min(b, Math.max(a, v));
 const fmt = (v,d=1) => Number(v).toFixed(d);
 
-/* 도면 판독값 — 구간별 레벨(dB). breaks는 n(=l/t)의 구간 경계, 값은 '해당 경계 이하' 구간부터 순서대로. */
+/* Levels as read from the figures. breaks are on n = l/t; values apply per segment (first = up to first break). */
 const FIGS = {
   '8-15':   { name: 'Figure 13.2.3 — Acceptance level for thicknesses 8 mm to 15 mm',
               tMin: 8,  tMax: 15,  tDef: 12,
-              breaks: [1.0],      acc: [0, -5],    rec: [-5, -10],   evl: -10 },
+              breaks: [1.0],      acc: [0, -5],    rec: [-5, -10],    evl: -10 },
   '15-100': { name: 'Figure 13.2.4 — Acceptance level for thicknesses 15 mm to 100 mm',
               tMin: 15, tMax: 100, tDef: 65,
               breaks: [0.5, 1.0], acc: [5, 0, -5], rec: [0, -5, -10], evl: -10 }
 };
-
 const state = { range: '15-100', t: 65, n: 0.7, db: -2 };
 const fig = () => FIGS[state.range];
 
@@ -214,25 +152,21 @@ function levelAt(n, vals, breaks){
 const accAt = n => levelAt(n, fig().acc, fig().breaks);
 const recAt = n => levelAt(n, fig().rec, fig().breaks);
 
-/* 판정: 합격 레벨 초과 → 불합격 / 기록 레벨 이상 → 합격·기록 / 평가 레벨 이상 → 합격·평가 / 미만 → 무시 */
 function verdict(){
-  const a = accAt(state.n), r = recAt(state.n), e = fig().evl;
-  const db = state.db;
-  if (db > a)  return { code:'REJ',  title:'불합격', icon:'✕',
-    reasons:[`에코 ${fmt(db)} dB > 합격 레벨 ${a} dB (n=${fmt(state.n,2)} 구간)`,
-             '합격 레벨을 넘는 지시는 허용되지 않습니다.'] };
-  if (db >= r) return { code:'REC',  title:'합격 — 기록 필요', icon:'✓',
-    reasons:[`에코 ${fmt(db)} dB ≤ 합격 레벨 ${a} dB`,
-             `기록 레벨 ${r} dB 이상 → 위치·길이·높이를 보고서에 기록합니다.`] };
-  if (db >= e) return { code:'EVAL', title:'합격 — 평가 대상', icon:'✓',
-    reasons:[`에코 ${fmt(db)} dB — 기록 레벨(${r} dB) 미만, 평가 레벨(${e} dB) 이상`,
-             '평가는 하되, 신호 해석이 필요한 경우에만 추가 확인합니다.'] };
-  return { code:'DIS', title:'조치 불요 (평가 제외)', icon:'—',
-    reasons:[`에코 ${fmt(db)} dB < 평가 레벨 ${e} dB → 평가 대상이 아닙니다.`] };
+  const a = accAt(state.n), r = recAt(state.n), e = fig().evl, db = state.db;
+  const at = `at n=${fmt(state.n,2)}`;
+  if (db > a)  return { code:'REJ',  title:'✕ Not acceptable',
+    detail:`echo ${fmt(db)} dB > acceptance ${a} dB ${at}` };
+  if (db >= r) return { code:'REC',  title:'✓ Acceptable — record',
+    detail:`≤ acceptance ${a} dB and ≥ recording ${r} dB → report position, length, height` };
+  if (db >= e) return { code:'EVAL', title:'✓ Acceptable — evaluate',
+    detail:`below recording ${r} dB, ≥ evaluation ${e} dB` };
+  return { code:'DIS', title:'— No action',
+    detail:`below evaluation level ${e} dB` };
 }
 
-/* ── 차트 ── */
-const C = { W:760, H:470, padL:56, padR:120, padT:22, padB:50, nMax:2.5, dbTop:10, dbBot:-25 };
+/* Chart */
+const C = { W:760, H:440, padL:52, padR:104, padT:20, padB:46, nMax:2.5, dbTop:10, dbBot:-25 };
 const nX  = n  => C.padL + n / C.nMax * (C.W - C.padL - C.padR);
 const dbY = db => C.padT + (C.dbTop - db) / (C.dbTop - C.dbBot) * (C.H - C.padT - C.padB);
 const xToN  = x => clamp((x - C.padL) / (C.W - C.padL - C.padR) * C.nMax, 0.05, C.nMax - 0.05);
@@ -253,7 +187,6 @@ function drawChart(){
   const accP = stepPts(f.acc, f.breaks), recP = stepPts(f.rec, f.breaks);
   const evlP = [[0, f.evl], [C.nMax, f.evl]];
 
-  // 판정 영역 wash (위→아래)
   const zone = (upper, lower, fill) => {
     const up = upper.map(p => `${nX(p[0]).toFixed(1)},${dbY(p[1]).toFixed(1)}`);
     const lo = lower.slice().reverse().map(p => `${nX(p[0]).toFixed(1)},${dbY(p[1]).toFixed(1)}`);
@@ -263,65 +196,56 @@ function drawChart(){
   zone(accP, recP, 'rgba(49,196,141,.10)');
   zone(recP, evlP, 'rgba(63,198,232,.07)');
 
-  // 격자 + 축
   for (let db = C.dbTop; db >= C.dbBot; db -= 5){
     sv('line', { x1: C.padL, y1: dbY(db), x2: C.W - C.padR, y2: dbY(db), stroke: 'var(--grid)', 'stroke-width': 1 }, svg);
     sv('text', { x: C.padL - 8, y: dbY(db) + 4, fill: 'var(--ink-3)', 'font-size': 10.5, 'text-anchor': 'end', class: 'mono', text: db > 0 ? '+' + db : db }, svg);
   }
   for (let n = 0.5; n <= C.nMax; n += 0.5){
     sv('line', { x1: nX(n), y1: C.padT, x2: nX(n), y2: C.H - C.padB, stroke: 'var(--grid)', 'stroke-width': 1 }, svg);
-    sv('text', { x: nX(n), y: C.H - C.padB + 16, fill: 'var(--ink-3)', 'font-size': 10.5, 'text-anchor': 'middle', class: 'mono', text: fmt(n, 1) }, svg);
+    sv('text', { x: nX(n), y: C.H - C.padB + 15, fill: 'var(--ink-3)', 'font-size': 10.5, 'text-anchor': 'middle', class: 'mono', text: fmt(n, 1) }, svg);
   }
   sv('line', { x1: C.padL, y1: C.H - C.padB, x2: C.W - C.padR, y2: C.H - C.padB, stroke: 'var(--line)' }, svg);
   sv('line', { x1: C.padL, y1: C.padT, x2: C.padL, y2: C.H - C.padB, stroke: 'var(--line)' }, svg);
-  sv('text', { x: (C.padL + C.W - C.padR) / 2, y: C.H - 12, fill: 'var(--ink-2)', 'font-size': 11.5, 'text-anchor': 'middle', text: '지시 길이 l = n·t (두께 배수 n)' }, svg);
-  sv('text', { x: 15, y: (C.padT + C.H - C.padB) / 2, fill: 'var(--ink-2)', 'font-size': 11.5, 'text-anchor': 'middle', transform: `rotate(-90 15 ${(C.padT + C.H - C.padB) / 2})`, text: '에코 높이 H (dB, H₀ 대비)' }, svg);
+  sv('text', { x: (C.padL + C.W - C.padR) / 2, y: C.H - 11, fill: 'var(--ink-2)', 'font-size': 11, 'text-anchor': 'middle', text: 'indication length l = n·t' }, svg);
+  sv('text', { x: 14, y: (C.padT + C.H - C.padB) / 2, fill: 'var(--ink-2)', 'font-size': 11, 'text-anchor': 'middle', transform: `rotate(-90 14 ${(C.padT + C.H - C.padB) / 2})`, text: 'echo height H (dB vs H₀)' }, svg);
 
-  // 레벨 선 — 선 스타일은 원 도면과 동일 (실선/파선/일점쇄선)
+  // Level lines — same line styles as the original figure
   sv('polyline', { points: toPx(evlP), fill: 'none', stroke: 'var(--ink-3)', 'stroke-width': 2, 'stroke-dasharray': '10 4 2 4', class: 'ln-4' }, svg);
   sv('polyline', { points: toPx(recP), fill: 'none', stroke: 'var(--warn)', 'stroke-width': 2, 'stroke-dasharray': '4 4', class: 'ln-3' }, svg);
   sv('polyline', { points: toPx(accP), fill: 'none', stroke: 'var(--bad)', 'stroke-width': 2.5, 'stroke-dasharray': '9 5', class: 'ln-2' }, svg);
   sv('polyline', { points: toPx([[0, 0], [C.nMax, 0]]), fill: 'none', stroke: 'var(--cyan)', 'stroke-width': 2.5, class: 'ln-1' }, svg);
 
-  // 우측 번호·이름 라벨 (원 도면의 Key 번호와 동일)
   const endLabel = (db, no, name, color) => {
     const y = dbY(db);
     sv('circle', { cx: C.W - C.padR + 12, cy: y, r: 8, fill: 'var(--surface)', stroke: color, 'stroke-width': 1.5 }, svg);
     sv('text', { x: C.W - C.padR + 12, y: y + 3.5, fill: color, 'font-size': 10.5, 'text-anchor': 'middle', class: 'mono', 'font-weight': 700, text: no }, svg);
-    sv('text', { x: C.W - C.padR + 26, y: y + 3.5, fill: 'var(--ink-2)', 'font-size': 10.5, text: name }, svg);
+    sv('text', { x: C.W - C.padR + 25, y: y + 3.5, fill: 'var(--ink-2)', 'font-size': 10.5, text: name }, svg);
   };
   const last = arr => arr[arr.length - 1];
-  endLabel(0, '1', '기준 H₀', 'var(--cyan)');
-  endLabel(last(f.acc), '2', '합격', 'var(--bad)');
-  endLabel(last(f.rec) === f.evl ? last(f.rec) + 2.2 : last(f.rec), '3', '기록', 'var(--warn)');
-  endLabel(f.evl - 2.2, '4', '평가', 'var(--ink-3)');
+  endLabel(0, '1', 'H₀', 'var(--cyan)');
+  endLabel(last(f.acc), '2', 'accept', 'var(--bad)');
+  endLabel(last(f.rec) === f.evl ? last(f.rec) + 2.2 : last(f.rec), '3', 'record', 'var(--warn)');
+  endLabel(f.evl - 2.2, '4', 'evaluate', 'var(--ink-3)');
 
-  // 영역 이름 (넓은 오른쪽 구간 기준)
-  const zx = nX(1.65);
+  const zx = nX(1.62);
   const midY = (a, b) => (dbY(a) + dbY(b)) / 2 + 4;
-  sv('text', { x: zx, y: midY(C.dbTop, last(f.acc)), fill: 'var(--bad)', 'font-size': 11, 'font-weight': 600, text: '✕ 불합격 — 합격 레벨 초과' }, svg);
+  sv('text', { x: zx, y: midY(C.dbTop, last(f.acc)), fill: 'var(--bad)', 'font-size': 11, 'font-weight': 600, text: 'not acceptable' }, svg);
   if (dbY(last(f.rec)) - dbY(last(f.acc)) > 20)
-    sv('text', { x: zx, y: midY(last(f.acc), last(f.rec)), fill: 'var(--ok)', 'font-size': 11, 'font-weight': 600, text: '✓ 합격 · 기록 필요' }, svg);
-  sv('text', { x: nX(0.12), y: midY(levelAt(0.2, f.acc, f.breaks), levelAt(0.2, f.rec, f.breaks)), fill: 'var(--ok)', 'font-size': 11, 'font-weight': 600, text: '✓ 합격 · 기록' }, svg);
-  sv('text', { x: zx, y: dbY(f.evl - 6), fill: 'var(--ink-3)', 'font-size': 11, text: '조치 불요 — 평가 레벨 미만' }, svg);
+    sv('text', { x: zx, y: midY(last(f.acc), last(f.rec)), fill: 'var(--ok)', 'font-size': 11, 'font-weight': 600, text: 'accept · record' }, svg);
+  sv('text', { x: nX(0.1), y: midY(levelAt(0.2, f.acc, f.breaks), levelAt(0.2, f.rec, f.breaks)), fill: 'var(--ok)', 'font-size': 11, 'font-weight': 600, text: 'accept · record' }, svg);
+  sv('text', { x: zx, y: dbY(f.evl - 6), fill: 'var(--ink-3)', 'font-size': 11, text: 'disregard' }, svg);
 
-  // 지시(indication) 점
   const ex = nX(state.n), ey = dbY(state.db);
   sv('line', { x1: ex, y1: ey, x2: ex, y2: C.H - C.padB, stroke: 'var(--ink-3)', 'stroke-width': 1, 'stroke-dasharray': '2 3' }, svg);
   sv('circle', { cx: ex, cy: ey, r: 12, fill: 'rgba(233,240,250,.12)' }, svg);
   sv('circle', { cx: ex, cy: ey, r: 6, fill: '#eef4fc', stroke: 'var(--surface)', 'stroke-width': 2 }, svg);
-  sv('text', { x: ex, y: ey - 15, fill: 'var(--ink)', 'font-size': 11, 'text-anchor': 'middle', 'font-weight': 700, class: 'mono',
+  sv('text', { x: ex, y: ey - 14, fill: 'var(--ink)', 'font-size': 11, 'text-anchor': 'middle', 'font-weight': 700, class: 'mono',
       text: `${state.db > 0 ? '+' : ''}${fmt(state.db)} dB · l=${Math.round(state.n * state.t)}mm` }, svg);
   sv('circle', { cx: ex, cy: ey, r: 22, fill: 'transparent', style: 'cursor:grab', id: 'dragHit' }, svg);
 
-  bindDrag(svg);
-}
-
-function bindDrag(svg){
-  const hit = $('#dragHit');
-  hit.addEventListener('pointerdown', ev => {
+  $('#dragHit').addEventListener('pointerdown', ev => {
     ev.preventDefault();
-    hit.setPointerCapture(ev.pointerId);
+    ev.target.setPointerCapture(ev.pointerId);
     const rect = svg.getBoundingClientRect();
     const move = e => {
       state.n  = Math.round(xToN((e.clientX - rect.left) * (C.W / rect.width)) * 20) / 20;
@@ -334,27 +258,6 @@ function bindDrag(svg){
   });
 }
 
-/* ── 값 조정 패널 ── */
-const SEG_NAMES = { 2: ['l ≤ t', 'l > t'], 3: ['l ≤ 0.5t', '0.5t < l ≤ t', 'l > t'] };
-function buildAdjust(){
-  const g = $('#adjGrid');
-  g.innerHTML = '';
-  const f = fig();
-  const names = SEG_NAMES[f.acc.length];
-  const mk = (labelTxt, get, set) => {
-    const d = document.createElement('div'); d.className = 'adj-item';
-    const l = document.createElement('label'); l.textContent = labelTxt;
-    const i = document.createElement('input'); i.type = 'number'; i.className = 'numbox';
-    i.step = 1; i.min = -20; i.max = 10; i.value = get();
-    i.addEventListener('change', () => { set(clamp(Math.round(Number(i.value) || 0), -20, 10)); render(); });
-    d.append(l, i); g.appendChild(d);
-  };
-  f.acc.forEach((v, i) => mk(`합격 · ${names[i]} (dB)`, () => f.acc[i], x => f.acc[i] = x));
-  f.rec.forEach((v, i) => mk(`기록 · ${names[i]} (dB)`, () => f.rec[i], x => f.rec[i] = x));
-  mk('평가 (dB)', () => f.evl, x => f.evl = x);
-}
-
-/* ── 렌더 ── */
 function render(){
   const f = fig();
   $$('#rangeSeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.r === state.range)));
@@ -370,21 +273,17 @@ function render(){
   const v = verdict();
   const card = $('#verdictCard');
   card.className = 'verdict ' + ({ REJ:'v-rej', REC:'v-rec', EVAL:'v-eval', DIS:'v-dis' })[v.code];
-  $('#vIcon').textContent = v.icon;
   $('#vTitle').textContent = v.title;
-  const ul = $('#vReasons'); ul.innerHTML = '';
-  for (const r of v.reasons){ const li = document.createElement('li'); li.textContent = r; ul.appendChild(li); }
-  $('#vReadout').textContent =
-    `n=${fmt(state.n,2)} · l=${Math.round(state.n*state.t)} mm (t=${state.t}) · 레벨: 합격 ${accAt(state.n)} / 기록 ${recAt(state.n)} / 평가 ${fig().evl} dB`;
+  $('#vDetail').textContent = v.detail;
+  $('#vPos').textContent = `n=${fmt(state.n,2)} · l=${Math.round(state.n * state.t)} mm · t=${state.t}`;
 }
 
-/* ── 바인딩 ── */
 $$('#rangeSeg button').forEach(b => b.addEventListener('click', () => {
   state.range = b.dataset.r;
   const f = fig();
   state.t = clamp(state.t, f.tMin, f.tMax);
   if (state.t === f.tMin || state.t === f.tMax) state.t = f.tDef;
-  buildAdjust(); render();
+  render();
 }));
 $('#tNum').addEventListener('change', e => {
   state.t = clamp(Math.round(Number(e.target.value) || fig().tDef), fig().tMin, fig().tMax);
@@ -392,14 +291,14 @@ $('#tNum').addEventListener('change', e => {
 });
 $('#nSlider').addEventListener('input', e => { state.n = Number(e.target.value); render(); });
 $('#dbSlider').addEventListener('input', e => { state.db = Number(e.target.value); render(); });
-$$('.key-card').forEach(c => {
+$$('ol.key li').forEach(c => {
   const on  = () => $('#chart').classList.add('hl-' + c.dataset.k);
   const off = () => $('#chart').classList.remove('hl-' + c.dataset.k);
   c.addEventListener('mouseenter', on); c.addEventListener('mouseleave', off);
   c.addEventListener('focus', on); c.addEventListener('blur', off);
 });
 
-/* ── 셀프테스트 (?selftest) ── */
+/* Self-test (?selftest) */
 function selfTest(){
   const fails = [];
   const eq = (name, got, want) => { if (got !== want) fails.push(`${name}: got=${got} want=${want}`); };
@@ -408,16 +307,14 @@ function selfTest(){
     state.range = range; state.n = n; state.db = db;
     eq(`verdict(${range},n=${n},db=${db})`, verdict().code, want);
   };
-  // Fig 13.2.4 (15–100): 합격 +5/0/−5, 기록 0/−5/−10, 평가 −10
-  vc('15-100', 0.3, 6,   'REJ');   // +5 초과
-  vc('15-100', 0.3, 3,   'REC');   // ≤+5, ≥0
-  vc('15-100', 0.3, -3,  'EVAL');  // <0, ≥−10
-  vc('15-100', 0.7, 1,   'REJ');   // 합격 0 초과
-  vc('15-100', 0.7, 0,   'REC');   // 경계=합격
-  vc('15-100', 1.5, -4,  'REJ');   // 합격 −5 초과
-  vc('15-100', 1.5, -5,  'REC');   // 경계, 기록 −10 이상
-  vc('15-100', 1.5, -12, 'DIS');   // 평가 −10 미만
-  // Fig 13.2.3 (8–15): 합격 0/−5, 기록 −5/−10, 평가 −10
+  vc('15-100', 0.3, 6,   'REJ');
+  vc('15-100', 0.3, 3,   'REC');
+  vc('15-100', 0.3, -3,  'EVAL');
+  vc('15-100', 0.7, 1,   'REJ');
+  vc('15-100', 0.7, 0,   'REC');
+  vc('15-100', 1.5, -4,  'REJ');
+  vc('15-100', 1.5, -5,  'REC');
+  vc('15-100', 1.5, -12, 'DIS');
   vc('8-15', 0.5, -2,  'REC');
   vc('8-15', 0.5, 1,   'REJ');
   vc('8-15', 1.2, -3,  'REJ');
@@ -426,13 +323,12 @@ function selfTest(){
   vc('8-15', 0.5, -7,  'EVAL');
   Object.assign(state, snap);
   try {
-    buildAdjust(); render();
+    render();
     if (!$('#chart').childNodes.length) fails.push('chart empty');
   } catch (err){ fails.push('render: ' + err.message); }
   document.title = fails.length ? 'SELFTEST FAIL: ' + fails.join(' | ') : 'SELFTEST PASS';
 }
 
-buildAdjust();
 render();
 if (location.search.indexOf('selftest') !== -1) selfTest();
 </script>
