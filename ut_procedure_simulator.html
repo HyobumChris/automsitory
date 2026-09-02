@@ -211,6 +211,37 @@ function engraved(svg, attrs){
   sv('text', { fill: '#2e353f', ...attrs }, svg);
 }
 
+/* cabinet-oblique specimen view: slightly elevated look-down, back point = front point + (OX,−OY).
+   Painter's order per block: top face → far/end faces → front face (cutaway) → on-top details → probe. */
+const OX = 30, OY = 16;
+let tfSeq = 0;
+function topFace(svg, x0, x1, ySurf, opts = {}){
+  const d = `M ${x0} ${ySurf} L ${x1} ${ySurf} L ${x1+OX} ${ySurf-OY} L ${x0+OX} ${ySurf-OY} Z`;
+  sv('path', { d, fill: opts.dark ? 'url(#texMetalRough)' : 'url(#texMetal)',
+      stroke: '#232930', 'stroke-width': 1, 'stroke-linejoin': 'round' }, svg);      // no drop shadow — top face
+  sv('path', { d, fill: 'rgba(255,255,255,.10)' }, svg);                             // top face catches the light
+  sv('line', { x1: x0+OX+1, y1: ySurf-OY+0.8, x2: x1+OX-1, y2: ySurf-OY+0.8,
+      stroke: 'rgba(255,255,255,.3)', 'stroke-width': 1 }, svg);                     // back-edge catch light
+  const clipId = 'tf' + (++tfSeq);                                                   // clip region = this face —
+  sv('path', { d }, sv('clipPath', { id: clipId }, svg));                            // keeps contact shadows on the metal
+  return clipId;
+}
+function endFace(svg, xF, ySurf, yBot, opts = {}){
+  const d = `M ${xF} ${ySurf} L ${xF} ${yBot} L ${xF+OX} ${yBot-OY} L ${xF+OX} ${ySurf-OY} Z`;
+  sv('path', { d, fill: opts.dark ? 'url(#texMetalRough)' : 'url(#texMetal)',
+      stroke: '#232930', 'stroke-width': 1, 'stroke-linejoin': 'round' }, svg);
+  sv('path', { d, fill: 'rgba(12,17,23,.32)' }, svg);                                // end face turned from the light
+}
+function contactShadow(svg, cx, cy, clipId){
+  const host = clipId ? sv('g', { 'clip-path': `url(#${clipId})` }, svg) : svg;      // clip in root user space (the
+  sv('ellipse', { cx: 0, cy: 0, rx: 20, ry: 5, fill: 'rgba(0,0,0,.35)',              // group carries no transform)
+      transform: `translate(${cx} ${cy}) skewX(-28)` }, host);                       // soft pad shadow, skewed along the face
+}
+function probeDropLine(svg, xT, yT, xF, yF){
+  sv('line', { x1: xT, y1: yT, x2: xF, y2: yF, stroke: 'var(--amber)', 'stroke-width': 1,
+      'stroke-dasharray': '2.5 2.5', opacity: .65 }, svg);                           // exit tick → beam start on the front edge
+}
+
 const clamp = (v,a,b) => Math.min(b, Math.max(a, v));
 const fmt = (v,d=1) => Number(v).toFixed(d);
 const db2f = db => Math.pow(10, db/20);
@@ -627,19 +658,32 @@ function renderStep1(stage){
   const W = 460, H = 250;
   const svg = sv('svg', { viewBox: `0 0 ${W} ${H}` }); left.append(svg);
 
-  // V1 block: 300×100 with R100 quadrant on the right end
+  // V1 block: 300×100 with R100 quadrant on the right end — oblique view, front face is the cutaway
   const sc = 1.25, bx = 30, by = 60, bw = 300*sc*0.92, bh = 100*sc;
   const ySurf = by, yBot = by + bh;
   const cx = bx + bw - 100*sc;                      // arc centre mark on top surface
+  const R1 = 100*sc;
+  const tf1 = topFace(svg, bx, bx+bw, ySurf);
+  // curved R100 end: quarter-cylinder band seen obliquely (front arc → back arc, translated by (OX,−OY))
+  const bandD = `M ${bx+bw} ${ySurf} A ${R1} ${R1} 0 0 1 ${cx} ${yBot} L ${cx+OX} ${yBot-OY} A ${R1} ${R1} 0 0 0 ${bx+bw+OX} ${ySurf-OY} Z`;
+  sv('path', { d: bandD, fill: 'url(#texMetal)', stroke: '#232930', 'stroke-width': 1, 'stroke-linejoin': 'round' }, svg);
+  sv('path', { d: bandD, fill: 'rgba(12,17,23,.32)' }, svg);
+  for (const [t, op] of [[.34, .16], [.64, .10]]){  // faint arcs inside the band → cylindrical sheen
+    const ax = cx + OX*t, ay = ySurf - OY*t;
+    sv('path', { d: `M ${ax + R1*Math.cos(.22)} ${ay + R1*Math.sin(.22)} A ${R1} ${R1} 0 0 1 ${ax + R1*Math.cos(1.28)} ${ay + R1*Math.sin(1.28)}`,
+        fill: 'none', stroke: `rgba(255,255,255,${op})`, 'stroke-width': 1.2 }, svg);
+  }
   steelShape(svg, 'path', { d: `M ${bx} ${ySurf} L ${cx} ${ySurf} L ${bx+bw} ${ySurf} A ${100*sc} ${100*sc} 0 0 1 ${cx} ${yBot} L ${bx} ${yBot} Z` }, { sweep: 0 });
   sv('rect', { x: bx+1, y: yBot-6, width: cx-bx-2, height: 5, fill: 'url(#steelD)', opacity: .85 }, svg);
   sv('line', { x1: bx+1, y1: ySurf+1, x2: bx+bw-1, y2: ySurf+1, stroke: '#f2f6fa', 'stroke-width': 1.5, opacity: .7 }, svg);
   sv('line', { x1: bx+1, y1: yBot-0.8, x2: cx-1, y2: yBot-0.8, stroke: '#1c2126', 'stroke-width': 1.5 }, svg);
   engraved(svg, { x: bx+8, y: yBot-8, 'font-size': 10, text: 'V1 (IIW) calibration block' });
-  sv('text', { x: bx+bw+4, y: ySurf+82, fill: 'var(--ink-3)', 'font-size': 10, text: 'R100' }, svg);
-  // centre mark stamped into the surface + milky perspex insert (V1 form features)
-  sv('line', { x1: cx+0.8, y1: ySurf-6, x2: cx+0.8, y2: ySurf+8, stroke: 'rgba(255,255,255,.5)', 'stroke-width': 1.2 }, svg);
-  sv('line', { x1: cx, y1: ySurf-6, x2: cx, y2: ySurf+8, stroke: '#20262c', 'stroke-width': 1.4 }, svg);
+  sv('text', { x: bx+bw+OX+4, y: ySurf+70, fill: 'var(--ink-3)', 'font-size': 10, text: 'R100' }, svg);
+  // centre mark: scribed line ACROSS the top face + small tick on the front edge; milky perspex insert on the cutaway
+  sv('line', { x1: cx+0.8, y1: ySurf+0.8, x2: cx+OX+0.8, y2: ySurf-OY+0.8, stroke: 'rgba(255,255,255,.5)', 'stroke-width': 1 }, svg);
+  sv('line', { x1: cx, y1: ySurf, x2: cx+OX, y2: ySurf-OY, stroke: '#20262c', 'stroke-width': 1.5 }, svg);
+  sv('line', { x1: cx+0.8, y1: ySurf-1, x2: cx+0.8, y2: ySurf+8, stroke: 'rgba(255,255,255,.5)', 'stroke-width': 1.2 }, svg);
+  sv('line', { x1: cx, y1: ySurf-1, x2: cx, y2: ySurf+8, stroke: '#20262c', 'stroke-width': 1.4 }, svg);
   sv('path', { d: `M ${cx-25*sc} ${ySurf} A ${25*sc} ${25*sc} 0 0 0 ${cx+25*sc} ${ySurf}`,
       fill: 'rgba(240,244,248,.22)', stroke: 'rgba(246,250,253,.6)', 'stroke-width': 1 }, svg);
   sv('path', { d: `M ${cx-21.5*sc} ${ySurf+1.2} A ${21.5*sc} ${21.5*sc} 0 0 0 ${cx+21.5*sc} ${ySurf+1.2}`,
@@ -662,9 +706,13 @@ function renderStep1(stage){
   // feature labels drawn after the beam so they stay legible when it crosses them
   engraved(svg, { x: cx, y: ySurf+19, 'font-size': 9.5, 'text-anchor': 'middle', text: 'centre mark "0"' });
   engraved(svg, { x: cx, y: ySurf+25*sc+13, 'font-size': 9, 'text-anchor': 'middle', text: 'Ø50 perspex' });
-  probeGlyph(svg, px, ySurf, 1);
-  const hit1 = sv('rect', { x: px-44, y: ySurf-36, width: 88, height: 44, fill: 'transparent' }, svg);
-  dragX(hit1, svg, W, () => S.s1.probe, xv => (xv - cx) / sc,
+  // probe stands mid-depth on the top face; dashed drop line ties its exit tick to the cutaway beam start
+  const pxT = px + OX*0.55, pyT = ySurf - OY*0.55;
+  contactShadow(svg, pxT - 9, pyT + 2, tf1);
+  probeGlyph(svg, pxT, pyT, 1);
+  probeDropLine(svg, pxT, pyT, trueExit, ySurf);
+  const hit1 = sv('rect', { x: pxT-44, y: pyT-36, width: 88, height: 46, fill: 'transparent' }, svg);
+  dragX(hit1, svg, W, () => S.s1.probe, xv => (xv - OX*0.55 - cx) / sc,
     v => { S.s1.probe = clamp(Math.round(v * 10) / 10, -170, 35); });
 
   const pct = 100 * gauss(st.probe + S.sc.idxOffset, 1.3);
@@ -711,11 +759,13 @@ function renderStep2(stage){
 
   const duo = el('div', 'duo'); stage.append(duo);
   const left = el('div', 'svg-wrap'); duo.append(left);
-  const W = 460, H = 250, bx = 24, by = 56;
+  const W = 470, H = 250, bx = 24, by = 56;       // viewBox 10 wider so the oblique end face fits
   const svg = sv('svg', { viewBox: `0 0 ${W} ${H}` }); left.append(svg);
   const sc2 = Math.min(150 / S.t, 2.2);   // one scale for both axes so the 60° beam draws true
   const blockW = 410 / sc2;               // block width, mm
   const bh = S.t * sc2, ySurf = by, yBot = by + bh;
+  const tf2 = topFace(svg, bx, bx+410, ySurf);
+  endFace(svg, bx+410, ySurf, yBot);
   steelShape(svg, 'rect', { x: bx, y: ySurf, width: 410, height: bh }, { sweep: 1 });
   steelEdges(svg, bx, ySurf, 410, bh);
   sv('text', { x: bx+6, y: yBot+14, fill: 'var(--ink-3)', 'font-size': 10, text: `reference block · t = ${S.t} mm` }, svg);
@@ -756,10 +806,16 @@ function renderStep2(stage){
   });
 
   const px = bx + st.px * sc2;
-  probeGlyph(svg, px, ySurf, 1);
-  sv('polyline', { points: `${px},${ySurf} ${px + S.t*TAN*sc2},${yBot}`, fill:'none', stroke:'var(--cyan)', 'stroke-width':1.6, 'stroke-dasharray':'6 4' }, svg);
-  const hit2 = sv('rect', { x: px-44, y: ySurf-36, width: 88, height: 44, fill: 'transparent' }, svg);
-  dragX(hit2, svg, W, () => S.s2.px, xv => (xv - bx) / sc2,
+  const pxT2 = px + OX*0.55, pyT2 = ySurf - OY*0.55;   // probe stands mid-depth on the top face
+  contactShadow(svg, pxT2 - 9, pyT2 + 2, tf2);
+  probeGlyph(svg, pxT2, pyT2, 1);
+  probeDropLine(svg, pxT2, pyT2, px, ySurf);
+  // beam leg, clipped where it exits through the right end face (60° legs are long on a short block)
+  const run2 = S.t*TAN*sc2, frac2 = Math.min(1, (bx + 410 - px) / run2);
+  if (frac2 > 0.01)
+    sv('polyline', { points: `${px},${ySurf} ${px + run2*frac2},${ySurf + bh*frac2}`, fill:'none', stroke:'var(--cyan)', 'stroke-width':1.6, 'stroke-dasharray':'6 4' }, svg);
+  const hit2 = sv('rect', { x: pxT2-44, y: pyT2-36, width: 88, height: 46, fill: 'transparent' }, svg);
+  dragX(hit2, svg, W, () => S.s2.px, xv => (xv - OX*0.55 - bx) / sc2,
     v => { S.s2.px = clamp(Math.round(v * 10) / 10, 0, blockW); });
 
   const right = el('div', ''); duo.append(right);
@@ -826,10 +882,12 @@ function renderStep3(stage){
 
   const duo = el('div', 'duo'); stage.append(duo);
   const left = el('div', 'svg-wrap'); duo.append(left);
-  const W = 460, H = 250;
+  const W = 474, H = 250;                            // viewBox wider so the oblique end faces + RX cable fit
   const svg = sv('svg', { viewBox: `0 0 ${W} ${H}` }); left.append(svg);
   const drawPair = (x0, label, rough) => {
     const bw = 190, bh = 84, ySurf = 92, yBot = ySurf + bh, xc = x0 + bw/2;
+    const tf3 = topFace(svg, x0, x0+bw, ySurf, { dark: rough });
+    endFace(svg, x0+bw, ySurf, yBot, { dark: rough });
     steelShape(svg, 'rect', { x: x0, y: ySurf, width: bw, height: bh }, { dark: rough, sweep: rough ? 3 : 2 });
     steelEdges(svg, x0, ySurf, bw, bh);
     if (rough){
@@ -845,7 +903,14 @@ function renderStep3(stage){
         sv('rect', { x: xc + (s < 0 ? -30 : 17), y: ySurf+1, width: 13, height: 4.5, fill: 'rgba(217,160,60,.10)' }, svg);
         sv('rect', { x: xc + (s < 0 ? -41 : 29), y: ySurf+1, width: 11, height: 3.5, fill: 'rgba(90,140,200,.08)' }, svg);
       }
-      // weld cap: metallic bead with transverse ripple arcs
+      // weld cap: bead strip receding across the TOP face, with the crown proud of the front edge
+      sv('path', { d: `M ${xc-16} ${ySurf} L ${xc+16} ${ySurf} L ${xc+16+OX} ${ySurf-OY} L ${xc-16+OX} ${ySurf-OY} Z`,
+          fill: 'url(#beadG)', stroke: '#3a414a', 'stroke-width': .9 }, svg);
+      for (let i = 1; i <= 5; i++){                                     // transverse ripple arcs along the strip
+        const t = i/6, rox = OX*t, roy = OY*t;
+        sv('path', { d: `M ${xc-13+rox} ${ySurf-roy} Q ${xc+rox} ${ySurf-roy-3.2} ${xc+13+rox} ${ySurf-roy}`,
+            fill: 'none', stroke: i%2 ? 'rgba(0,0,0,.30)' : 'rgba(255,255,255,.38)', 'stroke-width': 1 }, svg);
+      }
       sv('path', { d: `M ${xc-16} ${ySurf} Q ${xc-10} ${ySurf-7.5} ${xc} ${ySurf-7.5} Q ${xc+10} ${ySurf-7.5} ${xc+16} ${ySurf} Z`,
           fill: 'url(#beadG)', stroke: '#3a414a', 'stroke-width': .9 }, svg);
       for (let i = 0; i < 7; i++){
@@ -854,8 +919,14 @@ function renderStep3(stage){
             fill: 'none', stroke: i%2 ? 'rgba(0,0,0,.30)' : 'rgba(255,255,255,.38)', 'stroke-width': 1 }, svg);
       }
     }
-    probeGlyph(svg, x0+34, ySurf, 1, 'TX');
-    probeGlyph(svg, x0+bw-24, ySurf, -1, 'RX');
+    // TX/RX stand mid-depth on the top face; dashed drop lines tie them to the V-path on the cutaway
+    const txX = x0+34, rxX = x0+bw-24, pox = OX*0.55, pyP = ySurf - OY*0.55;
+    contactShadow(svg, txX+pox - 9, pyP + 2, tf3);
+    contactShadow(svg, rxX+pox + 9, pyP + 2, tf3);
+    probeGlyph(svg, txX+pox, pyP, 1, 'TX');
+    probeGlyph(svg, rxX+pox, pyP, -1, 'RX');
+    probeDropLine(svg, txX+pox, pyP, txX, ySurf);
+    probeDropLine(svg, rxX+pox, pyP, rxX, ySurf);
     sv('polyline', { points: `${x0+34},${ySurf} ${xc+5},${yBot} ${x0+bw-24},${ySurf}`, fill:'none', stroke:'var(--cyan)', 'stroke-width':1.6, 'stroke-dasharray':'6 4' }, svg);
     sv('text', { x: xc, y: yBot+18, fill: 'var(--ink-3)', 'font-size': 10, 'text-anchor': 'middle', text: label }, svg);
   };
