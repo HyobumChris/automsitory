@@ -320,8 +320,11 @@ function ascan(parent, echoes, opts = {}){
   // status + measurement rows
   sv('text', { x: padL, y: 11, fill: '#7ee2a8', 'font-size': 8.5, class: 'mono', text: opts.status || '' }, svg);
   const e0 = echoes[0];
+  const dacQ = (opts.dacPts || []).slice().sort((a,b) => a.s - b.s);
+  const dacComplete = dacQ.length >= 3;
   let meas = e0 && e0.h > 4 ? `S ${fmt(e0.s,1)}mm   H ${Math.round(e0.h)}%` : 'S ---.-mm   H --%';
-  if (opts.dacFn && e0 && e0.h > 4) meas += `   DAC ${(v => (v>=0?'+':'') + fmt(v))(f2db(e0.h / opts.dacFn(e0.s)))}dB`;
+  if (opts.dacFn && dacComplete && e0 && e0.h > 4)
+    meas += `   DAC ${(v => (v>=0?'+':'') + fmt(v))(f2db(e0.h / opts.dacFn(e0.s)))}dB`;
   sv('text', { x: padL, y: 23, fill: '#c6f5d8', 'font-size': 9.5, 'font-weight': 700, class: 'mono', text: meas }, svg);
 
   if (opts.refLine){
@@ -336,15 +339,28 @@ function ascan(parent, echoes, opts = {}){
     sv('line', { x1: padL, y1: y(opts.maxSeen), x2: W-padR, y2: y(opts.maxSeen), stroke: '#2b7a4c', 'stroke-width': 1, 'stroke-dasharray': '2 4' }, svg);
     sv('text', { x: W-padR-2, y: y(opts.maxSeen)-4, fill: '#2b7a4c', 'font-size': 8, 'text-anchor': 'end', text: 'PEAK MEM' }, svg);
   }
-  // recorded DAC curve overlay
-  if (opts.dacFn){
-    const from = clamp(opts.dacFrom ?? 20, 4, range);
-    const dp = [];
-    for (let s = from; s <= range; s += range/80) dp.push(`${xS(s).toFixed(1)},${y(opts.dacFn(s)).toFixed(1)}`);
-    sv('polyline', { points: dp.join(' '), fill: 'none', stroke: 'var(--amber)', 'stroke-width': 1.4, opacity: .9 }, svg);
-    sv('text', { x: xS(range)-2, y: y(opts.dacFn(range))-5, fill: 'var(--amber)', 'font-size': 8, 'text-anchor': 'end', text: 'DAC' }, svg);
-    for (const p of (opts.dacPts || []))
-      sv('circle', { cx: xS(p.s), cy: y(p.pct), r: 2.2, fill: 'var(--amber)' }, svg);
+  // DAC built the way it is on a real set: recorded points first, then a line through them.
+  // Solid only between recorded points; dashed extrapolation beyond the last point once complete.
+  if (dacQ.length && opts.dacFn){
+    if (dacQ.length >= 2){
+      const seg = [];
+      for (let s = dacQ[0].s; s <= dacQ[dacQ.length-1].s; s += range/120)
+        seg.push(`${xS(s).toFixed(1)},${y(opts.dacFn(s)).toFixed(1)}`);
+      seg.push(`${xS(dacQ[dacQ.length-1].s).toFixed(1)},${y(dacQ[dacQ.length-1].pct).toFixed(1)}`);
+      sv('polyline', { points: seg.join(' '), fill: 'none', stroke: 'var(--amber)', 'stroke-width': 1.4, opacity: .95 }, svg);
+    }
+    if (dacComplete && opts.dacExtend){
+      const ext = [];
+      for (let s = dacQ[dacQ.length-1].s; s <= range; s += range/120)
+        ext.push(`${xS(s).toFixed(1)},${y(opts.dacFn(s)).toFixed(1)}`);
+      sv('polyline', { points: ext.join(' '), fill: 'none', stroke: 'var(--amber)', 'stroke-width': 1.2, opacity: .7, 'stroke-dasharray': '4 4' }, svg);
+    }
+    for (const p of dacQ){
+      sv('circle', { cx: xS(p.s), cy: y(p.pct), r: 2.6, fill: 'var(--amber)' }, svg);
+      sv('line', { x1: xS(p.s), y1: y(p.pct)-6, x2: xS(p.s), y2: y(p.pct)+6, stroke: 'var(--amber)', 'stroke-width': 1, opacity: .55 }, svg);
+    }
+    const lp = dacQ[dacQ.length-1];
+    sv('text', { x: xS(lp.s)+5, y: y(lp.pct)-6, fill: 'var(--amber)', 'font-size': 8, text: dacComplete ? 'DAC' : `DAC ${dacQ.length}/3` }, svg);
   }
   // sweep trace: grass + gaussian echo envelopes at their true sound paths
   const tp = [], fillp = [`${padL},${y(0).toFixed(1)}`];
@@ -504,8 +520,7 @@ function renderStep2(stage){
 
   const right = el('div', ''); duo.append(right);
   ascan(right, [{ s: holePath(hz), h: pct }], { range: 200, refLine: true,
-    dacFn: st.pts.length ? (s => dacRec(s)) : null,
-    dacFrom: st.pts.length ? st.pts[0].s : 20, dacPts: st.pts,
+    dacFn: s => dacRec(s), dacPts: st.pts, dacExtend: false,
     status: `GAIN ${fmt(gain,1)}dB · RANGE 200mm · 60°`,
     caption: `SDH${hi+1} — drag the probe to peak${st.Gref == null ? ', then gain to 80%' : ', then record'}` });
 
@@ -678,8 +693,7 @@ function renderStep4(stage){
 
   const right = el('div', ''); duo.append(right);
   ascan(right, [{ s: holePath(f.z), h: pct }], { range: 200, halfOf: st.maxAmp ?? undefined,
-    dacFn: s => dacRec(s),
-    dacFrom: S.s2.pts.length ? S.s2.pts[0].s : 20, dacPts: S.s2.pts,
+    dacFn: s => dacRec(s), dacPts: S.s2.pts, dacExtend: true,
     status: `GAIN H₀+${fmt(S.s3.dT ?? 0,0)}dB · RANGE 200mm · Y ${fmt(st.y,0)}mm`,
     caption: 'mark max · then mark both −6 dB ends' });
 
