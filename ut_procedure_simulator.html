@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Five-step UT inspection walkthrough: V1 index point, DAC reference sensitivity, transfer correction, 6 dB drop sizing, acceptance evaluation">
+<title>UT Procedure Simulator | V1 · DAC · Transfer · 6 dB drop · Evaluate</title>
+<style>
+:root{
+  --bg:#0a1220; --surface:#101b2e; --panel:#152238;
+  --line:#25395a; --line-soft:#1c2c48; --grid:#1b2b45;
+  --ink:#e9f0fa; --ink-2:#a9b9d1; --ink-3:#69809f;
+  --cyan:#3fc6e8; --amber:#f5b83d; --ok:#31c48d; --warn:#f0b429; --bad:#f0564a;
+  --sans:"Segoe UI",system-ui,-apple-system,sans-serif;
+  --mono:"Cascadia Code","JetBrains Mono","SFMono-Regular",Consolas,monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+[hidden]{display:none !important}
+body{font-family:var(--sans);background:radial-gradient(900px 420px at 85% -10%,rgba(63,198,232,.07),transparent 60%),var(--bg);color:var(--ink);line-height:1.5}
+.app{max-width:960px;margin:0 auto;padding:22px 20px 40px}
+h1{font-size:21px;font-weight:700}
+.sub{color:var(--ink-2);font-size:13px;margin-top:3px;max-width:74ch}
+
+.specimen{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:14px 0 10px;font-size:12.5px;color:var(--ink-2)}
+.specimen .numbox{width:62px}
+.numbox{background:var(--surface);border:1px solid var(--line);border-radius:7px;color:var(--ink);font-family:var(--mono);font-size:13px;padding:4px 7px;text-align:right}
+.ghost{appearance:none;background:none;border:1px solid var(--line);border-radius:7px;color:var(--ink-2);font:inherit;font-size:12px;padding:5px 10px;cursor:pointer}
+.ghost:hover{color:var(--ink);border-color:var(--ink-3)}
+.btn{appearance:none;background:var(--cyan);border:none;border-radius:7px;color:#062030;font:inherit;font-size:12.5px;font-weight:700;padding:7px 13px;cursor:pointer}
+.btn:disabled{background:var(--line);color:var(--ink-3);cursor:not-allowed}
+.btn.secondary{background:var(--surface);border:1px solid var(--line);color:var(--ink-2);font-weight:600}
+.btn.secondary:hover:not(:disabled){color:var(--ink);border-color:var(--ink-3)}
+button:focus-visible,input:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--cyan);outline-offset:2px;border-radius:4px}
+
+.stepper{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 14px}
+.stepchip{display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:20px;background:var(--surface);color:var(--ink-3);font-size:12px;font-weight:600;padding:6px 12px;cursor:pointer}
+.stepchip[data-state="locked"]{opacity:.5;cursor:not-allowed}
+.stepchip[data-state="active"]{border-color:var(--cyan);color:var(--cyan)}
+.stepchip[data-state="done"]{color:var(--ok);border-color:rgba(49,196,141,.45)}
+.stepchip .no{font-family:var(--mono)}
+
+.stage{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.stage h2{font-size:15px;font-weight:700}
+.instr{font-size:12.5px;color:var(--ink-2);margin:4px 0 12px;max-width:80ch}
+.instr b{color:var(--ink)}
+.svg-wrap{background:var(--surface);border:1px solid var(--line-soft);border-radius:10px;padding:4px}
+.svg-wrap svg{display:block;width:100%;height:auto}
+.duo{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:12px;align-items:stretch}
+@media (max-width:760px){.duo{grid-template-columns:minmax(0,1fr)}}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:12px}
+.controls label{font-size:12px;color:var(--ink-2);font-weight:600}
+.controls input[type="range"]{flex:1;min-width:180px;accent-color:var(--cyan)}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.readouts{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.ro{background:var(--surface);border:1px solid var(--line-soft);border-radius:9px;padding:7px 11px;min-width:110px}
+.ro .l{font-size:10.5px;color:var(--ink-3)}
+.ro .v{font-family:var(--mono);font-size:14.5px;font-weight:600;margin-top:1px;font-variant-numeric:tabular-nums}
+.ro .v small{font-size:10.5px;color:var(--ink-3);font-weight:400}
+.stepfoot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap}
+.hintline{font-size:11.5px;color:var(--ink-3)}
+
+.verdict{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;border:1px solid var(--line);border-left-width:4px;border-radius:10px;background:var(--surface);padding:10px 14px;margin:12px 0;font-size:13px}
+.verdict .v-title{font-weight:700;font-size:14px}
+.verdict .v-detail{color:var(--ink-2)}
+.verdict.v-rej{border-left-color:var(--bad)}   .verdict.v-rej .v-title{color:var(--bad)}
+.verdict.v-rec{border-left-color:var(--ok)}    .verdict.v-rec .v-title{color:var(--ok)}
+.verdict.v-eval{border-left-color:var(--ok)}   .verdict.v-eval .v-title{color:var(--ok)}
+.verdict.v-dis{border-left-color:var(--ink-3)} .verdict.v-dis .v-title{color:var(--ink-2)}
+
+table.debrief{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:10px}
+table.debrief td{border-top:1px solid var(--line-soft);padding:6px 8px;color:var(--ink-2)}
+table.debrief td:first-child{color:var(--ink);font-weight:600;white-space:nowrap}
+table.debrief td.g{color:var(--ok);font-weight:700;white-space:nowrap}
+table.debrief td.w{color:var(--warn);font-weight:700;white-space:nowrap}
+table.debrief td.b{color:var(--bad);font-weight:700;white-space:nowrap}
+.callout{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:10px 14px;font-size:13px;margin-top:12px}
+.callout.match{border-color:rgba(49,196,141,.5)}
+.callout.miss{border-color:rgba(240,86,74,.55)}
+
+/* USM-series style flaw detector chrome (form factor homage, no branding) */
+.usm{background:linear-gradient(180deg,#454c54,#23282d);border:1px solid #05070a;border-radius:14px;padding:10px 12px 12px;box-shadow:inset 0 1px 0 rgba(255,255,255,.10),0 6px 16px rgba(0,0,0,.45)}
+.usm-head{display:flex;align-items:center;gap:8px;margin:0 2px 8px}
+.usm-led{width:7px;height:7px;border-radius:50%;background:#57e389;box-shadow:0 0 6px #57e389}
+.usm-brand{font-size:9px;letter-spacing:.16em;color:#a7b0b8;font-weight:700}
+.usm-body{display:flex;gap:10px}
+.usm-screen{flex:1;background:#05100b;border:2px solid #0a1f14;border-radius:6px;min-width:0}
+.usm-screen svg{display:block;width:100%;height:auto}
+.usm-keys{display:grid;grid-template-columns:repeat(2,24px);gap:7px;align-content:start;padding-top:2px}
+.ukey{width:24px;height:24px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#343b42,#15181b);border:1px solid #000;box-shadow:0 1px 0 rgba(255,255,255,.07) inset;display:flex;align-items:center;justify-content:center;font-size:8px;color:#8b959d;font-family:var(--mono)}
+.ukey.wide{grid-column:1 / -1;width:auto;height:22px;border-radius:11px;font-size:9px}
+
+footer{margin-top:16px;font-size:11px;color:var(--ink-3);line-height:1.6}
+svg text{font-family:var(--sans)}
+svg .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>UT inspection, start to verdict</h1>
+  <p class="sub">Walk the real angle-beam procedure: set the beam index point on a V1 block, build a DAC curve and reference sensitivity, apply transfer correction on the actual material, scan the weld and size the flaw with the 6 dB drop method — then evaluate it against the acceptance level figure. What you do in each step carries into the next.</p>
+
+  <div class="specimen">
+    <span>Specimen: butt weld, t</span>
+    <input type="number" id="tNum" class="numbox" min="15" max="100" step="1" value="65" aria-label="Thickness (mm)">
+    <span>mm · probe 60° / 4 MHz · one hidden flaw</span>
+    <button class="ghost" id="newSpec">↻ New specimen</button>
+    <span class="mono" id="seedLabel" style="color:var(--ink-3);font-size:11px"></span>
+  </div>
+
+  <div class="stepper" id="stepper"></div>
+
+  <div class="stage" id="stage"></div>
+
+  <footer>
+    Educational simulation with simplified physics (single flaw, direct leg, smooth amplitude model). Acceptance levels as read from Fig 13.2.3 / 13.2.4 — verify against the current rule text; acceptance also depends on position, number and size of indications. Not a substitute for the rules, an approved NDE procedure, or operator qualification.
+  </footer>
+</div>
+
+<script>
+'use strict';
+/* ═══════════ utils ═══════════ */
+const $ = (s, r=document) => r.querySelector(s);
+const NS = 'http://www.w3.org/2000/svg';
+function sv(tag, attrs={}, parent){
+  const n = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)){
+    if (k === 'text') n.textContent = v; else n.setAttribute(k, v);
+  }
+  if (parent) parent.appendChild(n);
+  return n;
+}
+function el(tag, cls, text){
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+const clamp = (v,a,b) => Math.min(b, Math.max(a, v));
+const fmt = (v,d=1) => Number(v).toFixed(d);
+const db2f = db => Math.pow(10, db/20);
+const f2db = f  => 20 * Math.log10(f);
+function mulberry32(a){
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const smooth = u => u <= 0 ? 0 : u >= 1 ? 1 : u*u*(3 - 2*u);
+const gauss = (dx, sig) => Math.exp(-(dx*dx)/(2*sig*sig));
+
+/* ═══════════ acceptance levels (unchanged from the evaluation module) ═══════════ */
+const FIGS = {
+  '8-15':   { name: 'Figure 13.2.3 — Acceptance level for thicknesses 8 mm to 15 mm',
+              breaks: [1.0],      acc: [0, -5],    rec: [-5, -10],    evl: -10 },
+  '15-100': { name: 'Figure 13.2.4 — Acceptance level for thicknesses 15 mm to 100 mm',
+              breaks: [0.5, 1.0], acc: [5, 0, -5], rec: [0, -5, -10], evl: -10 }
+};
+const figKey = t => t < 15 ? '8-15' : '15-100';
+function levelAt(n, vals, breaks){
+  for (let i = 0; i < breaks.length; i++) if (n <= breaks[i]) return vals[i];
+  return vals[vals.length - 1];
+}
+function verdictFor(t, n, db){
+  const f = FIGS[figKey(t)];
+  const a = levelAt(n, f.acc, f.breaks), r = levelAt(n, f.rec, f.breaks), e = f.evl;
+  if (db > a)  return { code:'REJ',  cls:'v-rej',  title:'✕ Not acceptable', detail:`echo ${fmt(db)} dB > acceptance ${a} dB at n=${fmt(n,2)}` };
+  if (db >= r) return { code:'REC',  cls:'v-rec',  title:'✓ Acceptable — record', detail:`≤ acceptance ${a} dB, ≥ recording ${r} dB → report position, length, height` };
+  if (db >= e) return { code:'EVAL', cls:'v-eval', title:'✓ Acceptable — evaluate', detail:`below recording ${r} dB, ≥ evaluation ${e} dB` };
+  return { code:'DIS', cls:'v-dis', title:'— No action', detail:`below evaluation level ${e} dB` };
+}
+
+/* ═══════════ simulation state ═══════════ */
+const ANGLE = 60, COS = Math.cos(ANGLE*Math.PI/180), TAN = Math.tan(ANGLE*Math.PI/180);
+const P0 = 50.3, KATT = 0.0139;             // SDH intrinsic echo: % at 0 dB gain = P0·e^(−k·s)
+const intrinsic = s => P0 * Math.exp(-KATT * s);
+const SEAM = 300;                            // scanned weld length, mm
+
+const S = {
+  seed: 0, rng: null, t: 65, step: 1,
+  done: { 1:false, 2:false, 3:false, 4:false, 5:false },
+  sc: null,                                  // hidden scenario
+  s1: null, s2: null, s3: null, s4: null, ev: null
+};
+
+function newScenario(seed){
+  S.seed = seed >>> 0;
+  S.rng = mulberry32(S.seed);
+  const r = S.rng, t = S.t;
+  const L = Math.round((0.25 + 1.3 * r()) * t);
+  const y0 = Math.round(70 + r() * (SEAM - 140 - L));
+  S.sc = {
+    idxOffset: Math.round((r()*4 - 2) * 10) / 10,       // true exit point vs nominal mark, mm
+    dTtrue: Math.round(2 + r()*4),                      // true transfer loss, dB
+    flaw: { y0, y1: y0 + L, z: Math.round((0.3 + 0.4*r()) * t), dBt: Math.round((-11 + r()*14)*2)/2 }
+  };
+  S.done = { 1:false, 2:false, 3:false, 4:false, 5:false };
+  S.step = 1;
+  S.s1 = { probe: -6, marked: false, maxSeen: 0, eIdx: null };
+  S.s2 = { hole: 0, probe: -6, gain: 0, Gref: null, pdef: 0, pts: [] };
+  S.s3 = { add: 0, cal: false, test: false, dT: null, skipped: false };
+  S.s4 = { y: 30, maxAmp: null, sFlaw: null, rel: null, yA: null, yB: null };
+  S.ev = null;
+  $('#seedLabel').textContent = 'seed ' + S.seed;
+}
+
+/* SDH depths for the DAC block */
+const holeDepths = () => [S.t*0.25, S.t*0.5, S.t*0.75].map(z => Math.round(z*10)/10);
+const holePath = z => z / COS;
+
+/* recorded DAC, log-linear interpolation/extrapolation over recorded points */
+function dacRec(s){
+  const p = S.s2.pts;
+  if (!p.length) return intrinsic(s) * db2f(S.s2.Gref ?? 0);
+  if (p.length === 1) return p[0].pct * Math.exp(-KATT * (s - p[0].s));
+  const q = p.slice().sort((a,b) => a.s - b.s);
+  let i = 0;
+  while (i < q.length - 2 && s > q[i+1].s) i++;
+  const a = q[i], b = q[i+1];
+  const la = Math.log(a.pct), lb = Math.log(b.pct);
+  return Math.exp(la + (lb - la) * (s - a.s) / (b.s - a.s));
+}
+
+/* flaw echo at scanning gain, given position y along the seam */
+function flawEcho(y){
+  const f = S.sc.flaw, s = holePath(f.z);
+  const Gscan = (S.s2.Gref ?? 0) + (S.s3.dT ?? 0);
+  const shape = smooth((y - (f.y0 - 4)) / 8) * (1 - smooth((y - (f.y1 - 4)) / 8));
+  const pct = intrinsic(s) * db2f(f.dBt) * db2f(Gscan - S.sc.dTtrue) * shape;
+  return Math.min(112, pct) + 0.5 * gauss((y*7919)%13 - 6.5, 4); // + tiny grass
+}
+
+/* ═══════════ stepper & shell ═══════════ */
+const STEP_NAMES = ['Index point (V1)', 'DAC & reference', 'Transfer correction', 'Scan & size (6 dB)', 'Evaluate'];
+function renderStepper(){
+  const w = $('#stepper');
+  w.innerHTML = '';
+  for (let i = 1; i <= 5; i++){
+    const unlocked = i === 1 || S.done[i-1] || S.done[i];
+    const st = S.step === i ? 'active' : S.done[i] ? 'done' : unlocked ? 'idle' : 'locked';
+    const c = el('button', 'stepchip');
+    c.dataset.state = st;
+    c.append(el('span', 'no', (S.done[i] ? '✓' : i) + ''), el('span', '', STEP_NAMES[i-1]));
+    if (unlocked) c.addEventListener('click', () => { S.step = i; render(); });
+    else c.disabled = true;
+    w.appendChild(c);
+  }
+}
+
+function stageHead(stage, title, instr){
+  stage.append(el('h2', '', title));
+  const p = el('p', 'instr');
+  p.innerHTML = instr;
+  stage.append(p);
+}
+function roBox(label, value, unit){
+  const d = el('div', 'ro');
+  d.append(el('div', 'l', label));
+  const v = el('div', 'v', value);
+  if (unit){ const sm = el('small', '', ' ' + unit); v.append(sm); }
+  d.append(v);
+  return d;
+}
+function stepFoot(stage, hint, canContinue, autoFn){
+  const f = el('div', 'stepfoot');
+  f.append(el('div', 'hintline', hint));
+  const right = el('div', '');
+  right.style.display = 'flex'; right.style.gap = '8px';
+  if (S.step < 5){
+    const auto = el('button', 'btn secondary', 'Auto-do this step');
+    auto.addEventListener('click', () => { autoFn(); render(); });
+    const next = el('button', 'btn', 'Continue →');
+    next.disabled = !canContinue;
+    next.addEventListener('click', () => { S.step++; render(); });
+    right.append(auto, next);
+  }
+  f.append(right);
+  stage.append(f);
+}
+
+/* A-scan inside a USM-style portable flaw detector shell (screen + keypad, no branding) */
+function ascan(parent, pct, opts = {}){
+  const shell = el('div', 'usm');
+  const head = el('div', 'usm-head');
+  head.append(el('span', 'usm-led', ''), el('span', 'usm-brand', 'DIGITAL FLAW DETECTOR'));
+  const body = el('div', 'usm-body');
+  const scr = el('div', 'usm-screen');
+  const W = 300, H = 190, padL = 30, padB = 22, padT = 16;
+  const svg = sv('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'A-scan' });
+  scr.append(svg);
+  const keys = el('div', 'usm-keys');
+  for (const k of ['⏻','☰','◉','▲','▼','↵']) keys.append(el('span', 'ukey', k));
+  keys.append(el('span', 'ukey wide', 'dB'));
+  body.append(scr, keys);
+  shell.append(head, body);
+  parent.append(shell);
+
+  const y = p => H - padB - (clamp(p,0,110)/110) * (H - padT - padB);
+  for (let gx = padL; gx <= W-6; gx += 27)
+    sv('line', { x1: gx, y1: padT, x2: gx, y2: y(0), stroke: '#0d2a1b', 'stroke-width': 1 }, svg);
+  for (const g of [20,40,60,80,100]){
+    sv('line', { x1: padL, y1: y(g), x2: W-6, y2: y(g), stroke: '#0d2a1b', 'stroke-width': 1 }, svg);
+    sv('text', { x: padL-4, y: y(g)+3, fill: '#3f7a58', 'font-size': 8, 'text-anchor': 'end', class:'mono', text: g }, svg);
+  }
+  sv('line', { x1: padL, y1: y(0), x2: W-6, y2: y(0), stroke: '#1c4a30' }, svg);
+  sv('line', { x1: padL, y1: padT, x2: padL, y2: y(0), stroke: '#1c4a30' }, svg);
+  sv('text', { x: padL, y: 10, fill: '#7ee2a8', 'font-size': 8.5, class: 'mono', text: opts.status || '' }, svg);
+  if (opts.refLine){
+    sv('line', { x1: padL, y1: y(80), x2: W-6, y2: y(80), stroke: 'var(--amber)', 'stroke-width': 1.2, 'stroke-dasharray': '5 4' }, svg);
+    sv('text', { x: W-8, y: y(80)-4, fill: 'var(--amber)', 'font-size': 8.5, 'text-anchor': 'end', text: '80% REF' }, svg);
+  }
+  if (opts.halfOf != null){
+    sv('line', { x1: padL, y1: y(opts.halfOf/2), x2: W-6, y2: y(opts.halfOf/2), stroke: 'var(--cyan)', 'stroke-width': 1.2, 'stroke-dasharray': '3 4' }, svg);
+    sv('text', { x: W-8, y: y(opts.halfOf/2)-4, fill: 'var(--cyan)', 'font-size': 8.5, 'text-anchor': 'end', text: '−6dB · ½ MAX' }, svg);
+  }
+  if (opts.maxSeen){
+    sv('line', { x1: padL, y1: y(opts.maxSeen), x2: W-6, y2: y(opts.maxSeen), stroke: '#2b7a4c', 'stroke-width': 1, 'stroke-dasharray': '2 4' }, svg);
+    sv('text', { x: W-8, y: y(opts.maxSeen)-4, fill: '#2b7a4c', 'font-size': 8.5, 'text-anchor': 'end', text: 'PEAK MEM' }, svg);
+  }
+  const bx = padL + (W - padL - 16) * (opts.at ?? 0.45);
+  sv('path', { d: `M ${padL} ${y(0)} L ${bx-16} ${y(0)} L ${bx-4} ${y(pct)} L ${bx} ${y(pct*0.55)} L ${bx+4} ${y(pct)} L ${bx+16} ${y(0)} L ${W-6} ${y(0)}`,
+      fill: 'none', stroke: '#43e97b', 'stroke-width': 2, 'stroke-linejoin': 'round' }, svg);
+  sv('text', { x: bx, y: y(pct) - 7, fill: '#c6f5d8', 'font-size': 11, 'font-weight': 700, 'text-anchor': 'middle', class: 'mono', text: Math.round(pct) + '%' }, svg);
+  sv('text', { x: padL, y: H-7, fill: '#3f7a58', 'font-size': 8.5, class: 'mono', text: opts.caption || '' }, svg);
+  return svg;
+}
+
+/* horizontal pointer-drag on an SVG element; keeps the grab offset so the probe doesn't jump */
+function dragX(hit, svg, vbW, get, toVal, set){
+  hit.style.cursor = 'grab';
+  hit.addEventListener('pointerdown', ev => {
+    ev.preventDefault();
+    hit.setPointerCapture(ev.pointerId);
+    const rect = svg.getBoundingClientRect();
+    const xAt = e => toVal((e.clientX - rect.left) * (vbW / rect.width));
+    const off = get() - xAt(ev);
+    const move = e => { set(xAt(e) + off); render(); };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  });
+}
+
+function probeGlyph(svg, x, ySurf, dir = 1, label = ''){
+  // wedge probe: body behind the exit point, sloped front face toward beam direction
+  const back = x - 30*dir, front = x - 6*dir, tip = x + 9*dir;
+  sv('polygon', { points: `${back},${ySurf} ${back},${ySurf-18} ${front},${ySurf-18} ${tip},${ySurf}`,
+      fill: 'var(--panel)', stroke: 'var(--cyan)', 'stroke-width': 1.4, 'stroke-linejoin': 'round' }, svg);
+  sv('line', { x1: x, y1: ySurf-22, x2: x, y2: ySurf, stroke: 'var(--amber)', 'stroke-width': 1.4 }, svg);
+  if (label) sv('text', { x: back + 12*dir, y: ySurf - 6, fill: 'var(--ink-2)', 'font-size': 9.5, 'text-anchor': 'middle', text: label }, svg);
+}
+
+/* ═══════════ STEP 1 — V1 block index point ═══════════ */
+function renderStep1(stage){
+  stageHead(stage, 'Step 1 · Beam index point on the V1 block',
+    'Aim the probe at the <b>R100 quadrant</b>. <b>Drag the probe</b> (or use the slider) until the echo from the arc is at its <b>maximum</b> — the beam exit (index) point is then exactly over the block’s centre mark. Press <b>Mark index point</b> at the peak; every distance you read later depends on this mark.');
+
+  const duo = el('div', 'duo'); stage.append(duo);
+  const left = el('div', 'svg-wrap'); duo.append(left);
+  const W = 460, H = 250;
+  const svg = sv('svg', { viewBox: `0 0 ${W} ${H}` }); left.append(svg);
+
+  // V1 block: 300×100 with R100 quadrant on the right end
+  const sc = 1.25, bx = 30, by = 60, bw = 300*sc*0.92, bh = 100*sc;
+  const ySurf = by, yBot = by + bh;
+  const cx = bx + bw - 100*sc;                      // arc centre mark on top surface
+  sv('path', { d: `M ${bx} ${ySurf} L ${cx} ${ySurf} L ${bx+bw} ${ySurf} A ${100*sc} ${100*sc} 0 0 1 ${cx} ${yBot} L ${bx} ${yBot} Z`,
+      fill: 'rgba(169,185,209,.07)', stroke: 'var(--line)' }, svg);
+  sv('text', { x: bx+8, y: yBot-8, fill: 'var(--ink-3)', 'font-size': 10, text: 'V1 (IIW) calibration block' }, svg);
+  sv('text', { x: bx+bw+4, y: ySurf+82, fill: 'var(--ink-3)', 'font-size': 10, text: 'R100' }, svg);
+  // centre mark
+  sv('line', { x1: cx, y1: ySurf-6, x2: cx, y2: ySurf+8, stroke: 'var(--ink-2)', 'stroke-width': 1.4 }, svg);
+  sv('text', { x: cx-8, y: ySurf+19, fill: 'var(--ink-2)', 'font-size': 9.5, 'text-anchor': 'end', text: 'centre mark "0"' }, svg);
+
+  const st = S.s1;
+  const px = cx + st.probe * sc;                    // probe nominal-mark position
+  const trueExit = px + S.sc.idxOffset * sc;        // true exit point (hidden offset)
+  probeGlyph(svg, px, ySurf, 1);
+  // refracted beam from the true exit point toward the R100 arc (radial → reflected back)
+  const SIN = Math.sin(ANGLE*Math.PI/180);
+  sv('line', { x1: trueExit, y1: ySurf, x2: trueExit + 100*sc*SIN, y2: ySurf + 100*sc*COS,
+      stroke: 'var(--cyan)', 'stroke-width': 1.6, 'stroke-dasharray': '6 4', opacity: .85 }, svg);
+  sv('text', { x: trueExit + 52*sc*SIN + 8, y: ySurf + 52*sc*COS, fill: 'var(--ink-3)', 'font-size': 9.5, text: '100 mm' }, svg);
+  const hit1 = sv('rect', { x: px-44, y: ySurf-36, width: 88, height: 44, fill: 'transparent' }, svg);
+  dragX(hit1, svg, W, () => S.s1.probe, xv => (xv - cx) / sc,
+    v => { S.s1.probe = clamp(Math.round(v * 10) / 10, -8, 8); });
+
+  const pct = 100 * gauss(st.probe + S.sc.idxOffset, 1.3);
+  st.maxSeen = Math.max(st.maxSeen, pct);
+
+  const right = el('div', '');
+  duo.append(right);
+  ascan(right, pct, { at: 0.62, maxSeen: st.maxSeen,
+    status: 'ANGLE 60° · RANGE 200mm · V1/R100', caption: 'echo from R100 arc · PEAK MEM = best so far' });
+
+  const c = el('div', 'controls');
+  const lbl = el('label', '', 'Probe position');
+  const rng = document.createElement('input');
+  rng.type = 'range'; rng.min = -8; rng.max = 8; rng.step = 0.1; rng.value = st.probe;
+  rng.addEventListener('input', e => { st.probe = Number(e.target.value); render(); });
+  const val = el('span', 'mono', (st.probe>0?'+':'') + fmt(st.probe) + ' mm');
+  const mark = el('button', 'btn', st.marked ? '✓ Index marked' : 'Mark index point');
+  mark.disabled = st.marked;
+  mark.addEventListener('click', () => {
+    st.marked = true;
+    st.eIdx = -(st.probe + S.sc.idxOffset);         // 0 when marked exactly at peak
+    S.done[1] = true; render();
+  });
+  c.append(lbl, rng, val, mark);
+  stage.append(c);
+
+  const ro = el('div', 'readouts');
+  ro.append(roBox('Echo height', Math.round(pct) + '', '%'));
+  ro.append(roBox('Peak so far', Math.round(st.maxSeen) + '', '%'));
+  ro.append(roBox('Index', st.marked ? 'marked' : '—', ''));
+  stage.append(ro);
+
+  stepFoot(stage, st.marked ? 'Index point recorded. The mark is only as good as the peak you found.' :
+    'Tip: watch the peak-memory line — mark when the live echo touches it.',
+    S.done[1],
+    () => { st.probe = -S.sc.idxOffset; st.maxSeen = 100; st.marked = true; st.eIdx = 0; S.done[1] = true; });
+}
+
+/* ═══════════ STEP 2 — DAC & reference sensitivity ═══════════ */
+function renderStep2(stage){
+  const zs = holeDepths(), st = S.s2;
+  stageHead(stage, 'Step 2 · DAC curve & reference sensitivity',
+    `Reference block, same material, Ø3 mm side-drilled holes at ${zs.map(z=>z+'').join(' / ')} mm depth. ` +
+    '<b>Peak hole 1</b>, bring it to <b>80% FSH with the gain</b> and set that as reference H₀. Then, without touching the gain, peak holes 2 and 3 and record their echoes — the curve through the three points is your DAC.');
+
+  const duo = el('div', 'duo'); stage.append(duo);
+  const left = el('div', 'svg-wrap'); duo.append(left);
+  const W = 460, H = 250, bx = 24, by = 56;
+  const svg = sv('svg', { viewBox: `0 0 ${W} ${H}` }); left.append(svg);
+  const sc2 = Math.min(150 / S.t, 2.2);   // one scale for both axes so the 60° beam draws true
+  const scY = sc2, scX = sc2;
+  const bh = S.t * scY, ySurf = by, yBot = by + bh;
+  sv('rect', { x: bx, y: ySurf, width: 410, height: bh, fill: 'rgba(169,185,209,.07)', stroke: 'var(--line)' }, svg);
+  sv('text', { x: bx+6, y: yBot+14, fill: 'var(--ink-3)', 'font-size': 10, text: `reference block · t = ${S.t} mm` }, svg);
+
+  const holeX = 330;
+  zs.forEach((z, i) => {
+    const hy = ySurf + z * scY;
+    sv('circle', { cx: holeX + i*26, cy: hy, r: 4, fill: i === st.hole ? 'var(--amber)' : 'var(--surface)', stroke: 'var(--amber)', 'stroke-width': 1.4 }, svg);
+    sv('text', { x: holeX + i*26, y: hy + 15, fill: 'var(--ink-3)', 'font-size': 9, 'text-anchor': 'middle', class:'mono', text: 'SDH' + (i+1) }, svg);
+  });
+
+  const hi = Math.min(st.hole, 2);
+  const hx = holeX + hi*26, hz = zs[hi];
+  const ideal = hx - hz * TAN * scX;                 // ideal probe x (px)
+  const px = ideal + st.probe * scX;
+  probeGlyph(svg, px, ySurf, 1);
+  sv('polyline', { points: `${px},${ySurf} ${px + hz*TAN*scX},${ySurf + hz*scY}`, fill:'none', stroke:'var(--cyan)', 'stroke-width':1.6, 'stroke-dasharray':'6 4' }, svg);
+  const hit2 = sv('rect', { x: px-44, y: ySurf-36, width: 88, height: 44, fill: 'transparent' }, svg);
+  dragX(hit2, svg, W, () => S.s2.probe, xv => (xv - ideal) / scX,
+    v => { S.s2.probe = clamp(Math.round(v * 10) / 10, -8, 8); });
+
+  const gain = st.Gref ?? st.gain;
+  const pct = Math.min(112, intrinsic(holePath(hz)) * db2f(gain) * gauss(st.probe, 2));
+
+  const right = el('div', ''); duo.append(right);
+  ascan(right, pct, { at: 0.35 + hi*0.18, refLine: true,
+    status: `GAIN ${fmt(gain,1)}dB · S ${fmt(holePath(hz),0)}mm · 60°`,
+    caption: `SDH${hi+1} — drag the probe to peak, then gain to 80%` });
+
+  const c1 = el('div', 'controls');
+  const rng = document.createElement('input');
+  rng.type = 'range'; rng.min = -8; rng.max = 8; rng.step = 0.1; rng.value = st.probe;
+  rng.addEventListener('input', e => { st.probe = Number(e.target.value); render(); });
+  c1.append(el('label', '', 'Probe position'), rng, el('span', 'mono', (st.probe>0?'+':'') + fmt(st.probe) + ' mm'));
+  stage.append(c1);
+
+  const c2 = el('div', 'controls');
+  const gainBtn = (d) => {
+    const b = el('button', 'btn secondary', (d>0?'+':'−') + Math.abs(d) + ' dB');
+    b.disabled = st.Gref != null;
+    b.addEventListener('click', () => { st.gain = clamp(Math.round((st.gain+d)*2)/2, 0, 30); render(); });
+    return b;
+  };
+  const gv = el('span', 'mono', `gain ${fmt(gain,1)} dB` + (st.Gref != null ? ' (locked at H₀)' : ''));
+  const act = el('button', 'btn');
+  if (st.Gref == null){
+    act.textContent = 'Set reference H₀ (bring to ~80%)';
+    act.disabled = !(pct >= 77 && pct <= 83);
+    act.addEventListener('click', () => {
+      st.Gref = st.gain;
+      st.pdef = -f2db(gauss(st.probe, 2));           // dB lost by setting ref off-peak
+      st.pts.push({ s: holePath(zs[0]), pct });
+      st.hole = 1; st.probe = -6; render();
+    });
+  } else if (st.hole <= 2){
+    act.textContent = `Record DAC point (SDH${st.hole+1})`;
+    act.addEventListener('click', () => {
+      st.pts.push({ s: holePath(zs[st.hole]), pct });
+      st.hole++; st.probe = -6;
+      if (st.hole > 2){ S.done[2] = true; }
+      render();
+    });
+  } else {
+    act.textContent = '✓ DAC complete'; act.disabled = true;
+  }
+  c2.append(el('label','','Gain'), gainBtn(-2), gainBtn(-0.5), gainBtn(0.5), gainBtn(2), gv, act);
+  stage.append(c2);
+
+  const ro = el('div', 'readouts');
+  ro.append(roBox('Echo', Math.round(pct) + '', '%'));
+  ro.append(roBox('Reference gain', st.Gref != null ? fmt(st.Gref,0) : '—', 'dB'));
+  ro.append(roBox('DAC points', st.pts.length + ' / 3', ''));
+  if (st.pts.length){
+    ro.append(roBox('Curve', st.pts.map(p => Math.round(p.pct)+'%').join(' · '), ''));
+  }
+  stage.append(ro);
+
+  stepFoot(stage, st.Gref == null ? 'Peak first, then gain to 80% — setting reference off-peak inflates every later reading.' :
+    S.done[2] ? 'DAC recorded. Echoes are now judged against this curve.' : 'Gain is locked — peak the next hole and record it.',
+    S.done[2],
+    () => {
+      st.probe = 0; st.gain = Math.round(f2db(80 / intrinsic(holePath(zs[0]))));
+      st.Gref = st.gain; st.pdef = 0;
+      st.pts = zs.map(z => ({ s: holePath(z), pct: intrinsic(holePath(z)) * db2f(st.Gref) }));
+      st.hole = 3; S.done[2] = true;
+    });
+}
+
+/* ═══════════ STEP 3 — transfer correction ═══════════ */
+function renderStep3(stage){
+  const st = S.s3;
+  stageHead(stage, 'Step 3 · Transfer correction on the actual material',
+    'The weld’s parent plate has rougher surface and coating than the calibration block, so the same reflector rings lower there. Compare a <b>V-path signal</b> through both with two probes: measure the calibration block, measure the test plate, then <b>add gain until the test-plate signal matches</b> — that added gain is the transfer correction ΔT, applied on top of the reference gain for all scanning.');
+
+  const duo = el('div', 'duo'); stage.append(duo);
+  const left = el('div', 'svg-wrap'); duo.append(left);
+  const W = 460, H = 250;
+  const svg = sv('svg', { viewBox: `0 0 ${W} ${H}` }); left.append(svg);
+  const drawPair = (x0, label, rough) => {
+    const bw = 190, bh = 84, ySurf = 92, yBot = ySurf + bh;
+    sv('rect', { x: x0, y: ySurf, width: bw, height: bh, fill: 'rgba(169,185,209,.07)', stroke: 'var(--line)' }, svg);
+    if (rough){
+      for (let x = x0+4; x < x0+bw-4; x += 9)
+        sv('line', { x1: x, y1: ySurf, x2: x+5, y2: ySurf-3, stroke: 'var(--ink-3)', 'stroke-width': 1 }, svg);
+      sv('polygon', { points: `${x0+bw/2-16},${ySurf} ${x0+bw/2},${ySurf-7} ${x0+bw/2+16},${ySurf}`, fill: 'rgba(245,184,61,.25)', stroke: 'rgba(245,184,61,.6)' }, svg);
+    }
+    probeGlyph(svg, x0+34, ySurf, 1, 'TX');
+    probeGlyph(svg, x0+bw-24, ySurf, -1, 'RX');
+    sv('polyline', { points: `${x0+34},${ySurf} ${x0+bw/2+5},${yBot} ${x0+bw-24},${ySurf}`, fill:'none', stroke:'var(--cyan)', 'stroke-width':1.6, 'stroke-dasharray':'6 4' }, svg);
+    sv('text', { x: x0+bw/2, y: yBot+18, fill: 'var(--ink-3)', 'font-size': 10, 'text-anchor': 'middle', text: label }, svg);
+  };
+  drawPair(20, 'calibration block', false);
+  drawPair(248, 'test plate (weld parent material)', true);
+
+  const calPct = 80;
+  const testPct = Math.min(112, 80 * db2f(st.add - S.sc.dTtrue));
+
+  const right = el('div', ''); duo.append(right);
+  ascan(right, st.test ? testPct : (st.cal ? calPct : 4),
+    { at: 0.5, refLine: true,
+      status: `V-PATH COMPARE · ADD +${fmt(st.add,0)}dB`,
+      caption: st.test ? 'test plate — bring the signal back to 80%' : st.cal ? 'calibration block' : 'no measurement yet' });
+
+  const c = el('div', 'controls');
+  const mCal = el('button', 'btn secondary', st.cal ? '✓ Cal block: 80%' : 'Measure cal block');
+  mCal.addEventListener('click', () => { st.cal = true; st.test = false; render(); });
+  const mTest = el('button', 'btn secondary', 'Measure test plate');
+  mTest.disabled = !st.cal;
+  mTest.addEventListener('click', () => { st.test = true; render(); });
+  const gm = el('button', 'btn secondary', '− 1 dB'), gp = el('button', 'btn secondary', '+ 1 dB');
+  gm.disabled = gp.disabled = !st.test || st.dT != null;
+  gm.addEventListener('click', () => { st.add = clamp(st.add-1, 0, 12); render(); });
+  gp.addEventListener('click', () => { st.add = clamp(st.add+1, 0, 12); render(); });
+  const apply = el('button', 'btn', st.dT != null ? `✓ ΔT = +${fmt(st.dT,0)} dB applied` : `Apply ΔT = +${fmt(st.add,0)} dB`);
+  apply.disabled = !st.test || st.dT != null;
+  apply.addEventListener('click', () => { st.dT = st.add; st.skipped = false; S.done[3] = true; render(); });
+  const skip = el('button', 'ghost', 'Skip (not recommended)');
+  skip.addEventListener('click', () => { st.dT = 0; st.skipped = true; S.done[3] = true; render(); });
+  c.append(mCal, mTest, gm, gp, apply);
+  if (st.dT == null) c.append(skip);
+  stage.append(c);
+
+  const ro = el('div', 'readouts');
+  ro.append(roBox('Test-plate signal', st.test ? Math.round(testPct) + '' : '—', '%'));
+  ro.append(roBox('Added gain', '+' + fmt(st.add,0), 'dB'));
+  ro.append(roBox('Scanning sensitivity', S.s2.Gref != null ? `H₀ ${st.dT != null ? '+ ' + fmt(st.dT,0) + ' dB' : ''}` : '—', ''));
+  stage.append(ro);
+
+  stepFoot(stage, st.dT != null ? (st.skipped ? 'Skipped — flaw echoes on the real weld will read low.' : 'Correction applied to the scanning gain.') :
+    'Match the test-plate signal to the 80% line, then apply.',
+    S.done[3],
+    () => { st.cal = st.test = true; st.add = S.sc.dTtrue; st.dT = S.sc.dTtrue; st.skipped = false; S.done[3] = true; });
+}
+
+/* ═══════════ STEP 4 — scan & size (6 dB drop) ═══════════ */
+function renderStep4(stage){
+  const st = S.s4, f = S.sc.flaw;
+  stageHead(stage, 'Step 4 · Scan the weld, size the flaw (6 dB drop)',
+    '<b>Drag the probe along the seam</b> (or use the slider) at scanning sensitivity. <b>Peak the flaw echo and mark it as maximum</b> — the instrument logs its height against the DAC. Then move each way until the echo falls to <b>half the maximum (−6 dB)</b> and mark both ends: the distance between the marks is the indication length ℓ.');
+
+  const pct = flawEcho(st.y);
+
+  const duo = el('div', 'duo'); stage.append(duo);
+  const left = el('div', 'svg-wrap'); duo.append(left);
+  const W = 460, H = 250;
+  const svg = sv('svg', { viewBox: `0 0 ${W} ${H}` }); left.append(svg);
+  const sc = (W - 60) / SEAM, x0 = 30, yW = 96;
+  sv('rect', { x: x0, y: 40, width: SEAM*sc, height: 150, fill: 'rgba(169,185,209,.05)', stroke: 'var(--line)' }, svg);
+  sv('rect', { x: x0, y: yW-11, width: SEAM*sc, height: 22, fill: 'rgba(245,184,61,.13)', stroke: 'rgba(245,184,61,.5)' }, svg);
+  sv('text', { x: x0+4, y: yW-16, fill: 'var(--ink-3)', 'font-size': 10, text: 'weld seam (plan view)' }, svg);
+  for (const m of [0,100,200,300]){
+    sv('line', { x1: x0+m*sc, y1: 190, x2: x0+m*sc, y2: 196, stroke: 'var(--ink-3)' }, svg);
+    sv('text', { x: x0+m*sc, y: 208, fill: 'var(--ink-3)', 'font-size': 9, 'text-anchor': 'middle', class:'mono', text: m }, svg);
+  }
+  // probe (below seam, aiming up) — draggable
+  const px = x0 + st.y * sc, pyTop = yW + 34;
+  sv('rect', { x: px-13, y: pyTop, width: 26, height: 17, rx: 3, fill: 'var(--panel)', stroke: 'var(--cyan)', 'stroke-width': 1.4 }, svg);
+  sv('line', { x1: px, y1: pyTop, x2: px, y2: yW+11, stroke: 'var(--cyan)', 'stroke-width': 1.5, 'stroke-dasharray': '5 4' }, svg);
+  const hit4 = sv('rect', { x: px-26, y: pyTop-14, width: 52, height: 46, fill: 'transparent' }, svg);
+  dragX(hit4, svg, W, () => S.s4.y, xv => (xv - x0) / sc,
+    v => { S.s4.y = clamp(Math.round(v * 2) / 2, 0, SEAM); });
+  // marks
+  const tick = (yy, color, label) => {
+    sv('line', { x1: x0+yy*sc, y1: yW-17, x2: x0+yy*sc, y2: yW+17, stroke: color, 'stroke-width': 2 }, svg);
+    sv('text', { x: x0+yy*sc, y: yW-22, fill: color, 'font-size': 9.5, 'text-anchor': 'middle', 'font-weight':700, text: label }, svg);
+  };
+  if (st.yA != null) tick(st.yA, 'var(--ok)', 'A');
+  if (st.yB != null) tick(st.yB, 'var(--ok)', 'B');
+  if (st.maxAmp != null && st.yA == null && st.yB == null) tick(st.yMax, 'var(--amber)', 'max');
+  if (st.yA != null && st.yB != null){
+    sv('line', { x1: x0+st.yA*sc, y1: yW+26, x2: x0+st.yB*sc, y2: yW+26, stroke: 'var(--ok)', 'stroke-width': 1.5 }, svg);
+    sv('text', { x: x0+(st.yA+st.yB)/2*sc, y: yW+40, fill: 'var(--ok)', 'font-size': 10.5, 'text-anchor': 'middle', class:'mono', text: 'ℓ = ' + fmt(st.yB-st.yA,0) + ' mm' }, svg);
+  }
+
+  const right = el('div', ''); duo.append(right);
+  ascan(right, pct, { at: 0.5, halfOf: st.maxAmp ?? undefined,
+    status: `GAIN H₀+${fmt(S.s3.dT ?? 0,0)}dB · 60° · Y ${fmt(st.y,0)}mm`,
+    caption: 'drag the probe along the seam · mark max, then the two −6 dB ends' });
+
+  const c = el('div', 'controls');
+  const rng = document.createElement('input');
+  rng.type = 'range'; rng.min = 0; rng.max = SEAM; rng.step = 0.5; rng.value = st.y;
+  rng.addEventListener('input', e => { st.y = Number(e.target.value); render(); });
+  c.append(el('label', '', 'Probe position y'), rng, el('span', 'mono', fmt(st.y,1) + ' mm'));
+  stage.append(c);
+
+  const c2 = el('div', 'controls');
+  const bMax = el('button', 'btn', st.maxAmp != null ? `✓ Max ${Math.round(st.maxAmp)}%` : 'Mark maximum');
+  bMax.disabled = pct < 8 && st.maxAmp == null;
+  bMax.addEventListener('click', () => {
+    st.maxAmp = pct; st.yMax = st.y;
+    st.sFlaw = holePath(f.z);
+    st.rel = f2db(pct / dacRec(st.sFlaw));
+    st.yA = st.yB = null; render();
+  });
+  const dbNow = st.maxAmp ? f2db(Math.max(pct,0.1) / st.maxAmp) : null;
+  const bA = el('button', 'btn secondary', st.yA != null ? `✓ End A @ ${fmt(st.yA,0)}` : 'Mark end A');
+  const bB = el('button', 'btn secondary', st.yB != null ? `✓ End B @ ${fmt(st.yB,0)}` : 'Mark end B');
+  bA.disabled = bB.disabled = st.maxAmp == null;
+  const markEnd = (which) => {
+    if (which === 'A') st.yA = st.y; else st.yB = st.y;
+    if (st.yA != null && st.yB != null){
+      if (st.yA > st.yB){ const t2 = st.yA; st.yA = st.yB; st.yB = t2; }
+      S.done[4] = true;
+      S.ev = { n: (st.yB - st.yA) / S.t, db: st.rel };
+    }
+    render();
+  };
+  bA.addEventListener('click', () => markEnd('A'));
+  bB.addEventListener('click', () => markEnd('B'));
+  c2.append(bMax, bA, bB);
+  if (st.maxAmp != null) c2.append(el('span', 'mono', `now ${dbNow>=0?'+':''}${fmt(dbNow)} dB vs max`));
+  stage.append(c2);
+
+  const ro = el('div', 'readouts');
+  ro.append(roBox('Echo', Math.round(pct) + '', '%'));
+  ro.append(roBox('vs DAC', st.rel != null ? (st.rel>=0?'+':'') + fmt(st.rel) : '—', 'dB'));
+  ro.append(roBox('Beam path', st.sFlaw ? fmt(st.sFlaw,0) : '—', 'mm'));
+  ro.append(roBox('Length ℓ', st.yA != null && st.yB != null ? fmt(st.yB-st.yA,0) : '—', 'mm'));
+  stage.append(ro);
+
+  stepFoot(stage,
+    st.maxAmp == null ? 'Find the flaw first — sweep the full seam.' :
+    S.done[4] ? 'Indication sized. Ready to evaluate.' :
+    'Move until the echo sits on the −6 dB line, then mark each end.',
+    S.done[4],
+    () => {
+      st.yMax = (f.y0 + f.y1) / 2; st.y = st.yMax;
+      st.maxAmp = flawEcho(st.yMax);
+      st.sFlaw = holePath(f.z);
+      st.rel = f2db(st.maxAmp / dacRec(st.sFlaw));
+      st.yA = f.y0; st.yB = f.y1;
+      S.done[4] = true;
+      S.ev = { n: (st.yB - st.yA) / S.t, db: st.rel };
+    });
+}
+
+/* ═══════════ STEP 5 — evaluation chart (from the acceptance module) ═══════════ */
+const C = { W:760, H:420, padL:52, padR:104, padT:20, padB:46, nMax:2.5, dbTop:10, dbBot:-25 };
+const nX  = n  => C.padL + n / C.nMax * (C.W - C.padL - C.padR);
+const dbY = db => C.padT + (C.dbTop - db) / (C.dbTop - C.dbBot) * (C.H - C.padT - C.padB);
+const xToN  = x => clamp((x - C.padL) / (C.W - C.padL - C.padR) * C.nMax, 0.05, C.nMax - 0.05);
+const yToDb = y => clamp(C.dbTop - (y - C.padT) / (C.H - C.padT - C.padB) * (C.dbTop - C.dbBot), C.dbBot + 1, C.dbTop - 1);
+function stepPts(vals, breaks){
+  const pts = [[0, vals[0]]];
+  for (let i = 0; i < breaks.length; i++){ pts.push([breaks[i], vals[i]]); pts.push([breaks[i], vals[i+1]]); }
+  pts.push([C.nMax, vals[vals.length - 1]]);
+  return pts;
+}
+const toPx = pts => pts.map(p => `${nX(p[0]).toFixed(1)},${dbY(p[1]).toFixed(1)}`).join(' ');
+
+function renderStep5(stage){
+  const f = FIGS[figKey(S.t)];
+  const meas = { n: S.s4.yB != null ? (S.s4.yB - S.s4.yA) / S.t : 0.5, db: S.s4.rel ?? -6 };
+  if (!S.ev) S.ev = { ...meas };
+  stageHead(stage, 'Step 5 · Evaluate against the acceptance level',
+    'Your measured indication is plotted from steps 2–4: height vs your DAC, length from your 6 dB drop marks. Drag it to explore; <b>Reset to measured</b> returns to what you actually recorded. The debrief below compares your measurement with the specimen’s hidden truth.');
+
+  const wrap = el('div', 'svg-wrap'); stage.append(wrap);
+  const svg = sv('svg', { viewBox: `0 0 ${C.W} ${C.H}` }); wrap.append(svg);
+  const accP = stepPts(f.acc, f.breaks), recP = stepPts(f.rec, f.breaks), evlP = [[0, f.evl], [C.nMax, f.evl]];
+  const zone = (upper, lower, fill) => {
+    const up = upper.map(p => `${nX(p[0]).toFixed(1)},${dbY(p[1]).toFixed(1)}`);
+    const lo = lower.slice().reverse().map(p => `${nX(p[0]).toFixed(1)},${dbY(p[1]).toFixed(1)}`);
+    sv('polygon', { points: up.concat(lo).join(' '), fill }, svg);
+  };
+  zone([[0, C.dbTop], [C.nMax, C.dbTop]], accP, 'rgba(240,86,74,.10)');
+  zone(accP, recP, 'rgba(49,196,141,.10)');
+  zone(recP, evlP, 'rgba(63,198,232,.07)');
+  for (let db = C.dbTop; db >= C.dbBot; db -= 5){
+    sv('line', { x1: C.padL, y1: dbY(db), x2: C.W - C.padR, y2: dbY(db), stroke: 'var(--grid)' }, svg);
+    sv('text', { x: C.padL-8, y: dbY(db)+4, fill: 'var(--ink-3)', 'font-size': 10.5, 'text-anchor': 'end', class:'mono', text: db>0?'+'+db:db }, svg);
+  }
+  for (let n = 0.5; n <= C.nMax; n += 0.5){
+    sv('line', { x1: nX(n), y1: C.padT, x2: nX(n), y2: C.H-C.padB, stroke: 'var(--grid)' }, svg);
+    sv('text', { x: nX(n), y: C.H-C.padB+15, fill: 'var(--ink-3)', 'font-size': 10.5, 'text-anchor': 'middle', class:'mono', text: fmt(n,1) }, svg);
+  }
+  sv('line', { x1: C.padL, y1: C.H-C.padB, x2: C.W-C.padR, y2: C.H-C.padB, stroke: 'var(--line)' }, svg);
+  sv('line', { x1: C.padL, y1: C.padT, x2: C.padL, y2: C.H-C.padB, stroke: 'var(--line)' }, svg);
+  sv('text', { x: (C.padL+C.W-C.padR)/2, y: C.H-11, fill: 'var(--ink-2)', 'font-size': 11, 'text-anchor': 'middle', text: 'indication length l = n·t' }, svg);
+  sv('text', { x: 14, y: (C.padT+C.H-C.padB)/2, fill: 'var(--ink-2)', 'font-size': 11, 'text-anchor': 'middle', transform: `rotate(-90 14 ${(C.padT+C.H-C.padB)/2})`, text: 'echo height H (dB vs H₀)' }, svg);
+  sv('polyline', { points: toPx(evlP), fill:'none', stroke:'var(--ink-3)', 'stroke-width':2, 'stroke-dasharray':'10 4 2 4' }, svg);
+  sv('polyline', { points: toPx(recP), fill:'none', stroke:'var(--warn)', 'stroke-width':2, 'stroke-dasharray':'4 4' }, svg);
+  sv('polyline', { points: toPx(accP), fill:'none', stroke:'var(--bad)', 'stroke-width':2.5, 'stroke-dasharray':'9 5' }, svg);
+  sv('polyline', { points: toPx([[0,0],[C.nMax,0]]), fill:'none', stroke:'var(--cyan)', 'stroke-width':2.5 }, svg);
+  const last = arr => arr[arr.length-1];
+  const endLabel = (db, no, name, color) => {
+    const y = dbY(db);
+    sv('circle', { cx: C.W-C.padR+12, cy: y, r: 8, fill: 'var(--surface)', stroke: color, 'stroke-width': 1.5 }, svg);
+    sv('text', { x: C.W-C.padR+12, y: y+3.5, fill: color, 'font-size': 10.5, 'text-anchor': 'middle', class:'mono', 'font-weight':700, text: no }, svg);
+    sv('text', { x: C.W-C.padR+25, y: y+3.5, fill: 'var(--ink-2)', 'font-size': 10.5, text: name }, svg);
+  };
+  endLabel(0, '1', 'H₀', 'var(--cyan)');
+  endLabel(last(f.acc), '2', 'accept', 'var(--bad)');
+  endLabel(last(f.rec) === f.evl ? last(f.rec)+2.2 : last(f.rec), '3', 'record', 'var(--warn)');
+  endLabel(f.evl-2.2, '4', 'evaluate', 'var(--ink-3)');
+  const zx = nX(1.62);
+  sv('text', { x: zx, y: (dbY(C.dbTop)+dbY(last(f.acc)))/2+4, fill: 'var(--bad)', 'font-size': 11, 'font-weight': 600, text: 'not acceptable' }, svg);
+  if (dbY(last(f.rec)) - dbY(last(f.acc)) > 20)
+    sv('text', { x: zx, y: (dbY(last(f.acc))+dbY(last(f.rec)))/2+4, fill: 'var(--ok)', 'font-size': 11, 'font-weight': 600, text: 'accept · record' }, svg);
+  sv('text', { x: zx, y: dbY(f.evl-6), fill: 'var(--ink-3)', 'font-size': 11, text: 'disregard' }, svg);
+
+  // measured ghost + live point
+  sv('circle', { cx: nX(meas.n), cy: dbY(meas.db), r: 5, fill: 'none', stroke: 'var(--ink-3)', 'stroke-width': 1.5, 'stroke-dasharray': '2 2' }, svg);
+  const ex = nX(S.ev.n), ey = dbY(S.ev.db);
+  sv('line', { x1: ex, y1: ey, x2: ex, y2: C.H-C.padB, stroke: 'var(--ink-3)', 'stroke-width': 1, 'stroke-dasharray': '2 3' }, svg);
+  sv('circle', { cx: ex, cy: ey, r: 12, fill: 'rgba(233,240,250,.12)' }, svg);
+  sv('circle', { cx: ex, cy: ey, r: 6, fill: '#eef4fc', stroke: 'var(--surface)', 'stroke-width': 2 }, svg);
+  sv('text', { x: ex, y: ey-14, fill: 'var(--ink)', 'font-size': 11, 'text-anchor': 'middle', 'font-weight': 700, class: 'mono',
+      text: `${S.ev.db>0?'+':''}${fmt(S.ev.db)} dB · l=${Math.round(S.ev.n*S.t)}mm` }, svg);
+  const hit = sv('circle', { cx: ex, cy: ey, r: 22, fill: 'transparent', style: 'cursor:grab' }, svg);
+  hit.addEventListener('pointerdown', ev0 => {
+    ev0.preventDefault();
+    hit.setPointerCapture(ev0.pointerId);
+    const rect = svg.getBoundingClientRect();
+    const move = e => {
+      S.ev.n  = Math.round(xToN((e.clientX-rect.left) * (C.W/rect.width)) * 20) / 20;
+      S.ev.db = Math.round(yToDb((e.clientY-rect.top) * (C.H/rect.height)) * 2) / 2;
+      render();
+    };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  });
+
+  const v = verdictFor(S.t, S.ev.n, S.ev.db);
+  const vb = el('div', 'verdict ' + v.cls);
+  vb.append(el('span', 'v-title', v.title), el('span', 'v-detail', v.detail),
+            el('span', 'v-detail mono', ` n=${fmt(S.ev.n,2)} · l=${Math.round(S.ev.n*S.t)} mm`));
+  stage.append(vb);
+
+  const cr = el('div', 'controls');
+  const reset = el('button', 'btn secondary', 'Reset to measured');
+  reset.addEventListener('click', () => { S.ev = { ...meas }; render(); });
+  cr.append(reset, el('span', 'hintline', f.name));
+  stage.append(cr);
+
+  // debrief
+  const sc2 = S.sc, tf = sc2.flaw;
+  const Ltrue = tf.y1 - tf.y0, Lmeas = S.s4.yB != null ? S.s4.yB - S.s4.yA : null;
+  const trueV = verdictFor(S.t, Ltrue/S.t, tf.dBt);
+  const measV = verdictFor(S.t, meas.n, meas.db);
+  const row = (name, val, ok, warnNotBad) => {
+    const tr = document.createElement('tr');
+    tr.append(el('td', '', name), el('td', '', val),
+      el('td', ok ? 'g' : warnNotBad ? 'w' : 'b', ok ? '✓ good' : warnNotBad ? '△ off' : '✕ poor'));
+    return tr;
+  };
+  const dbg = el('div', 'callout ' + (measV.code === trueV.code ? 'match' : 'miss'));
+  dbg.append(
+    Object.assign(el('div', ''), { innerHTML:
+      `<b>Debrief</b> — your call: <b>${measV.title}</b> · truth: <b>${trueV.title}</b> ` +
+      (measV.code === trueV.code ? '→ correct call.' : '→ your calibration/measurement errors changed the verdict.') }));
+  const tb = el('table', 'debrief');
+  const eIdx = S.s1.eIdx ?? 99;
+  tb.append(
+    row('Index point', `error ${fmt(Math.abs(eIdx))} mm`, Math.abs(eIdx) <= 0.5, Math.abs(eIdx) <= 1.5),
+    row('Reference H₀', `set ${fmt(S.s2.pdef)} dB off peak`, S.s2.pdef <= 0.5, S.s2.pdef <= 1.5),
+    row('Transfer correction', S.s3.skipped ? `skipped (actual +${sc2.dTtrue} dB)` : `applied +${fmt(S.s3.dT ?? 0,0)} dB (actual +${sc2.dTtrue} dB)`,
+        S.s3.dT != null && Math.abs(S.s3.dT - sc2.dTtrue) <= 1, S.s3.dT != null && Math.abs(S.s3.dT - sc2.dTtrue) <= 2),
+    row('Amplitude', `measured ${fmt(meas.db)} dB · true ${fmt(tf.dBt)} dB vs DAC`, Math.abs(meas.db - tf.dBt) <= 1.5, Math.abs(meas.db - tf.dBt) <= 3),
+    row('Length (6 dB drop)', Lmeas != null ? `measured ${fmt(Lmeas,0)} mm · true ${Ltrue} mm` : '—',
+        Lmeas != null && Math.abs(Lmeas - Ltrue) <= Math.max(3, 0.08*Ltrue), Lmeas != null && Math.abs(Lmeas - Ltrue) <= Math.max(6, 0.15*Ltrue))
+  );
+  dbg.append(tb);
+  const again = el('div', 'controls');
+  const nb = el('button', 'btn', '↻ New specimen — run it again');
+  nb.addEventListener('click', () => { newScenario((Math.random()*1e9)>>>0); render(); });
+  again.append(nb);
+  dbg.append(again);
+  stage.append(dbg);
+
+  stepFoot(stage, 'Steps stay open above — go back and redo any of them to see how the verdict moves.', true, () => {});
+}
+
+/* ═══════════ shell render ═══════════ */
+function render(){
+  renderStepper();
+  const stage = $('#stage');
+  stage.innerHTML = '';
+  [null, renderStep1, renderStep2, renderStep3, renderStep4, renderStep5][S.step](stage);
+  S.done[5] = S.done[4];
+}
+
+$('#tNum').addEventListener('change', e => {
+  S.t = clamp(Math.round(Number(e.target.value) || 65), 15, 100);
+  e.target.value = S.t;
+  newScenario((Math.random()*1e9)>>>0);
+  render();
+});
+$('#newSpec').addEventListener('click', () => { newScenario((Math.random()*1e9)>>>0); render(); });
+
+/* auto-complete helpers (used by selftest / ?demo=N) */
+function autoTo(n){
+  const autos = [
+    () => { S.s1.probe = -S.sc.idxOffset; S.s1.maxSeen = 100; S.s1.marked = true; S.s1.eIdx = 0; S.done[1] = true; },
+    () => { const st = S.s2, zs = holeDepths();
+            st.probe = 0; st.gain = Math.round(f2db(80 / intrinsic(holePath(zs[0]))));
+            st.Gref = st.gain; st.pdef = 0;
+            st.pts = zs.map(z => ({ s: holePath(z), pct: intrinsic(holePath(z)) * db2f(st.Gref) }));
+            st.hole = 3; S.done[2] = true; },
+    () => { const st = S.s3; st.cal = st.test = true; st.add = S.sc.dTtrue; st.dT = S.sc.dTtrue; st.skipped = false; S.done[3] = true; },
+    () => { const st = S.s4, fl = S.sc.flaw;
+            st.yMax = (fl.y0 + fl.y1) / 2; st.y = st.yMax;
+            st.maxAmp = flawEcho(st.yMax);
+            st.sFlaw = holePath(fl.z);
+            st.rel = f2db(st.maxAmp / dacRec(st.sFlaw));
+            st.yA = fl.y0; st.yB = fl.y1;
+            S.done[4] = true;
+            S.ev = { n: (st.yB - st.yA) / S.t, db: st.rel }; }
+  ];
+  for (let i = 0; i < n - 1 && i < 4; i++) autos[i]();
+  S.step = n;
+}
+
+/* ═══════════ selftest (?selftest) ═══════════ */
+function selfTest(){
+  const fails = [];
+  const eq = (name, got, want) => { if (got !== want) fails.push(`${name}: got=${got} want=${want}`); };
+  const near = (name, got, want, tol) => { if (Math.abs(got - want) > tol) fails.push(`${name}: got=${fmt(got,2)} want=${fmt(want,2)}±${tol}`); };
+
+  // criteria spot checks
+  eq('v(65,0.3,+6)', verdictFor(65, 0.3, 6).code, 'REJ');
+  eq('v(65,0.3,+3)', verdictFor(65, 0.3, 3).code, 'REC');
+  eq('v(65,0.7,0)',  verdictFor(65, 0.7, 0).code, 'REC');
+  eq('v(65,1.5,-4)', verdictFor(65, 1.5, -4).code, 'REJ');
+  eq('v(65,1.5,-12)',verdictFor(65, 1.5, -12).code, 'DIS');
+  eq('v(12,0.5,1)',  verdictFor(12, 0.5, 1).code, 'REJ');
+  eq('v(12,1.2,-6)', verdictFor(12, 1.2, -6).code, 'REC');
+
+  // ideal run: measurement should recover the hidden truth
+  S.t = 65; newScenario(42); autoTo(5);
+  const tf = S.sc.flaw, Ltrue = tf.y1 - tf.y0;
+  near('ideal rel dB', S.s4.rel, tf.dBt, 0.8);
+  near('ideal length', S.s4.yB - S.s4.yA, Ltrue, 0.6);
+  eq('ideal call', verdictFor(S.t, S.ev.n, S.ev.db).code, verdictFor(S.t, Ltrue/S.t, tf.dBt).code);
+
+  // skipped transfer correction reads low by dTtrue
+  newScenario(42);
+  autoTo(3); S.s3.dT = 0; S.s3.skipped = true; S.done[3] = true;
+  const st4 = S.s4, fl = S.sc.flaw;
+  st4.yMax = (fl.y0+fl.y1)/2; st4.maxAmp = flawEcho(st4.yMax);
+  st4.sFlaw = holePath(fl.z); st4.rel = f2db(st4.maxAmp / dacRec(st4.sFlaw));
+  near('skip-transfer bias', st4.rel, fl.dBt - S.sc.dTtrue, 0.8);
+
+  // render every step without exceptions
+  try {
+    newScenario(7);
+    for (let i = 1; i <= 5; i++){ autoTo(i); render(); if (!$('#stage').childNodes.length) fails.push('stage empty @' + i); }
+  } catch (err){ fails.push('render: ' + err.message); }
+
+  document.title = fails.length ? 'SELFTEST FAIL: ' + fails.join(' | ') : 'SELFTEST PASS';
+}
+
+/* ═══════════ boot ═══════════ */
+const qs = new URLSearchParams(location.search);
+newScenario(qs.has('seed') ? Number(qs.get('seed')) >>> 0 : (Math.random()*1e9) >>> 0);
+if (qs.has('demo')){ autoTo(clamp(Number(qs.get('demo')) || 1, 1, 5)); }
+render();
+if (qs.has('selftest')) selfTest();
+</script>
+</body>
+</html>
