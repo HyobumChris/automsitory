@@ -986,22 +986,35 @@ function renderStep3(stage){
 function renderStep4(stage){
   const st = S.s4, f = S.sc.flaw;
   stageHead(stage, 'Step 4 · Scan the weld, size the flaw (6 dB drop)',
-    'Find the flaw inside the weld — the faint bar is it, in projection. <b>Mark the max</b>, then walk the beam out until the echo halves — that is the beam\'s <b>−6 dB edge</b> leaving the flaw — and mark both ends.');
+    'The seam is a <b>single-V butt weld</b> — the transverse section under the block shows the V groove with the flaw sitting in the weld metal. Find it (the faint bar in the projection), <b>mark the max</b>, then walk the beam out until the echo halves — that is the beam\'s <b>−6 dB edge</b> leaving the flaw — and mark both ends.');
 
   const pct = flawEcho(st.y);
 
   const duo = el('div', 'duo'); stage.append(duo);
   const left = el('div', 'svg-wrap'); duo.append(left);
-  const W = 460, H = 250;
-  const svg = sv('svg', { viewBox: `0 0 ${W} ${H}` }); left.append(svg);
+  const W = 460;
   const sc = (W - 60) / SEAM, x0 = 30;                                        // same y↔px mapping as before
   const x1 = x0 + SEAM*sc, ySurf = 62, hF = clamp(Math.round(S.t * 1.6), 90, 130);
   const yBot = ySurf + hF, zPx = z => ySurf + z / S.t * hF;                   // front face = seam length × thickness t, to scale
   const px = x0 + st.y * sc, yFlaw = zPx(f.z);
+  const tPx = clamp(Math.round(S.t * 0.9), 34, 52), secSc = tPx / S.t;        // transverse section below, own mm scale
+  const ySrf2 = yBot + 48, yBot2 = ySrf2 + tPx, H = yBot2 + 27;
+  const svg = sv('svg', { viewBox: `0 0 ${W} ${H}` }); left.append(svg);
 
   // oblique slab: scanning surface on top, right end face, front face = the section the flaw projects onto
   const tf4 = topFace(svg, x0, x1, ySurf);
   endFace(svg, x1, ySurf, yBot);
+  { // the weld crossing the end face edge-on: the single-V's fusion lines converging cap → root
+    const eP = (u, d) => `${fmt(x1 + OX*u, 1)},${fmt(ySurf - OY*u + d, 1)}`;
+    sv('polygon', { points: `${eP(.60,0)} ${eP(.94,0)} ${eP(.80,hF)} ${eP(.74,hF)}`,
+        fill: 'rgba(214,168,92,.28)', stroke: 'rgba(20,25,31,.5)', 'stroke-width': .9 }, svg);
+    for (const q of [.34, .67])                                               // pass lines inside the section
+      sv('line', { x1: fmt(x1 + OX*(.60+.14*q), 1), y1: fmt(ySurf - OY*(.60+.14*q) + hF*q, 1),
+          x2: fmt(x1 + OX*(.94-.14*q), 1), y2: fmt(ySurf - OY*(.94-.14*q) + hF*q, 1),
+          stroke: 'rgba(0,0,0,.3)', 'stroke-width': .8 }, svg);
+    sv('ellipse', { cx: fmt(x1 + OX*.77, 1), cy: fmt(yBot - OY*.77 + 1.6, 1), rx: 4.2, ry: 2,
+        fill: 'url(#beadG)', stroke: '#3a414a', 'stroke-width': .8 }, svg);   // root bead poking below
+  }
   steelShape(svg, 'rect', { x: x0, y: ySurf, width: SEAM*sc, height: hF }, { sweep: 2 });
   steelEdges(svg, x0, ySurf, SEAM*sc, hF);
 
@@ -1080,6 +1093,8 @@ function renderStep4(stage){
     sv('line', { x1: px-hw, y1: yFlaw+8, x2: px+hw, y2: yFlaw+8, stroke: 'var(--cyan)', 'stroke-width': 1, opacity: .55 }, svg);
     for (const xe of [px-hw, px+hw])
       sv('line', { x1: xe, y1: yFlaw+5.5, x2: xe, y2: yFlaw+10.5, stroke: 'var(--cyan)', 'stroke-width': 1, opacity: .55 }, svg);
+    sv('line', { x1: px, y1: yFlaw+12, x2: px, y2: yBot-1.5, stroke: 'var(--ink-3)', 'stroke-width': .8,
+        'stroke-dasharray': '5 3', opacity: .4 }, svg);                       // cutting-plane trace → section below
   }
 
   // marks: crayon ticks on the front-top edge at their seam positions
@@ -1119,8 +1134,78 @@ function renderStep4(stage){
   dragX(hit4, svg, W, () => S.s4.y, xv => (xv - x0) / sc,
     v => { S.s4.y = clamp(Math.round(v * 2) / 2, -10, 310); });               // keeps the probe glyph inside the viewBox at both ends
 
-  sv('text', { x: x0 + SEAM*sc/2, y: yBot + 24, fill: 'var(--ink-2)', 'font-size': 10, 'text-anchor': 'middle',
-      text: `butt weld, side view — cap above / root below · beam drawn at its −6 dB width (t = ${S.t} mm)` }, svg);
+  sv('text', { x: x0 + SEAM*sc/2, y: yBot + 24, fill: 'var(--ink-2)', 'font-size': 9.5, 'text-anchor': 'middle',
+      text: 'single-V butt weld — projection along the seam · beam drawn at its −6 dB width' }, svg);
+
+  /* ── transverse section at the probe line: the single-V groove itself. The projection
+     above runs ALONG the seam, so the V can only be seen here — drawn to scale in t,
+     with the 60° shot and the flaw lying inside the weld metal at its true depth. */
+  const xP0 = 40, xP1 = 420, xC = 268;
+  const mHalf = (S.t * Math.tan(25 * Math.PI/180) + 1.6) * secSc;             // half V-mouth: 25° bevels + half root gap
+  const rHalf = Math.max(1.5, 1.7 * secSc);
+  const yF2 = ySrf2 + f.z * secSc;
+  steelShape(svg, 'rect', { x: xP0, y: ySrf2, width: xP1-xP0, height: tPx }, { sweep: 3 });
+  steelEdges(svg, xP0, ySrf2, xP1-xP0, tPx);
+  const quad = (a,b,c2,d2) => `${fmt(a[0],1)},${fmt(a[1],1)} ${fmt(b[0],1)},${fmt(b[1],1)} ${fmt(c2[0],1)},${fmt(c2[1],1)} ${fmt(d2[0],1)},${fmt(d2[1],1)}`;
+  for (const sgn of [-1, 1])                                                  // HAZ tint hugging both fusion lines
+    sv('polygon', { points: quad([xC+sgn*mHalf, ySrf2], [xC+sgn*(mHalf+5), ySrf2],
+        [xC+sgn*(rHalf+5), yBot2], [xC+sgn*rHalf, yBot2]), fill: 'rgba(217,160,60,.14)' }, svg);
+  sv('polygon', { points: quad([xC-mHalf, ySrf2], [xC+mHalf, ySrf2], [xC+rHalf, yBot2], [xC-rHalf, yBot2]),
+      fill: '#b5ac9d', opacity: .93 }, svg);                                  // weld metal filling the V
+  for (const q of [.24, .5, .76]){                                            // pass lines sagging across the fill
+    const wq = mHalf + (rHalf - mHalf) * q, yq = ySrf2 + tPx * q;
+    sv('path', { d: `M ${fmt(xC-wq,1)} ${fmt(yq,1)} Q ${xC} ${fmt(yq+3,1)} ${fmt(xC+wq,1)} ${fmt(yq,1)}`,
+        fill: 'none', stroke: 'rgba(0,0,0,.16)', 'stroke-width': .9 }, svg);
+  }
+  for (const sgn of [-1, 1])                                                  // the fusion lines — the V itself
+    sv('line', { x1: fmt(xC+sgn*mHalf,1), y1: ySrf2, x2: fmt(xC+sgn*rHalf,1), y2: yBot2,
+        stroke: '#3a414a', 'stroke-width': 1.1 }, svg);
+  sv('path', { d: `M ${fmt(xC-mHalf-4,1)} ${ySrf2} Q ${xC} ${fmt(ySrf2-7,1)} ${fmt(xC+mHalf+4,1)} ${ySrf2} Z`,
+      fill: 'url(#beadG)', stroke: '#3a414a', 'stroke-width': .9 }, svg);     // cap reinforcement over the mouth
+  sv('path', { d: `M ${fmt(xC-mHalf-1,1)} ${fmt(ySrf2-1.4,1)} Q ${xC} ${fmt(ySrf2-5.2,1)} ${fmt(xC+mHalf+1,1)} ${fmt(ySrf2-1.4,1)}`,
+      fill: 'none', stroke: 'rgba(255,255,255,.35)', 'stroke-width': .9 }, svg);
+  sv('path', { d: `M ${fmt(xC-rHalf-3,1)} ${yBot2} Q ${xC} ${fmt(yBot2+4.6,1)} ${fmt(xC+rHalf+3,1)} ${yBot2} Z`,
+      fill: 'url(#beadG)', stroke: '#3a414a', 'stroke-width': .9, opacity: .95 }, svg);   // root bead
+
+  const xIdx = xC - f.z * TAN * secSc;                                        // 60° half-skip: index offset = z·tan60
+  const bdx = xC - xIdx, bdy = yF2 - ySrf2, bL = Math.hypot(bdx, bdy);
+  const nx = -bdy/bL, ny = bdx/bL, hw2 = 8 * secSc;                           // across-beam unit + −6 dB half-width
+  sv('polygon', { points: quad([xIdx+2*nx, ySrf2+2*ny], [xIdx-2*nx, ySrf2-2*ny],
+      [xC-hw2*nx, yF2-hw2*ny], [xC+hw2*nx, yF2+hw2*ny]), fill: 'var(--cyan)', opacity: .14 }, svg);
+  sv('polygon', { points: quad([xIdx+1.2*nx, ySrf2+1.2*ny], [xIdx-1.2*nx, ySrf2-1.2*ny],
+      [xC-hw2*.55*nx, yF2-hw2*.55*ny], [xC+hw2*.55*nx, yF2+hw2*.55*ny]), fill: 'var(--cyan)', opacity: .16 }, svg);
+  sv('line', { x1: fmt(xIdx,1), y1: ySrf2, x2: xC, y2: fmt(yF2,1), stroke: 'var(--cyan)', 'stroke-width': 1.1,
+      'stroke-dasharray': '4 3', opacity: .7 }, svg);
+  const halo2 = a => sv('text', { ...a, fill: 'none', stroke: 'rgba(246,250,253,.85)',
+      'stroke-width': 2.4, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, svg);
+  const a60 = { x: fmt(xIdx - 4, 1), y: ySrf2 + 11, 'font-size': 7.5, class: 'mono',
+      'text-anchor': 'end', text: '60°' };
+  halo2(a60);
+  sv('text', { ...a60, fill: 'var(--cyan)' }, svg);
+
+  const pFront = Math.min(xIdx + 8, xC - mHalf - 2);                          // shoe never rides onto the cap
+  sv('rect', { x: fmt(pFront-28,1), y: ySrf2-11.5, width: 28, height: 11.5, rx: 2,
+      fill: '#2a2f36', stroke: '#14181d', 'stroke-width': .8 }, svg);
+  sv('rect', { x: fmt(pFront-28,1), y: ySrf2-11.5, width: 28, height: 3.2, rx: 2, fill: 'rgba(255,255,255,.13)' }, svg);
+  sv('rect', { x: fmt(pFront-32.5,1), y: ySrf2-9.6, width: 5, height: 3.6, rx: 1.6, fill: '#3a414a' }, svg);
+  const xTick = Math.min(xIdx, pFront - 1);                                   // beam-exit (index) mark on the case
+  sv('line', { x1: fmt(xTick,1), y1: ySrf2-11.5, x2: fmt(xTick,1), y2: ySrf2-7.8, stroke: 'var(--amber)', 'stroke-width': 1.2 }, svg);
+
+  const secOp = Math.max(S.done[4] ? .45 : .18, .18 + .77 * inten);           // the flaw, inside the V
+  if (Math.max(S.done[4] ? .2 : 0, inten) > .04)
+    sv('ellipse', { cx: xC, cy: fmt(yF2,1), rx: 4.6, ry: 2.4, fill: 'var(--amber)',
+        filter: 'url(#flawGlow)', opacity: fmt(Math.max(S.done[4] ? .22 : 0, .6*inten), 2) }, svg);
+  sv('ellipse', { cx: xC, cy: fmt(yF2,1), rx: 3.6, ry: 1.9, fill: 'var(--amber)', opacity: fmt(secOp, 2) }, svg);
+  if (inten > .05)
+    sv('ellipse', { cx: xC, cy: fmt(yF2,1), rx: 1.7, ry: .9, fill: '#ffe9b8', opacity: fmt(.8*inten, 2) }, svg);
+  sv('line', { x1: xC+5, y1: fmt(yF2,1), x2: fmt(xC+mHalf+5,1), y2: fmt(yF2,1),
+      stroke: 'var(--amber)', 'stroke-width': .7, opacity: .45 }, svg);
+  const aFl = { x: fmt(xC+mHalf+8,1), y: fmt(yF2+2.5,1), 'font-size': 7.5, 'font-weight': 600, text: 'flaw' };
+  halo2(aFl);
+  sv('text', { ...aFl, fill: 'var(--amber)', opacity: fmt(Math.max(.7, inten), 2) }, svg);
+  sv('text', { x: fmt(xC+mHalf+8,1), y: ySrf2-6, fill: 'var(--ink-2)', 'font-size': 7.5, text: 'single-V groove' }, svg);
+  sv('text', { x: (xP0+xP1)/2, y: yBot2+18, fill: 'var(--ink-2)', 'font-size': 9.5, 'text-anchor': 'middle',
+      text: `transverse section at the probe — single-V weld, t = ${S.t} mm · flaw in the weld metal` }, svg);
 
   const doMarkMax = () => {
     if (S.inst.freeze) return flash('FROZEN');
