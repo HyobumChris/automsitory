@@ -80,6 +80,11 @@ table.debrief td.b{color:var(--bad);font-weight:700;white-space:nowrap}
 /* Portable flaw detector — the whole instrument is drawn in SVG; the wrapper only sizes it */
 .usm{filter:drop-shadow(0 6px 16px rgba(0,0,0,.45))}
 .usm svg{display:block;width:100%;height:auto}
+.usm g.ikey{cursor:pointer;outline:none}
+.usm g.ikey:hover{filter:brightness(1.28)}
+.usm g.ikey.pressed,.usm g.ikey:active{transform:translateY(1px);filter:brightness(.72)}
+.usm g.ikey.dim{opacity:.45}
+.usm g.ikey:focus-visible{outline:2px solid var(--cyan)}
 
 footer{margin-top:16px;font-size:11px;color:var(--ink-3);line-height:1.6}
 svg text{font-family:var(--sans)}
@@ -136,9 +141,24 @@ function el(tag, cls, text){
     const g = sv('linearGradient', { id, x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
     for (const [o, c] of stops) sv('stop', { offset: o, 'stop-color': c }, g);
   };
-  lin('steelV', [[0,'#c6cdd5'], [.55,'#99a2ac'], [1,'#646c76']]);   // machined steel, horizontal faces
-  lin('steelD', [[0,'#a8afb8'], [.55,'#7e8791'], [1,'#4d545e']]);   // darker variant, side faces / as-rolled plate
-  lin('steelP', [[0,'#b9c1c9'], [1,'#7b838c']]);                    // stainless probe housing
+  // multi-stop reflection banding — a metal face mirrors bands of environment, not a smooth ramp
+  lin('steelV', [[0,'#eef2f6'], [.14,'#b9c2cb'], [.30,'#dfe5ea'], [.46,'#8a939d'],
+                 [.60,'#c4ccd4'], [.78,'#6a727c'], [.90,'#a6aeb7'], [1,'#7e868f']]);   // machined steel
+  lin('steelD', [[0,'#c9d0d8'], [.14,'#939ca6'], [.30,'#b6bdc5'], [.46,'#666f79'],
+                 [.60,'#9aa2ab'], [.78,'#49515b'], [.90,'#7e868f'], [1,'#565e68']]);   // darker: side faces / as-rolled plate
+  lin('steelP', [[0,'#dbe1e7'], [.18,'#9aa2ab'], [.38,'#c6cdd4'], [.58,'#7b838c'],
+                 [.76,'#aab1b9'], [1,'#6a727b']]);                                     // stainless probe housing
+  // clipped diagonal specular sweep (+ faint opposite dark band); four variants so faces differ
+  const sweepGrad = (id, c) => {
+    const g = sv('linearGradient', { id, x1: 0, y1: 0, x2: 1, y2: 0, gradientTransform: 'rotate(-20 .5 .5)' }, defs);
+    const dk = c < .5 ? Math.min(.92, c + .36) : Math.max(.08, c - .36);
+    const stops = [
+      [c - .09, 'rgba(255,255,255,0)'], [c, 'rgba(255,255,255,.38)'], [c + .09, 'rgba(255,255,255,0)'],
+      [dk - .10, 'rgba(11,15,20,0)'],   [dk, 'rgba(11,15,20,.15)'],   [dk + .10, 'rgba(11,15,20,0)']
+    ].map(([o, cc]) => [Math.min(1, Math.max(0, o)), cc]).sort((a, b) => a[0] - b[0]);
+    for (const [o, cc] of stops) sv('stop', { offset: o, 'stop-color': cc }, g);
+  };
+  sweepGrad('sweep0', .22); sweepGrad('sweep1', .48); sweepGrad('sweep2', .68); sweepGrad('sweep3', .84);
   lin('beadG',  [[0,'#d4dbe2'], [.5,'#a2abb5'], [1,'#6e7680']]);    // weld-cap metal
   lin('bodyG',  [[0,'#4b535b'], [1,'#23282d']]);                    // instrument housing
   lin('keyG',   [[0,'#363d44'], [1,'#191d21']]);                    // instrument keys
@@ -150,8 +170,8 @@ function el(tag, cls, text){
   sv('stop', { offset: 0, 'stop-color': '#0a2113' }, crt);
   sv('stop', { offset: 1, 'stop-color': '#030d07' }, crt);
   const pat = sv('pattern', { id: 'brush', width: 6, height: 3, patternUnits: 'userSpaceOnUse' }, defs);
-  sv('rect', { x: 0, y: 0,   width: 6, height: 1, fill: 'rgba(255,255,255,.05)' }, pat);
-  sv('rect', { x: 0, y: 1.5, width: 6, height: 1, fill: 'rgba(0,0,0,.06)' }, pat);
+  sv('rect', { x: 0, y: 0,   width: 6, height: 1, fill: 'rgba(255,255,255,.09)' }, pat);
+  sv('rect', { x: 0, y: 1.5, width: 6, height: 1, fill: 'rgba(0,0,0,.11)' }, pat);
   const sh = sv('filter', { id: 'shadow', x: '-12%', y: '-12%', width: '124%', height: '136%' }, defs);
   sv('feDropShadow', { dx: 0, dy: 3, stdDeviation: 4, 'flood-color': 'rgba(0,0,0,.55)' }, sh);
   document.body.appendChild(root);
@@ -161,16 +181,18 @@ function el(tag, cls, text){
 function steelShape(svg, tag, attrs, opts = {}){
   sv(tag, { ...attrs, fill: opts.dark ? 'url(#steelD)' : 'url(#steelV)', stroke: '#232930',
       'stroke-width': 1.5, 'stroke-linejoin': 'round', filter: 'url(#shadow)' }, svg);
+  sv(tag, { ...attrs, fill: `url(#sweep${opts.sweep ?? 0})` }, svg);   // clipped specular sweep, over the fill, under the brush
   sv(tag, { ...attrs, fill: 'url(#brush)' }, svg);
 }
 function steelEdges(svg, x, y, w, h){
-  sv('line', { x1: x+1, y1: y+0.8, x2: x+w-1, y2: y+0.8, stroke: '#e8edf2', 'stroke-width': 1, opacity: .55 }, svg);
-  sv('line', { x1: x+1, y1: y+h-1, x2: x+w-1, y2: y+h-1, stroke: '#171c22', 'stroke-width': 1.5, opacity: .6 }, svg);
+  sv('rect', { x: x+1, y: y+h-6, width: w-2, height: 5, fill: 'url(#steelD)', opacity: .85 }, svg);   // lower side-face band → solid slab
+  sv('line', { x1: x+1, y1: y+1, x2: x+w-1, y2: y+1, stroke: '#f2f6fa', 'stroke-width': 1.5, opacity: .7 }, svg);
+  sv('line', { x1: x+1, y1: y+h-0.8, x2: x+w-1, y2: y+h-0.8, stroke: '#1c2126', 'stroke-width': 1.5 }, svg);
 }
 /* stamped/engraved text on a steel face: pale halo (metal raised around the cut),
    light catch-edge below, dark cut on top — stays legible on light and dark steel alike */
 function engraved(svg, attrs){
-  sv('text', { ...attrs, fill: 'none', stroke: 'rgba(223,231,239,.5)', 'stroke-width': 2.6,
+  sv('text', { ...attrs, fill: 'none', stroke: 'rgba(226,233,240,.6)', 'stroke-width': 2.8,
       'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, svg);
   sv('text', { ...attrs, y: attrs.y + 1, fill: 'rgba(255,255,255,.38)' }, svg);
   sv('text', { fill: '#2e353f', ...attrs }, svg);
@@ -222,8 +244,17 @@ const S = {
   seed: 0, rng: null, t: 65, step: 1,
   done: { 1:false, 2:false, 3:false, 4:false, 5:false },
   sc: null,                                  // hidden scenario
-  s1: null, s2: null, s3: null, s4: null, ev: null
+  s1: null, s2: null, s3: null, s4: null, ev: null,
+  inst: { power: true, freeze: null, range: null, flash: '' }   // flaw-detector front panel state
 };
+
+let flashTimer = null;
+function flash(msg){
+  S.inst.flash = msg;
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => { S.inst.flash = ''; render(); }, 900);
+  render();
+}
 
 function newScenario(seed){
   S.seed = seed >>> 0;
@@ -243,6 +274,7 @@ function newScenario(seed){
   S.s3 = { add: 0, cal: false, test: false, dT: null, skipped: false };
   S.s4 = { y: 30, maxAmp: null, sFlaw: null, rel: null, yA: null, yB: null };
   S.ev = null;
+  S.inst = { power: S.inst ? S.inst.power : true, freeze: null, range: null, flash: '' };
   $('#seedLabel').textContent = 'seed ' + S.seed;
 }
 
@@ -314,8 +346,8 @@ function stepFoot(stage, hint, canContinue, autoFn){
 }
 
 /* Rugged portable flaw detector seen head-on — housing, bumpers, recessed CRT bezel,
-   key panel, speaker grille. All decorative; the live screen group renders on top. */
-function drawInstrumentChrome(dev){
+   key panel, speaker grille. Keys are live controls wired through `kact`; the screen group renders on top. */
+function drawInstrumentChrome(dev, kact = {}, powered = true, primaryDim = false){
   const g = sv('g', { 'aria-hidden': 'true' }, dev);
   // housing + inset panel line + top bevel light
   sv('rect', { x: 2, y: 2, width: 556, height: 326, rx: 14, fill: 'url(#bodyG)', stroke: '#0a0d10', 'stroke-width': 1 }, g);
@@ -329,11 +361,11 @@ function drawInstrumentChrome(dev){
     sv('line', { x1: cx-2.4, y1: cy, x2: cx+2.4, y2: cy, stroke: '#0e1216', 'stroke-width': 1.1 }, g);
     sv('line', { x1: cx, y1: cy-2.4, x2: cx, y2: cy+2.4, stroke: '#0e1216', 'stroke-width': 1.1 }, g);
   }
-  // top strip: power LED with glow + etched labels
-  sv('circle', { cx: 40, cy: 21, r: 6, fill: 'rgba(87,227,137,.16)' }, g);
-  sv('circle', { cx: 40, cy: 21, r: 3.6, fill: 'rgba(87,227,137,.35)' }, g);
-  sv('circle', { cx: 40, cy: 21, r: 2.4, fill: '#57e389' }, g);
-  sv('circle', { cx: 39.2, cy: 20.2, r: .8, fill: 'rgba(255,255,255,.8)' }, g);
+  // top strip: power LED with glow (dark when powered off) + etched labels
+  sv('circle', { cx: 40, cy: 21, r: 6, fill: powered ? 'rgba(87,227,137,.16)' : 'rgba(87,227,137,.03)' }, g);
+  sv('circle', { cx: 40, cy: 21, r: 3.6, fill: powered ? 'rgba(87,227,137,.35)' : '#17251b' }, g);
+  sv('circle', { cx: 40, cy: 21, r: 2.4, fill: powered ? '#57e389' : '#1d3326' }, g);
+  if (powered) sv('circle', { cx: 39.2, cy: 20.2, r: .8, fill: 'rgba(255,255,255,.8)' }, g);
   sv('text', { x: 54, y: 24, fill: '#a7b0b8', 'font-size': 9, 'font-weight': 700, 'letter-spacing': '.16em', text: 'DIGITAL FLAW DETECTOR' }, g);
   sv('text', { x: 524, y: 24, fill: '#7d858d', 'font-size': 8, 'text-anchor': 'end', class: 'mono', text: 'A-60 · 4 MHz' }, g);
   // recessed screen bezel: dark frame, glass, inner-shadow strokes (dark top/left, light bottom/right)
@@ -341,25 +373,52 @@ function drawInstrumentChrome(dev){
   sv('rect', { x: 25, y: 44, width: 410, height: 254, fill: 'url(#crtGlow)', stroke: '#061008' }, g);
   sv('path', { d: 'M 26.5 296.5 L 26.5 45.5 L 433.5 45.5', fill: 'none', stroke: 'rgba(0,0,0,.55)', 'stroke-width': 2.5 }, g);
   sv('path', { d: 'M 26.5 296.5 L 433.5 296.5 L 433.5 45.5', fill: 'none', stroke: 'rgba(255,255,255,.07)', 'stroke-width': 1.5 }, g);
-  // right key panel: two columns of keys, dB rocker, red-ringed power key, speaker grille
-  const key = (x, y, glyph) => {
-    sv('rect', { x, y, width: 34, height: 24, rx: 5, fill: 'url(#keyG)', stroke: '#0a0d10' }, g);
-    sv('line', { x1: x+3, y1: y+1.4, x2: x+31, y2: y+1.4, stroke: 'rgba(255,255,255,.18)' }, g);
-    sv('text', { x: x+17, y: y+16.5, fill: '#9aa4ad', 'font-size': 10, 'text-anchor': 'middle', text: glyph }, g);
-  };
-  ['☰','◉','⊓','∿','⇤','↵'].forEach((k, i) => key(452 + (i%2)*40, 44 + Math.floor(i/2)*34, k));
   sv('text', { x: 489, y: 146, fill: '#8b959d', 'font-size': 8, 'text-anchor': 'middle', 'font-weight': 700, text: 'dB' }, g);
-  const half = (y, glyph) => {
-    sv('rect', { x: 452, y, width: 74, height: 30, rx: 7, fill: 'url(#keyG)', stroke: '#0a0d10' }, g);
-    sv('line', { x1: 456, y1: y+1.4, x2: 522, y2: y+1.4, stroke: 'rgba(255,255,255,.16)' }, g);
-    sv('text', { x: 489, y: y+20, fill: '#9aa4ad', 'font-size': 11, 'text-anchor': 'middle', text: glyph }, g);
-  };
-  half(152, '▲'); half(184, '▼');
   sv('line', { x1: 452, y1: 183, x2: 526, y2: 183, stroke: '#05070a', 'stroke-width': 2 }, g);
-  sv('circle', { cx: 489, cy: 243, r: 12.5, fill: 'url(#keyG)', stroke: '#b8443c', 'stroke-width': 2 }, g);
-  sv('text', { x: 489, y: 247.5, fill: '#d76c60', 'font-size': 11, 'text-anchor': 'middle', text: '⏻' }, g);
   for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++)
     sv('circle', { cx: 471 + c*9, cy: 266 + r*9, r: 1.5, fill: '#0d1114' }, g);
+
+  // right key panel: two columns of live keys, split dB rocker, red-ringed power key
+  const kg = sv('g', {}, dev);
+  const mkKey = (draw, label, lx, ly, aria, fn, dim) => {
+    const k = sv('g', { tabindex: 0, role: 'button', 'aria-label': aria, class: 'ikey' + (dim ? ' dim' : '') }, kg);
+    draw(k);
+    if (label) sv('text', { x: lx, y: ly, fill: '#6d7780', 'font-size': 5.5, 'text-anchor': 'middle', 'letter-spacing': '.08em', text: label }, k);
+    const fire = e => { e.preventDefault(); if (fn) fn(); };
+    k.addEventListener('click', fire);
+    k.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') fire(e); });
+    k.addEventListener('pointerdown', () => k.classList.add('pressed'));
+    const rel = () => k.classList.remove('pressed');
+    k.addEventListener('pointerup', rel);
+    k.addEventListener('pointerleave', rel);
+  };
+  const keyRect = (x, y, glyph) => k => {
+    sv('rect', { x, y, width: 34, height: 24, rx: 5, fill: 'url(#keyG)', stroke: '#0a0d10' }, k);
+    sv('line', { x1: x+3, y1: y+1.4, x2: x+31, y2: y+1.4, stroke: 'rgba(255,255,255,.18)' }, k);
+    sv('text', { x: x+17, y: y+16.5, fill: '#9aa4ad', 'font-size': 10, 'text-anchor': 'middle', text: glyph }, k);
+  };
+  [ ['☰', 'MENU', 'Range (MENU)',            kact.menu,   false],
+    ['◉', 'FRZ',  'Freeze display',          kact.freeze, false],
+    ['▲', 'JOG▲', 'Jog probe forward',       kact.jogUp,  false],
+    ['▼', 'JOG▼', 'Jog probe back',          kact.jogDn,  false],
+    ['⏻', 'PWR',  'Power',                   kact.power,  false],
+    ['↵', 'ENT',  'Enter — primary action',  kact.enter,  primaryDim]
+  ].forEach((d, i) => {
+    const x = 452 + (i%2)*40, y = 44 + Math.floor(i/2)*34;
+    mkKey(keyRect(x, y, d[0]), d[1], x+17, y+30.5, d[2], d[3], d[4]);
+  });
+  const halfDraw = (y, glyph, sign) => k => {
+    sv('rect', { x: 452, y, width: 74, height: 30, rx: 7, fill: 'url(#keyG)', stroke: '#0a0d10' }, k);
+    sv('line', { x1: 456, y1: y+1.4, x2: 522, y2: y+1.4, stroke: 'rgba(255,255,255,.16)' }, k);
+    sv('text', { x: 489, y: y+20, fill: '#9aa4ad', 'font-size': 11, 'text-anchor': 'middle', text: glyph }, k);
+    sv('text', { x: 515, y: y+20, fill: '#6d7780', 'font-size': 7, 'text-anchor': 'middle', text: 'dB' + sign }, k);
+  };
+  mkKey(halfDraw(152, '▲', '+'), '', 0, 0, 'Gain +0.5 dB', kact.gainUp, false);
+  mkKey(halfDraw(184, '▼', '−'), '', 0, 0, 'Gain −0.5 dB', kact.gainDn, false);
+  mkKey(k => {
+    sv('circle', { cx: 489, cy: 243, r: 12.5, fill: 'url(#keyG)', stroke: '#b8443c', 'stroke-width': 2 }, k);
+    sv('text', { x: 489, y: 247.5, fill: '#d76c60', 'font-size': 11, 'text-anchor': 'middle', text: '⏻' }, k);
+  }, 'PWR', 489, 261, 'Power', kact.power, false);
 }
 
 /* Calibrated A-scan inside the SVG-drawn portable flaw detector (no branding).
@@ -368,11 +427,39 @@ function drawInstrumentChrome(dev){
 function ascan(parent, echoes, opts = {}){
   const shell = el('div', 'usm');
   const W = 380, H = 240, padL = 34, padR = 10, padB = 26, padT = 32;
-  const range = opts.range || 200;
+  const autoRange = opts.range || 200;
+  const range = S.inst.range ?? autoRange;               // MENU override wins over the step's own range
+  const fz = S.inst.freeze;
+  const E = fz ? fz.echoes : echoes;                     // frozen snapshot vs live echoes
+  const eff = fz ? fz : opts;                            // halfOf/refLine/maxSeen/status/caption source
+  const keys = opts.keys || {};
+  const kact = {
+    menu(){ const cyc = [null, 100, 200, 300, 500]; S.inst.range = cyc[(cyc.indexOf(S.inst.range) + 1) % cyc.length]; render(); },
+    freeze(){
+      if (S.inst.freeze) S.inst.freeze = null;
+      else S.inst.freeze = { echoes: echoes.map(e => ({ ...e })), halfOf: opts.halfOf, refLine: opts.refLine,
+                             maxSeen: opts.maxSeen, status: opts.status, caption: opts.caption,
+                             // DAC state must freeze with the trace, or later recordings would mutate the frozen display
+                             dacPts: (opts.dacPts || []).map(p => ({ ...p })), dacFn: opts.dacFn, dacExtend: opts.dacExtend };
+      render();
+    },
+    gainUp(){ if (S.inst.freeze) return flash('FROZEN'); keys.onGain ? keys.onGain(0.5)  : flash('GAIN LOCKED'); },
+    gainDn(){ if (S.inst.freeze) return flash('FROZEN'); keys.onGain ? keys.onGain(-0.5) : flash('GAIN LOCKED'); },
+    jogUp(){ if (S.inst.freeze) return flash('FROZEN'); keys.onJog ? keys.onJog(0.5)  : flash('NO PROBE'); },
+    jogDn(){ if (S.inst.freeze) return flash('FROZEN'); keys.onJog ? keys.onJog(-0.5) : flash('NO PROBE'); },
+    enter(){ if (S.inst.freeze) return flash('FROZEN'); if (keys.onPrimary) keys.onPrimary(); },
+    power(){ S.inst.power = !S.inst.power; render(); }
+  };
   const dev = sv('svg', { viewBox: '0 0 560 330', role: 'img', 'aria-label': 'Portable flaw detector — A-scan display' });
   shell.append(dev);
   parent.append(shell);
-  drawInstrumentChrome(dev);
+  drawInstrumentChrome(dev, kact, S.inst.power, keys.primaryHint === false);
+  if (!S.inst.power){
+    // screen dark: near-black glass with a faint room reflection; keys stay live
+    sv('rect', { x: 25, y: 44, width: 410, height: 254, fill: '#03060a', stroke: '#061008' }, dev);
+    sv('path', { d: 'M 25 44 L 150 44 L 55 298 L 25 298 Z', fill: 'rgba(233,240,250,.05)', 'aria-hidden': 'true' }, dev);
+    return null;
+  }
   // the entire screen drawing lives in this group, mapped onto the glass (30,48 → 430,296)
   const svg = sv('g', { transform: 'translate(30,48) scale(1.052,1.033)' }, dev);
 
@@ -395,41 +482,45 @@ function ascan(parent, echoes, opts = {}){
   sv('line', { x1: padL, y1: padT, x2: padL, y2: y(0), stroke: '#1c4a30' }, svg);
 
   // status + measurement rows
-  sv('text', { x: padL, y: 11, fill: '#7ee2a8', 'font-size': 8.5, class: 'mono', text: opts.status || '' }, svg);
-  const e0 = echoes[0];
-  const dacQ = (opts.dacPts || []).slice().sort((a,b) => a.s - b.s);
+  const rangeLbl = S.inst.range != null ? `RANGE ${range}mm` : `RANGE AUTO(${autoRange})`;
+  const statusTxt = [eff.status, rangeLbl, fz ? 'FROZEN' : ''].filter(Boolean).join(' · ');
+  sv('text', { x: padL, y: 11, fill: '#7ee2a8', 'font-size': 8.5, class: 'mono', text: statusTxt }, svg);
+  if (S.inst.flash)
+    sv('text', { x: W-padR, y: 11, fill: 'var(--amber)', 'font-size': 8.5, 'font-weight': 700, 'text-anchor': 'end', class: 'mono', text: S.inst.flash }, svg);
+  const e0 = E[0];
+  const dacQ = (eff.dacPts || []).slice().sort((a,b) => a.s - b.s);
   const dacComplete = dacQ.length >= 3;
   let meas = e0 && e0.h > 4 ? `S ${fmt(e0.s,1)}mm   H ${Math.round(e0.h)}%` : 'S ---.-mm   H --%';
-  if (opts.dacFn && dacComplete && e0 && e0.h > 4)
-    meas += `   DAC ${(v => (v>=0?'+':'') + fmt(v))(f2db(e0.h / opts.dacFn(e0.s)))}dB`;
+  if (eff.dacFn && dacComplete && e0 && e0.h > 4)
+    meas += `   DAC ${(v => (v>=0?'+':'') + fmt(v))(f2db(e0.h / eff.dacFn(e0.s)))}dB`;
   sv('text', { x: padL, y: 23, fill: '#c6f5d8', 'font-size': 9.5, 'font-weight': 700, class: 'mono', text: meas }, svg);
 
-  if (opts.refLine){
+  if (eff.refLine){
     sv('line', { x1: padL, y1: y(80), x2: W-padR, y2: y(80), stroke: 'var(--amber)', 'stroke-width': 1.1, 'stroke-dasharray': '5 4', opacity: .8 }, svg);
     sv('text', { x: W-padR-2, y: y(80)-4, fill: 'var(--amber)', 'font-size': 8, 'text-anchor': 'end', text: '80% REF' }, svg);
   }
-  if (opts.halfOf != null){
-    sv('line', { x1: padL, y1: y(opts.halfOf/2), x2: W-padR, y2: y(opts.halfOf/2), stroke: 'var(--cyan)', 'stroke-width': 1.1, 'stroke-dasharray': '3 4' }, svg);
-    sv('text', { x: W-padR-2, y: y(opts.halfOf/2)-4, fill: 'var(--cyan)', 'font-size': 8, 'text-anchor': 'end', text: '−6dB ½MAX' }, svg);
+  if (eff.halfOf != null){
+    sv('line', { x1: padL, y1: y(eff.halfOf/2), x2: W-padR, y2: y(eff.halfOf/2), stroke: 'var(--cyan)', 'stroke-width': 1.1, 'stroke-dasharray': '3 4' }, svg);
+    sv('text', { x: W-padR-2, y: y(eff.halfOf/2)-4, fill: 'var(--cyan)', 'font-size': 8, 'text-anchor': 'end', text: '−6dB ½MAX' }, svg);
   }
-  if (opts.maxSeen > 3){
-    sv('line', { x1: padL, y1: y(opts.maxSeen), x2: W-padR, y2: y(opts.maxSeen), stroke: '#2b7a4c', 'stroke-width': 1, 'stroke-dasharray': '2 4' }, svg);
-    sv('text', { x: W-padR-2, y: y(opts.maxSeen)-4, fill: '#2b7a4c', 'font-size': 8, 'text-anchor': 'end', text: 'PEAK MEM' }, svg);
+  if (eff.maxSeen > 3){
+    sv('line', { x1: padL, y1: y(eff.maxSeen), x2: W-padR, y2: y(eff.maxSeen), stroke: '#2b7a4c', 'stroke-width': 1, 'stroke-dasharray': '2 4' }, svg);
+    sv('text', { x: W-padR-2, y: y(eff.maxSeen)-4, fill: '#2b7a4c', 'font-size': 8, 'text-anchor': 'end', text: 'PEAK MEM' }, svg);
   }
   // DAC built the way it is on a real set: recorded points first, then a line through them.
   // Solid only between recorded points; dashed extrapolation beyond the last point once complete.
-  if (dacQ.length && opts.dacFn){
+  if (dacQ.length && eff.dacFn){
     if (dacQ.length >= 2){
       const seg = [];
       for (let s = dacQ[0].s; s <= dacQ[dacQ.length-1].s; s += range/120)
-        seg.push(`${xS(s).toFixed(1)},${y(opts.dacFn(s)).toFixed(1)}`);
+        seg.push(`${xS(s).toFixed(1)},${y(eff.dacFn(s)).toFixed(1)}`);
       seg.push(`${xS(dacQ[dacQ.length-1].s).toFixed(1)},${y(dacQ[dacQ.length-1].pct).toFixed(1)}`);
       sv('polyline', { points: seg.join(' '), fill: 'none', stroke: 'var(--amber)', 'stroke-width': 1.4, opacity: .95 }, svg);
     }
-    if (dacComplete && opts.dacExtend){
+    if (dacComplete && eff.dacExtend){
       const ext = [];
       for (let s = dacQ[dacQ.length-1].s; s <= range; s += range/120)
-        ext.push(`${xS(s).toFixed(1)},${y(opts.dacFn(s)).toFixed(1)}`);
+        ext.push(`${xS(s).toFixed(1)},${y(eff.dacFn(s)).toFixed(1)}`);
       sv('polyline', { points: ext.join(' '), fill: 'none', stroke: 'var(--amber)', 'stroke-width': 1.2, opacity: .7, 'stroke-dasharray': '4 4' }, svg);
     }
     for (const p of dacQ){
@@ -444,7 +535,7 @@ function ascan(parent, echoes, opts = {}){
   for (let s = 0; s <= range; s += range/190){
     let h = 0.6 + 0.9 * gauss(((s*7919) % 13) - 6.5, 4);
     h += 107 * gauss(s, 1.7) + 16 * gauss(s - 5, 2.3);   // initial pulse + ring-down
-    for (const e of echoes) h += e.h * gauss(s - e.s, 2.1);
+    for (const e of E) h += e.h * gauss(s - e.s, 2.1);
     const pt = `${xS(s).toFixed(1)},${y(h).toFixed(1)}`;
     tp.push(pt); fillp.push(pt);
   }
@@ -457,7 +548,7 @@ function ascan(parent, echoes, opts = {}){
     sv('line', { x1: xS(e0.s), y1: y(e0.h)+6, x2: xS(e0.s), y2: y(0), stroke: '#2b7a4c', 'stroke-width': 1, 'stroke-dasharray': '2 3', opacity: .8 }, svg);
     sv('text', { x: xS(e0.s), y: y(e0.h)-6, fill: '#c6f5d8', 'font-size': 10.5, 'font-weight': 700, 'text-anchor': 'middle', class: 'mono', text: Math.round(e0.h) + '%' }, svg);
   }
-  sv('text', { x: padL, y: H-4, fill: '#3f7a58', 'font-size': 8, class: 'mono', text: opts.caption || '' }, svg);
+  sv('text', { x: padL, y: H-4, fill: '#3f7a58', 'font-size': 8, class: 'mono', text: eff.caption || '' }, svg);
   // faint glass glare over the whole tube face
   sv('path', { d: 'M 25 44 L 150 44 L 55 298 L 25 298 Z', fill: 'rgba(233,240,250,.028)', 'aria-hidden': 'true' }, dev);
   return svg;
@@ -498,6 +589,7 @@ function probeGlyph(svg, x, ySurf, dir = 1, label = ''){
   sv('rect', { x: hx, y: hy, width: 22, height: 15, rx: 2.5, fill: 'url(#steelP)', stroke: '#11161c', 'stroke-width': 1 }, svg);
   sv('line', { x1: hx + 2, y1: hy + 1.4, x2: hx + 20, y2: hy + 1.4, stroke: 'rgba(255,255,255,.6)', 'stroke-width': 1 }, svg);
   sv('line', { x1: hx + 2, y1: hy + 13.4, x2: hx + 20, y2: hy + 13.4, stroke: 'rgba(0,0,0,.28)', 'stroke-width': 1 }, svg);
+  sv('circle', { cx: hx + 5.5, cy: hy + 4.2, r: 1.5, fill: 'rgba(255,255,255,.7)' }, svg);   // specular dot on the stainless housing
   // black cable boot on the housing rear; cable up and back with a thin sheen
   const nx = back - 3*dir;
   sv('rect', { x: Math.min(nx, back) - 0.5, y: hy + 1.5, width: 4, height: 6, rx: 1.2, fill: '#14171b', stroke: '#04060a', 'stroke-width': .6 }, svg);
@@ -525,9 +617,10 @@ function renderStep1(stage){
   const sc = 1.25, bx = 30, by = 60, bw = 300*sc*0.92, bh = 100*sc;
   const ySurf = by, yBot = by + bh;
   const cx = bx + bw - 100*sc;                      // arc centre mark on top surface
-  steelShape(svg, 'path', { d: `M ${bx} ${ySurf} L ${cx} ${ySurf} L ${bx+bw} ${ySurf} A ${100*sc} ${100*sc} 0 0 1 ${cx} ${yBot} L ${bx} ${yBot} Z` });
-  sv('line', { x1: bx+1, y1: ySurf+0.8, x2: bx+bw-1, y2: ySurf+0.8, stroke: '#e8edf2', 'stroke-width': 1, opacity: .55 }, svg);
-  sv('line', { x1: bx+1, y1: yBot-1, x2: cx-1, y2: yBot-1, stroke: '#171c22', 'stroke-width': 1.5, opacity: .6 }, svg);
+  steelShape(svg, 'path', { d: `M ${bx} ${ySurf} L ${cx} ${ySurf} L ${bx+bw} ${ySurf} A ${100*sc} ${100*sc} 0 0 1 ${cx} ${yBot} L ${bx} ${yBot} Z` }, { sweep: 0 });
+  sv('rect', { x: bx+1, y: yBot-6, width: cx-bx-2, height: 5, fill: 'url(#steelD)', opacity: .85 }, svg);
+  sv('line', { x1: bx+1, y1: ySurf+1, x2: bx+bw-1, y2: ySurf+1, stroke: '#f2f6fa', 'stroke-width': 1.5, opacity: .7 }, svg);
+  sv('line', { x1: bx+1, y1: yBot-0.8, x2: cx-1, y2: yBot-0.8, stroke: '#1c2126', 'stroke-width': 1.5 }, svg);
   engraved(svg, { x: bx+8, y: yBot-8, 'font-size': 10, text: 'V1 (IIW) calibration block' });
   sv('text', { x: bx+bw+4, y: ySurf+82, fill: 'var(--ink-3)', 'font-size': 10, text: 'R100' }, svg);
   // centre mark stamped into the surface + milky perspex insert (V1 form features)
@@ -563,10 +656,21 @@ function renderStep1(stage){
   const pct = 100 * gauss(st.probe + S.sc.idxOffset, 1.3);
   st.maxSeen = Math.max(st.maxSeen, pct);
 
+  const doMark = () => {
+    if (S.inst.freeze) return flash('FROZEN');          // never record against a live signal the frozen screen hides
+    st.marked = true;
+    st.eIdx = -(st.probe + S.sc.idxOffset);         // 0 when marked exactly at peak
+    S.done[1] = true; render();
+  };
   const right = el('div', '');
   duo.append(right);
   ascan(right, [{ s: 100, h: pct }], { range: 200, maxSeen: st.maxSeen,
-    status: 'GAIN 30.0dB · RANGE 200mm · 60°', caption: 'R100 arc echo at s = 100 mm · PEAK MEM = best so far' });
+    status: 'GAIN 30.0dB · 60°', caption: 'R100 arc echo at s = 100 mm · PEAK MEM = best so far',
+    keys: {
+      onJog: d => { st.probe = clamp(Math.round((st.probe + d) * 10) / 10, -170, 35); render(); },
+      onPrimary: () => { if (!st.marked) doMark(); else flash('ALREADY MARKED'); },
+      primaryHint: !st.marked
+    } });
 
   const c = el('div', 'controls');
   const lbl = el('label', '', 'Probe position');
@@ -576,11 +680,7 @@ function renderStep1(stage){
   const val = el('span', 'mono', (st.probe>0?'+':'') + fmt(st.probe) + ' mm');
   const mark = el('button', 'btn', st.marked ? '✓ Index marked' : 'Mark index point');
   mark.disabled = st.marked;
-  mark.addEventListener('click', () => {
-    st.marked = true;
-    st.eIdx = -(st.probe + S.sc.idxOffset);         // 0 when marked exactly at peak
-    S.done[1] = true; render();
-  });
+  mark.addEventListener('click', doMark);
   c.append(lbl, rng, val, mark);
   stage.append(c);
 
@@ -602,7 +702,7 @@ function renderStep2(stage){
   const sc2 = Math.min(150 / S.t, 2.2);   // one scale for both axes so the 60° beam draws true
   const blockW = 410 / sc2;               // block width, mm
   const bh = S.t * sc2, ySurf = by, yBot = by + bh;
-  steelShape(svg, 'rect', { x: bx, y: ySurf, width: 410, height: bh });
+  steelShape(svg, 'rect', { x: bx, y: ySurf, width: 410, height: bh }, { sweep: 1 });
   steelEdges(svg, bx, ySurf, 410, bh);
   sv('text', { x: bx+6, y: yBot+14, fill: 'var(--ink-3)', 'font-size': 10, text: `reference block · t = ${S.t} mm` }, svg);
 
@@ -613,6 +713,20 @@ function renderStep2(stage){
     return { s: holePath(z), h: Math.min(112, intrinsic(holePath(z)) * db2f(gain) * gauss(d, 2)), d, hole: i };
   });
   const prim = echoes.reduce((a, b) => (b.h > a.h ? b : a));
+  const canSetRef = prim.hole === 0 && prim.h >= 77 && prim.h <= 83;   // H₀ only on the shallowest hole — a deeper-hole H₀ would saturate the shallow DAC points
+  const doSetRef = () => {
+    if (S.inst.freeze) return flash('FROZEN');
+    st.Gref = st.gain;
+    st.pdef = -f2db(gauss(prim.d, 2));             // dB lost by setting ref off-peak
+    st.pts = [{ s: prim.s, pct: prim.h, hole: prim.hole }];
+    render();
+  };
+  const doRecord = () => {
+    if (S.inst.freeze) return flash('FROZEN');
+    st.pts = st.pts.filter(p => p.hole !== prim.hole).concat({ s: prim.s, pct: prim.h, hole: prim.hole });
+    if (st.pts.length >= 3) S.done[2] = true;
+    render();
+  };
 
   zs.forEach((z, i) => {
     const hy = ySurf + z * sc2, hcx = 330 + i*26;
@@ -637,8 +751,20 @@ function renderStep2(stage){
   const right = el('div', ''); duo.append(right);
   ascan(right, [prim, ...echoes.filter(e => e !== prim)], { range: 200, refLine: true,
     dacFn: s => dacRec(s), dacPts: st.pts, dacExtend: false,
-    status: `GAIN ${fmt(gain,1)}dB · RANGE 200mm · 60°`,
-    caption: `SDH${prim.hole+1} — ${st.Gref == null ? (prim.hole === 0 ? 'peak it, gain to 80%, set H₀' : 'set H₀ on SDH1 first') : 'peak it, then record'}` });
+    status: `GAIN ${fmt(gain,1)}dB · 60°`,
+    caption: `SDH${prim.hole+1} — ${st.Gref == null ? (prim.hole === 0 ? 'peak it, gain to 80%, set H₀' : 'set H₀ on SDH1 first') : 'peak it, then record'}`,
+    keys: {
+      onGain: d => {
+        if (st.Gref != null) return flash('GAIN LOCKED AT H₀');
+        st.gain = clamp(Math.round((st.gain + d) * 2) / 2, 0, 30); render();
+      },
+      onJog: d => { st.px = clamp(Math.round((st.px + d) * 10) / 10, 0, blockW); render(); },
+      onPrimary: () => {
+        if (st.Gref == null) canSetRef ? doSetRef() : flash('PEAK A HOLE FIRST');
+        else prim.h >= 5 ? doRecord() : flash('PEAK A HOLE FIRST');
+      },
+      primaryHint: st.Gref == null ? canSetRef : prim.h >= 5
+    } });
 
   const c1 = el('div', 'controls');
   const rng = document.createElement('input');
@@ -658,21 +784,12 @@ function renderStep2(stage){
   const act = el('button', 'btn');
   if (st.Gref == null){
     act.textContent = 'Set reference H₀ (~80%)';
-    act.disabled = !(prim.hole === 0 && prim.h >= 77 && prim.h <= 83);   // H₀ only on the shallowest hole — a deeper-hole H₀ would saturate the shallow DAC points
-    act.addEventListener('click', () => {
-      st.Gref = st.gain;
-      st.pdef = -f2db(gauss(prim.d, 2));             // dB lost by setting ref off-peak
-      st.pts = [{ s: prim.s, pct: prim.h, hole: prim.hole }];
-      render();
-    });
+    act.disabled = !canSetRef;
+    act.addEventListener('click', doSetRef);
   } else {
     act.textContent = `Record DAC point (${st.pts.length}/3)`;
     act.disabled = prim.h < 5;
-    act.addEventListener('click', () => {
-      st.pts = st.pts.filter(p => p.hole !== prim.hole).concat({ s: prim.s, pct: prim.h, hole: prim.hole });
-      if (st.pts.length >= 3) S.done[2] = true;
-      render();
-    });
+    act.addEventListener('click', doRecord);
   }
   c2.append(el('label','','Gain'), gainBtn(-2), gainBtn(-0.5), gainBtn(0.5), gainBtn(2), gv, act);
   stage.append(c2);
@@ -699,7 +816,7 @@ function renderStep3(stage){
   const svg = sv('svg', { viewBox: `0 0 ${W} ${H}` }); left.append(svg);
   const drawPair = (x0, label, rough) => {
     const bw = 190, bh = 84, ySurf = 92, yBot = ySurf + bh, xc = x0 + bw/2;
-    steelShape(svg, 'rect', { x: x0, y: ySurf, width: bw, height: bh }, { dark: rough });
+    steelShape(svg, 'rect', { x: x0, y: ySurf, width: bw, height: bh }, { dark: rough, sweep: rough ? 3 : 2 });
     steelEdges(svg, x0, ySurf, bw, bh);
     if (rough){
       // as-rolled rough top edge (jagged polyline + its shadow) and translucent primer patches
@@ -733,14 +850,22 @@ function renderStep3(stage){
 
   const calPct = 80;
   const testPct = Math.min(112, 80 * db2f(st.add - S.sc.dTtrue));
+  const f0 = v => fmt(v, v % 1 ? 1 : 0);               // add/ΔT can be x.5 via the rocker
+  const canAdj = st.test && st.dT == null;
+  const doApply = () => { if (S.inst.freeze) return flash('FROZEN'); st.dT = st.add; st.skipped = false; S.done[3] = true; render(); };
 
   const right = el('div', ''); duo.append(right);
   const sV = 4 * S.t;                                  // V-path: two 60° legs of 2t each
   const rangeV = Math.ceil(sV * 1.2 / 100) * 100;
   ascan(right, [{ s: sV, h: st.test ? testPct : (st.cal ? calPct : 0) }],
     { range: rangeV, refLine: true,
-      status: `V-PATH · RANGE ${rangeV}mm · ADD +${fmt(st.add,0)}dB`,
-      caption: st.test ? 'test plate — bring the signal back to 80%' : st.cal ? 'calibration block' : 'no measurement yet' });
+      status: `V-PATH · ADD +${f0(st.add)}dB`,
+      caption: st.test ? 'test plate — bring the signal back to 80%' : st.cal ? 'calibration block' : 'no measurement yet',
+      keys: {
+        onGain: d => { if (!canAdj) return flash('GAIN LOCKED'); st.add = clamp(st.add + d, 0, 12); render(); },
+        onPrimary: () => { if (canAdj) doApply(); },
+        primaryHint: canAdj
+      } });
 
   const c = el('div', 'controls');
   const mCal = el('button', 'btn secondary', st.cal ? '✓ Cal block: 80%' : 'Measure cal block');
@@ -749,12 +874,12 @@ function renderStep3(stage){
   mTest.disabled = !st.cal;
   mTest.addEventListener('click', () => { st.test = true; render(); });
   const gm = el('button', 'btn secondary', '− 1 dB'), gp = el('button', 'btn secondary', '+ 1 dB');
-  gm.disabled = gp.disabled = !st.test || st.dT != null;
+  gm.disabled = gp.disabled = !canAdj;
   gm.addEventListener('click', () => { st.add = clamp(st.add-1, 0, 12); render(); });
   gp.addEventListener('click', () => { st.add = clamp(st.add+1, 0, 12); render(); });
-  const apply = el('button', 'btn', st.dT != null ? `✓ ΔT = +${fmt(st.dT,0)} dB applied` : `Apply ΔT = +${fmt(st.add,0)} dB`);
-  apply.disabled = !st.test || st.dT != null;
-  apply.addEventListener('click', () => { st.dT = st.add; st.skipped = false; S.done[3] = true; render(); });
+  const apply = el('button', 'btn', st.dT != null ? `✓ ΔT = +${f0(st.dT)} dB applied` : `Apply ΔT = +${f0(st.add)} dB`);
+  apply.disabled = !canAdj;
+  apply.addEventListener('click', doApply);
   const skip = el('button', 'ghost', 'Skip (not recommended)');
   skip.addEventListener('click', () => { st.dT = 0; st.skipped = true; S.done[3] = true; render(); });
   c.append(mCal, mTest, gm, gp, apply);
@@ -779,7 +904,7 @@ function renderStep4(stage){
   const W = 460, H = 250;
   const svg = sv('svg', { viewBox: `0 0 ${W} ${H}` }); left.append(svg);
   const sc = (W - 60) / SEAM, x0 = 30, yW = 96;
-  steelShape(svg, 'rect', { x: x0, y: 40, width: SEAM*sc, height: 150 });
+  steelShape(svg, 'rect', { x: x0, y: 40, width: SEAM*sc, height: 150 }, { sweep: 2 });
   steelEdges(svg, x0, 40, SEAM*sc, 150);
   // weld seam from above: heat-tint bands along both edges, metallic bead, transverse ripples
   sv('rect', { x: x0, y: yW-15, width: SEAM*sc, height: 4, fill: 'rgba(217,160,60,.12)' }, svg);
@@ -799,6 +924,7 @@ function renderStep4(stage){
   const px = x0 + st.y * sc, pyTop = yW + 34;
   sv('rect', { x: px-13, y: pyTop, width: 26, height: 17, rx: 3, fill: 'url(#steelP)', stroke: '#11161c', 'stroke-width': 1, filter: 'url(#shadow)' }, svg);
   sv('line', { x1: px-11, y1: pyTop+1.6, x2: px+11, y2: pyTop+1.6, stroke: 'rgba(255,255,255,.55)', 'stroke-width': 1 }, svg);
+  sv('circle', { cx: px-7, cy: pyTop+4.5, r: 1.6, fill: 'rgba(255,255,255,.7)' }, svg);      // specular dot on the stainless housing
   sv('rect', { x: px-2.5, y: pyTop+13, width: 5, height: 7, rx: 1.5, fill: '#14171b' }, svg);
   sv('path', { d: `M ${px} ${pyTop+19} C ${px} ${pyTop+26} ${px-6} ${pyTop+29} ${px-12} ${pyTop+30.5}`,
       fill: 'none', stroke: '#2b323a', 'stroke-width': 1.8 }, svg);            // booted cable trailing off the connector
@@ -822,11 +948,29 @@ function renderStep4(stage){
     sv('text', { x: x0+(st.yA+st.yB)/2*sc, y: yW+40, fill: 'var(--ok)', 'font-size': 10.5, 'text-anchor': 'middle', class:'mono', text: 'ℓ = ' + fmt(st.yB-st.yA,0) + ' mm' }, svg);
   }
 
+  const doMarkMax = () => {
+    if (S.inst.freeze) return flash('FROZEN');
+    st.maxAmp = pct; st.yMax = st.y;
+    st.sFlaw = holePath(f.z);
+    st.rel = f2db(pct / dacRec(st.sFlaw));
+    st.yA = st.yB = null;
+    S.done[4] = S.done[5] = false; S.ev = null;         // re-marking the max invalidates the sizing — reopen the step
+    render();
+  };
   const right = el('div', ''); duo.append(right);
   ascan(right, [{ s: holePath(f.z), h: pct }], { range: 200, halfOf: st.maxAmp ?? undefined,
     dacFn: s => dacRec(s), dacPts: S.s2.pts, dacExtend: true,
-    status: `GAIN H₀+${fmt(S.s3.dT ?? 0,0)}dB · RANGE 200mm · Y ${fmt(st.y,0)}mm`,
-    caption: 'mark max · then mark both −6 dB ends' });
+    status: `GAIN H₀+${fmt(S.s3.dT ?? 0,0)}dB · Y ${fmt(st.y,0)}mm`,
+    caption: 'mark max · then mark both −6 dB ends',
+    keys: {
+      onJog: d => { st.y = clamp(Math.round((st.y + d) * 2) / 2, -10, 310); render(); },
+      onPrimary: () => {
+        if (st.maxAmp != null) return flash('USE MARK A/B');
+        if (pct < 2.5) return flash('NO ECHO');
+        doMarkMax();
+      },
+      primaryHint: st.maxAmp == null && pct >= 2.5
+    } });
 
   const c = el('div', 'controls');
   const rng = document.createElement('input');
@@ -838,19 +982,13 @@ function renderStep4(stage){
   const c2 = el('div', 'controls');
   const bMax = el('button', 'btn', st.maxAmp != null ? `✓ Max ${Math.round(st.maxAmp)}%` : 'Mark maximum');
   bMax.disabled = pct < 2.5;                            // just above the grass floor — weak deep flaws stay markable, and re-marks obey the same gate
-  bMax.addEventListener('click', () => {
-    st.maxAmp = pct; st.yMax = st.y;
-    st.sFlaw = holePath(f.z);
-    st.rel = f2db(pct / dacRec(st.sFlaw));
-    st.yA = st.yB = null;
-    S.done[4] = S.done[5] = false; S.ev = null;         // re-marking the max invalidates the sizing — reopen the step
-    render();
-  });
+  bMax.addEventListener('click', doMarkMax);
   const dbNow = st.maxAmp ? f2db(Math.max(pct,0.1) / st.maxAmp) : null;
   const bA = el('button', 'btn secondary', st.yA != null ? `✓ End A @ ${fmt(st.yA,0)}` : 'Mark end A');
   const bB = el('button', 'btn secondary', st.yB != null ? `✓ End B @ ${fmt(st.yB,0)}` : 'Mark end B');
   bA.disabled = bB.disabled = st.maxAmp == null;
   const markEnd = (which) => {
+    if (S.inst.freeze) return flash('FROZEN');
     if (which === 'A') st.yA = st.y; else st.yB = st.y;
     if (st.yA != null && st.yB != null){
       if (st.yA > st.yB){ const t2 = st.yA; st.yA = st.yB; st.yB = t2; }
@@ -1096,6 +1234,33 @@ function selfTest(){
     newScenario(7);
     for (let i = 1; i <= 5; i++){ autoTo(i); render(); if (!$('#stage').childNodes.length) fails.push('stage empty @' + i); }
   } catch (err){ fails.push('render: ' + err.message); }
+
+  // instrument panel: range override + MENU cycling, freeze, power-off
+  try {
+    newScenario(7); autoTo(1);
+    S.inst.range = 500; render();
+    const t1 = $('#stage').textContent;
+    if (!t1.includes('RANGE 500mm')) fails.push('range override label');
+    if (!t1.includes('375')) fails.push('range override axis');
+    S.inst.range = null; render();
+    if (!$('#stage').textContent.includes('RANGE AUTO(200)')) fails.push('auto range label');
+    const menuKey = $('#stage [aria-label="Range (MENU)"]');
+    if (!menuKey) fails.push('menu key missing');
+    else {
+      menuKey.dispatchEvent(new Event('click'));       // AUTO → 100 (cycle null,100,200,300,500)
+      if (S.inst.range !== 100 || !$('#stage').textContent.includes('RANGE 100mm')) fails.push('menu cycle');
+    }
+    S.inst.range = null;
+    S.inst.freeze = { echoes: [{ s: 100, h: 55 }], halfOf: 60, refLine: true, maxSeen: 60, status: 'FRZTEST', caption: '' };
+    render();   // frozen snapshot carries halfOf while the live step's opts do not — must render without NaN coords
+    if (!$('#stage').textContent.includes('FROZEN')) fails.push('frozen tag');
+    if ($('#stage').querySelector('[x="NaN"],[y="NaN"],[cx="NaN"],[cy="NaN"],[x1="NaN"],[y1="NaN"],[x2="NaN"],[y2="NaN"]'))
+      fails.push('NaN attr while frozen');
+    S.inst.power = false; render();
+    if (!$('#stage').childNodes.length) fails.push('stage empty powered off');
+    S.inst = { power: true, freeze: null, range: null, flash: '' };
+    render();
+  } catch (err){ fails.push('inst: ' + err.message); }
 
   document.title = fails.length ? 'SELFTEST FAIL: ' + fails.join(' | ') : 'SELFTEST PASS';
 }
