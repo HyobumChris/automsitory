@@ -21,7 +21,7 @@ automsitory/
 ├── LloydsRulesVibeCodingApp.jsx  # Original monolithic React component (reference/archive)
 ├── hatch_coaming_visualization.html  # Standalone vanilla HTML/CSS/JS visualization
 ├── ut_criteria_visualization.html    # Standalone interactive UT criteria guide (Table 8.2.1 lookup, beam geometry, DAC simulator; `?selftest` runs built-in logic checks)
-├── ut_procedure_simulator.html       # Five-step UT inspection simulator: V1 index point → DAC/reference sensitivity → transfer correction → scan & 6 dB drop sizing → acceptance evaluation (Fig 13.2.3/13.2.4); calibration errors propagate to the verdict; `?selftest`, `?demo=N`, `?seed=`
+├── ut_procedure_simulator.html       # Five-step UT inspection simulator: V1 index point → DAC/reference sensitivity → transfer correction → scan & 6 dB drop sizing → acceptance evaluation (Fig 13.2.3/13.2.4); selectable probe angle (45/60/70°), trailing back-wall arrivals on the A-scan, calibration errors propagate to the verdict; `?selftest`, `?demo=N`, `?seed=`, `?angle=`
 ├── lloyd_rules_app.html          # Compiled single-file React app (standalone build)
 ├── README.md                     # Project-level documentation (Korean/English)
 └── subautository                 # Empty placeholder file

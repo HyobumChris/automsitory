@@ -32,7 +32,7 @@
 - **인터랙티브 다이어그램**: 해치코밍 구조 및 부재별 상세 정보
 - **핵심 요약**: 두께별 요구사항 플로우차트
 - **UT 판정 기준 가이드** (`ut_criteria_visualization.html`): Table 8.2.1 적용 판정 · 사각탐상 빔 기하 · DAC 판정 시뮬레이터 — 단일 파일 인터랙티브 HTML (교육·참고용, `?selftest`로 내장 로직 검증 가능)
-- **UT 검사 절차 시뮬레이터** (`ut_procedure_simulator.html`): V1 블록 입사점 → DAC·기준감도 → transfer correction → 가상 스캐닝·6 dB drop 길이 측정 → 합격 레벨(Fig 13.2.3/13.2.4) 판독까지 5단계를 이어서 수행하는 인터랙티브 시뮬레이션(영문 UI, USM 계열 탐상기 외형) — 각 단계의 교정·측정 품질이 최종 판정에 전파되고 디브리핑으로 숨겨진 정답과 비교 (`?selftest`·`?demo=N`·`?seed=` 지원)
+- **UT 검사 절차 시뮬레이터** (`ut_procedure_simulator.html`): V1 블록 입사점 → DAC·기준감도 → transfer correction → 가상 스캐닝·6 dB drop 길이 측정 → 합격 레벨(Fig 13.2.3/13.2.4) 판독까지 5단계를 이어서 수행하는 인터랙티브 시뮬레이션(영문 UI, USM 계열 탐상기 외형, 프로브 각도 45/60/70° 선택) — half-skip 이후의 후속 도달 에코(V1 반복·후벽 미러)도 A-scan에 표시되고, 각 단계의 교정·측정 품질이 최종 판정에 전파되며 디브리핑으로 숨겨진 정답과 비교 (`?selftest`·`?demo=N`·`?seed=`·`?angle=` 지원)
 
 ---
 
