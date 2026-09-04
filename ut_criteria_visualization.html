@@ -1,0 +1,1442 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="LR Rules 해치코밍 후판 UT(초음파탐상) 판정 기준 인터랙티브 가이드 — Table 8.2.1 적용판정, 사각탐상 빔 기하, DAC 판정 시뮬레이터">
+<title>LR Rules UT 판정 기준 인터랙티브 가이드 | Hatch Coaming UT Criteria</title>
+<style>
+/* ── Tokens: 단일 다크(계기판) 테마 — 리포 공통 마린 네이비 + 시안/앰버 ── */
+:root{
+  --bg:#0a1220;
+  --surface:#101b2e;
+  --panel:#152238;
+  --panel-2:#1b2b46;
+  --line:#25395a;
+  --line-soft:#1c2c48;
+  --ink:#e9f0fa;
+  --ink-2:#a9b9d1;
+  --ink-3:#69809f;
+  --cyan:#3fc6e8;
+  --cyan-dim:#2a8fae;
+  --cyan-soft:rgba(63,198,232,.13);
+  --amber:#f5b83d;
+  --amber-soft:rgba(245,184,61,.14);
+  --ok:#31c48d;
+  --warn:#f0b429;
+  --bad:#f0564a;
+  --ok-soft:rgba(49,196,141,.13);
+  --warn-soft:rgba(240,180,41,.12);
+  --bad-soft:rgba(240,86,74,.12);
+  --grid:#1b2b45;
+  --sans:"Segoe UI","Pretendard","Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;
+  --mono:"Cascadia Code","JetBrains Mono","SFMono-Regular",Consolas,"Liberation Mono",monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+[hidden]{display:none !important}
+html{scroll-behavior:smooth}
+body{
+  font-family:var(--sans);
+  background:
+    radial-gradient(1100px 500px at 85% -10%, rgba(63,198,232,.07), transparent 60%),
+    radial-gradient(900px 420px at -10% 110%, rgba(245,184,61,.05), transparent 55%),
+    var(--bg);
+  color:var(--ink);
+  line-height:1.55;
+  min-height:100vh;
+}
+.app{max-width:1180px;margin:0 auto;padding:20px 20px 48px}
+
+/* ── Header ── */
+.topbar{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;justify-content:space-between;padding:8px 2px 16px}
+.brand .eyebrow{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--cyan);font-weight:600}
+.brand h1{font-size:clamp(20px,3.2vw,27px);font-weight:700;letter-spacing:-.01em;margin-top:2px}
+.brand .sub{color:var(--ink-2);font-size:13px;margin-top:3px}
+.cond-chip{
+  display:flex;flex-direction:column;gap:6px;align-items:flex-end;
+  background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:10px 14px;cursor:pointer;text-align:right;
+}
+.cond-chip:hover{border-color:var(--cyan-dim)}
+.cond-chip .cc-line{font-family:var(--mono);font-size:12.5px;color:var(--ink-2)}
+.cond-chip .cc-line strong{color:var(--ink);font-weight:600}
+.cond-badges{display:flex;gap:5px}
+.mbadge{font-family:var(--mono);font-size:10.5px;padding:2px 7px;border-radius:20px;border:1px solid var(--line);color:var(--ink-3);background:var(--surface)}
+.mbadge.req{color:#062030;background:var(--cyan);border-color:var(--cyan);font-weight:700}
+.mbadge.cond{color:var(--warn);border-color:var(--warn);background:var(--warn-soft);font-weight:600}
+
+/* ── Tabs ── */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{
+  appearance:none;background:none;border:none;border-bottom:2px solid transparent;
+  color:var(--ink-2);font:inherit;font-size:14px;font-weight:600;
+  padding:10px 14px;cursor:pointer;white-space:nowrap;
+}
+.tab:hover{color:var(--ink)}
+.tab[aria-selected="true"]{color:var(--cyan);border-bottom-color:var(--cyan)}
+.tab:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--cyan);outline-offset:2px;border-radius:4px}
+main{padding-top:20px}
+section[role="tabpanel"]{display:flex;flex-direction:column;gap:16px}
+
+/* ── Cards & layout ── */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+.card>.eyebrow{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--cyan);font-weight:700;margin-bottom:4px}
+.card>h2{font-size:17px;font-weight:700;margin-bottom:10px}
+.card p{color:var(--ink-2);font-size:13.5px;max-width:68ch}
+.card p+p{margin-top:8px}
+.grid2{display:grid;grid-template-columns:340px minmax(0,1fr);gap:16px;align-items:start}
+.grid2>*{min-width:0}
+.grid2 .col{display:flex;flex-direction:column;gap:16px;min-width:0}
+.grid-ref{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)}
+@media (max-width:920px){
+  .grid2,.grid-ref{grid-template-columns:minmax(0,1fr)}
+}
+.scroll-x{overflow-x:auto}
+
+/* ── Controls ── */
+.field{display:flex;flex-direction:column;gap:6px;margin-top:14px}
+.field:first-of-type{margin-top:8px}
+.field>label{font-size:12px;color:var(--ink-2);font-weight:600}
+.field .hint{font-size:11.5px;color:var(--ink-3);font-weight:400}
+.seg{display:flex;gap:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;width:max-content;max-width:100%}
+.seg button{
+  appearance:none;background:var(--surface);border:none;color:var(--ink-2);
+  font:inherit;font-size:13px;font-weight:600;padding:7px 14px;cursor:pointer;
+  border-right:1px solid var(--line);
+}
+.seg button:last-child{border-right:none}
+.seg button:hover{color:var(--ink)}
+.seg button[aria-pressed="true"]{background:var(--cyan);color:#062030}
+.slider-row{display:flex;align-items:center;gap:10px}
+.slider-row input[type="range"]{flex:1;accent-color:var(--cyan);min-width:0}
+.numbox{
+  width:76px;background:var(--surface);border:1px solid var(--line);border-radius:7px;
+  color:var(--ink);font-family:var(--mono);font-size:13.5px;padding:5px 8px;text-align:right;
+}
+.unit{font-size:12px;color:var(--ink-3);font-family:var(--mono)}
+select.selbox{
+  background:var(--surface);border:1px solid var(--line);border-radius:7px;color:var(--ink);
+  font:inherit;font-size:13px;padding:7px 9px;max-width:100%;
+}
+.check-row{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;color:var(--ink-2);margin-top:12px}
+.check-row input{accent-color:var(--cyan);margin-top:2.5px}
+
+/* ── Chips / statuses (항상 아이콘+라벨 병기: 색상 단독 의미 전달 금지) ── */
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:3px 10px;border-radius:20px;border:1px solid var(--line);color:var(--ink-3);background:var(--surface);white-space:nowrap}
+.chip .dot{width:7px;height:7px;border-radius:50%;background:var(--ink-3);flex:none}
+.chip.req{color:var(--cyan);border-color:rgba(63,198,232,.45);background:var(--cyan-soft)}
+.chip.req .dot{background:var(--cyan)}
+.chip.cond{color:var(--warn);border-color:rgba(240,180,41,.45);background:var(--warn-soft)}
+.chip.cond .dot{background:var(--warn)}
+.chip.ok{color:var(--ok);border-color:rgba(49,196,141,.45);background:var(--ok-soft)}
+.chip.ok .dot{background:var(--ok)}
+.chip.bad{color:var(--bad);border-color:rgba(240,86,74,.5);background:var(--bad-soft)}
+.chip.bad .dot{background:var(--bad)}
+
+/* ── Overview ── */
+.hero-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:16px;align-items:stretch}
+.hero-grid>*{min-width:0}
+@media (max-width:920px){.hero-grid{grid-template-columns:minmax(0,1fr)}}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
+@media (max-width:560px){.tiles{grid-template-columns:1fr}}
+.tile{background:var(--surface);border:1px solid var(--line-soft);border-radius:10px;padding:12px 14px}
+.tile .t-label{font-size:11px;color:var(--ink-3);line-height:1.4}
+.tile .t-value{font-size:24px;font-weight:700;margin:3px 0 1px;letter-spacing:-.01em}
+.tile .t-sub{font-size:11px;color:var(--ink-2)}
+.measures{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.mcard{background:var(--surface);border:1px solid var(--line-soft);border-radius:10px;padding:13px 14px;transition:border-color .15s}
+.mcard:hover,.mcard:focus-visible{border-color:var(--cyan-dim)}
+.mcard.ut-direct{border-left:3px solid var(--cyan)}
+.mcard.ut-none{opacity:.72}
+.mcard .m-no{font-family:var(--mono);font-size:10.5px;color:var(--cyan);letter-spacing:.12em;font-weight:700}
+.mcard.ut-none .m-no{color:var(--ink-3)}
+.mcard h3{font-size:13.5px;margin:3px 0 5px}
+.mcard p{font-size:12px;color:var(--ink-2);max-width:none}
+.svg-wrap{background:var(--surface);border:1px solid var(--line-soft);border-radius:10px;padding:8px}
+.svg-wrap svg{display:block;width:100%;height:auto}
+.caption{font-size:11.5px;color:var(--ink-3);margin-top:8px}
+
+/* structure SVG highlight states */
+#ovSvg .hl{transition:opacity .15s}
+#ovSvg .seam{stroke:var(--amber);stroke-width:2.5}
+#ovSvg.hl-m1 .seam,#ovSvg.hl-m2 .seam{stroke-width:5;filter:drop-shadow(0 0 5px rgba(245,184,61,.85))}
+#ovSvg .stagger-dim{opacity:.55}
+#ovSvg.hl-m3 .stagger-dim{opacity:1;filter:drop-shadow(0 0 4px rgba(63,198,232,.8))}
+#ovSvg .plate-fill{transition:fill .15s}
+#ovSvg.hl-m4 .plate-fill,#ovSvg.hl-m5 .plate-fill{fill:rgba(63,198,232,.22)}
+
+/* ── Tables ── */
+table.rules{border-collapse:collapse;width:100%;font-size:13px;min-width:520px}
+table.rules th,table.rules td{border:1px solid var(--line-soft);padding:8px 10px;text-align:center}
+table.rules th{background:var(--panel-2);color:var(--ink-2);font-size:12px;font-weight:600}
+table.rules td:first-child{font-family:var(--mono);font-size:12.5px;white-space:nowrap}
+table.rules tbody tr{cursor:pointer;background:var(--surface)}
+table.rules tbody tr:hover{background:var(--panel-2)}
+table.rules tbody tr.active{background:var(--cyan-soft);outline:2px solid var(--cyan);outline-offset:-2px}
+.st-r{color:var(--cyan);font-weight:700}
+.st-n{color:var(--ink-3)}
+.st-2{color:var(--warn);font-weight:600}
+.notes{margin-top:12px;font-size:12px;color:var(--ink-2);display:flex;flex-direction:column;gap:5px}
+.notes b{color:var(--ink)}
+.banner{border:1px solid rgba(240,180,41,.5);background:var(--warn-soft);color:var(--warn);border-radius:9px;padding:10px 13px;font-size:13px;font-weight:600;margin-bottom:12px;display:flex;gap:8px;align-items:flex-start}
+.result-list{display:flex;flex-direction:column;gap:8px;margin-top:6px}
+.result-row{display:flex;gap:10px;align-items:flex-start;background:var(--surface);border:1px solid var(--line-soft);border-radius:9px;padding:9px 11px}
+.result-row .rr-no{font-family:var(--mono);font-size:11px;color:var(--cyan);font-weight:700;padding-top:3px;flex:none;width:26px}
+.result-row .rr-main{flex:1;min-width:0}
+.result-row .rr-title{font-size:12.5px;font-weight:600}
+.result-row .rr-desc{font-size:11.5px;color:var(--ink-3);margin-top:1px}
+.result-row .chip{flex:none;margin-top:1px}
+
+/* ── Readouts (계기판 수치) ── */
+.readouts{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:14px}
+.ro{background:var(--surface);border:1px solid var(--line-soft);border-radius:9px;padding:8px 11px}
+.ro .ro-label{font-size:10.5px;color:var(--ink-3);letter-spacing:.04em}
+.ro .ro-value{font-family:var(--mono);font-size:16px;font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums}
+.ro .ro-value small{font-size:11px;color:var(--ink-3);font-weight:400}
+.formula{font-family:var(--mono);font-size:12px;color:var(--ink-2);background:var(--surface);border:1px solid var(--line-soft);border-radius:8px;padding:9px 12px;margin-top:12px;line-height:1.8;overflow-x:auto;white-space:nowrap}
+.formula b{color:var(--cyan);font-weight:600}
+.cov-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+
+/* ── DAC chart ── */
+.chart-wrap{position:relative}
+.tooltip{
+  position:absolute;pointer-events:none;background:#0c1626;border:1px solid var(--line);
+  border-radius:8px;padding:8px 11px;font-size:11.5px;color:var(--ink-2);
+  box-shadow:0 6px 20px rgba(0,0,0,.5);min-width:150px;z-index:5;
+}
+.tooltip .tt-title{font-family:var(--mono);color:var(--ink);font-weight:600;margin-bottom:4px;font-size:12px}
+.tooltip .tt-row{display:flex;justify-content:space-between;gap:14px}
+.tooltip .tt-row .v{font-family:var(--mono);color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.tooltip .key{display:inline-block;width:12px;height:0;border-top:2.5px solid;vertical-align:middle;margin-right:6px;border-radius:2px}
+.big-db{display:flex;align-items:baseline;gap:10px;margin-top:6px}
+.big-db .val{font-family:var(--mono);font-size:34px;font-weight:700;letter-spacing:-.02em}
+.big-db .sub{font-family:var(--mono);font-size:12.5px;color:var(--ink-3)}
+.verdict{border-radius:12px;padding:16px 18px;border:1px solid var(--line)}
+.verdict.v-ok{border-color:rgba(49,196,141,.55);background:var(--ok-soft)}
+.verdict.v-rec{border-color:rgba(49,196,141,.55);background:var(--ok-soft)}
+.verdict.v-bad{border-color:rgba(240,86,74,.6);background:var(--bad-soft)}
+.verdict .v-head{display:flex;align-items:center;gap:10px}
+.verdict .v-icon{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:700;flex:none}
+.verdict.v-ok .v-icon,.verdict.v-rec .v-icon{background:var(--ok);color:#04150d}
+.verdict.v-bad .v-icon{background:var(--bad);color:#1d0605}
+.verdict .v-title{font-size:17px;font-weight:700}
+.verdict.v-ok .v-title,.verdict.v-rec .v-title{color:var(--ok)}
+.verdict.v-bad .v-title{color:var(--bad)}
+.verdict .v-band{font-size:11.5px;color:var(--ink-3);margin-top:1px}
+.verdict ul{margin:10px 0 0 2px;padding-left:16px;display:flex;flex-direction:column;gap:4px}
+.verdict li{font-size:12.5px;color:var(--ink-2)}
+.crit-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px;margin-top:10px}
+.crit-grid .field{margin-top:0}
+.tag-ex{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--warn);border:1px solid rgba(240,180,41,.5);border-radius:4px;padding:1px 6px;vertical-align:2px;margin-left:6px}
+
+/* ── Reference ── */
+.gloss{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.gterm{background:var(--surface);border:1px solid var(--line-soft);border-radius:9px;padding:11px 13px}
+.gterm dt{font-size:12.5px;font-weight:700;color:var(--cyan)}
+.gterm dd{font-size:12px;color:var(--ink-2);margin-top:3px}
+table.dbtab{border-collapse:collapse;font-family:var(--mono);font-size:12.5px;min-width:280px}
+table.dbtab th,table.dbtab td{border:1px solid var(--line-soft);padding:6px 14px;text-align:right;font-variant-numeric:tabular-nums}
+table.dbtab th{background:var(--panel-2);color:var(--ink-2);font-family:var(--sans);font-size:11.5px}
+.ref-list{list-style:none;display:flex;flex-direction:column;gap:8px;margin-top:6px}
+.ref-list li{background:var(--surface);border:1px solid var(--line-soft);border-radius:8px;padding:9px 12px;font-size:12.5px;color:var(--ink-2)}
+.ref-list b{color:var(--ink)}
+.disclaimer{border:1px solid rgba(240,180,41,.4);background:var(--warn-soft);border-radius:10px;padding:13px 16px;font-size:12.5px;color:var(--ink-2)}
+.disclaimer b{color:var(--warn)}
+
+footer{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);font-size:11.5px;color:var(--ink-3);display:flex;flex-direction:column;gap:4px}
+
+/* SVG common */
+svg text{font-family:var(--sans)}
+svg .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.beam-anim{stroke-dasharray:7 5;animation:beamflow 1.1s linear infinite}
+@keyframes beamflow{to{stroke-dashoffset:-12}}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none !important;transition:none !important}
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="eyebrow">Lloyd's Register Rules · Hatch Coaming Thick Plate</div>
+      <h1>UT 판정 기준 인터랙티브 가이드</h1>
+      <div class="sub">컨테이너선 해치코밍 후판 초음파탐상 — 적용 판정 · 탐상 기하 · DAC 판정 시뮬레이터</div>
+    </div>
+    <div class="cond-chip" id="condChip" role="button" tabindex="0" title="적용 판정 탭으로 이동">
+      <div class="cc-line" id="condLine">—</div>
+      <div class="cond-badges" id="condBadges"></div>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="주요 화면">
+    <button class="tab" role="tab" id="tab-overview" aria-controls="panel-overview">개요</button>
+    <button class="tab" role="tab" id="tab-table"    aria-controls="panel-table">적용 판정 · Table 8.2.1</button>
+    <button class="tab" role="tab" id="tab-beam"     aria-controls="panel-beam">탐상 기하 (사각탐상)</button>
+    <button class="tab" role="tab" id="tab-dac"      aria-controls="panel-dac">DAC · 판정 시뮬레이터</button>
+    <button class="tab" role="tab" id="tab-ref"      aria-controls="panel-ref">용어 · 참고</button>
+  </nav>
+
+  <main>
+
+    <!-- ══════════ 1. 개요 ══════════ -->
+    <section id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
+      <div class="hero-grid">
+        <div class="card">
+          <div class="eyebrow">Why UT — 왜 초음파탐상인가</div>
+          <h2>두꺼운 해치코밍, 취성파괴, 그리고 UT</h2>
+          <p>
+            대형 컨테이너선의 해치코밍(hatch coaming) 상부 구조에는 EH40·EH47급 고강도 후판이 사용됩니다.
+            판이 두꺼워질수록 용접부 결함에서 시작된 취성균열(brittle crack)이 한 번에 선체를 관통할 위험이 커지므로,
+            LR Rules는 두께·항복강도에 따라 예방 조치 Measure 1–5를 요구합니다.
+          </p>
+          <p>
+            그중 <b>Measure 1(건조 중 100% UT)</b>과 <b>Measure 2(공용중 정기 NDE)</b>는 초음파탐상으로
+            블록 간 맞대기 이음(block-to-block butt joint)의 결함을 찾아내는 조치이며,
+            <b>Measure 3</b>을 Enhanced NDE로 이행하는 경우에는 일반보다 <b>엄격한 합격 기준</b>이 적용됩니다.
+          </p>
+          <div class="tiles">
+            <div class="tile">
+              <div class="t-label">Measure 1 — 블록 맞대기 이음 UT 범위</div>
+              <div class="t-value">100 %</div>
+              <div class="t-sub">건조 중 전수 초음파탐상</div>
+            </div>
+            <div class="tile">
+              <div class="t-label">UT 조치 검토 개시 두께</div>
+              <div class="t-value">30–50 mm</div>
+              <div class="t-sub">항복강도별 상이 (YP460은 30 mm 초과부터)</div>
+            </div>
+            <div class="tile">
+              <div class="t-label">Enhanced NDE 선택 시 CTOD</div>
+              <div class="t-value">≥ 0.18 mm</div>
+              <div class="t-sub">최소 설계 온도 기준</div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="eyebrow">Where — 어디를 검사하는가</div>
+          <h2>블록 간 맞대기 이음이 UT의 대상</h2>
+          <div class="svg-wrap"><svg id="ovSvg" viewBox="0 0 640 330" role="img" aria-label="해치코밍 측면도: 블록 간 맞대기 이음과 스태거 배치"></svg></div>
+          <div class="caption">해치코밍 측면 개념도 — Measure 카드에 마우스를 올리면 해당 요소가 강조됩니다. 블록 탑재 이음(선명한 세로선)이 Measure 1의 100% UT 대상입니다.</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="eyebrow">Measures 1–5</div>
+        <h2>예방 조치 한눈에 보기 <span class="hint" style="font-size:12px;color:var(--ink-3);font-weight:400">— 파란 테두리가 UT 관련 조치</span></h2>
+        <div class="measures" id="measureCards"></div>
+      </div>
+    </section>
+
+    <!-- ══════════ 2. 적용 판정 ══════════ -->
+    <section id="panel-table" role="tabpanel" aria-labelledby="tab-table" tabindex="0">
+      <div class="grid2">
+        <div class="col">
+          <div class="card">
+            <div class="eyebrow">Input — 검토 조건</div>
+            <h2>강재·두께를 선택하세요</h2>
+            <div class="field">
+              <label for="yieldSeg">규격 최소 항복강도 (강재 등급)</label>
+              <div class="seg" id="yieldSeg" role="group" aria-label="항복강도 선택">
+                <button data-y="355">355 (EH36)</button>
+                <button data-y="390">390 (EH40)</button>
+                <button data-y="460">460 (EH47)</button>
+              </div>
+            </div>
+            <div class="field">
+              <label for="tSlider">제어 두께 t<sub>control</sub> <span class="hint">— 코밍 측판/상판 as-built 두께 중 큰 값</span></label>
+              <div class="slider-row">
+                <input type="range" id="tSlider" min="10" max="110" step="1" value="65" aria-label="두께 (mm)">
+                <input type="number" id="tNum" class="numbox" min="10" max="110" step="1" value="65" aria-label="두께 직접 입력">
+                <span class="unit">mm</span>
+              </div>
+            </div>
+            <div class="field">
+              <label for="m3Sel">Measure 3 이행 방식 <span class="hint">— Note 2와 연동</span></label>
+              <select id="m3Sel" class="selbox">
+                <option value="block_shift">블록이음 어긋남 (stagger ≥ 300 mm)</option>
+                <option value="crack_arrest_hole">균열 정지 홀 (crack arrest hole)</option>
+                <option value="crack_arrest_insert">균열 정지 인서트 (insert)</option>
+                <option value="enhanced_NDE">Enhanced NDE (강화 초음파탐상)</option>
+              </select>
+            </div>
+          </div>
+          <div class="card">
+            <div class="eyebrow">Result — 요구 조치</div>
+            <h2 id="resultTitle">판정 결과</h2>
+            <div id="specialBanner" class="banner" hidden>⚠ <span>t &gt; 100 mm — 특별 고려(special consideration) 대상입니다. 수동 검토 전까지 모든 Measure를 '필요'로 간주합니다.</span></div>
+            <div class="result-list" id="resultList"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="eyebrow">Table 8.2.1</div>
+          <h2>두께 구간별 요구 조치 매트릭스 <span class="hint" style="font-size:12px;color:var(--ink-3);font-weight:400">— 행을 클릭하면 해당 두께로 이동합니다</span></h2>
+          <div class="scroll-x">
+            <table class="rules" id="tbl821">
+              <thead>
+                <tr>
+                  <th>두께 구간 (mm)</th>
+                  <th>Measure 1<br><span style="font-weight:400">건조 중 100% UT</span></th>
+                  <th>Measure 2<br><span style="font-weight:400">공용중 정기 NDE</span></th>
+                  <th>Measure 3 &amp; 4<br><span style="font-weight:400">균열 정지 대책 + BCA1</span></th>
+                  <th>Measure 5<br><span style="font-weight:400">BCA2 강재</span></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="notes">
+            <div><span class="st-r">● 필요</span> · <span class="st-n">─ 불필요</span> · <span class="st-2">※ Note 2 참조</span></div>
+            <div><b>Note 2</b> — Measure 3을 Enhanced NDE로 이행한 경우, 공용중 정기 NDE(Measure 2)가 요구될 수 있으며 주기·범위는 LR과 협의합니다. 다른 방식(블록 어긋남 등)으로 이행하면 Measure 2는 적용되지 않습니다.</div>
+            <div><b>결합 열</b> — 원표에서 Measure 3과 4는 하나의 열로 묶여 있으며, '필요'이면 두 조치 모두 적용됩니다.</div>
+            <div><b>t &gt; 100 mm</b> — 표의 범위를 벗어나며 특별 고려 대상입니다.</div>
+            <div style="color:var(--ink-3)">기본값 출처: 본 리포지토리 <span class="mono" style="font-family:var(--mono)">lr_hatch_coaming/rule_tables.py</span> (LR Pt 3, Ch 8 / Pt 4, Ch 8 기반) — 실제 적용 전 최신 규칙 원문과 대조하세요.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════ 3. 탐상 기하 ══════════ -->
+    <section id="panel-beam" role="tabpanel" aria-labelledby="tab-beam" tabindex="0">
+      <div class="grid2">
+        <div class="col">
+          <div class="card">
+            <div class="eyebrow">Probe — 탐촉자 설정</div>
+            <h2>각도와 위치를 움직여 보세요</h2>
+            <div class="field">
+              <label>굴절각 θ (사각 탐촉자)</label>
+              <div class="seg" id="angleSeg" role="group" aria-label="굴절각 선택">
+                <button data-a="45">45°</button>
+                <button data-a="60">60°</button>
+                <button data-a="70">70°</button>
+              </div>
+            </div>
+            <div class="field">
+              <label for="probeSlider">탐촉자 위치 d <span class="hint">— 용접 중심선에서 입사점까지 거리 (그림에서 직접 드래그 가능)</span></label>
+              <div class="slider-row">
+                <input type="range" id="probeSlider" min="10" max="450" step="1" value="240" aria-label="탐촉자 위치 (mm)">
+                <span class="numbox" id="probeVal" style="cursor:default">240</span>
+                <span class="unit">mm</span>
+              </div>
+            </div>
+            <div class="field">
+              <label for="tSlider2">판 두께 t <span class="hint">— 적용 판정 탭과 동기화</span></label>
+              <div class="slider-row">
+                <input type="range" id="tSlider2" min="10" max="110" step="1" value="65" aria-label="두께 (mm)">
+                <span class="numbox" id="tVal2" style="cursor:default">65</span>
+                <span class="unit">mm</span>
+              </div>
+            </div>
+            <div class="readouts" id="beamReadouts"></div>
+            <div class="formula" id="beamFormula"></div>
+            <div class="cov-chips" id="covChips"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="eyebrow">Cross-section — 용접부 단면</div>
+          <h2>빔 경로와 검사 체적</h2>
+          <div class="svg-wrap"><svg id="beamSvg" viewBox="0 0 760 400" role="img" aria-label="사각탐상 빔 경로 단면도"></svg></div>
+          <div class="caption">
+            판 두께를 관통해 반사되는 빔 경로(스킵)를 보여줍니다. 일반적으로 <b>0.5 스킵(½S)과 1 스킵(1S) 사이</b>에서
+            탐촉자를 전후로 주사(scanning)하면 루트부터 표면부까지 용접부 전 체적을 커버할 수 있습니다.
+            검사 체적은 용접금속뿐 아니라 열영향부(HAZ)와 인접 모재를 포함합니다.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════ 4. DAC · 판정 시뮬레이터 ══════════ -->
+    <section id="panel-dac" role="tabpanel" aria-labelledby="tab-dac" tabindex="0">
+      <div class="grid2">
+        <div class="col">
+          <div class="card">
+            <div class="eyebrow">Echo — 지시 에코 입력</div>
+            <h2>에코를 움직여 판정해 보세요</h2>
+            <div class="field">
+              <label for="pathSlider">빔 행정 (beam path)</label>
+              <div class="slider-row">
+                <input type="range" id="pathSlider" min="24" max="256" step="1" value="95" aria-label="빔 행정 (mm)">
+                <span class="numbox" id="pathVal" style="cursor:default">95</span>
+                <span class="unit">mm</span>
+              </div>
+            </div>
+            <div class="field">
+              <label for="ampSlider">에코 높이 (screen height)</label>
+              <div class="slider-row">
+                <input type="range" id="ampSlider" min="2" max="108" step="1" value="48" aria-label="에코 높이 (%FSH)">
+                <span class="numbox" id="ampVal" style="cursor:default">48</span>
+                <span class="unit">%FSH</span>
+              </div>
+            </div>
+            <div class="big-db">
+              <span class="val" id="relDbVal">—</span>
+              <span class="sub">dB (DAC 기준)&nbsp;·&nbsp;<span id="relBandName">—</span></span>
+            </div>
+            <div class="field">
+              <label for="lenSlider">지시 길이 ℓ (indication length)</label>
+              <div class="slider-row">
+                <input type="range" id="lenSlider" min="5" max="200" step="1" value="30" aria-label="지시 길이 (mm)">
+                <span class="numbox" id="lenVal" style="cursor:default">30</span>
+                <span class="unit">mm</span>
+              </div>
+            </div>
+            <div class="field">
+              <label>결함 성상 (defect character)</label>
+              <div class="seg" id="defectSeg" role="group" aria-label="결함 성상">
+                <button data-d="volumetric">체적형 (기공·슬래그)</button>
+                <button data-d="planar">면상형 (균열 등)</button>
+              </div>
+              <span class="hint">면상형(균열·융합불량·용입부족)으로 판정되면 에코 높이와 무관하게 불합격입니다.</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="eyebrow">Criteria — 판정 한계 <span class="tag-ex">예시값</span></div>
+            <h2>판정 기준 구조 (조정 가능)</h2>
+            <p style="font-size:12px">
+              레벨 구조는 ISO 17640/11666 계열의 전형이며, 아래 수치는 <b>교육용 예시값</b>입니다.
+              실제 한계는 승인된 NDE 절차서와 최신 LR Rules·ShipRight 절차를 따릅니다.
+            </p>
+            <div class="crit-grid">
+              <div class="field">
+                <label for="evalDb">평가선 (evaluation)</label>
+                <div class="slider-row"><input type="number" id="evalDb" class="numbox" min="-14" max="-6" step="1" value="-10"><span class="unit">dB</span></div>
+              </div>
+              <div class="field">
+                <label for="recDb">기록선 (recording)</label>
+                <div class="slider-row"><input type="number" id="recDb" class="numbox" min="-8" max="-2" step="1" value="-6"><span class="unit">dB</span></div>
+              </div>
+              <div class="field">
+                <label for="lenB">조건부 영역 허용 길이</label>
+                <div class="slider-row"><input type="number" id="lenB" class="numbox" min="0.1" max="1" step="0.05" value="0.5"><span class="unit">× t</span></div>
+              </div>
+              <div class="field">
+                <label for="lenC">기록 영역 허용 길이</label>
+                <div class="slider-row"><input type="number" id="lenC" class="numbox" min="0.2" max="2" step="0.05" value="1"><span class="unit">× t</span></div>
+              </div>
+            </div>
+            <label class="check-row">
+              <input type="checkbox" id="enhChk">
+              <span><b>Enhanced NDE 모드</b> — Measure 3을 강화 NDE로 이행(적용 판정 탭과 연동). 허용 길이를 ½로 강화(예시)하며, 이 경우 일렉트로가스 용접(EGW)은 허용되지 않고 용접부 CTOD ≥ 0.18 mm가 요구됩니다.</span>
+            </label>
+          </div>
+        </div>
+        <div class="col">
+          <div class="card">
+            <div class="eyebrow">DAC — 거리·진폭 보정 곡선</div>
+            <h2>에코 위치와 판정 영역 <span class="hint" style="font-size:12px;color:var(--ink-3);font-weight:400">— 흰 점을 드래그하세요</span></h2>
+            <div class="chart-wrap">
+              <div class="svg-wrap"><svg id="dacSvg" viewBox="0 0 760 430" role="img" aria-label="DAC 곡선과 판정 영역 차트"></svg></div>
+              <div class="tooltip" id="dacTip" hidden></div>
+            </div>
+            <div class="caption">
+              DAC(Distance Amplitude Correction) 기준선은 Ø3 mm 횡드릴 표준시험편(SDH) 에코로 작성한 기준 감도 곡선입니다.
+              같은 크기의 반사체라도 거리가 멀수록 에코가 낮아지므로, 지시 에코는 항상 <b>같은 거리의 DAC 대비 상대값(dB)</b>으로 평가합니다.
+            </div>
+          </div>
+          <div class="verdict" id="verdictCard">
+            <div class="v-head">
+              <div class="v-icon" id="vIcon">✓</div>
+              <div>
+                <div class="v-title" id="vTitle">—</div>
+                <div class="v-band" id="vBand">—</div>
+              </div>
+            </div>
+            <ul id="vReasons"></ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════ 5. 용어 · 참고 ══════════ -->
+    <section id="panel-ref" role="tabpanel" aria-labelledby="tab-ref" tabindex="0">
+      <div class="grid2 grid-ref">
+        <div class="col">
+          <div class="card">
+            <div class="eyebrow">Glossary — 용어집</div>
+            <h2>핵심 용어</h2>
+            <dl class="gloss">
+              <div class="gterm"><dt>UT (Ultrasonic Testing)</dt><dd>초음파를 판재에 입사시켜 내부 결함의 반사 에코로 결함을 찾는 비파괴검사.</dd></div>
+              <div class="gterm"><dt>DAC 곡선</dt><dd>거리·진폭 보정 곡선. 표준 반사체(Ø3 mm SDH 등)의 에코 높이를 거리별로 연결한 기준 감도선.</dd></div>
+              <div class="gterm"><dt>%FSH</dt><dd>Full Screen Height. 탐상기 화면 최대 높이에 대한 에코 높이 백분율.</dd></div>
+              <div class="gterm"><dt>dB (데시벨)</dt><dd>에코 높이의 비를 로그로 나타낸 값. ΔdB = 20·log₁₀(H/H<sub>기준</sub>). −6 dB는 절반, −12 dB는 ¼.</dd></div>
+              <div class="gterm"><dt>SDH</dt><dd>Side-Drilled Hole. DAC 작성에 쓰는 횡드릴 구멍 표준 반사체 (통상 Ø3 mm).</dd></div>
+              <div class="gterm"><dt>스킵 (skip)</dt><dd>사각탐상에서 빔이 바닥면에 한 번 반사되어 표면으로 돌아오는 구간. 0.5 스킵 거리 = t·tanθ.</dd></div>
+              <div class="gterm"><dt>사각탐상 (angle beam)</dt><dd>45°·60°·70° 등 굴절각을 가진 탐촉자로 비스듬히 입사시키는 기법. 맞대기 용접부 검사의 표준.</dd></div>
+              <div class="gterm"><dt>지시 길이 ℓ</dt><dd>결함 에코가 평가 레벨을 넘는 구간을 따라 측정한 지시의 길이. 판 두께 t와 비교해 판정.</dd></div>
+              <div class="gterm"><dt>Block-to-Block 이음</dt><dd>선체 블록 탑재 시 형성되는 맞대기 용접 이음. Measure 1의 100% UT 대상.</dd></div>
+              <div class="gterm"><dt>BCA1 / BCA2</dt><dd>취성균열 정지(Brittle Crack Arrest) 강재. BCA2는 더 높은 Kca 인성 요구 (Table 8.2.2).</dd></div>
+              <div class="gterm"><dt>CTOD</dt><dd>Crack Tip Opening Displacement. 용접부 파괴인성 시험. Enhanced NDE 채택 시 ≥ 0.18 mm 요구.</dd></div>
+              <div class="gterm"><dt>EGW</dt><dd>일렉트로가스 용접. 대입열 용접법으로, Enhanced NDE를 Measure 3으로 채택한 경우 허용되지 않음.</dd></div>
+              <div class="gterm"><dt>HAZ</dt><dd>Heat Affected Zone(열영향부). 검사 체적은 용접금속 + HAZ + 인접 모재를 포함.</dd></div>
+              <div class="gterm"><dt>Enhanced NDE</dt><dd>일반 기준보다 엄격한 합격 기준을 적용하는 강화 초음파탐상. ShipRight 절차에 따름.</dd></div>
+            </dl>
+          </div>
+        </div>
+        <div class="col">
+          <div class="card">
+            <div class="eyebrow">Rules — 규정 체계</div>
+            <h2>관련 규정·표준</h2>
+            <ul class="ref-list">
+              <li><b>LR Rules for Ships</b> — Pt 3, Ch 8 §8.2 / Pt 4, Ch 8 §2.3 · 해치코밍 후판 취성균열 예방 조치 (Table 8.2.1 / 8.2.2)</li>
+              <li><b>LR ShipRight 절차</b> — Enhanced NDE의 강화 합격 기준 및 시공 감리</li>
+              <li><b>IACS UR S33</b> — 극후판(extremely thick plate) 적용 요건. LR 규칙의 모체가 되는 통일 규칙</li>
+              <li><b>IACS Rec. No. 20</b> — 선체 용접부 비파괴검사 가이드</li>
+              <li><b>ISO 17640 / ISO 11666</b> — 용접부 UT 기법·레벨 및 합격 레벨의 일반 표준 (참고)</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="eyebrow">dB ↔ 에코 높이</div>
+            <h2>환산 표</h2>
+            <div class="scroll-x">
+              <table class="dbtab">
+                <thead><tr><th>ΔdB (기준 대비)</th><th>에코 높이 비</th></tr></thead>
+                <tbody>
+                  <tr><td>+6</td><td>200 %</td></tr>
+                  <tr><td>+2</td><td>126 %</td></tr>
+                  <tr><td>0</td><td>100 % (기준선)</td></tr>
+                  <tr><td>−2</td><td>79 %</td></tr>
+                  <tr><td>−4</td><td>63 %</td></tr>
+                  <tr><td>−6</td><td>50 %</td></tr>
+                  <tr><td>−10</td><td>32 %</td></tr>
+                  <tr><td>−14</td><td>20 %</td></tr>
+                  <tr><td>−20</td><td>10 %</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="disclaimer">
+            <b>면책 · 사용 안내</b> — 본 도구는 교육·참고용 시각화입니다. Table 8.2.1 기본값은 본 리포지토리 결정 엔진(rule_tables.py)과 동일하게 구성했으며,
+            '예시값'으로 표시된 판정 한계(평가선·기록선·허용 길이)는 규정 원문이 아닌 교육용 예시입니다.
+            실제 판정은 <b>최신 LR Rules 원문, 승인된 NDE 절차서, 선급 검사관의 결정</b>을 따라야 합니다.
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    <div>LR Rules UT Criteria Interactive Guide · automsitory — 교육·참고용. 실제 적용은 최신 LR Rules 원문과 승인 절차서 기준.</div>
+    <div>Table 8.2.1 기본값: lr-hatch-coaming-measures/lr_hatch_coaming/rule_tables.py 와 동일 · 판정 한계 '예시값'은 규정 원문이 아님.</div>
+  </footer>
+</div>
+
+<script>
+'use strict';
+/* ═══════════════ 공통 유틸 ═══════════════ */
+const $  = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+const NS = 'http://www.w3.org/2000/svg';
+function sv(tag, attrs={}, parent){
+  const n = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)){
+    if (k === 'text') n.textContent = v; else n.setAttribute(k, v);
+  }
+  if (parent) parent.appendChild(n);
+  return n;
+}
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const fmt = (v, d=1) => Number(v).toFixed(d);
+const rad = deg => deg * Math.PI / 180;
+
+/* ═══════════════ 상태 ═══════════════ */
+const state = {
+  yieldN: 460,
+  t: 65,
+  m3option: 'block_shift',
+  prevM3: 'block_shift',
+  angle: 70,
+  probePos: 240,
+  echo: { path: 95, amp: 48 },
+  indLen: 30,
+  defect: 'volumetric',
+  crit: { evalDb: -10, recDb: -6, lenB: 0.5, lenC: 1.0 }
+};
+const isEnhanced = () => state.m3option === 'enhanced_NDE';
+
+/* ═══════════════ Table 8.2.1 — rule_tables.py 기본값과 동일 ═══════════════ */
+const GRADES = { 355: 'EH36', 390: 'EH40', 460: 'EH47' };
+const TABLE_821 = {
+  355: [
+    { range: 't ≤ 50',        min: 0,  max: 50,  m1: 'NR', m2: 'NR', m34: 'NR', m5: 'NR' },
+    { range: '50 < t ≤ 65',   min: 50, max: 65,  m1: 'R',  m2: 'NR', m34: 'NR', m5: 'NR' },
+    { range: '65 < t ≤ 85',   min: 65, max: 85,  m1: 'R',  m2: 'N2', m34: 'R',  m5: 'NR' },
+    { range: '85 < t ≤ 100',  min: 85, max: 100, m1: 'R',  m2: 'N2', m34: 'R',  m5: 'R'  }
+  ],
+  390: [
+    { range: 't ≤ 40',        min: 0,  max: 40,  m1: 'NR', m2: 'NR', m34: 'NR', m5: 'NR' },
+    { range: '40 < t ≤ 50',   min: 40, max: 50,  m1: 'R',  m2: 'NR', m34: 'NR', m5: 'NR' },
+    { range: '50 < t ≤ 65',   min: 50, max: 65,  m1: 'R',  m2: 'N2', m34: 'R',  m5: 'NR' },
+    { range: '65 < t ≤ 85',   min: 65, max: 85,  m1: 'R',  m2: 'N2', m34: 'R',  m5: 'R'  },
+    { range: '85 < t ≤ 100',  min: 85, max: 100, m1: 'R',  m2: 'N2', m34: 'R',  m5: 'R'  }
+  ],
+  460: [
+    { range: 't ≤ 30',        min: 0,  max: 30,  m1: 'NR', m2: 'NR', m34: 'NR', m5: 'NR' },
+    { range: '30 < t ≤ 40',   min: 30, max: 40,  m1: 'R',  m2: 'NR', m34: 'NR', m5: 'NR' },
+    { range: '40 < t ≤ 50',   min: 40, max: 50,  m1: 'R',  m2: 'N2', m34: 'R',  m5: 'NR' },
+    { range: '50 < t ≤ 65',   min: 50, max: 65,  m1: 'R',  m2: 'N2', m34: 'R',  m5: 'R'  },
+    { range: '65 < t ≤ 85',   min: 65, max: 85,  m1: 'R',  m2: 'N2', m34: 'R',  m5: 'R'  },
+    { range: '85 < t ≤ 100',  min: 85, max: 100, m1: 'R',  m2: 'N2', m34: 'R',  m5: 'R'  }
+  ]
+};
+
+const MEASURES = [
+  { no: 1, ut: 'direct', title: '건조 중 100% UT',
+    desc: '상부 플랜지 종통 부재의 모든 블록 간(block-to-block) 맞대기 이음에 대해 건조 중 100% 초음파탐상.', hl: 'm1' },
+  { no: 2, ut: 'direct', title: '공용중 정기 NDE',
+    desc: '취항 후 정기적으로 횡방향 맞대기 이음을 비파괴검사. Note 2: Measure 3을 Enhanced NDE로 이행한 경우 적용(주기·범위는 LR 협의).', hl: 'm2' },
+  { no: 3, ut: 'partial', title: '취성균열 전파 정지 대책',
+    desc: '블록이음 어긋남(stagger ≥ 300 mm)·균열 정지 홀/인서트 등의 설계 대책, 또는 강화 판정 기준의 Enhanced NDE(CTOD ≥ 0.18 mm, EGW 불가).', hl: 'm3' },
+  { no: 4, ut: 'none', title: 'BCA1 강재 적용',
+    desc: '해치코밍 등 해당 부재에 취성균열 정지 강재 BCA1 적용 (Table 8.2.2).', hl: 'm4' },
+  { no: 5, ut: 'none', title: 'BCA2 강재 적용',
+    desc: '더 두꺼운 구간에는 고성능 취성균열 정지 강재 BCA2 적용 (Table 8.2.2).', hl: 'm5' }
+];
+
+function lookup821(y, t){
+  if (t > 100) return { special: true, row: null };
+  const rows = TABLE_821[y];
+  for (const r of rows){
+    if ((r.min === 0 && t <= r.max) || (t > r.min && t <= r.max)) return { special: false, row: r };
+  }
+  return { special: false, row: rows[0] };
+}
+
+/* decision_engine.py 의 로직을 그대로 반영: 3&4 확장, Note 2, t>100 특별 고려 */
+function measureStatuses(){
+  const res = lookup821(state.yieldN, state.t);
+  const st = { 1:'NR', 2:'NR', 3:'NR', 4:'NR', 5:'NR', special: res.special, row: res.row };
+  if (res.special){ for (let i=1;i<=5;i++) st[i]='R'; return st; }
+  const r = res.row;
+  st[1] = r.m1; st[3] = r.m34; st[4] = r.m34; st[5] = r.m5;
+  st[2] = (r.m2 === 'N2') ? (isEnhanced() ? 'C' : 'NR2') : r.m2;
+  return st;
+}
+const ST_META = {
+  R:   { label: '필요',   cls: 'req',  icon: '●' },
+  C:   { label: '조건부', cls: 'cond', icon: '※' },
+  NR:  { label: '불필요', cls: '',     icon: '─' },
+  NR2: { label: '불필요', cls: '',     icon: '─' }
+};
+
+/* ═══════════════ 헤더 조건 칩 ═══════════════ */
+function renderHeader(){
+  const st = measureStatuses();
+  $('#condLine').innerHTML = '';
+  const line = $('#condLine');
+  const strong = document.createElement('strong');
+  strong.textContent = `${GRADES[state.yieldN]} · YP ${state.yieldN} · t = ${state.t} mm`;
+  line.appendChild(strong);
+  const bd = $('#condBadges');
+  bd.innerHTML = '';
+  for (let i=1;i<=5;i++){
+    const b = document.createElement('span');
+    const meta = ST_META[st[i]];
+    b.className = 'mbadge ' + meta.cls;
+    b.textContent = 'M' + i;
+    b.title = `Measure ${i}: ${meta.label}${st.special ? ' (특별 고려)' : ''}`;
+    bd.appendChild(b);
+  }
+}
+
+/* ═══════════════ 1. 개요 ═══════════════ */
+function buildOverview(){
+  const wrap = $('#measureCards');
+  wrap.innerHTML = '';
+  for (const m of MEASURES){
+    const c = document.createElement('div');
+    c.className = 'mcard ' + (m.ut === 'direct' ? 'ut-direct' : m.ut === 'partial' ? 'ut-direct' : 'ut-none');
+    c.tabIndex = 0;
+    const no = document.createElement('div'); no.className = 'm-no';
+    no.textContent = 'MEASURE ' + m.no + (m.ut === 'direct' ? ' · UT' : m.ut === 'partial' ? ' · UT 옵션' : '');
+    const h = document.createElement('h3'); h.textContent = m.title;
+    const p = document.createElement('p'); p.textContent = m.desc;
+    c.append(no, h, p);
+    const on  = () => $('#ovSvg').classList.add('hl-' + m.hl);
+    const off = () => $('#ovSvg').classList.remove('hl-' + m.hl);
+    c.addEventListener('mouseenter', on); c.addEventListener('mouseleave', off);
+    c.addEventListener('focus', on);      c.addEventListener('blur', off);
+    wrap.appendChild(c);
+  }
+  buildOverviewSvg();
+}
+
+function buildOverviewSvg(){
+  const svg = $('#ovSvg');
+  svg.innerHTML = '';
+  const ink2 = 'var(--ink-2)', ink3 = 'var(--ink-3)';
+  // 갑판 / 코밍 측판 / 코밍 상판 (측면도)
+  sv('text', { x: 12, y: 24, fill: ink3, 'font-size': 11, text: '해치코밍 측면도 (블록 3개 탑재 후)' }, svg);
+  // 코밍 상판 (top plate)
+  sv('rect', { x: 30, y: 60, width: 560, height: 16, fill: 'rgba(245,184,61,.16)', stroke: 'var(--line)', class: 'plate-fill' }, svg);
+  sv('text', { x: 596, y: 72, fill: ink3, 'font-size': 10, text: '코밍 상판' }, svg);
+  // 코밍 측판 (side plate)
+  sv('rect', { x: 30, y: 76, width: 560, height: 96, fill: 'rgba(63,198,232,.10)', stroke: 'var(--line)', class: 'plate-fill' }, svg);
+  sv('text', { x: 596, y: 128, fill: ink3, 'font-size': 10, text: '코밍 측판' }, svg);
+  // 상갑판 (deck)
+  sv('rect', { x: 30, y: 172, width: 560, height: 14, fill: 'rgba(169,185,209,.12)', stroke: 'var(--line)' }, svg);
+  sv('text', { x: 596, y: 183, fill: ink3, 'font-size': 10, text: '상갑판' }, svg);
+  // 종통재 (longitudinals) 아래
+  for (const y of [200, 216]){
+    sv('line', { x1: 30, y1: y, x2: 590, y2: y, stroke: 'var(--line-soft)', 'stroke-width': 4 }, svg);
+  }
+  sv('text', { x: 596, y: 212, fill: ink3, 'font-size': 10, text: '종통재' }, svg);
+  // 블록 이음 (코밍: x=250, 470 / 갑판: stagger 만큼 오프셋 x=330, 550)
+  const seamC = [250, 470], seamD = [330, 550];
+  for (const x of seamC){
+    sv('line', { x1: x, y1: 58, x2: x, y2: 174, class: 'seam hl' }, svg);
+  }
+  for (const x of seamD){
+    sv('line', { x1: x, y1: 170, x2: x, y2: 224, class: 'seam hl', 'stroke-dasharray': 'none' }, svg);
+  }
+  // 스태거 치수 (M3)
+  const g = sv('g', { class: 'stagger-dim hl' }, svg);
+  sv('line', { x1: 250, y1: 246, x2: 330, y2: 246, stroke: 'var(--cyan)', 'stroke-width': 1.5 }, g);
+  sv('line', { x1: 250, y1: 240, x2: 250, y2: 252, stroke: 'var(--cyan)', 'stroke-width': 1.5 }, g);
+  sv('line', { x1: 330, y1: 240, x2: 330, y2: 252, stroke: 'var(--cyan)', 'stroke-width': 1.5 }, g);
+  sv('text', { x: 290, y: 266, fill: 'var(--cyan)', 'font-size': 11, 'text-anchor': 'middle', class: 'mono', text: 'stagger ≥ 300 mm' }, g);
+  // 콜아웃
+  sv('text', { x: 250, y: 46, fill: 'var(--amber)', 'font-size': 11.5, 'text-anchor': 'middle', 'font-weight': 700, text: 'Block-to-Block 맞대기 이음' }, svg);
+  sv('text', { x: 30, y: 296, fill: ink2, 'font-size': 11, text: '세로 실선(앰버) = 블록 탑재 이음 → Measure 1: 건조 중 100% UT · Measure 2: 공용중 정기 NDE' }, svg);
+  sv('text', { x: 30, y: 314, fill: ink3, 'font-size': 10.5, text: '코밍 이음과 갑판 이음을 어긋나게 배치(stagger)하는 것이 Measure 3의 설계 대책 중 하나' }, svg);
+  sv('text', { x: 140, y: 130, fill: ink3, 'font-size': 10.5, 'text-anchor': 'middle', text: '블록 A' }, svg);
+  sv('text', { x: 360, y: 130, fill: ink3, 'font-size': 10.5, 'text-anchor': 'middle', text: '블록 B' }, svg);
+  sv('text', { x: 545, y: 130, fill: ink3, 'font-size': 10.5, 'text-anchor': 'middle', text: '블록 C' }, svg);
+}
+
+/* ═══════════════ 2. 적용 판정 ═══════════════ */
+function renderTablePanel(){
+  const st = measureStatuses();
+  // segmented 상태
+  $$('#yieldSeg button').forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.y) === state.yieldN)));
+  $('#tSlider').value = state.t; $('#tNum').value = state.t;
+  $('#m3Sel').value = state.m3option;
+
+  // 표
+  const tbody = $('#tbl821 tbody');
+  tbody.innerHTML = '';
+  const cell = (code) => {
+    const td = document.createElement('td');
+    if (code === 'R'){ td.className = 'st-r'; td.textContent = '● 필요'; }
+    else if (code === 'N2'){ td.className = 'st-2'; td.textContent = '※ Note 2'; }
+    else { td.className = 'st-n'; td.textContent = '─ 불필요'; }
+    return td;
+  };
+  for (const r of TABLE_821[state.yieldN]){
+    const tr = document.createElement('tr');
+    const td0 = document.createElement('td'); td0.textContent = r.range;
+    tr.append(td0, cell(r.m1), cell(r.m2), cell(r.m34), cell(r.m5));
+    if (!st.special && st.row === r) tr.classList.add('active');
+    tr.addEventListener('click', () => {
+      state.t = Math.round(r.min === 0 ? r.max / 2 : (r.min + r.max) / 2);
+      renderAll();
+    });
+    tbody.appendChild(tr);
+  }
+
+  // 결과
+  $('#specialBanner').hidden = !st.special;
+  $('#resultTitle').textContent = st.special
+    ? `판정 결과 — t = ${state.t} mm (특별 고려)`
+    : `판정 결과 — ${GRADES[state.yieldN]}, t = ${state.t} mm (${st.row.range})`;
+  const list = $('#resultList');
+  list.innerHTML = '';
+  for (const m of MEASURES){
+    const code = st[m.no];
+    const meta = ST_META[code];
+    const row = document.createElement('div'); row.className = 'result-row';
+    const no = document.createElement('div'); no.className = 'rr-no'; no.textContent = 'M' + m.no;
+    const main = document.createElement('div'); main.className = 'rr-main';
+    const tt = document.createElement('div'); tt.className = 'rr-title'; tt.textContent = m.title;
+    const dd = document.createElement('div'); dd.className = 'rr-desc';
+    dd.textContent =
+      (m.no === 2 && code === 'C')   ? 'Note 2 — Enhanced NDE 이행에 따라 공용중 정기 NDE 적용(주기·범위 LR 협의)' :
+      (m.no === 2 && code === 'NR2' && st.row && st.row.m2 === 'N2')
+        ? 'Note 2 — 현재 Measure 3 이행 방식이 Enhanced NDE가 아니므로 미적용' :
+      m.desc;
+    main.append(tt, dd);
+    const chip = document.createElement('span'); chip.className = 'chip ' + (meta.cls || '');
+    chip.textContent = meta.icon + ' ' + meta.label;
+    row.append(no, main, chip);
+    list.appendChild(row);
+  }
+}
+
+/* ═══════════════ 3. 탐상 기하 ═══════════════ */
+function beamGeom(){
+  const t = state.t, th = rad(state.angle);
+  const T = t * Math.tan(th);          // 0.5 스킵 표면 거리
+  return { t, T, halfPath: t / Math.cos(th), maxP: Math.ceil(1.25 * 2 * T) };
+}
+
+function renderBeamPanel(){
+  const g = beamGeom();
+  const slider = $('#probeSlider');
+  slider.max = Math.max(60, g.maxP);
+  state.probePos = clamp(state.probePos, 10, Number(slider.max));
+  slider.value = state.probePos;
+  $('#probeVal').textContent = state.probePos;
+  $('#tSlider2').value = state.t; $('#tVal2').textContent = state.t;
+  $$('#angleSeg button').forEach(b => b.setAttribute('aria-pressed', String(Number(b.dataset.a) === state.angle)));
+
+  // 수치 판독
+  const ro = $('#beamReadouts');
+  ro.innerHTML = '';
+  const mk = (label, val, unit) => {
+    const d = document.createElement('div'); d.className = 'ro';
+    const l = document.createElement('div'); l.className = 'ro-label'; l.textContent = label;
+    const v = document.createElement('div'); v.className = 'ro-value';
+    v.textContent = val; const s = document.createElement('small'); s.textContent = ' ' + unit;
+    v.appendChild(s); d.append(l, v); return d;
+  };
+  ro.append(
+    mk('0.5 스킵 거리', fmt(g.T, 1), 'mm'),
+    mk('1.0 스킵 거리', fmt(2 * g.T, 1), 'mm'),
+    mk('반행정 빔 거리', fmt(g.halfPath, 1), 'mm'),
+    mk('1스킵 빔 거리', fmt(2 * g.halfPath, 1), 'mm')
+  );
+  const f = $('#beamFormula');
+  f.innerHTML = '';
+  f.append(
+    Object.assign(document.createElement('div'), { textContent: `0.5S = t·tanθ = ${state.t}×tan${state.angle}° = ${fmt(g.T,1)} mm` }),
+    Object.assign(document.createElement('div'), { textContent: `빔 행정(반행정) = t/cosθ = ${fmt(g.halfPath,1)} mm` })
+  );
+
+  drawBeamSvg(g);
+}
+
+function drawBeamSvg(g){
+  const svg = $('#beamSvg');
+  svg.innerHTML = '';
+  const W = 760, H = 400;
+  const scale = Math.min(560 / g.maxP, 150 / g.t);
+  const xCL = 60 + g.maxP * scale;          // 용접 중심선 x(px) — 좌측 60px는 프로브 몸체 여유
+  const y0 = 150, y1 = y0 + g.t * scale;    // 판 상/하면
+  const plateL = 20, plateR = 740;
+  const mm2x = (dmm) => xCL - dmm * scale;  // 중심선 기준 왼쪽으로 dmm
+
+  // 클립 (빔은 판 내부만)
+  const defs = sv('defs', {}, svg);
+  const clip = sv('clipPath', { id: 'plateClip' }, defs);
+  sv('rect', { x: plateL, y: y0, width: plateR - plateL, height: y1 - y0 }, clip);
+
+  // 판재
+  sv('rect', { x: plateL, y: y0, width: plateR - plateL, height: y1 - y0, fill: 'rgba(169,185,209,.07)', stroke: 'var(--line)' }, svg);
+  // 두께 치수
+  sv('line', { x1: plateL - 8, y1: y0, x2: plateL - 8, y2: y1, stroke: 'var(--ink-3)', 'stroke-width': 1 }, svg);
+  sv('text', { x: plateL + 8, y: (y0 + y1) / 2 + 4, fill: 'var(--ink-2)', 'font-size': 11, class: 'mono', text: `t = ${g.t} mm` }, svg);
+
+  // 용접부 (single-V 개념도) + HAZ + 검사 체적
+  const wTop = (0.30 * g.t + 4) * scale, wBot = 3 * scale, hazW = 10 * scale;
+  const weldPoly = `${xCL - wTop},${y0} ${xCL + wTop},${y0} ${xCL + wBot},${y1} ${xCL - wBot},${y1}`;
+  const examPoly = `${xCL - wTop - hazW},${y0} ${xCL + wTop + hazW},${y0} ${xCL + wBot + hazW},${y1} ${xCL - wBot - hazW},${y1}`;
+  sv('polygon', { points: examPoly, fill: 'rgba(63,198,232,.06)', stroke: 'var(--line-soft)' }, svg);
+  sv('polygon', { points: weldPoly, fill: 'rgba(245,184,61,.16)', stroke: 'rgba(245,184,61,.65)', 'stroke-width': 1.5 }, svg);
+  sv('text', { x: xCL, y: y0 - 54, fill: 'var(--amber)', 'font-size': 11.5, 'text-anchor': 'middle', 'font-weight': 700, text: '용접부 (block joint)' }, svg);
+  sv('text', { x: xCL, y: y0 - 40, fill: 'var(--ink-3)', 'font-size': 10.5, 'text-anchor': 'middle', text: '검사 체적 = 용접금속 + HAZ + 인접 모재' }, svg);
+  sv('line', { x1: xCL, y1: y0 - 34, x2: xCL, y2: y0 - 4, stroke: 'var(--ink-3)', 'stroke-width': 1, 'stroke-dasharray': '3 3' }, svg);
+
+  // 빔 경로 (프로브 → 바닥 반사 → 표면)
+  const th = rad(state.angle);
+  const xp = mm2x(state.probePos);
+  const dxLeg = g.t * Math.tan(th) * scale;
+  const p0 = [xp, y0], p1 = [xp + dxLeg, y1], p2 = [xp + 2 * dxLeg, y0];
+  const beamG = sv('g', { 'clip-path': 'url(#plateClip)' }, svg);
+  sv('polyline', { points: `${p0} ${p1} ${p2}`, fill: 'none', stroke: 'var(--cyan)', 'stroke-width': 2, 'stroke-linejoin': 'round', class: 'beam-anim' }, beamG);
+
+  // 용접부 교차 구간 하이라이트 (mm 좌표에서 샘플링)
+  const hitZones = new Set();
+  let hitAny = false;
+  const halfW_mm = (z) => (3 + ((0.30 * g.t + 4) - 3) * (1 - z / g.t));
+  const legs = [
+    { xa: -state.probePos, za: 0, xb: -state.probePos + g.t * Math.tan(th), zb: g.t },
+    { xa: -state.probePos + g.t * Math.tan(th), za: g.t, xb: -state.probePos + 2 * g.t * Math.tan(th), zb: 0 }
+  ];
+  for (const leg of legs){
+    let run = null;
+    const N = 220;
+    for (let i = 0; i <= N; i++){
+      const s = i / N;
+      const x = leg.xa + (leg.xb - leg.xa) * s;   // 중심선 기준 mm (오른쪽 +)
+      const z = leg.za + (leg.zb - leg.za) * s;   // 깊이 mm
+      const inside = Math.abs(x) <= halfW_mm(z);
+      if (inside){
+        hitAny = true;
+        hitZones.add(z < g.t / 3 ? 'cap' : z < 2 * g.t / 3 ? 'mid' : 'root');
+        if (!run) run = [s, s]; else run[1] = s;
+      } else if (run){ drawHit(leg, run); run = null; }
+    }
+    if (run) drawHit(leg, run);
+  }
+  function drawHit(leg, run){
+    const pt = (s) => [ xCL + (leg.xa + (leg.xb - leg.xa) * s) * scale, y0 + (leg.za + (leg.zb - leg.za) * s) * scale ];
+    const a = pt(run[0]), b = pt(run[1]);
+    sv('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: 'var(--amber)', 'stroke-width': 4, 'stroke-linecap': 'round' }, beamG);
+  }
+
+  // 스킵 지점 마커
+  sv('circle', { cx: p1[0], cy: p1[1], r: 3.5, fill: 'var(--cyan)', stroke: 'var(--surface)', 'stroke-width': 2 }, svg);
+  if (p2[0] <= plateR) sv('circle', { cx: p2[0], cy: p2[1], r: 3.5, fill: 'var(--cyan)', stroke: 'var(--surface)', 'stroke-width': 2 }, svg);
+
+  // 0.5S / 1S 기준 위치 눈금 (용접 중심선 기준)
+  for (const [k, label] of [[1, '½S'], [2, '1S']]){
+    const x = mm2x(k * g.t * Math.tan(th));
+    if (x > plateL + 8){
+      sv('line', { x1: x, y1: y0 - 6, x2: x, y2: y0, stroke: 'var(--ink-3)', 'stroke-width': 1.5 }, svg);
+      sv('text', { x, y: y0 - 10, fill: 'var(--ink-3)', 'font-size': 10, 'text-anchor': 'middle', class: 'mono', text: label }, svg);
+    }
+  }
+
+  // 프로브 (드래그 가능)
+  const pg = sv('g', { id: 'probeG', style: 'cursor:grab' }, svg);
+  sv('rect', { x: xp - 40, y: y0 - 26, width: 52, height: 26, rx: 4, fill: 'var(--panel-2)', stroke: 'var(--cyan)', 'stroke-width': 1.5 }, pg);
+  sv('polygon', { points: `${xp + 12},${y0 - 26} ${xp + 26},${y0} ${xp + 12},${y0}`, fill: 'var(--panel-2)', stroke: 'var(--cyan)', 'stroke-width': 1.5 }, pg);
+  sv('text', { x: xp - 14, y: y0 - 9, fill: 'var(--ink)', 'font-size': 11, 'text-anchor': 'middle', class: 'mono', text: state.angle + '°' }, pg);
+  sv('rect', { x: xp - 52, y: y0 - 44, width: 92, height: 52, fill: 'transparent' }, pg); // 큰 히트 영역
+
+  // 프로브 거리 치수
+  const dimY = y0 - 58;
+  sv('line', { x1: xp, y1: dimY, x2: xCL, y2: dimY, stroke: 'var(--ink-3)', 'stroke-width': 1 }, svg);
+  sv('line', { x1: xp, y1: dimY - 5, x2: xp, y2: dimY + 5, stroke: 'var(--ink-3)' }, svg);
+  sv('text', { x: (xp + xCL) / 2, y: dimY - 7, fill: 'var(--ink-2)', 'font-size': 11, 'text-anchor': 'middle', class: 'mono', text: `d = ${state.probePos} mm` }, svg);
+
+  // 표면/이면 라벨
+  sv('text', { x: plateR, y: y0 - 6, fill: 'var(--ink-3)', 'font-size': 10, 'text-anchor': 'end', text: '탐상면' }, svg);
+  sv('text', { x: plateR, y: y1 + 14, fill: 'var(--ink-3)', 'font-size': 10, 'text-anchor': 'end', text: '이면(바닥)' }, svg);
+
+  // 커버리지 칩
+  const cw = $('#covChips');
+  cw.innerHTML = '';
+  const zones = [['root', '루트부 (하 ⅓)'], ['mid', '중간부'], ['cap', '표면부 (상 ⅓)']];
+  const lead = document.createElement('span');
+  lead.className = 'chip ' + (hitAny ? 'ok' : 'bad');
+  lead.textContent = hitAny ? '✓ 빔이 용접부 통과' : '✕ 빔이 용접부를 지나지 않음';
+  cw.appendChild(lead);
+  for (const [key, label] of zones){
+    const c = document.createElement('span');
+    const hit = hitZones.has(key);
+    c.className = 'chip ' + (hit ? 'req' : '');
+    c.textContent = (hit ? '● ' : '─ ') + label;
+    cw.appendChild(c);
+  }
+
+  // 드래그 핸들러
+  pg.addEventListener('pointerdown', (ev) => {
+    ev.preventDefault();
+    pg.setPointerCapture(ev.pointerId);
+    pg.style.cursor = 'grabbing';
+    const rect = svg.getBoundingClientRect();
+    const toMm = (clientX) => {
+      const xSvg = (clientX - rect.left) * (W / rect.width);
+      return clamp(Math.round((xCL - xSvg) / scale), 10, g.maxP);
+    };
+    const move = (e) => { state.probePos = toMm(e.clientX); renderBeamPanel(); };
+    const up = (e) => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  });
+}
+
+/* ═══════════════ 4. DAC · 판정 ═══════════════ */
+const DAC = {
+  W: 760, H: 430, padL: 58, padR: 150, padT: 26, padB: 48,
+  dMin: 20, dMax: 260, aMax: 110
+};
+const dacAt = (d) => 92 * Math.exp(-0.0062 * (d - 28));
+const dX = (d) => DAC.padL + (d - DAC.dMin) / (DAC.dMax - DAC.dMin) * (DAC.W - DAC.padL - DAC.padR);
+const aY = (a) => DAC.H - DAC.padB - (a / DAC.aMax) * (DAC.H - DAC.padT - DAC.padB);
+const xToD = (x) => clamp(DAC.dMin + (x - DAC.padL) / (DAC.W - DAC.padL - DAC.padR) * (DAC.dMax - DAC.dMin), DAC.dMin, DAC.dMax);
+const yToA = (y) => clamp((DAC.H - DAC.padB - y) / (DAC.H - DAC.padT - DAC.padB) * DAC.aMax, 1, DAC.aMax - 2);
+
+function curvePts(dbOffset){
+  const f = Math.pow(10, dbOffset / 20);
+  const pts = [];
+  for (let d = DAC.dMin; d <= DAC.dMax; d += 4){
+    pts.push([dX(d), aY(Math.min(DAC.aMax, dacAt(d) * f))]);
+  }
+  return pts;
+}
+const ptsToStr = (pts) => pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+
+function relDb(){
+  return 20 * Math.log10(state.echo.amp / dacAt(state.echo.path));
+}
+function bandOf(rel){
+  const c = state.crit;
+  if (rel >= 0) return 'A';
+  if (rel >= c.recDb) return 'B';
+  if (rel >= c.evalDb) return 'C';
+  return 'X';
+}
+const BAND_NAMES = { A: 'DAC 초과 (불합격 영역)', B: '조건부 영역 (기록선 이상)', C: '기록·평가 영역', X: '평가선 미만 (기록 불요)' };
+
+function verdict(){
+  const rel = relDb();
+  const c = state.crit, t = state.t;
+  const f = isEnhanced() ? 0.5 : 1;
+  const LB = c.lenB * f * t, LC = c.lenC * f * t;
+  const band = bandOf(rel);
+  const enhNote = isEnhanced() ? ` (Enhanced NDE: 허용 길이 ×${f})` : '';
+  if (state.defect === 'planar'){
+    return { code: 'REJ', band: '결함 성상', title: '불합격',
+      reasons: ['면상 결함(균열·융합불량·용입부족)은 에코 높이와 무관하게 허용되지 않습니다.', '보수(repair) 후 재검사가 필요합니다.'] };
+  }
+  if (band === 'X'){
+    return { code: 'ACC', band: BAND_NAMES.X, title: '합격 (기록 불요)',
+      reasons: [`에코 ${fmt(rel)} dB < 평가선 ${c.evalDb} dB — 평가 대상이 아닙니다.`] };
+  }
+  if (band === 'C'){
+    const ok = state.indLen <= LC;
+    return ok
+      ? { code: 'REC', band: BAND_NAMES.C, title: '합격 (기록 대상)',
+          reasons: [`에코 ${fmt(rel)} dB — 평가선(${c.evalDb} dB) 이상, 기록선(${c.recDb} dB) 미만`, `지시 길이 ℓ = ${state.indLen} mm ≤ 허용 ${fmt(LC,1)} mm (${c.lenC}×t${enhNote})`, '지시를 기록하고 위치·길이를 보고서에 남깁니다.'] }
+      : { code: 'REJ', band: BAND_NAMES.C, title: '불합격 (길이 초과)',
+          reasons: [`에코 ${fmt(rel)} dB — 기록·평가 영역`, `지시 길이 ℓ = ${state.indLen} mm > 허용 ${fmt(LC,1)} mm (${c.lenC}×t${enhNote})`] };
+  }
+  if (band === 'B'){
+    const ok = state.indLen <= LB;
+    return ok
+      ? { code: 'REC', band: BAND_NAMES.B, title: '합격 (조건부·기록 대상)',
+          reasons: [`에코 ${fmt(rel)} dB — 기록선(${c.recDb} dB) 이상, DAC 미만`, `지시 길이 ℓ = ${state.indLen} mm ≤ 허용 ${fmt(LB,1)} mm (${c.lenB}×t${enhNote})`, '경계 영역이므로 지시 성상·길이를 신중히 평가합니다.'] }
+      : { code: 'REJ', band: BAND_NAMES.B, title: '불합격 (길이 초과)',
+          reasons: [`에코 ${fmt(rel)} dB — 조건부 영역`, `지시 길이 ℓ = ${state.indLen} mm > 허용 ${fmt(LB,1)} mm (${c.lenB}×t${enhNote})`] };
+  }
+  return { code: 'REJ', band: BAND_NAMES.A, title: '불합격 (DAC 초과)',
+    reasons: [`에코가 기준선 DAC를 초과했습니다 (+${fmt(rel)} dB).`, '결함 크기가 기준 반사체(Ø3 mm SDH) 이상으로 평가됩니다.'] };
+}
+
+function renderDacPanel(){
+  // 입력 동기화
+  $('#pathSlider').value = state.echo.path; $('#pathVal').textContent = Math.round(state.echo.path);
+  $('#ampSlider').value = state.echo.amp;   $('#ampVal').textContent = Math.round(state.echo.amp);
+  $('#lenSlider').value = state.indLen;     $('#lenVal').textContent = state.indLen;
+  $('#evalDb').value = state.crit.evalDb;   $('#recDb').value = state.crit.recDb;
+  $('#lenB').value = state.crit.lenB;       $('#lenC').value = state.crit.lenC;
+  $('#enhChk').checked = isEnhanced();
+  $$('#defectSeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.d === state.defect)));
+
+  const rel = relDb();
+  $('#relDbVal').textContent = (rel >= 0 ? '+' : '') + fmt(rel);
+  $('#relDbVal').style.color = rel >= 0 ? 'var(--bad)' : rel >= state.crit.recDb ? 'var(--warn)' : 'var(--ink)';
+  $('#relBandName').textContent = BAND_NAMES[bandOf(rel)];
+
+  drawDacSvg();
+  renderVerdict();
+}
+
+function renderVerdict(){
+  const v = verdict();
+  const card = $('#verdictCard');
+  card.className = 'verdict ' + (v.code === 'REJ' ? 'v-bad' : v.code === 'REC' ? 'v-rec' : 'v-ok');
+  $('#vIcon').textContent = v.code === 'REJ' ? '✕' : '✓';
+  $('#vTitle').textContent = v.title;
+  $('#vBand').textContent = '판정 영역: ' + v.band + ' · ' + GRADES[state.yieldN] + ' t=' + state.t + ' mm' + (isEnhanced() ? ' · Enhanced NDE' : '');
+  const ul = $('#vReasons');
+  ul.innerHTML = '';
+  for (const r of v.reasons){
+    const li = document.createElement('li'); li.textContent = r; ul.appendChild(li);
+  }
+}
+
+function drawDacSvg(){
+  const svg = $('#dacSvg');
+  svg.innerHTML = '';
+  const { W, H, padL, padR, padT, padB } = DAC;
+  const c = state.crit;
+
+  const dacPts = curvePts(0), recPts = curvePts(c.recDb), evalPts = curvePts(c.evalDb);
+
+  // 판정 영역 wash (위→아래: 불합격 / 조건부 / 기록·평가)
+  const zone = (upper, lower, fill) => {
+    const up = upper.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1));
+    const lo = lower.slice().reverse().map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1));
+    sv('polygon', { points: up.concat(lo).join(' '), fill }, svg);
+  };
+  const topEdge = [[dX(DAC.dMin), padT], [dX(DAC.dMax), padT]];
+  zone(topEdge, dacPts, 'rgba(240,86,74,.10)');
+  zone(dacPts, recPts, 'rgba(240,180,41,.10)');
+  zone(recPts, evalPts, 'rgba(63,198,232,.08)');
+
+  // 격자 (hairline, solid)
+  for (let a = 20; a <= 100; a += 20){
+    sv('line', { x1: padL, y1: aY(a), x2: W - padR, y2: aY(a), stroke: 'var(--grid)', 'stroke-width': 1 }, svg);
+    sv('text', { x: padL - 8, y: aY(a) + 4, fill: 'var(--ink-3)', 'font-size': 10.5, 'text-anchor': 'end', class: 'mono', text: a }, svg);
+  }
+  for (let d = 50; d <= 250; d += 50){
+    sv('line', { x1: dX(d), y1: padT, x2: dX(d), y2: H - padB, stroke: 'var(--grid)', 'stroke-width': 1 }, svg);
+    sv('text', { x: dX(d), y: H - padB + 16, fill: 'var(--ink-3)', 'font-size': 10.5, 'text-anchor': 'middle', class: 'mono', text: d }, svg);
+  }
+  // 축
+  sv('line', { x1: padL, y1: H - padB, x2: W - padR, y2: H - padB, stroke: 'var(--line)', 'stroke-width': 1 }, svg);
+  sv('line', { x1: padL, y1: padT, x2: padL, y2: H - padB, stroke: 'var(--line)', 'stroke-width': 1 }, svg);
+  sv('text', { x: (padL + W - padR) / 2, y: H - 12, fill: 'var(--ink-2)', 'font-size': 11.5, 'text-anchor': 'middle', text: '빔 행정 (beam path, mm)' }, svg);
+  sv('text', { x: 16, y: (padT + H - padB) / 2, fill: 'var(--ink-2)', 'font-size': 11.5, 'text-anchor': 'middle', transform: `rotate(-90 16 ${(padT + H - padB) / 2})`, text: '에코 높이 (%FSH)' }, svg);
+
+  // 곡선
+  sv('polyline', { points: ptsToStr(evalPts), fill: 'none', stroke: 'var(--ink-3)', 'stroke-width': 1.5 }, svg);
+  sv('polyline', { points: ptsToStr(recPts), fill: 'none', stroke: 'var(--warn)', 'stroke-width': 1.5 }, svg);
+  sv('polyline', { points: ptsToStr(dacPts), fill: 'none', stroke: 'var(--cyan)', 'stroke-width': 2.5 }, svg);
+
+  // 교정점 (Ø3 mm SDH)
+  for (const d of [40, 90, 150, 220]){
+    sv('circle', { cx: dX(d), cy: aY(dacAt(d)), r: 4, fill: 'var(--cyan)', stroke: 'var(--surface)', 'stroke-width': 2 }, svg);
+  }
+  sv('text', { x: dX(40), y: aY(dacAt(40)) - 10, fill: 'var(--ink-3)', 'font-size': 10, 'text-anchor': 'middle', text: 'Ø3 mm SDH 교정점' }, svg);
+
+  // 우측 직접 라벨
+  const endLabel = (pts, text, color, dy=4) => {
+    const last = pts[pts.length - 1];
+    sv('text', { x: last[0] + 8, y: last[1] + dy, fill: color, 'font-size': 11, class: 'mono', text }, svg);
+  };
+  endLabel(dacPts, 'DAC 기준선 (0 dB)', 'var(--cyan)');
+  endLabel(recPts, `기록선 (${c.recDb} dB)`, 'var(--warn)');
+  endLabel(evalPts, `평가선 (${c.evalDb} dB)`, 'var(--ink-3)', 10);
+
+  // 영역 라벨 (충분히 넓을 때만)
+  const zoneLabel = (dRef, aUpper, aLower, text, color) => {
+    const h = aY(aLower) - aY(aUpper);
+    if (h >= 22){
+      sv('text', { x: dX(dRef), y: (aY(aLower) + aY(aUpper)) / 2 + 4, fill: color, 'font-size': 10.5, 'font-weight': 600, text }, svg);
+    }
+  };
+  const dRef = 130;
+  const dacA = dacAt(dRef), recA = dacA * Math.pow(10, c.recDb / 20), evalA = dacA * Math.pow(10, c.evalDb / 20);
+  zoneLabel(dRef, DAC.aMax, dacA, '✕ 불합격 — DAC 초과', 'var(--bad)');
+  zoneLabel(dRef, dacA, recA, '△ 조건부 — 길이 ℓ 제한', 'var(--warn)');
+  zoneLabel(dRef, recA, evalA, '○ 기록·평가', 'var(--cyan)');
+  sv('text', { x: dX(dRef), y: aY(4), fill: 'var(--ink-3)', 'font-size': 10.5, text: '평가선 미만 — 기록 불요' }, svg);
+
+  // 크로스헤어 (호버) — 매 렌더마다 새로 생성되므로 핸들러에서는 id로 조회
+  sv('line', { id: 'dacCross', x1: 0, y1: padT, x2: 0, y2: H - padB, stroke: 'var(--ink-3)', 'stroke-width': 1, visibility: 'hidden' }, svg);
+
+  // 에코 마커
+  const ex = dX(state.echo.path), ey = aY(state.echo.amp);
+  sv('circle', { cx: ex, cy: ey, r: 13, fill: 'rgba(233,240,250,.12)' }, svg);
+  sv('circle', { cx: ex, cy: ey, r: 6.5, fill: '#eef4fc', stroke: 'var(--surface)', 'stroke-width': 2 }, svg);
+  const rel = relDb();
+  sv('text', { x: ex, y: ey - 18, fill: 'var(--ink)', 'font-size': 11, 'text-anchor': 'middle', 'font-weight': 700, class: 'mono',
+      text: `${rel >= 0 ? '+' : ''}${fmt(rel)} dB · ${Math.round(state.echo.amp)}%` }, svg);
+  const hit = sv('circle', { cx: ex, cy: ey, r: 22, fill: 'transparent', style: 'cursor:grab' }, svg);
+
+  // 드래그
+  hit.addEventListener('pointerdown', (ev) => {
+    ev.preventDefault();
+    hit.setPointerCapture(ev.pointerId);
+    svg.dataset.dragging = '1';
+    const rect = svg.getBoundingClientRect();
+    const move = (e) => {
+      const x = (e.clientX - rect.left) * (W / rect.width);
+      const y = (e.clientY - rect.top) * (H / rect.height);
+      state.echo.path = Math.round(xToD(x));
+      state.echo.amp = Math.round(yToA(y));
+      renderDacPanel(); renderHeader();
+    };
+    const up = () => {
+      delete svg.dataset.dragging;
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  });
+
+  bindDacHover(svg);
+}
+
+/* 호버 툴팁 — svg 노드는 재사용되므로 리스너는 1회만 바인딩 (state.crit는 호출 시점 값 사용) */
+function bindDacHover(svg){
+  if (svg.dataset.hoverBound) return;
+  svg.dataset.hoverBound = '1';
+  const tip = $('#dacTip');
+  const { W, H, padL, padR } = DAC;
+  const hide = () => {
+    tip.hidden = true;
+    const cross = $('#dacCross');
+    if (cross) cross.setAttribute('visibility', 'hidden');
+  };
+  svg.addEventListener('pointermove', (e) => {
+    const cross = $('#dacCross');
+    if (svg.dataset.dragging || !cross){ hide(); return; }
+    const rect = svg.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (W / rect.width);
+    if (x < padL || x > W - padR){ hide(); return; }
+    const c = state.crit;
+    const d = xToD(x);
+    cross.setAttribute('x1', dX(d)); cross.setAttribute('x2', dX(d));
+    cross.setAttribute('visibility', 'visible');
+    tip.innerHTML = '';
+    const tt = document.createElement('div'); tt.className = 'tt-title'; tt.textContent = `빔 행정 ${Math.round(d)} mm`;
+    tip.appendChild(tt);
+    const row = (color, name, val) => {
+      const r = document.createElement('div'); r.className = 'tt-row';
+      const l = document.createElement('span');
+      const key = document.createElement('span'); key.className = 'key'; key.style.borderTopColor = color;
+      l.append(key, document.createTextNode(name));
+      const v = document.createElement('span'); v.className = 'v'; v.textContent = val;
+      r.append(l, v); tip.appendChild(r);
+    };
+    const dv = dacAt(d);
+    row('#3fc6e8', 'DAC 기준선', fmt(dv, 1) + '%');
+    row('#f0b429', `기록선 ${c.recDb}dB`, fmt(dv * Math.pow(10, c.recDb / 20), 1) + '%');
+    row('#69809f', `평가선 ${c.evalDb}dB`, fmt(dv * Math.pow(10, c.evalDb / 20), 1) + '%');
+    const wr = svg.closest('.chart-wrap').getBoundingClientRect();
+    tip.hidden = false;
+    const tw = tip.offsetWidth;
+    let lx = e.clientX - wr.left + 14;
+    if (lx + tw > wr.width - 6) lx = e.clientX - wr.left - tw - 14;
+    tip.style.left = lx + 'px';
+    tip.style.top = (e.clientY - wr.top + 10) + 'px';
+  });
+  svg.addEventListener('pointerleave', hide);
+}
+
+/* ═══════════════ 탭 ═══════════════ */
+const TAB_IDS = ['overview', 'table', 'beam', 'dac', 'ref'];
+function selectTab(id, pushHash=true){
+  if (!TAB_IDS.includes(id)) id = 'overview';
+  for (const t of TAB_IDS){
+    $('#tab-' + t).setAttribute('aria-selected', String(t === id));
+    $('#panel-' + t).hidden = (t !== id);
+  }
+  if (pushHash){
+    try { history.replaceState(null, '', '#' + id); } catch (e) { /* file:// 일부 브라우저 */ }
+  }
+}
+function initTabs(){
+  for (const t of TAB_IDS){
+    $('#tab-' + t).addEventListener('click', () => selectTab(t));
+  }
+  $('.tabs').addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    const cur = TAB_IDS.findIndex(t => $('#tab-' + t).getAttribute('aria-selected') === 'true');
+    const nx = (cur + (e.key === 'ArrowRight' ? 1 : TAB_IDS.length - 1)) % TAB_IDS.length;
+    selectTab(TAB_IDS[nx]);
+    $('#tab-' + TAB_IDS[nx]).focus();
+  });
+  window.addEventListener('hashchange', () => selectTab(location.hash.replace('#', ''), false));
+  selectTab(location.hash.replace('#', '') || 'overview', false);
+}
+
+/* ═══════════════ 입력 바인딩 ═══════════════ */
+function bindInputs(){
+  $$('#yieldSeg button').forEach(b => b.addEventListener('click', () => { state.yieldN = Number(b.dataset.y); renderAll(); }));
+  const setT = (v) => { state.t = clamp(Math.round(Number(v) || 10), 10, 110); renderAll(); };
+  $('#tSlider').addEventListener('input', e => setT(e.target.value));
+  $('#tNum').addEventListener('change', e => setT(e.target.value));
+  $('#tSlider2').addEventListener('input', e => setT(e.target.value));
+  $('#m3Sel').addEventListener('change', e => {
+    state.m3option = e.target.value;
+    if (!isEnhanced()) state.prevM3 = state.m3option;
+    renderAll();
+  });
+  $$('#angleSeg button').forEach(b => b.addEventListener('click', () => { state.angle = Number(b.dataset.a); renderBeamPanel(); }));
+  $('#probeSlider').addEventListener('input', e => { state.probePos = Number(e.target.value); renderBeamPanel(); });
+
+  $('#pathSlider').addEventListener('input', e => { state.echo.path = Number(e.target.value); renderDacPanel(); });
+  $('#ampSlider').addEventListener('input', e => { state.echo.amp = Number(e.target.value); renderDacPanel(); });
+  $('#lenSlider').addEventListener('input', e => { state.indLen = Number(e.target.value); renderDacPanel(); });
+  $$('#defectSeg button').forEach(b => b.addEventListener('click', () => { state.defect = b.dataset.d; renderDacPanel(); }));
+  $('#evalDb').addEventListener('change', e => {
+    state.crit.evalDb = clamp(Math.round(Number(e.target.value) || -10), -14, -6);
+    if (state.crit.recDb <= state.crit.evalDb) state.crit.recDb = state.crit.evalDb + 2;
+    renderDacPanel();
+  });
+  $('#recDb').addEventListener('change', e => {
+    state.crit.recDb = clamp(Math.round(Number(e.target.value) || -6), Math.max(-8, state.crit.evalDb + 1), -2);
+    renderDacPanel();
+  });
+  $('#lenB').addEventListener('change', e => { state.crit.lenB = clamp(Number(e.target.value) || 0.5, 0.1, 1); renderDacPanel(); });
+  $('#lenC').addEventListener('change', e => { state.crit.lenC = clamp(Number(e.target.value) || 1, 0.2, 2); renderDacPanel(); });
+  $('#enhChk').addEventListener('change', e => {
+    if (e.target.checked){
+      if (!isEnhanced()) state.prevM3 = state.m3option;
+      state.m3option = 'enhanced_NDE';
+    } else {
+      state.m3option = state.prevM3 === 'enhanced_NDE' ? 'block_shift' : state.prevM3;
+    }
+    renderAll();
+  });
+  const goTable = () => selectTab('table');
+  $('#condChip').addEventListener('click', goTable);
+  $('#condChip').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); goTable(); } });
+}
+
+function renderAll(){
+  renderHeader();
+  renderTablePanel();
+  renderBeamPanel();
+  renderDacPanel();
+}
+
+/* ═══════════════ 셀프테스트 (?selftest) ═══════════════ */
+function selfTest(){
+  const fails = [];
+  const eq = (name, got, want) => { if (got !== want) fails.push(`${name}: got=${got} want=${want}`); };
+  const snap = JSON.parse(JSON.stringify({ y: state.yieldN, t: state.t, m3: state.m3option, echo: state.echo, len: state.indLen, def: state.defect }));
+
+  const cases = [
+    [355, 45, 'block_shift', { 1:'NR', 2:'NR', 3:'NR', 5:'NR' }],
+    [355, 55, 'block_shift', { 1:'R', 2:'NR', 3:'NR', 5:'NR' }],
+    [355, 70, 'block_shift', { 1:'R', 2:'NR2', 3:'R', 4:'R', 5:'NR' }],
+    [355, 70, 'enhanced_NDE', { 2:'C' }],
+    [355, 90, 'block_shift', { 5:'R' }],
+    [390, 45, 'block_shift', { 1:'R', 3:'NR' }],
+    [390, 55, 'block_shift', { 2:'NR2', 3:'R', 5:'NR' }],
+    [390, 70, 'block_shift', { 5:'R' }],
+    [460, 25, 'block_shift', { 1:'NR' }],
+    [460, 35, 'block_shift', { 1:'R', 3:'NR' }],
+    [460, 45, 'block_shift', { 3:'R', 5:'NR' }],
+    [460, 60, 'enhanced_NDE', { 2:'C', 5:'R' }],
+    [460, 105, 'block_shift', { 1:'R', 2:'R', 3:'R', 4:'R', 5:'R' }]
+  ];
+  for (const [y, t, m3, want] of cases){
+    state.yieldN = y; state.t = t; state.m3option = m3;
+    const st = measureStatuses();
+    for (const [k, v] of Object.entries(want)) eq(`lookup(${y},${t},${m3}).M${k}`, st[Number(k)], v);
+  }
+
+  // 판정 로직: d=100 → DAC=58.85%
+  state.yieldN = 460; state.t = 65; state.m3option = 'block_shift';
+  state.crit = { evalDb: -10, recDb: -6, lenB: 0.5, lenC: 1.0 };
+  const vcase = (amp, len, def, want) => {
+    state.echo = { path: 100, amp }; state.indLen = len; state.defect = def;
+    eq(`verdict(amp=${amp},len=${len},${def})`, verdict().code, want);
+  };
+  vcase(10, 30, 'volumetric', 'ACC');   // −15.4 dB
+  vcase(25, 60, 'volumetric', 'REC');   // −7.4 dB, 60 ≤ 65
+  vcase(25, 70, 'volumetric', 'REJ');   // 70 > 65
+  vcase(40, 30, 'volumetric', 'REC');   // −3.4 dB, 30 ≤ 32.5
+  vcase(40, 40, 'volumetric', 'REJ');   // 40 > 32.5
+  vcase(70, 5,  'volumetric', 'REJ');   // +1.5 dB
+  vcase(40, 5,  'planar',     'REJ');
+  state.m3option = 'enhanced_NDE';
+  vcase(40, 30, 'volumetric', 'REJ');   // 강화: 30 > 16.25
+  state.m3option = 'block_shift';
+
+  // 복원 + 렌더 예외 확인
+  state.yieldN = snap.y; state.t = snap.t; state.m3option = snap.m3;
+  state.echo = snap.echo; state.indLen = snap.len; state.defect = snap.def;
+  try {
+    renderAll();
+    for (const id of ['ovSvg', 'beamSvg', 'dacSvg']){
+      if (!$('#' + id).childNodes.length) fails.push(id + ' empty');
+    }
+  } catch (err){ fails.push('render: ' + err.message); }
+
+  document.title = fails.length ? 'SELFTEST FAIL: ' + fails.join(' | ') : 'SELFTEST PASS';
+}
+
+/* ═══════════════ 초기화 ═══════════════ */
+buildOverview();
+initTabs();
+bindInputs();
+renderAll();
+if (location.search.indexOf('selftest') !== -1) selfTest();
+</script>
+</body>
+</html>
