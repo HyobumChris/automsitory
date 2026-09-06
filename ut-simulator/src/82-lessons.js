@@ -19,8 +19,12 @@
  *   that advances per start so repeat runs alternate).
  * - Transition steps: `memo.was` is (re)set to false whenever the check is false, so a step that was already true at
  *   entry passes after the user makes it false and true again.
+ * - start(n) first resets a small baseline (single crystal, PE, skew 0, freeze/peakMem off, reject/delay 0, HIDE off, BEAM on)
+ *   so lessons never inherit e.g. lesson 3's twin crystal (v1's loadLesson did not; the v1 setups assume these defaults).
  * - Manual 'Do it for me' force-advances when the check still fails after two renders (never leaves the user stuck);
  *   autoRun records such steps in `failedSteps` and continues so later steps are still exercised.
+ * - Lesson 3 step 5: 80's enable matrix greys the Probes menu in v1 mode, so the menu path cannot be walked there; the
+ *   check accepts any route to `probe.crystal === 'twin'` (Do it for me / UT.test.setProbe) — integrator to decide.
  * - Lesson 4 step 7: 0° in v1 rebuilds the narrow face (80); doIt restores `setFace('wide')` for the Perspex insert.
  * - Lesson 14: wedge 33° is between the critical angles (shear only, 40°) and 60° is beyond the 2nd critical angle, so
  *   the outline's '33° → both / 60° → shear' is corrected to 20° comp, 33° shear, 52.6° → shear 70°.
@@ -291,7 +295,7 @@
     N('첫 번째 저면 에코의 위치(mm)?', 'Position of the first backwall echo (mm)', 25, 1, { hk: '게이트를 걸면 SP 표시값을 읽을 수 있습니다.', he: 'Gate it and read SP.', ok: 'V1의 얇은 면 두께 25 mm.', oe: 'The narrow face of the V1 is 25 mm thick.' }),
     S('Probes ▸ Zero Probe ▸ Twin Crystal – 초기 펄스가 사라짐', 'Probes ▸ Zero Probe ▸ Twin Crystal — the initial pulse disappears', function (c) { return c.S.probe.crystal === 'twin' && !!c.frame.ascan && c.frame.ascan.initialPulse === false; },
       function () { H.menu(['Probes/Zero Probe - Twin or Single Crystal/Twin Crystal'], function () { H.setProbe({ crystal: 'twin' }); }); },
-      { hk: 'Probes 메뉴 ▸ Zero Probe 하위 메뉴.', he: 'Probes menu ▸ Zero Probe submenu.', ok: '송·수신 진동자가 분리되어 송신 펄스가 수신부에 들어오지 않습니다.', oe: 'Separate transmit/receive crystals keep the transmit pulse out of the receiver.' }),
+      { hk: 'Probes 메뉴 ▸ Zero Probe 하위 메뉴 (V1 모드에서 메뉴가 비활성이면 Do it for me).', he: 'Probes menu ▸ Zero Probe submenu (use Do it for me if the menu is greyed in V1 mode).', ok: '송·수신 진동자가 분리되어 송신 펄스가 수신부에 들어오지 않습니다.', oe: 'Separate transmit/receive crystals keep the transmit pulse out of the receiver.' }),
     S('게이트 1을 첫 저면 에코에 걸고 DP 25.0 ± 0.3', 'Gate the first echo: DP reads 25.0 ± 0.3', function (c) { return !!c.R && c.R.echoKind === 'backwall' && abs(c.R.dp - 25) <= 0.3; }, function () { H.gate(15, 20); },
       { hk: 'GATES 키: G1 start 15, width 20.', he: 'GATES key: G1 start 15, width 20.', ok: 'DP(깊이) 표시값은 게이트 안 최대 피크의 위치입니다.', oe: 'DP (depth) is the position of the highest peak inside the gate.' }),
     C('이중진동자 탐촉자를 쓰는 이유는?', 'Why use a twin-crystal probe?', [['nearsurface', '불감대 감소 – 근거리 분해능', 'Smaller dead zone — near-surface resolution'], ['deeper', '더 깊은 투과', 'Deeper penetration'], ['narrow', '더 좁은 빔', 'Narrower beam'], ['shear', '횡파 발생', 'Generates shear waves']], 'nearsurface',
@@ -551,7 +555,7 @@
     C('DAC 커브의 의미?', 'The DAC curve shows…', [['same-ref', '같은 기준 반사체(3 mm 횡공)의 거리별 에코 높이', 'The same reference reflector (3 mm SDH) versus distance'], ['defect-size', '결함 크기', 'Defect size'], ['beam', '빔 폭', 'Beam width'], ['atten', '재료 감쇠만', 'Attenuation only']], 'same-ref',
       { hk: '거리에 따른 진폭 보정.', he: 'Distance–amplitude correction.', ok: '지시는 같은 거리의 기준 반사체와 비교됩니다 (% DAC).', oe: 'An indication is compared with the reference reflector at the same distance (% DAC).' }),
     S('LOF 프리셋을 추가하고 최대 에코에서 DAC % 읽기', 'Add the LOF preset and read DAC % at its maximum', function (c) { return c.S.defects.length >= 1 && !!c.R && c.R.dacPct !== null && c.R.dacPct !== undefined; },
-      function () { H.enter('weld', { keepProbe: true }); H.addPreset('lof'); H.setInstrument({ gates: [{ on: true, start: 10, width: 60, level: 10 }] }); H.maximise(function (e) { return e.kind === 'defect'; }, H.range(40, 80, 1)); },
+      function () { H.enter('weld', { keepProbe: true }); H.addPreset('lof'); H.setInstrument({ gates: [{ on: true, start: 5, width: 60, level: 5 }] }); H.maximise(function (e) { return e.kind === 'defect' || e.kind === 'tip' || e.kind === 'corner'; }, H.range(25, 60, 1)); },
       { hk: 'Defects ▸ Add Preset ▸ LOF, 그 뒤 x ≈ 60에서 최대.', he: 'Defects ▸ Add Preset ▸ LOF, then maximise near x ≈ 60.', ok: 'DAC %와 dB 판독이 지시 평가의 입력입니다.', oe: 'DAC % and dB readouts are the inputs to evaluation.' }),
     N('DAC 대비 dB?', 'dB relative to DAC?', function (c) { return c.R ? c.R.dBToDac : NaN; }, 1, { hk: '판독 박스의 dB 값.', he: 'The dB readout.', ok: '0 dB = 커브 위, −6 dB = 50 % DAC.', oe: '0 dB = on the curve, −6 dB = 50 % DAC.' }),
     C('ASME (기록 20 % DAC, 기준 초과 + 길이 초과 시 불합격)에서 조치는?', 'Under ASME (record ≥ 20 % DAC; reject when above reference and over length): action?', [['record-size', '기록하고 길이를 측정한 뒤 판정', 'Record, measure the length, then disposition'], ['ignore', '무시', 'Ignore'], ['reject-now', '즉시 불합격', 'Reject now'], ['lower-gain', '게인 감소', 'Lower the gain']], 'record-size',
@@ -751,6 +755,10 @@
     if (has('modes.defectEditor.isOpen') && UT.modes.defectEditor.isOpen()) UT.modes.defectEditor.close();
     if (has('modes.autoCal.cancel')) UT.modes.autoCal.cancel();
     L.cov = { 1: {}, '-1': {} };
+    // clean baseline so a lesson never inherits twin crystal / freeze / reject / hidden defects from the previous one
+    UT.setIn('instrument', { freeze: false, peakMem: false, reject: 0, delay: 0 }, { noRender: true });
+    UT.setIn('probe', { crystal: 'single', method: 'pe', skew: 0 }, { noRender: true });
+    UT.setIn('display', { hide: false, beam: true }, { noRender: true });
     let init = null;
     try { init = ln.setup(); } catch (e) { console.error('[UT.lessons] setup ' + n, e); }
     const memo = { ui: tally() };
