@@ -79,14 +79,37 @@ ut-simulator/
   build.py         src/*.js + style.css 를 하나의 HTML 로 인라인
   index.html       개발용 페이지
   src/00-core.js … 90-app.js, style.css
-  tools/smoke.mjs  Playwright 헤드리스 스모크 테스트
-  tools/node-load.mjs  Node 에서 물리 모듈만 로드해 검증
+  tools/node-load.mjs  Node 에서 모듈을 로드해 셀프테스트 (DOM 없이 물리 검증)
+  tools/smoke.mjs      Playwright 헤드리스 스모크 테스트 (툴바 전체 클릭 + 물리 프로브)
+  tools/integ.mjs      전체 통합 드라이브 (툴바·73개 메뉴·21개 창·드래그·키보드·스캔·레슨·수용 기준)
+  tools/qa-helpers.mjs Playwright 부팅/오류 수집 헬퍼 (QA 스크립트 공용)
 ```
 
 ```bash
-node tools/node-load.mjs --selftest                    # 모듈 셀프테스트
+node tools/node-load.mjs --selftest                    # 16개 모듈 셀프테스트
 NODE_PATH=/opt/node22/lib/node_modules node tools/smoke.mjs ../utman_simulator.html
+NODE_PATH=/opt/node22/lib/node_modules node tools/integ.mjs --shots /tmp/utsim-shots
 ```
+
+빌드 결과물은 약 760 KB 단일 HTML이며 외부 리소스를 참조하지 않습니다. 브라우저에서
+`utman_simulator.html#selftest` 로 열면 콘솔에 모든 모듈의 셀프테스트 결과가 출력됩니다.
+
+### 검증 결과 (Acceptance checks, SPEC §11.1)
+
+| # | 검사 | 결과 |
+|---|---|---|
+| 1 | V1 25 mm 면 0° → 25/50/75/100 mm 저면 에코, 초기 펄스(단일 진동자만) | ✓ |
+| 2 | V1 100 mm 반경 0°/45°/60°/70° → 100/200/300; V2 → 25/100/175, 50/125/200 | ✓ |
+| 3 | 웨지각 45°→36.7°, 60°→47.1°, 70°→52.6° | ✓ |
+| 4–5 | IOW 13 mm SDH: 60° x=262.5 에서 음향거리 26.0, SD 22.5, DP 13.0 최대 | ✓ |
+| 6–7 | +6 dB = 진폭 2배; Range/Delay ↔ 화면 눈금 매핑 | ✓ |
+| 8 | 루트 균열 코너 에코 40.0 mm (x≈34.6), ±15 mm 이동 시 소실 | ✓ |
+| 9 | 측벽 융합불량: 60° 2번째 다리에서 최대, 45° 대비 ≥ 6 dB 우세 | ✓ |
+| 10 | 라미네이션 에코 + 저면 에코 소실 | ✓ |
+| 11 | TOFD 측면파 18.93 µs / 저면파 20.98 µs, 팁 회절 신호 위치 | ✓ |
+| 12 | AUT 게이트 1 초과 구간이 결함 z 범위와 일치 | ✓ |
+| 13 | Trade Test: seed 재현성, 정답 제출 시 100점 | ✓ |
+| 14 | 빌드 < 900 KB, 외부 참조 없음, 콘솔 오류 0, 툴바 전체 정상 | ✓ |
 
 ## 키보드 (Keyboard)
 

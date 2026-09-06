@@ -92,7 +92,7 @@
     // mm above the scan surface for the shoe; in TT mode the receiver hangs below the backwall, so
     // reserve `bottomMm` there and let the specimen sit higher (the transmitter keeps priority).
     const bottom = bottomMm > 4 ? bottomMm : 4;
-    const minAbove = bottomMm > 4 ? Math.min(20, bottomMm - 2) : 20;
+    const minAbove = bottomMm > 4 ? Math.min(16, bottomMm - 2) : 16;   // shoe (14 mm) + 2 mm: keeps a 20 mm plate + ruler label inside a 180 px row
     const roomAbove = M.clamp(H / scale - yMax - bottom, minAbove, 24);
     const above = Math.max(roomAbove, -yMin + 6);
     const oy = above * scale;

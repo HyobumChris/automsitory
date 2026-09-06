@@ -174,7 +174,7 @@ canvas { display: block; }
  * < ~1500 px, plain weld mode < ~1150 px) does the whole readout group drop to a second row (two 13 px
  * rows, 33 px bar) — one 28 px row (1 border + 1 pad + 24 px panels + 2 pad) otherwise. */
 #statusbar {
-  display: flex; flex-wrap: wrap; align-items: stretch; gap: 3px; flex: none;
+  display: flex; flex-wrap: nowrap; align-items: stretch; gap: 3px; flex: none;
   min-height: 28px; padding: 1px 4px 2px;
   background: #ececec; border-top: 1px solid #b0b0b0;
   font-size: 10px; line-height: 11px; white-space: nowrap; overflow: hidden; user-select: none;
@@ -184,7 +184,9 @@ canvas { display: block; }
   border: 1px solid; border-color: #808080 #fff #fff #808080;
   background: #ececec; overflow: hidden; flex: none;
 }
-.sb-left { flex: 0 0 auto; white-space: nowrap; }
+/* like the original, the physics panel is clipped (ellipsis) when the readout panels need the room,
+ * so the bar always stays ONE row */
+.sb-left { flex: 0 1 auto; min-width: 160px; white-space: nowrap; display: block; text-overflow: ellipsis; line-height: 24px; }
 /* the readout group wraps as a whole */
 .sb-mid { display: flex; flex: 0 0 auto; gap: 3px; align-items: stretch; }
 .sb-right { flex: 1 1 100px; min-width: 100px; margin-left: auto; display: block; text-overflow: ellipsis; }
@@ -5187,7 +5189,7 @@ canvas { display: block; }
     // mm above the scan surface for the shoe; in TT mode the receiver hangs below the backwall, so
     // reserve `bottomMm` there and let the specimen sit higher (the transmitter keeps priority).
     const bottom = bottomMm > 4 ? bottomMm : 4;
-    const minAbove = bottomMm > 4 ? Math.min(20, bottomMm - 2) : 20;
+    const minAbove = bottomMm > 4 ? Math.min(16, bottomMm - 2) : 16;   // shoe (14 mm) + 2 mm: keeps a 20 mm plate + ruler label inside a 180 px row
     const roomAbove = M.clamp(H / scale - yMax - bottom, minAbove, 24);
     const above = Math.max(roomAbove, -yMin + 6);
     const oy = above * scale;
