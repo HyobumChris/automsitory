@@ -635,7 +635,7 @@
       return;
     }
     const a = clampA(body, probe.x);
-    const z = probe.z || 0;
+    const z = body.kind === 'pipe' || body.nozzle ? (probe.z || 0) : M.clamp(probe.z || 0, 0, body.L);   // plates: keep the symbol on the slab
     const corners = offs.map(function (o) {
       const da = o[0] * cs - o[1] * sn, dz = o[0] * sn + o[1] * cs;
       return surfacePoint(body, a + da, z + dz, 0.8).p;
@@ -649,8 +649,8 @@
     const faces = buildFbhMesh(body);
     paintMesh(ctx, faces, P, { noCull: true, alpha: 0.45 });
     ctx.save();
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '9px Segoe UI, Arial, sans-serif';
+    ctx.fillStyle = '#202020';
+    ctx.font = 'bold 9px Segoe UI, Arial, sans-serif';
     ctx.textBaseline = 'bottom';
     for (const f of faces) {
       if (f.tag !== 'fbh-bottom') continue;
