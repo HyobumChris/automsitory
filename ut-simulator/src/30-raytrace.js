@@ -183,7 +183,9 @@
   //     shear angle probe with refracted ≥ 65° or wedge angle ≥ secondCritical − 6°. It walks the outline from the
   //     emission point in the beam direction over consecutive 'top'/'cap' edges: top→cap = cap toe (0.5, continues
   //     over the bead), a run ending in another tag = plate/block end (1.0, stop) unless a 'top' edge at the same
-  //     level resumes within NOTCH_GAP (12 mm) → notch (0.8, continues); a planar defect with a vertex at y ≤ 0.5 mm
+  //     level resumes within NOTCH_GAP (12 mm) → notch (0.8, continues) — 'end' means the tag 'end' OR any next edge
+  //     that turns down into the specimen (the V1 block's 100 mm radius, a step, an end face: convex corner, 1.0);
+  //     only an edge rising above the surface (cap→web/brace, an untagged bead) is a 'toe' (0.5); a planar defect with a vertex at y ≤ 0.5 mm
   //     between the probe and the next vertex = surface-breaking crack (0.8, continues). At most 4 reflectors.
   //     Each finger damper (opts.damping.points, x on the chord) between the probe and the reflector multiplies the
   //     echo by 0.01 (0.1 each way). Echo: kind 'surface', tag = reflector kind ('cap-toe'|'end'|'notch'|'crack'|
@@ -198,7 +200,9 @@
   //     response width would not narrow at the focus (V2-6 wants ≤ 0.7×). Gf(lenMm) multiplies every echo.
   // 35. FBH / reflectors (§3.8): spec.reflectors segments are two-sided specular planar reflectors outside the
   //     outline with tip scatter (0.12) at ends that are not on the outline. tag 'fbh' → kind 'fbh' (tag 'fbh',
-  //     label from the reflector), S = min(1, π·d²/(2·λ·max(lenMm, N))), D = q^0.5; tag 'interface' → kind
+  //     label from the reflector), S = π·d²/(2·λ·max(lenMm, N)) WITHOUT a min(1, …) cap (§3.8 lead decision: the
+  //     ratio exceeds 1 for large discs near the near field — ⌀6 at 30 mm, 5 MHz L: 1.6 — and the DGS ERS readout
+  //     inverts exactly this law, so a cap would compress ⌀6 to 4.2 mm), D = q^0.5; tag 'interface' → kind
   //     'geometry' (tag 'interface', S 1, q^0.5). Reflectors do not take part in the corner rule and span all z.
   // 36. describe(echo) returns an object {text, name, category, kind, mode, path, leg, label, toString()} (a String
   //     in v1 — nobody consumed it); string contexts still work through toString(). It also accepts a Readout
@@ -209,8 +213,14 @@
   // 37. Defaults when 40-ascan passes no opts.physics: modeConv/surfaceWave/sideLobes true (the v2 default
   //     state); the fan layout follows fanCount alone (NOTE 28). opts.damping/weldMaterial/transferLossDb default
   //     to none. Outline tags 'backing', 'web', 'fusion', 'interface' are ordinary geometry surfaces (kind 'geometry').
-  // 38. Twin-crystal near-surface boost (×1.5 below 15 mm, §3.5) is an instrument-side amplitude rule and is left
-  //     to 40-ascan (it is not applied here).
+  // 38. Twin-crystal angle probes (§3.5, probe.crystal === 'twin' with refracted > 0): near-surface sensitivity
+  //     boost ×1.5 on every echo with lenMm < 15 mm, applied HERE (the amplitude-law owner; 40-ascan only drops the
+  //     initial pulse). The factor rolls off linearly between 12 and 15 mm (1.5 → 1) so the echo-dynamic curve of a
+  //     reflector crossing 15 mm has no step; 0° twin probes and the surface wave are not boosted.
+  // 39. Performance (§6.4): diffuse volumetric / tip sampling runs on legs 1…DEEP_LEGS (4) only — i.e. up to the
+  //     4th backwall multiple of a 0° probe (leg k covers paths (k−1)·T…k·T); deeper legs capture holes only, like
+  //     side-lobe and converted branches. Specular echoes (backwall multiples, lamination, corners) are unaffected.
+  //     A 0° probe on the default plate with range 400 (42 legs) otherwise spends ~2× the budget in point sampling.
 
   const M = UT.math;
   const DEG = Math.PI / 180;
@@ -246,6 +256,10 @@
   const NOTCH_GAP = 12;       // SPEC NOTE 33
   const SURF_MAX_REFL = 4;
   const DAMPER_FACTOR = 0.01; // 0.1 each way (§3.3)
+  const TWIN_BOOST = 1.5;     // §3.5 twin-crystal angle probe near-surface boost (SPEC NOTE 38)
+  const TWIN_NEAR = 15;       // mm: boosted below this path (SPEC NOTE 38)
+  const TWIN_ROLL = 12;       // mm: full boost up to here, linear roll-off to TWIN_NEAR (SPEC NOTE 38)
+  const DEEP_LEGS = 4;        // diffuse volumetric / tip sampling only on legs ≤ this (SPEC NOTE 39)
   const sampleCache = new WeakMap();
   const geomCache = new WeakMap();   // specimen → flattened edges/arcs with precomputed normals
 
@@ -466,7 +480,8 @@
     // typed copy of the segments for the hot loop (ax, ay, ex, ey, nx, ny)
     const sf = new Float64Array(segs.length * 6);
     for (let i = 0; i < segs.length; i++) { const s = segs[i]; sf[i * 6] = s.ax; sf[i * 6 + 1] = s.ay; sf[i * 6 + 2] = s.ex; sf[i * 6 + 3] = s.ey; sf[i * 6 + 4] = s.nx; sf[i * 6 + 5] = s.ny; }
-    return { segs, sf, points, vols, holes, edges: g.edges, ef: g.ef, arcs: g.arcs, perspex: g.perspex };
+    const sdhPoints = points.filter(function (P) { return P.kind === 'sdh'; });   // holes-only list for cheap branches (SPEC NOTES 29/30/39)
+    return { segs, sf, points, sdhPoints, vols, holes, edges: g.edges, ef: g.ef, arcs: g.arcs, perspex: g.perspex };
   }
 
   /** Distance from a point to the nearest outline edge or arc of the flattened geometry. */
@@ -628,11 +643,10 @@
 
         // ---- diffuse scatterers along the segment
         if (!C.tt && !C.tandem) {
-          const points = scene.points;
-          const cheapOnly = sideLobe || conv !== null;   // SPEC NOTES 29/30: side-lobe and converted branches sample holes only
+          const cheapOnly = sideLobe || conv !== null || leg > DEEP_LEGS;   // SPEC NOTES 29/30/39: side-lobe, converted and deep-leg branches sample holes only
+          const points = cheapOnly ? scene.sdhPoints : scene.points;
           for (let pi = 0; pi < points.length; pi++) {
             const P = points[pi];
-            if (cheapOnly && P.kind !== 'sdh') continue;
             const rx = P.x - px, ry = P.y - py;
             const u = rx * dx + ry * dy;
             if (u <= 1e-6 || u >= L) continue;
@@ -652,7 +666,7 @@
               cur = C.volBest.get(key);
               if (cur) {
                 const qq = C.nearField / Math.max(lenMm, C.nearField);
-                const bound = w * w * e * P.S * qq * qq * taper * Math.pow(10, -attP / 20) * C.transferLin * C.Gf(lenMm) * (isConv && mode !== C.probeMode ? 0.5 : 1);
+                const bound = w * w * e * P.S * qq * qq * taper * Math.pow(10, -attP / 20) * C.transferLin * C.Gf(lenMm) * C.nearBoost(lenMm) * (isConv && mode !== C.probeMode ? 0.5 : 1);
                 if (bound * tw <= cur.amp && bound <= cur.ampNoZ) continue;
               }
             }
@@ -953,8 +967,8 @@
     const D = Math.pow(q, o.dExp);
     const Mf = Math.pow(10, -o.att / 20);
     let S = o.S;
-    if (o.fbhD) S *= Math.min(1, Math.PI * o.fbhD * o.fbhD / (2 * C.lambda * Math.max(lenMm, C.nearField)));   // FBH law (§3.8)
-    const base = o.w * o.wReturn * o.e * S * D * Mf * (o.extra === undefined ? 1 : o.extra) * C.transferLin * C.Gf(lenMm);
+    if (o.fbhD) S *= Math.PI * o.fbhD * o.fbhD / (2 * C.lambda * Math.max(lenMm, C.nearField));   // FBH law (§3.8): NO min(1, …) cap (DGS round-trip)
+    const base = o.w * o.wReturn * o.e * S * D * Mf * (o.extra === undefined ? 1 : o.extra) * C.transferLin * C.Gf(lenMm) * C.nearBoost(lenMm);
     const hz = lenMm * C.tan20z + C.crystalB / 2;
     const vol = !!o.defect && !UT.specimens.isPlanar(o.defect.type);   // volumetric scatterers: ×1 (§6.7)
     const skewed = !vol && (o.kind === 'defect' || o.kind === 'corner' || o.kind === 'geometry' || o.kind === 'lamination') && C.theta > 0;
@@ -1100,7 +1114,10 @@
         k = notch.k; cur = at(k);
         continue;
       }
-      emit(x, y, nxt.tag === 'end' ? 'end' : 'toe', nxt.tag === 'end' ? 1.0 : 0.5, null);
+      // run end (§3.3): an 'end' edge or any edge turning DOWN into the specimen (radius arc, step, end face) is a
+      // convex corner = end face (1.0); an edge rising above the surface (fillet web, untagged bead) is a toe (0.5)
+      const convex = nxt.tag === 'end' || nxt.b.y > y + 0.05;
+      emit(x, y, convex ? 'end' : 'toe', convex ? 1.0 : 0.5, null);
       break;
     }
     if (!echoes.length) return null;
@@ -1302,6 +1319,7 @@
     const fanMaxA = derived.fanMax || (derived.halfAngle20dB || 4) * 2;
     const isWeld = specimen.kind === 'weld';
     const transferDb = isWeld && Number.isFinite(opts.transferLossDb) ? M.clamp(opts.transferLossDb, 0, 8) : 0;
+    const twin = probe.crystal === 'twin' && theta > 0;   // §3.5 twin-crystal angle probe (SPEC NOTE 38)
     const C = {
       specimen, defects: Array.isArray(a.defects) ? a.defects : [],
       E: em.E, u0: em.u0, ss: em, side: em.side, segment: em.segment, theta, mode: derived.mode,
@@ -1316,6 +1334,7 @@
       modeConv, sideLobes, surfaceWave: surfOn, dirW,
       devMax: Math.max(2 * (derived.halfAngle20dB || 4), fanMaxA),
       Gf: focusOn ? function (len) { const g = Math.min(N / F, 3) - 1; const r = (len - F) / (0.25 * F); return 1 + g * Math.exp(-r * r); } : function () { return 1; },
+      twin, nearBoost: twin ? function (len) { return len >= TWIN_NEAR ? 1 : 1 + (TWIN_BOOST - 1) * M.clamp((TWIN_NEAR - len) / (TWIN_NEAR - TWIN_ROLL), 0, 1); } : function () { return 1; },
       maxLegs, maxLen: Math.max(2 * maxPath + 100, 700), retroSlot: !!specimen.retroSlot,
       probeZ: probe.z || 0, skew: fold180(probe.skew || 0), L: specimen.L || 0, wrap: !!specimen.pipe,
       scene: buildScene(specimen, a.defects, probe),
@@ -1816,6 +1835,38 @@
     const fbw = near(run(fb, { angle: 0, x: 30 }, { skips: 3 }, [], 100).echoes, 'backwall', 60, 0.5);
     if (!f3 || !f6 || !fbw) f.push('fbh echoes');
     else if (!(f6.amp > f3.amp) || !(f3.amp < fbw.amp)) f.push('fbh law ' + f3.amp + ' ' + f6.amp + ' ' + fbw.amp);
+    // no min(1, …) cap (§3.8): ⌀6 / ⌀3 at the same depth = (6/3)² = +12.04 dB exactly
+    if (f3 && f6 && Math.abs(dB(f6.amp, f3.amp) - 20 * Math.log10(4)) > 0.05) f.push('fbh cap ' + dB(f6.amp, f3.amp).toFixed(2) + ' dB');
+    // (w) twin-crystal angle probe (§3.5, SPEC NOTE 38): DAC block T 20, SDHs at depth 5/10/15 → 60° paths 10/20/30;
+    //     twin-60-4 vs mwb60-4 (same 4 MHz 9×8 crystal): +3.52 dB at path 10, identical at 20 and 30
+    const dac20 = S.dacBlock({ T: 20 });
+    const sdhMax = function (libId, hole) {
+      const pr = Object.assign({}, UT.probe.select(libId), { side: 1, z: dac20.defaultProbe ? dac20.defaultProbe.z : 0 });
+      const x0 = hole.x + hole.y * Math.tan(60 * DEG);
+      let best = 0;
+      for (let x = x0 - 3; x <= x0 + 3.001; x += 0.5) {
+        for (const e of run(dac20, Object.assign({ x }, pr), { skips: 3 }, [], 50).echoes) if (e.kind === 'sdh' && e.leg === 1 && Math.abs(e.path - hole.y / Math.cos(60 * DEG)) < 2 && e.amp > best) best = e.amp;
+      }
+      return best;
+    };
+    const dacHoles = (dac20.holes || []).filter(function (h) { return h.y <= 15.5; }).sort(function (a, b) { return a.y - b.y; });
+    if (dacHoles.length < 3 || !UT.probe.select('twin-60-4') || !UT.probe.select('mwb60-4')) f.push('twin selftest setup');
+    else {
+      const tw = dacHoles.map(function (h) { return sdhMax('twin-60-4', h); }), sg = dacHoles.map(function (h) { return sdhMax('mwb60-4', h); });
+      if (!(sg[0] > 0) || Math.abs(dB(tw[0], sg[0]) - 20 * Math.log10(TWIN_BOOST)) > 0.05) f.push('twin boost at path 10: ' + (sg[0] > 0 ? dB(tw[0], sg[0]).toFixed(2) : 'none') + ' dB');
+      if (!(sg[1] > 0) || !(sg[2] > 0) || Math.abs(dB(tw[1], sg[1])) > 1e-6 || Math.abs(dB(tw[2], sg[2])) > 1e-6) f.push('twin boost beyond 15 mm');
+    }
+    // (x) surface wave on the V1 block (SPEC NOTE 33): 70° at x 100 towards the 100 mm radius → 'end' 1.0 at d = 100
+    const v1s = run(S.v1({ face: 'wide' }), { angle: 70, x: 100, side: 1 }, { skips: 3 }, [], 400);
+    const v1e = (v1s.echoes || []).find(function (e) { return e.kind === 'surface'; });
+    if (!v1e || v1e.tag !== 'end' || v1e.surfaceRefl !== 1 || Math.abs(v1e.lenMm - 100) > 0.1 || Math.abs(v1e.path - 108) > 1) f.push('v1 block surface end ' + (v1e ? v1e.tag + ' ' + v1e.path.toFixed(1) : 'missing'));
+    const v1r = v1s.surface && v1s.surface.reflectors[0];
+    if (!v1r || v1r.kind !== 'end' || v1r.refl !== 1 || Math.abs(v1r.x) > 0.01) f.push('v1 block surface reflector ' + JSON.stringify(v1r));
+    // (y) deep legs (SPEC NOTE 39): 0° / range 400 keeps its backwall multiples and holes; volumetric captures only up to leg 4
+    const deep = run(S.plateWeld({ T: 20 }), { angle: 0, x: 40 }, { skips: 3 }, [S.defectPresets.porosity(S.plateWeld({ T: 20 }))], 400, { maxLegs: 42 });
+    const bwN = deep.echoes.filter(function (e) { return e.kind === 'backwall'; }).length;
+    if (bwN < 18) f.push('deep backwall multiples ' + bwN);
+    if (deep.echoes.some(function (e) { return e.kind === 'defect' && e.leg > DEEP_LEGS; })) f.push('volumetric capture beyond DEEP_LEGS');
     // (v) weld preps (V2-23): trace without errors; backing bar → 'geometry' tag 'backing'
     for (const prep of ['single-bevel', 'j', 'single-v-backing', 'fillet-t', 'nozzle']) {
       try {

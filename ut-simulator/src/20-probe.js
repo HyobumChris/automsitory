@@ -133,6 +133,7 @@
     const s20 = M.clamp(0.87 * lambda / a, 0, 0.999);   // pulse-echo −20 dB edge (piston model; was 1.08 in v1)
     const sNull = M.clamp(1.22 * lambda / a, 0, 0.999);
     const sMax = M.clamp(1.8 * lambda / a, 0, 0.99);
+    const s20z = M.clamp(0.87 * lambda / b, 0, 0.999);  // −20 dB edge across the beam (z, along the weld) — SPEC-v2 §3.1
     const halfAngle6dB = M.rad2deg(Math.asin(s6));
     const halfAngle20dB = M.rad2deg(Math.asin(s20));
     const nullAngle = M.rad2deg(Math.asin(sNull));
@@ -155,6 +156,8 @@
       nearField,
       halfAngle6dB,
       halfAngle20dB,
+      /** −20 dB half-angle across the beam (deg, from crystalB): hz = path·tan(halfAngle20dBz) + crystalB/2 (§3.1). */
+      halfAngle20dBz: M.rad2deg(Math.asin(s20z)),
       nullAngle,
       fanMax,
       sidelobeDb: -17.6,
@@ -211,6 +214,9 @@
       if (Math.abs(d60.nearField - 38.6) > 0.5) f.push('near field ' + d60.nearField);
       if (Math.abs(d60.lambda - 0.648) > 0.01) f.push('lambda ' + d60.lambda);
       if (Math.abs(d60.halfAngle20dB - M.rad2deg(Math.asin(0.87 * 0.648 / 10))) > 0.01) f.push('halfAngle20dB');
+      if (Math.abs(d60.halfAngle20dBz - d60.halfAngle20dB) > 0.01) f.push('halfAngle20dBz (round) ' + d60.halfAngle20dBz);
+      const dRect = derive({ angle: 60, freq: 2, crystalDims: { a: 9, b: 8, shape: 'rect' }, wedgeVel: 2.74, side: 1 }, null);
+      if (Math.abs(dRect.halfAngle20dBz - M.rad2deg(Math.asin(0.87 * dRect.lambda / 8))) > 0.01) f.push('halfAngle20dBz (rect) ' + dRect.halfAngle20dBz);
       if (Math.abs(20 * Math.log10(d60.directivity(d60.halfAngle20dB)) + 10) > 0.6) f.push('directivity at θ20 ≠ −10 dB one-way: ' + (20 * Math.log10(d60.directivity(d60.halfAngle20dB))).toFixed(2));
       if (Math.abs(20 * Math.log10(d60.directivity(d60.halfAngle6dB)) + 3) > 0.4) f.push('directivity at θ6 ≠ −3 dB one-way');
       const d0 = derive({ angle: 0, freq: 5, diameter: 10 }, null);

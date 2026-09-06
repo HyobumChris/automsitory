@@ -251,8 +251,16 @@ Not saved while `trade.active`.
   φ = 20.4° < φc, the converted L (φL = 39.6°) travels vertically to the backwall, retraces, re-converts to S and returns
   to the probe → echo `modeconv` with metal two-way time 2·57/3.24 + 2·8.5/5.9 = 38.1 µs, displayed path 61.7 mm
   (probe x = 44…54); (b) TOFD L backwall followed by an L→S converted backwall and the S-S replica (§3.9); (c) **45°
-  probe, leg 2 on the 30° bevel (φ = 15° < φc)** gives an L conversion → an extra earlier echo (a 60° beam meets the bevel
-  at 60° in leg 1 and normally in leg 2 → no conversion, correct).
+  probe, leg 2 on the 30° bevel (φ = 15° < φc)** — the lack-of-side-wall-fusion scenario (plate-weld T 20 default,
+  `addPreset('lof')` = LOF on the +x bevel (4.64, 11.7) → (7.75, 6.3), 45° side +1, x = 30…44): the S→L conversion takes
+  `R_SL(15°) = 0.26` of the energy, so the leg-2 bevel/LOF reflection loses `20·log10 √(1 − R)` ≈ 1.3 dB on the axial ray
+  (≈ 1.6 dB over the fan, x ≈ 38…41, modeConv on vs off) and the converted L (`φL = 28.1°`) leaves the face within ≈ ±6°
+  of horizontal towards the probe side, i.e. it runs under the probe to the plate end / top surface and can NOT return
+  within its ≤ 2 legs. What emerges is therefore the drawn converted ray (`RayResult.converted[]`, kindTag `'L'`, BEAM on),
+  the small amplitude loss, and only weak (< 1 %) `modeconv` echoes of leg ≥ 4 routed via the backwall (path ≈ 119…123 mm)
+  — there is NO converted echo earlier than the LOF echo in this geometry (the textbook 'extra earlier echo' needs a
+  converted L that meets a surface normally; lead decision, QA round 1 — the reciprocal-path trap (a) is the echo trap).
+  (A 60° beam meets the bevel at 60° in leg 1 and normally in leg 2 → no conversion, correct.)
 - `UT.rays.describe(echo)` labels converted echoes `'Mode-converted (L)'` etc. and returns `category` (§4.5).
 
 ### 3.3 P3 — surface (Rayleigh) wave + finger damping (30, 60, 90)
@@ -649,7 +657,7 @@ UT.trade = { configure({difficulty, timeLimitMin, specimen:'auto'|…, procedure
 |---|---|---|---|---|---|---|---|---|
 | basic | 3 | planar height ≥ 4 mm, volumetric ⌀ ≥ 4 mm | 25…45 | plate 20 | single-v | carbon | — | 60 min |
 | intermediate | 4–6 | height/⌀ ≥ 2 mm | 15…45 | plate 12–30 or pipe 6/8 in | single-v, double-v | carbon | — | 60 min |
-| advanced | 5–8 | incl. 1–2 × ⌀ 1–2 mm porosity/slag | 15…45 | plate 12–30 or pipe 6/8 in | single-v, double-v, single-bevel | carbon or austenitic | one geometry trap (root bead or cap), one mode-conversion trap (30°-inclined LOF), `transferLossDb` random 0…6, HIDE + BEAM off enforced | 30 min |
+| advanced | 5–8 | incl. 1–2 × ⌀ 1–2 mm porosity/slag | 15…45 | plate 12–30 or pipe 6/8 in | single-v, double-v, single-bevel | carbon or austenitic | one geometry trap (root bead or cap), one mode-conversion trap (30°-inclined LOF, the §3.2 (c) scenario — amplitude loss + drawn L ray, no extra echo), `transferLossDb` random 0…6, HIDE + BEAM off enforced | 30 min |
 
 - **Seeded geometry**: `start(seed)`: `rng = UT.math.rng(seed)`; draws specimen options first (T, pipe/od/wt, material,
   prep, transferLossDb) when `specimen:'auto'`, calls `UT.set({weldOpts, material}, {noRender:true})` then
@@ -823,7 +831,7 @@ Sizing window methods (`sizing.method` ∈ '6dB' | '20dB' | 'max' | 'eval' | 'ti
 ### 4.5 T7 — echo-identification quiz (82-lessons, window `quiz`, menu Help ▸ Echo quiz…)
 `UT.lessons.quiz = {start({n:10, seed, difficulty}), answer(id), answerAction(id), skip(), state() → {i, n, correct, wrong, times[]}, css}`.
 Generator (seeded `UT.math.rng`): pick a scenario from {plate 20 with root bead, plate with cap, root crack, LOF 30° inclined
-(mode-conv trap, 45° probe), 70° with cap toe (surface wave), lamination plate, dac SDH, v1 backwall multiples,
+(§3.2 (c), 45° probe — the gated echo is the LOF tip/defect echo, category `tip`/`defect`; the conversion shows only as the drawn L ray), 70° with cap toe (surface wave), lamination plate, dac SDH, v1 backwall multiples,
 single-v-backing bar edge}, a probe/position that maximises one echo, gate it, HIDE on and BEAM off; question
 '게이트 안의 에코는 무엇입니까? / What is the gated echo?' with 4 buttons drawn from the label set {backwall 저면 에코,
 geometry-root 이면 비드(형상), geometry-cap 덧살(형상), geometry-backing 배킹 바 에지, corner 코너 에코(루트 결함), tip 팁 회절,
@@ -1063,7 +1071,11 @@ to v1 for carbon (L 0.005 / S 0.010 one-way). #13 holds by the invariant of §4.
   defect pts (−3, 14) → (3, 9), probe scanned x = 44…50 (0.5 mm; beyond x ≈ 50.5 the fan smear moves the trap to 39…41 µs — lead decision after integration) with modeConv on: an echo of kind `modeconv` exists with
   `tUs` = 38.1 ± 1.0 µs and displayed `path` = 61.7 ± 1.6 mm; with modeConv off no `modeconv` echo. Coefficient API:
   `modeConv('S', 30) → R ≥ 0.6 and phiOut = 65.6 ± 1°`, `modeConv('S', 40) → R = 0`, `modeConv('L', 60) → R ≥ 0.9`.
-  TOFD (V2-10) is the timing check.
+  TOFD (V2-10) is the timing check. Trap (c) of §3.2 (plate-weld T 20 default, `addPreset('lof')`, 45° side +1, gain 40,
+  range 100): `modeConv('S', 15) → R = 0.26 ± 0.05, phiOut = 28.1 ± 1°`; over x = 30…44 (1 mm) the loudest leg-2 LOF echo
+  (kind `tip`/`defect`) with modeConv on is 0…2 dB below the modeConv-off value and at no x does a `modeconv` echo have a
+  smaller `path` than that LOF echo; with modeConv on at x = 33 `UT.frame.rays.converted` contains ≥ 1 entry with `mode
+  'L'` whose first point lies on the LOF face (leg 2) and whose direction is within ±10° of horizontal towards +x.
 - **V2-3 Surface wave**: plate 20, default weld (capWidth 16 → toe at x = ±8), 70° at x = 40 (side +1): echo kind `surface`
   at path 34.8 ± 1.5 mm (= 32 mm / 0.92); `setDampers([20])` drops it ≥ 30 dB; `setPhysics({surfaceWave:false})` → absent;
   with the 60° probe → absent (eR = 0).

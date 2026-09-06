@@ -50,7 +50,8 @@
 //   array are merged per index into clones of the existing gates, capped at GATE_SLOTS = 2 (G1/G2).
 //   Test API validation (setProbe / setInstrument): numeric fields are applied only when they coerce to
 //   a finite number (then clamped), otherwise the previous value is kept; enums are checked against
-//   their lists; state never receives NaN / strings for numeric fields.
+//   their lists (an unknown receiver.filter id falls back to 'broadband', not the previous value);
+//   state never receives NaN / strings for numeric fields.
 // - traceOpts(): for angle 0 maxLegs is derived from the range, max(12, ceil(2·maxPath/T) + 2) capped
 //   at 60 (T = local step thickness on the step wedge), so the multiples continue to the end of the screen.
 // v2 (SPEC-v2 §3.2, §3.4, §3.7, §3.10, §6.4, §7)
@@ -867,6 +868,8 @@
     return Number.isFinite(n) ? M.clamp(n, lo, hi) : prev;
   }
   function oneOf(v, list, prev) { return list.indexOf(v) >= 0 ? v : prev; }
+  /** Receiver filter coercion: omitted → prev; unknown id → 'broadband' (the documented fallback, as 90's patchFromRecord). */
+  function filterId(v, prev) { return v === undefined ? prev : (FILTERS.indexOf(v) >= 0 ? v : 'broadband'); }
   function bool(v, prev) { return v === undefined ? prev : !!v; }
   function isObj(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
 
@@ -1018,7 +1021,7 @@
       if (!(isObj(q.pulser) && q.pulser.damping !== undefined)) { pulser.damping = patch.damping ? 50 : 150; pulserTouched = true; }
     }
     if (pulserTouched) patch.pulser = pulser;
-    if (isObj(q.receiver)) patch.receiver = Object.assign({}, cur.receiver || { filter: 'broadband' }, { filter: oneOf(q.receiver.filter, FILTERS, (cur.receiver && cur.receiver.filter) || 'broadband') });
+    if (isObj(q.receiver)) patch.receiver = Object.assign({}, cur.receiver || { filter: 'broadband' }, { filter: filterId(q.receiver.filter, (cur.receiver && cur.receiver.filter) || 'broadband') });
     if (q.autoPct !== undefined) patch.autoPct = num(q.autoPct, cur.autoPct === undefined ? 80 : cur.autoPct, 1, 120);
     if (q.compare !== undefined) patch.compare = q.compare ? snapshot() : null;
     for (const k of ['page', 'readout', 'selectedParam']) if (q[k] !== undefined && (typeof q[k] === 'string' || typeof q[k] === 'number')) patch[k] = q[k];
@@ -1236,6 +1239,7 @@
       if (Math.abs(at({ receiver: { filter: '5-15' } }) - at({})) > 1e-9 || Math.abs(at({ receiver: { filter: '1.5-8.5' } }) - at({})) > 1e-9) f.push('5 MHz in band changed amplitude');
       if (Math.abs(at2({ receiver: { filter: 'broadband' } }) - at2({})) > 1e-9 || Math.abs(at2({ receiver: { filter: '0.2-10' } }) - at2({})) > 1e-9) f.push('broadband / 0.2-10 changed the 2 MHz probe');
       if (filterMismatch({ receiver: { filter: 'nonsense' } }, d2)) f.push('unknown filter should be broadband');
+      if (filterId('nonsense', '5-15') !== 'broadband' || filterId(undefined, '5-15') !== '5-15' || filterId('0.2-10', '5-15') !== '0.2-10') f.push('setInstrument filter coercion');
     }
     const tOpts = traceOpts({ instrument: { range: 100, delay: 0 }, display: { skips: 3 } }, { kind: 'weld', T: 10 }, { angle: 0, x: 60 });
     if (tOpts.maxLegs !== 22) f.push('traceOpts 0deg maxLegs ' + tOpts.maxLegs);

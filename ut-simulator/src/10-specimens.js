@@ -5,7 +5,7 @@
  *
  * v2 additions (SPEC-v2 §3.4, §3.8, §5.1):
  *  - UT.specimens.materials + opts.material on every builder → spec.material {key, name, nameKo, vComp,
- *    vShear, atten5, grass, anisotropic}.
+ *    vShear, atten5, attenL5, attenS5, poisson, grass, anisotropic}.
  *  - weld preparations via opts.prep ('single-v' | 'double-v' | 'single-bevel' | 'j' | 'single-v-backing' |
  *    'fillet-t' | 'nozzle' | 'none'); legacy opts.type is still accepted. spec.prep, spec.weld.prep,
  *    spec.weld.backing / web polygons, fusionFaces[].tag, weld.regions (fillet welds have two polygons).
@@ -34,10 +34,12 @@
     castiron:   { key: 'castiron',   name: 'Cast iron',           nameKo: '주철',                   vComp: 4.60, vShear: 2.60, atten5: 0.080, grass: 0.20, attenL5: 0.10, attenS5: 0.15, poisson: 0.26, anisotropic: true },
     perspex:    { key: 'perspex',    name: 'Perspex (PMMA)',      nameKo: '퍼스펙스(아크릴)',        vComp: 2.74, vShear: 1.43, atten5: 0.15,  grass: 0.0,  anisotropic: false, attenL5: 0.30, attenS5: 0.30, poisson: 0.35 },
   };
-  const MATERIAL_FIELDS = ['key', 'name', 'nameKo', 'vComp', 'vShear', 'atten5', 'grass', 'anisotropic'];
+  // SPEC-v2 §3.4: spec.material = materialOf(state.material) carries the FULL record — incl. poisson (20-probe's
+  // derived.vRayleigh) and the one-way attenL5/attenS5 (30 may read them directly instead of the key lookup).
+  const MATERIAL_FIELDS = ['key', 'name', 'nameKo', 'vComp', 'vShear', 'atten5', 'attenL5', 'attenS5', 'poisson', 'grass', 'anisotropic'];
 
   /**
-   * Resolve a material key or object to a fresh {key, name, nameKo, vComp, vShear, atten5, grass, anisotropic}.
+   * Resolve a material key or object to a fresh {key, name, nameKo, vComp, vShear, atten5, attenL5, attenS5, poisson, grass, anisotropic}.
    * Unknown keys / missing → carbon. An object is merged over the material named by its key (carbon otherwise),
    * so a partial {vShear: 3.1} still yields a complete record.
    */
@@ -909,6 +911,9 @@
       const pa = plateWeld({ T: 25, material: 'austenitic' });
       if (pa.material.key !== 'austenitic' || pa.material.vShear !== 3.12 || pa.material.nameKo !== materials.austenitic.nameKo || !pa.material.anisotropic) f.push('austenitic material');
       if (v1({ material: { key: 'copper', vComp: 4.7 } }).material.vComp !== 4.7 || fbhBlock({ material: 'nope' }).material.key !== 'carbon') f.push('materialOf object/unknown');
+      const pal = plateWeld({ T: 20, material: 'aluminium' }).material;   // QA r1 #1: poisson/attenL5/attenS5 must reach spec.material (SPEC-v2 §3.3/§3.4)
+      if (pal.poisson !== 0.33 || pal.attenL5 !== 0.003 || pal.attenS5 !== 0.004 || p.material.poisson !== 0.29 || p.material.attenL5 !== 0.005 || p.material.attenS5 !== 0.010) f.push('material poisson/attenL5/attenS5 ' + JSON.stringify(pal));
+      if (materialOf({ key: 'copper', poisson: 0.3 }).poisson !== 0.3 || materialOf('copper').poisson !== 0.34) f.push('materialOf poisson override');
       const b = v1();
       if (!pointInside(b, 150, 50)) f.push('v1 inside');
       if (pointInside(b, 10, 90)) f.push('v1 arc region should be outside');
