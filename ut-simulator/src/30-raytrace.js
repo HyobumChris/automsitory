@@ -1,6 +1,9 @@
-/* 30-raytrace.js — 2-D polygon ray tracer: fan rays, specular return-to-probe echoes, diffuse
- * scatterers, arcs, Perspex insert, V1 slot retro-reflection, through transmission and tandem.
- * Pure functions of their arguments (never reads UT.state). SPEC §6.1 as amended by §15.4.
+/* 30-raytrace.js — 2-D polygon ray tracer: piston-directivity fan (v2), specular return-to-probe echoes,
+ * diffuse scatterers, arcs, Perspex insert, V1 slot retro-reflection, through transmission and tandem,
+ * mode conversion S↔L with time-based echo placement (v2), Rayleigh surface wave + finger dampers (v2),
+ * per-mode material attenuation / austenitic weld metal / transfer loss (v2), focused probes (v2), FBH law (v2).
+ * Pure functions of their arguments (never reads UT.state except in the UT.test helpers). SPEC §6.1 as amended
+ * by §15.4 and SPEC-v2 §3.1–3.4, §3.6, §3.8, §3.13, §4.5, §7.
  */
 (function (UT) {
   'use strict';
@@ -34,7 +37,7 @@
   // 7. Through transmission: result.echoes = [transmitted] only; amp = Σ w(δ)·e (rays inside the
   //    receiver aperture) / Σ w(δ), i.e. 1.0 for a clean path. result.receiver = {x, y} for drawing.
   // 8. Tandem: only echoes whose ray reflected off a planar defect (and passed the bottom) and reach the
-  //    rx aperture within θ20 of (+side·sinθ, −cosθ) are returned (kind 'defect' or 'corner', tag 'tandem').
+  //    rx aperture within the acceptance cone of (+side·sinθ, −cosθ) are returned (kind 'defect' or 'corner', tag 'tandem').
   //    result.receiver = {x: probe.x − side·T·tanθ, y: 0}.
   // 9. Perspex far-side echo (§6.1 2f) is emitted for the δ = 0 ray of a 0° probe only.
   // 10. The V1 slot retro-reflection also applies to the 0° probe (same relaunch, e × 0.5).
@@ -69,12 +72,11 @@
   //     sum to 'defect' groups whose defectType is not planar.
   // 18. Return aperture soft edge: the SPEC's hard gate dE ≤ ra is kept at full weight, followed by a
   //     taper zone ra < dE < ra + AP_TAIL·D with weight cos²(π/2·(dE − ra)/(AP_TAIL·D)) (AP_TAIL = 2:
-  //     0 at ra + 2D; a 21-ray fan then fades in ≤ 6 dB steps per ray at the fan edge), so a mirror-like
-  //     reflector leaving the fan fades out instead of switching off (the dev < θ20 gate is widened to
-  //     2·θ20 for the same reason; w(2θ20) = −40 dB one-way).
+  //     0 at ra + 2D), so a mirror-like reflector leaving the fan fades out instead of switching off. The
+  //     direction gate is dev < max(2·θ20, fanMax) (v2: the piston directivity supplies the weight, see NOTE 29).
   // 19. z-overlap is geometric, not only an amplitude scale (§6.7 "a defect whose z extent does not overlap
   //     the footprint must neither reflect nor shadow"). When a ray meets a planar defect segment the
-  //     §6.7 factor Z is evaluated at the hit (hz = len·tanθ20 + D/2) and the ray SPLITS: the reflected
+  //     §6.7 factor Z is evaluated at the hit (hz = len·tanθ20z + crystalB/2) and the ray SPLITS: the reflected
   //     branch carries weight Z, a transmitted branch (same direction, no bounce/leg change, defect not in
   //     its reflection history) carries sqrt(1 − Z²). Each echo records the chain of factors it went through
   //     (`echo.zs = [{defectId, hz, trans}]`, the echo's own defect added as a reflection factor unless
@@ -136,6 +138,74 @@
   //     between the flat-bottom part and the bead crown (2·y_mirror/cosθ' differs by ≈ 2·rootHeight), so
   //     the literal window listed two corner echoes 4–5 mm apart at some stand-offs; the representative
   //     (NOTE 22) still reports the beam-centre path.
+  // ---- v2 (SPEC-v2 §3) ----
+  // 28. Fan layout (§3.1): opts.fanCount ≥ 41 selects the v2 layout (rays 0…20 uniform on ±θ20, 21…24 =
+  //     ±(θ20+null)/2 and ±null, 25…40 = 8 per side uniform on (null, fanMax], the latter only with
+  //     physics.sideLobes); any other fanCount is the uniform v1 grid on ±θ20 (K_REF calibration, S-scan fan
+  //     of 5). Ray weight = D(δ)·min(1, Δδ_i/Δδ_main): the angular-bin factor of the spec is CLAMPED ≤ 1 so the
+  //     sparse ring rays 21…24 (bin ≈ 2× the main-lobe bin) are not inflated above the θ20 ray (a reflector at
+  //     3.9° would otherwise read louder than at 3.2°); denser side-lobe bands are still down-weighted.
+  //     Fan offsets with refracted + δ > 89° are dropped (never folded).
+  // 29. Directivity (§3.1): the frozen derived.directivity(δ) is the pure piston |2J1(x)/x|; this module applies
+  //     the null/floor rule (|δ| ≤ null → D1; beyond: sideLobes ? max(D1, −30 dB) : 0) in dirWeight(). The return
+  //     weight is dirWeight(dev) with the direction gate dev < max(2·θ20, fanMax) (NOTE 18). Side-lobe rays
+  //     (25…40) trace ≤ 2 legs, never convert, never split at partial z-overlap (follow the dominant side) and
+  //     skip volumetric/tip sampling (hole capture is kept — it is cheap).
+  // 30. Mode conversion (§3.2): evaluated at reflections off outline edges/arcs and planar defect / reflector
+  //     segments (not Perspex, not the slot relaunch) of main-lobe rays (|δ| ≤ null, also focused rays) with fan
+  //     weight ≥ 0.02. The FIRST eligible reflection (R > 0 and e·R ≥ 0.01) spawns the converted branch (mode
+  //     swapped, direction by Snell in the reflection half-plane, e × R, leg cap = leg + 2, no further spawns of
+  //     any kind); the specular branch keeps 1 − R only there (later reflections of the primary ray are not
+  //     split, "at most one conversion per fan ray"). The converted branch cannot spawn, so at its later eligible
+  //     reflections it follows the DOMINANT energy path: R' ≥ 0.5 → it re-converts back (e × R', once), else it
+  //     keeps its mode with e × (1 − R'). This is what produces the reciprocal-path trap of §3.2 (a): S→L on the
+  //     underside of the inclined face (R_SL(20.4°) = 0.41), L down to the backwall and back, L→S at the face
+  //     (R_LS(39.4°) = 0.67 ≥ 0.5), S retraces to the probe: kind 'modeconv', tUs 37.9 µs, displayed path 61.4 mm.
+  //     Converted branches ignore opts.maxLegs (only their own cap and maxLen). Diffuse captures on a converted
+  //     branch are 'modeconv' echoes too (retrace, ×0.5 when the branch mode ≠ probe mode).
+  // 31. Attenuation (§3.4): per-mode ONE-WAY coefficients attenL5/attenS5 are read from
+  //     UT.specimens.materials[spec.material.key] (spec.material itself only carries the v1 fields), scaled by
+  //     (f/5)^1.5, accumulated over every travelled segment (out and back) with the segment's own mode:
+  //     M = 10^(−Σ α·len/20); for un-converted echoes this is exactly v1's 10^(−α·2·path/20). Austenitic weld
+  //     metal (opts.weldMaterial === 'austenitic') adds 0.15·(f/5) dB/mm one-way over UT.specimens.segmentInRegion
+  //     (diffuse captures inside a segment use the proportional share of that segment). opts.transferLossDb is a
+  //     flat two-way loss on specimen.kind === 'weld' only, applied to every echo kind (incl. surface/modeconv).
+  // 32. Every echo carries tUs (two-way metal time), lenMm (geometric one-way length: (out + back)/2 for specular
+  //     returns, the one-way distance for diffuse scatterers) and mode (arriving mode 'S'|'L', 'R' for the
+  //     surface wave). path = tUs·derived.vel/2 for converted/surface echoes and = lenMm otherwise (identical
+  //     numbers, kept exact for the v1 checks). D(q) and hz use lenMm.
+  // 33. Surface wave (§3.3): only from the chord scanning surface (probe.surface 'chord'; not brace/web) of a
+  //     shear angle probe with refracted ≥ 65° or wedge angle ≥ secondCritical − 6°. It walks the outline from the
+  //     emission point in the beam direction over consecutive 'top'/'cap' edges: top→cap = cap toe (0.5, continues
+  //     over the bead), a run ending in another tag = plate/block end (1.0, stop) unless a 'top' edge at the same
+  //     level resumes within NOTCH_GAP (12 mm) → notch (0.8, continues); a planar defect with a vertex at y ≤ 0.5 mm
+  //     between the probe and the next vertex = surface-breaking crack (0.8, continues). At most 4 reflectors.
+  //     Each finger damper (opts.damping.points, x on the chord) between the probe and the reflector multiplies the
+  //     echo by 0.01 (0.1 each way). Echo: kind 'surface', tag = reflector kind ('cap-toe'|'end'|'notch'|'crack'|
+  //     'toe'), tUs = 2d/vR, path = d·vel/vR, lenMm = d, mode 'R', amp = eR·refl·q^0.5 (q = N/max(d, N)), z-overlap
+  //     for crack reflectors. RayResult.surface = {pts, reflectors, dampers} or null (60 draws it).
+  // 34. Focus (§3.6): when derived.focus.on the angular fan is replaced by nAp aperture rays (41 for fanCount ≥ 21,
+  //     else fanCount) spread over ±crystalA/2 along the surface tangent, all aimed at the focal point E + u0·F with
+  //     F clamped to [10, nearField] (F > N would make Gf < 1); weight = pure piston D1 of the ray's angle from
+  //     u0 (no floor, no null truncation); fan[i].pts[0] is the aperture point, edge20 = the two outermost aperture
+  //     rays, RayResult.focus = {F, x, y}. The diffuse capture distance of focused rays is scaled by FOCUS_CAPTURE
+  //     (0.4, floor 0.3 mm): the v1 fan is already a point-source fan, so without a tighter capture kernel the SDH
+  //     response width would not narrow at the focus (V2-6 wants ≤ 0.7×). Gf(lenMm) multiplies every echo.
+  // 35. FBH / reflectors (§3.8): spec.reflectors segments are two-sided specular planar reflectors outside the
+  //     outline with tip scatter (0.12) at ends that are not on the outline. tag 'fbh' → kind 'fbh' (tag 'fbh',
+  //     label from the reflector), S = min(1, π·d²/(2·λ·max(lenMm, N))), D = q^0.5; tag 'interface' → kind
+  //     'geometry' (tag 'interface', S 1, q^0.5). Reflectors do not take part in the corner rule and span all z.
+  // 36. describe(echo) returns an object {text, name, category, kind, mode, path, leg, label, toString()} (a String
+  //     in v1 — nobody consumed it); string contexts still work through toString(). It also accepts a Readout
+  //     ({echoKind, path, leg}) and resolves the underlying echo in UT.frame.echoes by kind and path. Categories
+  //     (§4.5): backwall | geometry-root | geometry-cap | geometry-backing | corner | tip | defect | modeconv |
+  //     surface | lamination | sdh. Kinds outside the quiz set map to the nearest id: fbh → 'sdh'; radius, perspex,
+  //     transmitted → 'backwall'; geometry with other tags → 'geometry-root' when y ≥ T/2 else 'geometry-cap'.
+  // 37. Defaults when 40-ascan passes no opts.physics: modeConv/surfaceWave/sideLobes true (the v2 default
+  //     state); the fan layout follows fanCount alone (NOTE 28). opts.damping/weldMaterial/transferLossDb default
+  //     to none. Outline tags 'backing', 'web', 'fusion', 'interface' are ordinary geometry surfaces (kind 'geometry').
+  // 38. Twin-crystal near-surface boost (×1.5 below 15 mm, §3.5) is an instrument-side amplitude rule and is left
+  //     to 40-ascan (it is not applied here).
 
   const M = UT.math;
   const DEG = Math.PI / 180;
@@ -157,6 +227,20 @@
   const BEAD_REACH = 0.5;     // mm: a planar-defect end this close to (or beyond) a bead's base chord reaches the bead (SPEC NOTE 25)
   const TIP_SURFACE_TOL = 0.5; // mm: planar-defect ends this close to an outline surface emit no tip scatter (SPEC NOTE 26)
   const CORNER_MERGE = 6;     // mm: merge window for corner echoes of one defect and leg (SPEC NOTE 27)
+  const SIDELOBE_FLOOR = Math.pow(10, -30 / 20);   // §3.1: −30 dB floor beyond the first null when physics.sideLobes
+  const CONV_MIN_E = 0.01;    // §3.2: converted rays below this running energy are dropped
+  const CONV_MIN_W = 0.02;    // SPEC NOTE 30: no conversion on rays with a smaller fan weight
+  const CONV_BACK = 0.5;      // SPEC NOTE 30: converted branch re-converts when R' ≥ this
+  const CONV_LEGS = 2;        // §3.2: converted branch traces ≤ 2 further legs
+  const SIDE_LEGS = 2;        // §3.1: side-lobe rays trace ≤ 2 legs
+  const CONV_DRAW_MAX = 40;   // §3.13: RayResult.converted entries (by weight)
+  const CONV_DRAW_MIN = 1e-3; // weight floor for drawn converted polylines
+  const FOCUS_CAPTURE = 0.4;  // SPEC NOTE 34
+  const FOCUS_CAPTURE_MIN = 0.3;
+  const WELD_AUST_DB = 0.15;  // §3.4: austenitic weld metal extra one-way dB/mm at 5 MHz
+  const NOTCH_GAP = 12;       // SPEC NOTE 33
+  const SURF_MAX_REFL = 4;
+  const DAMPER_FACTOR = 0.01; // 0.1 each way (§3.3)
   const sampleCache = new WeakMap();
   const geomCache = new WeakMap();   // specimen → flattened edges/arcs with precomputed normals
 
@@ -223,12 +307,45 @@
       case 'radius': return 'radius';
       case 'top': return 'backwall';
       case 'step': return 'backwall';
-      default: return 'geometry';
+      default: return 'geometry';   // end, cap, root, brace, fusion, backing, web, interface …
     }
   }
 
+  // ------------------------------------------------------------------ mode-conversion coefficients (§3.2)
+  /** Energy fraction converted L → S at incidence φ (deg from the normal); closed-form fit. */
+  function R_LS(phi) {
+    if (!(phi > 0)) return 0;
+    if (phi <= 62) { const s = Math.sin(Math.PI / 2 * phi / 62); return 0.95 * s * s; }
+    if (phi >= 90) return 0;
+    const c = Math.cos(Math.PI / 2 * (phi - 62) / 28);
+    return 0.95 * c * c;
+  }
+  /** Energy fraction converted S → L at incidence φ below the critical angle φc (deg); 0 beyond. */
+  function R_SL(phi, phiC) {
+    if (!(phi > 0) || !(phiC > 0) || phi >= phiC) return 0;
+    return 0.85 * Math.pow(phi / phiC, 1.5);
+  }
+  /**
+   * Mode-conversion coefficient and outgoing angle for an incident mode at φ (deg from the normal).
+   * @param {'S'|'L'} mode incident mode
+   * @param {number} phiDeg incidence angle
+   * @param {{vShear:number, vComp:number}} [mat] material (carbon steel default)
+   * @returns {{R:number, phiOut:number|null}}
+   */
+  function modeConvCoef(mode, phiDeg, mat) {
+    const vS = (mat && mat.vShear) || UT.consts.V_SHEAR_STEEL, vL = (mat && mat.vComp) || UT.consts.V_COMP_STEEL;
+    const phi = Math.abs(+phiDeg || 0);
+    if (mode === 'L') {
+      const s = Math.sin(phi * DEG) * vS / vL;
+      return { R: R_LS(phi), phiOut: s < 1 ? Math.asin(s) / DEG : null };
+    }
+    const phiC = Math.asin(Math.min(1, vS / vL)) / DEG;
+    const s = Math.sin(phi * DEG) * vL / vS;
+    return { R: R_SL(phi, phiC), phiOut: s < 1 ? Math.asin(s) / DEG : null };
+  }
+
   // ------------------------------------------------------------------ scene assembly
-  /** Flattened outline geometry of a specimen (cached): edges with direction + unit normal. */
+  /** Flattened outline geometry of a specimen (cached): edges with direction + unit normal (+ typed arrays). */
   function geometryOf(specimen) {
     let g = geomCache.get(specimen);
     if (g) return g;
@@ -259,7 +376,21 @@
       }
       i = j + 1;
     }
-    g = { edges, arcs: (specimen.arcs || []).slice(), perspex: specimen.perspex || null, beads };
+    // typed copy for the hot intersection loop (ax, ay, ex, ey per edge)
+    const ef = new Float64Array(edges.length * 4);
+    for (let i = 0; i < edges.length; i++) { ef[i * 4] = edges[i].ax; ef[i * 4 + 1] = edges[i].ay; ef[i * 4 + 2] = edges[i].ex; ef[i * 4 + 3] = edges[i].ey; }
+    // generic planar reflectors outside the outline (v2 §3.8: FBH bars, fillet interface) — SPEC NOTE 35
+    const reflectors = [];
+    for (const r of specimen.reflectors || []) {
+      if (!r || !r.a || !r.b) continue;
+      const ex = r.b.x - r.a.x, ey = r.b.y - r.a.y;
+      if (Math.hypot(ex, ey) < 1e-6) continue;
+      const n = norm(-ey, ex);
+      const isFbh = r.tag === 'fbh';
+      reflectors.push({ a: r.a, b: r.b, ax: r.a.x, ay: r.a.y, ex, ey, nx: n.x, ny: n.y, refl: true, tag: r.tag || 'reflector',
+        kind: isFbh ? 'fbh' : 'geometry', S: 1, dExp: 0.5, fbhD: isFbh ? (r.d || Math.hypot(ex, ey)) : 0, label: r.label, defect: null, beads: null });
+    }
+    g = { edges, ef, arcs: (specimen.arcs || []).slice(), perspex: specimen.perspex || null, beads, reflectors };
     geomCache.set(specimen, g);
     return g;
   }
@@ -274,7 +405,7 @@
 
   /** Build the reflector lists once per trace: defect segments, diffuse points, hole discs. */
   function buildScene(specimen, defects, probe) {
-    const segs = [];      // specular planar defect segments
+    const segs = [];      // specular planar defect segments + generic reflectors
     const points = [];    // diffuse scatterers
     const vols = [];      // volumetric defect polygons (TT extinction, SPEC NOTE 16)
     const list = Array.isArray(defects) ? defects : [];
@@ -293,7 +424,7 @@
           const a = d.pts[i], b = d.pts[i + 1];
           if (M.dist(a.x, a.y, b.x, b.y) < 1e-6) continue;
           const n = norm(-(b.y - a.y), b.x - a.x);
-          const seg = { a, b, ax: a.x, ay: a.y, ex: b.x - a.x, ey: b.y - a.y, nx: n.x, ny: n.y, defect: d, S, kind: isLam ? 'lamination' : 'defect', beads: null };
+          const seg = { a, b, ax: a.x, ay: a.y, ex: b.x - a.x, ey: b.y - a.y, nx: n.x, ny: n.y, defect: d, S, kind: isLam ? 'lamination' : 'defect', beads: null, refl: false };
           if (!isLam) {
             // beads this segment reaches at an end → crack–bead corner pairs use the flat base normal (SPEC NOTE 25)
             for (const bead of g.beads) if (reachesBead(a.x, a.y, bead) || reachesBead(b.x, b.y, bead)) (seg.beads || (seg.beads = [])).push(bead);
@@ -312,6 +443,12 @@
         if (d.pts.length >= 3) vols.push({ pts: d.pts, refl, defect: d });
       }
     }
+    // v2 reflectors (SPEC NOTE 35): specular segments + tip scatter at free ends
+    for (const r of g.reflectors) {
+      segs.push(r);
+      if (distToOutline(r.a.x, r.a.y, g) > TIP_SURFACE_TOL) points.push({ x: r.a.x, y: r.a.y, kind: 'tip', S: 0.12, dExp: 2, cap: 0, tag: r.tag + '-tip', label: r.label });
+      if (distToOutline(r.b.x, r.b.y, g) > TIP_SURFACE_TOL) points.push({ x: r.b.x, y: r.b.y, kind: 'tip', S: 0.12, dExp: 2, cap: 0, tag: r.tag + '-tip', label: r.label });
+    }
     const holes = [];     // hole discs: diffuse capture point + beam-coverage shadow (SPEC NOTE 20)
     for (const h of specimen.holes || []) {
       if (!h || !(h.r > 0)) continue;
@@ -321,7 +458,13 @@
       holes.push({ x: h.x, y: h.y, r: h.r });
     }
     for (let i = 0; i < points.length; i++) points[i].idx = i;
-    return { segs, points, vols, holes, edges: g.edges, arcs: g.arcs, perspex: g.perspex };
+    // typed copy of the segments for the hot loop (ax, ay, ex, ey, nx, ny)
+    const sf = new Float64Array(segs.length * 6);
+    for (let i = 0; i < segs.length; i++) { const s = segs[i]; sf[i * 6] = s.ax; sf[i * 6 + 1] = s.ay; sf[i * 6 + 2] = s.ex; sf[i * 6 + 3] = s.ey; sf[i * 6 + 4] = s.nx; sf[i * 6 + 5] = s.ny; }
+    // any volumetric / tip points at all? (side-lobe rays skip them)
+    let nCheap = 0;
+    for (const P of points) if (P.kind === 'sdh') nCheap++;
+    return { segs, sf, points, vols, holes, edges: g.edges, ef: g.ef, arcs: g.arcs, perspex: g.perspex, hasHeavyPoints: nCheap < points.length };
   }
 
   /** Distance from a point to the nearest outline edge or arc of the flattened geometry. */
@@ -379,17 +522,23 @@
     return chord;
   }
 
+  /** Extra one-way attenuation (dB) of a segment through austenitic weld metal (SPEC NOTE 31); 0 when not enabled. */
+  function weldExtraDb(C, ax, ay, bx, by) {
+    if (!(C.weldExtra > 0)) return 0;
+    return C.weldExtra * UT.specimens.segmentInRegion(C.specimen, { x: ax, y: ay }, { x: bx, y: by });
+  }
+
   // ------------------------------------------------------------------ per-ray march
   /**
-   * March one ray. Returns { pts, legs, echoes, hits, transmitted }.
+   * March one fan ray (all its branches). Returns { pts, legs, echoes, hits, transmitted, w }.
    * @param {object} C  trace context
-   * @param {number} delta  fan offset (deg)
-   * @param {number} [off]  emission offset along the scanning surface (mm, TT sub-apertures only)
+   * @param {object} R  ray descriptor {delta, w, dir0, off, main, side, focused}
    */
-  function marchRay(C, delta, off) {
-    const w = M.beamWeight20(delta, C.th20);
-    const dir0 = dirAt(C.ss, C.side, C.theta + delta);
-    const o = off || 0;
+  function marchRay(C, R) {
+    const w = R.w;
+    const delta = R.delta;
+    const dir0 = R.dir0;
+    const o = R.off || 0;
     const E0 = { x: C.E.x + C.ss.tangent.x * o, y: C.E.y + C.ss.tangent.y * o };
     const rx0 = C.rx ? { x: C.rx.x + C.ss.tangent.x * o, y: C.rx.y + C.ss.tangent.y * o } : null;
     const pts = [{ x: E0.x, y: E0.y, leg: 1 }];
@@ -397,87 +546,108 @@
     const echoes = [];
     const hits = [];
     let transmitted = 0;
-    const isCentre = Math.abs(delta) < 1e-9;
+    const isCentre = Math.abs(delta) < 1e-9 && !R.focused;
     const scene = C.scene;
-    const tan20 = Math.tan(C.th20 * DEG);
+    const tan20 = C.tan20;
+    const sideLobe = !!R.side;
+    const legLimit = sideLobe ? Math.min(C.maxLegs, SIDE_LEGS) : C.maxLegs;
+    const canConvert = C.modeConv && R.main && w >= CONV_MIN_W && !C.tt && !C.tandem;
+    const capScale = R.focused ? FOCUS_CAPTURE : 1;
     // Branch stack (SPEC NOTE 19): a ray meeting a planar defect segment whose z-overlap is partial
     // splits into a reflected branch (weight Z) and a transmitted branch (weight sqrt(1 − Z²)).
+    // Mode conversion (SPEC NOTE 30) spawns one converted branch per fan ray.
     const branches = [{
       pos: { x: E0.x + dir0.x * STEP_OFF, y: E0.y + dir0.y * STEP_OFF }, dir: { x: dir0.x, y: dir0.y },
-      len: 0, bounces: 0, leg: 1, e: 1, hist: [], sawDefect: false, sawBottom: false, slotPending: false,
-      fromTag: 'top', zs: [], tw: 1, draw: true, iter: 0,
+      len: 0, tUs: 0, att: 0, mode: C.probeMode, bounces: 0, leg: 1, e: 1, hist: [], sawDefect: false, sawBottom: false, slotPending: false,
+      fromTag: 'top', zs: [], tw: 1, draw: true, iter: 0, conv: null, noSpawn: sideLobe,
     }];
     let spawned = 0;
+    let convDone = false;
     const splitDone = new Set();   // defects already split on this fan ray (one split per defect, SPEC NOTE 19)
 
     while (branches.length) {
       const B = branches.pop();
-      let pos = B.pos, dir = B.dir, len = B.len, bounces = B.bounces, leg = B.leg, e = B.e;
+      let pos = B.pos, dir = B.dir, len = B.len, tUs = B.tUs, att = B.att, mode = B.mode, bounces = B.bounces, leg = B.leg, e = B.e;
       const hist = B.hist;
       let sawDefect = B.sawDefect, sawBottom = B.sawBottom, slotPending = B.slotPending, fromTag = B.fromTag;
       let zs = B.zs, tw = B.tw, draw = B.draw;
+      const conv = B.conv;            // null for the primary ray; {first, legCap, re, poly} for a converted branch
+      const noSpawn = B.noSpawn;
+      let v = mode === 'L' ? C.vL : C.vS;
+      let alpha = mode === 'L' ? C.alphaL : C.alphaS;
+      const myLegLimit = conv ? conv.legCap : legLimit;
 
       for (let iter = B.iter; iter < 200; iter++) {
-        if (bounces > C.maxLegs + 5 || len > C.maxLen || leg > C.maxLegs) break;
-        // ---- nearest intersection (inlined ray–segment maths, no allocation until the winner is known)
-        let bestT = Infinity, bestObj = null, bestType = 0;   // 1 edge, 2 arc, 3 perspex, 4 defect
+        if (bounces > myLegLimit + 5 || len > C.maxLen || leg > myLegLimit) break;
+        // ---- nearest intersection (typed arrays, no allocation until the winner is known)
+        let bestT = Infinity, bestI = -1, bestType = 0;   // 1 edge, 2 arc, 3 perspex, 4 segment (defect/reflector)
         let bestNx = 0, bestNy = 0;
         const px = pos.x, py = pos.y, dx = dir.x, dy = dir.y;
-        for (let i = 0; i < scene.edges.length; i++) {
-          const ed = scene.edges[i];
-          const den = dx * ed.ey - dy * ed.ex;
+        const ef = scene.ef;
+        for (let i = 0, k = 0; k < ef.length; i++, k += 4) {
+          const ax = ef[k], ay = ef[k + 1], ex = ef[k + 2], ey = ef[k + 3];
+          const den = dx * ey - dy * ex;
           if (den > -1e-12 && den < 1e-12) continue;
-          const t = ((ed.ax - px) * ed.ey - (ed.ay - py) * ed.ex) / den;
+          const t = ((ax - px) * ey - (ay - py) * ex) / den;
           if (t < EPS || t >= bestT) continue;
-          const u = ((ed.ax - px) * dy - (ed.ay - py) * dx) / den;
+          const u = ((ax - px) * dy - (ay - py) * dx) / den;
           if (u < 0 || u > 1) continue;
-          bestT = t; bestObj = ed; bestType = 1;
+          bestT = t; bestI = i; bestType = 1;
         }
         for (let i = 0; i < scene.arcs.length; i++) {
           const h = arcHit(px, py, dx, dy, scene.arcs[i], EPS);
-          if (h && h.t < bestT + 1e-7) { bestT = h.t; bestObj = scene.arcs[i]; bestType = 2; bestNx = h.nx; bestNy = h.ny; }   // ties → arc
+          if (h && h.t < bestT + 1e-7) { bestT = h.t; bestI = i; bestType = 2; bestNx = h.nx; bestNy = h.ny; }   // ties → arc
         }
         if (scene.perspex) {
           const h = M.rayCircle(px, py, dx, dy, scene.perspex.x, scene.perspex.y, scene.perspex.r, EPS);
-          if (h && h.t < bestT) { bestT = h.t; bestObj = scene.perspex; bestType = 3; }
+          if (h && h.t < bestT) { bestT = h.t; bestI = 0; bestType = 3; }
         }
-        for (let i = 0; i < scene.segs.length; i++) {
-          const sg = scene.segs[i];
-          const dn = dx * sg.nx + dy * sg.ny;
+        const sf = scene.sf;
+        for (let i = 0, k = 0; k < sf.length; i++, k += 6) {
+          const dn = dx * sf[k + 4] + dy * sf[k + 5];
           if (dn > -GRAZE_COS && dn < GRAZE_COS) continue;   // grazing: pass through
-          const den = dx * sg.ey - dy * sg.ex;
+          const ax = sf[k], ay = sf[k + 1], ex = sf[k + 2], ey = sf[k + 3];
+          const den = dx * ey - dy * ex;
           if (den > -1e-12 && den < 1e-12) continue;
-          const t = ((sg.ax - px) * sg.ey - (sg.ay - py) * sg.ex) / den;
+          const t = ((ax - px) * ey - (ay - py) * ex) / den;
           if (t < EPS || t >= bestT) continue;
-          const u = ((sg.ax - px) * dy - (sg.ay - py) * dx) / den;
+          const u = ((ax - px) * dy - (ay - py) * dx) / den;
           if (u < 0 || u > 1) continue;
-          bestT = t; bestObj = sg; bestType = 4;
+          bestT = t; bestI = i; bestType = 4;
         }
         let best = null;
-        if (bestType === 1) best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: bestObj.nx, ny: bestObj.ny, type: 'outline', tag: bestObj.tag, bead: bestObj.bead || null };
-        else if (bestType === 2) best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: bestNx, ny: bestNy, type: 'outline', tag: bestObj.tag || 'radius' };
-        else if (bestType === 3) { const hx = px + dx * bestT, hy = py + dy * bestT; const n = norm(hx - bestObj.x, hy - bestObj.y); best = { t: bestT, x: hx, y: hy, nx: n.x, ny: n.y, type: 'perspex', tag: 'perspex' }; }
-        else if (bestType === 4) best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: bestObj.nx, ny: bestObj.ny, type: 'defect', tag: bestObj.kind, seg: bestObj };
+        if (bestType === 1) { const ed = scene.edges[bestI]; best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: ed.nx, ny: ed.ny, type: 'outline', tag: ed.tag, bead: ed.bead || null }; }
+        else if (bestType === 2) best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: bestNx, ny: bestNy, type: 'outline', tag: scene.arcs[bestI].tag || 'radius' };
+        else if (bestType === 3) { const hx = px + dx * bestT, hy = py + dy * bestT; const n = norm(hx - scene.perspex.x, hy - scene.perspex.y); best = { t: bestT, x: hx, y: hy, nx: n.x, ny: n.y, type: 'perspex', tag: 'perspex' }; }
+        else if (bestType === 4) { const sg = scene.segs[bestI]; best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: sg.nx, ny: sg.ny, type: sg.refl ? 'reflector' : 'defect', tag: sg.kind, seg: sg }; }
         if (!best) break;
         const L = best.t;
+        const segExtra = weldExtraDb(C, px, py, best.x, best.y);   // austenitic weld metal on this segment (one-way dB)
 
         // ---- diffuse scatterers along the segment
-        if (!C.tt && !C.tandem) {
-          for (const P of scene.points) {
-            const rx = P.x - pos.x, ry = P.y - pos.y;
-            const u = rx * dir.x + ry * dir.y;
+        if (!C.tt && !C.tandem && (!sideLobe || scene.hasHeavyPoints === false || true)) {
+          const points = scene.points;
+          for (let pi = 0; pi < points.length; pi++) {
+            const P = points[pi];
+            if (sideLobe && P.kind !== 'sdh') continue;   // SPEC NOTE 29: side-lobe rays skip volumetric/tip sampling
+            const rx = P.x - px, ry = P.y - py;
+            const u = rx * dx + ry * dy;
             if (u <= 1e-6 || u >= L) continue;
-            const d = Math.abs(rx * dir.y - ry * dir.x);
+            const d = Math.abs(rx * dy - ry * dx);
             const c = 0.5 + 0.03 * (len + u);
-            const cap = Math.max(c, P.cap);
+            let cap = Math.max(c, P.cap);
+            if (capScale !== 1) cap = Math.max(FOCUS_CAPTURE_MIN, cap * capScale);
             if (d > cap) continue;
-            const path = Math.max(0, len + u - (P.back || 0));
+            const lenMm = Math.max(0, len + u - (P.back || 0));
             const taper = Math.cos(Math.PI / 2 * d / cap);
-            const ec = makeEcho(C, { path, kind: P.kind, leg, x: P.x, y: P.y, w, wReturn: w, e, S: P.S, dExp: P.dExp,
-              defect: P.defect, tag: P.tag, label: P.label, angleDev: delta, extra: taper, zs, tw });
+            const attP = 2 * (att + alpha * u + segExtra * (u / L));
+            const isConv = conv !== null;
+            const ec = makeEcho(C, { lenMm, tUs: 2 * (tUs + u / v), att: attP, mode, conv: isConv ? conv.first : null,
+              kind: isConv ? 'modeconv' : P.kind, leg, x: P.x, y: P.y, w, wReturn: w * (isConv && mode !== C.probeMode ? 0.5 : 1), e, S: P.S, dExp: P.dExp,
+              defect: P.defect, tag: isConv ? (P.tag || P.kind) : P.tag, label: P.label, angleDev: delta, extra: taper, zs, tw });
             if (P.vol) {
               // one entry per scatterer point and leg: the loudest capture over the fan (SPEC NOTE 17)
-              const key = P.idx * 64 + leg;
+              const key = (P.idx * 2 + (isConv ? 1 : 0)) * 64 + leg;
               const cur = C.volBest.get(key);
               if (!cur || ec.amp > cur.amp || (ec.amp === cur.amp && ec.ampNoZ > cur.ampNoZ)) C.volBest.set(key, ec);
             } else echoes.push(ec);
@@ -485,9 +655,9 @@
         } else if (C.tt && scene.vols.length) {
           // extinction through volumetric defects (SPEC NOTE 16)
           for (const V of scene.vols) {
-            const chord = chordThrough(V.pts, pos.x, pos.y, dir.x, dir.y, L);
+            const chord = chordThrough(V.pts, px, py, dx, dy, L);
             if (chord <= 0) continue;
-            const zf = zOverlap(V.defect, C.probeZ, C.diameter / 2 + (len + L) * tan20, C.L, C.wrap);
+            const zf = zOverlap(V.defect, C.probeZ, C.crystalB / 2 + (len + L) * C.tan20z, C.L, C.wrap);
             e *= Math.pow(10, -TT_EXTINCTION * V.refl * zf * zf * chord / 20);
           }
         }
@@ -495,10 +665,10 @@
         //      the uncovered fraction of the beam width at that depth (holes span all z)
         for (let i = 0; i < scene.holes.length; i++) {
           const H = scene.holes[i];
-          const rx = H.x - pos.x, ry = H.y - pos.y;
-          const u = rx * dir.x + ry * dir.y;
+          const rx = H.x - px, ry = H.y - py;
+          const u = rx * dx + ry * dy;
           if (u <= 1e-6 || u >= L) continue;
-          const d = rx * dir.y - ry * dir.x;
+          const d = rx * dy - ry * dx;
           const half = C.diameter / 2 + (len + u) * tan20;
           const ov = M.overlap(d - H.r, d + H.r, -half, half);
           if (ov <= 0) continue;
@@ -507,11 +677,14 @@
 
         // ---- move
         len += L;
+        tUs += L / v;
+        att += alpha * L + segExtra;
         const hp = { x: best.x, y: best.y };
         if (draw) {
           pts.push({ x: hp.x, y: hp.y, leg });
-          legs.push({ a: { x: pos.x, y: pos.y }, b: hp, leg, surfaceTag: fromTag, hitTag: best.tag });
+          legs.push({ a: { x: px, y: py }, b: hp, leg, surfaceTag: fromTag, hitTag: best.tag });
         }
+        if (conv) conv.poly.pts.push({ x: hp.x, y: hp.y, leg });
 
         // through transmission receiver test (first outline hit only)
         if (C.tt && best.type === 'outline' && leg === 1 && rx0) {
@@ -522,29 +695,29 @@
         // ---- z-overlap split at a planar defect segment (SPEC NOTE 19)
         if (best.type === 'defect') {
           const sd = best.seg.defect;
-          const hzHit = len * tan20 + C.diameter / 2;
+          const hzHit = len * C.tan20z + C.crystalB / 2;
           const Zs = zOverlap(sd, C.probeZ, hzHit, C.L, C.wrap);
           if (Zs < 1 || (sd.zFrom !== undefined && sd.zTo !== undefined)) {
             const Ts = Math.sqrt(Math.max(0, 1 - Zs * Zs));
             const transDominant = Zs * Zs < 0.5;
-            if (tw > 0 && spawned < MAX_SPLITS && !splitDone.has(sd)) {
+            if (tw > 0 && !noSpawn && !conv && spawned < MAX_SPLITS && !splitDone.has(sd)) {
               // queue the transmitted branch (weight Ts) and continue below with the reflected one (weight Zs);
               // the drawn polyline follows the dominant side
               spawned++;
               splitDone.add(sd);
               branches.push({
-                pos: { x: hp.x + dir.x * STEP_OFF, y: hp.y + dir.y * STEP_OFF }, dir: { x: dir.x, y: dir.y },
-                len, bounces, leg, e, hist: hist.slice(), sawDefect, sawBottom, slotPending: false, fromTag,
-                zs: zs.concat([{ defect: sd, hz: hzHit, trans: true }]), tw: tw * Ts, draw: draw && transDominant, iter: iter + 1,
+                pos: { x: hp.x + dx * STEP_OFF, y: hp.y + dy * STEP_OFF }, dir: { x: dx, y: dy },
+                len, tUs, att, mode, bounces, leg, e, hist: hist.slice(), sawDefect, sawBottom, slotPending: false, fromTag,
+                zs: zs.concat([{ defect: sd, hz: hzHit, trans: true }]), tw: tw * Ts, draw: draw && transDominant, iter: iter + 1, conv: null, noSpawn: false,
               });
               if (transDominant) draw = false;
               zs = zs.concat([{ defect: sd, hz: hzHit, trans: false }]);
               tw *= Zs;
             } else if (transDominant) {
-              // no split budget (or a dead branch): follow the dominant side only — pass through
+              // no split budget (or a dead / converted / side-lobe branch): follow the dominant side only — pass through
               zs = zs.concat([{ defect: sd, hz: hzHit, trans: true }]);
               tw *= Ts;
-              pos = { x: hp.x + dir.x * STEP_OFF, y: hp.y + dir.y * STEP_OFF };
+              pos = { x: hp.x + dx * STEP_OFF, y: hp.y + dy * STEP_OFF };
               slotPending = false;
               continue;
             } else {
@@ -568,11 +741,12 @@
           // crack–bead corner pair (SPEC NOTE 25): the bead reflects like the plate surface it sits on
           const flatBead = best.bead && !C.tt && !C.tandem && cornerBead(best, hist, hp, dir, scene);
           if (flatBead) { best.nx = best.bead.nx; best.ny = best.bead.ny; }
-          nd = reflect(dir.x, dir.y, best.nx, best.ny);
+          nd = reflect(dx, dy, best.nx, best.ny);
           pos = { x: hp.x + nd.x * STEP_OFF, y: hp.y + nd.y * STEP_OFF };
           bounces++;
           const legAtHit = leg;
-          const incDeg = Math.acos(M.clamp(Math.abs(dot(dir.x, dir.y, best.nx, best.ny)), 0, 1)) / DEG;
+          const cosInc = M.clamp(Math.abs(dot(dx, dy, best.nx, best.ny)), 0, 1);
+          const incDeg = Math.acos(cosInc) / DEG;
           if (best.type === 'outline') {
             leg++;
             e *= best.tag === 'top' ? TOP_LOSS : OTHER_LOSS;
@@ -580,27 +754,73 @@
             fromTag = best.tag;
             // rough weld bead: weak diffuse geometry scatter (SPEC NOTE 2)
             if (!C.tt && !C.tandem && (best.tag === 'cap' || best.tag === 'root')) {
-              const inc = Math.abs(dot(dir.x, dir.y, best.nx, best.ny));
               const slope = Math.min(1, Math.abs(best.nx) / 0.5);   // 0 for a flat bead (SPEC NOTE 2)
-              if (slope > 1e-6) echoes.push(makeEcho(C, { path: len, kind: 'geometry', leg: leg - 1, x: hp.x, y: hp.y, w, wReturn: w, e: e / OTHER_LOSS, S: BEAD_SCATTER * inc * slope, dExp: 1.5, tag: best.tag, angleDev: delta, zs, tw }));
+              if (slope > 1e-6) echoes.push(makeEcho(C, { lenMm: len, tUs: 2 * tUs, att: 2 * att, mode, conv: conv ? conv.first : null, kind: conv ? 'modeconv' : 'geometry', leg: leg - 1, x: hp.x, y: hp.y, w, wReturn: w * (conv && mode !== C.probeMode ? 0.5 : 1), e: e / OTHER_LOSS, S: BEAD_SCATTER * cosInc * slope, dExp: 1.5, tag: best.tag, angleDev: delta, zs, tw }));
             }
             if ((best.tag === 'cap' || best.tag === 'root') && !flatBead) e *= BEAD_SPECULAR;   // convex bead diverges the specular reflection (SPEC NOTE 21)
           } else if (best.type === 'perspex') {
             e *= OTHER_LOSS;
             fromTag = 'perspex';
-            if (isCentre && C.theta === 0 && C.mode === 'comp') {
+            if (isCentre && C.theta === 0 && C.mode === 'comp' && !conv) {
               const p = scene.perspex;
-              echoes.push(makeEcho(C, { path: len + 2 * p.r * (C.vel / (UT.consts.V_PERSPEX)), kind: 'perspex', leg, x: p.x, y: p.y + p.r, w, wReturn: w, e, S: 0.2, dExp: 0.5, tag: 'perspex', angleDev: delta, zs, tw }));
+              const extra = 2 * p.r * (C.vel / (UT.consts.V_PERSPEX));
+              echoes.push(makeEcho(C, { lenMm: len + extra, tUs: 2 * (tUs + extra / v), att: 2 * att, mode, conv: null, kind: 'perspex', leg, x: p.x, y: p.y + p.r, w, wReturn: w, e, S: 0.2, dExp: 0.5, tag: 'perspex', angleDev: delta, zs, tw }));
             }
+          } else if (best.type === 'reflector') {
+            fromTag = best.tag;
           } else {
             sawDefect = true;
             fromTag = 'defect';
           }
           hist.push({ type: best.type, tag: best.tag, x: hp.x, y: hp.y, seg: best.seg, leg: legAtHit, inc: incDeg });
+
+          // ---- mode conversion (SPEC NOTE 30)
+          if (canConvert && best.type !== 'perspex' && incDeg > 0.05) {
+            const Rc = mode === 'L' ? R_LS(incDeg) : R_SL(incDeg, C.phiC);
+            if (Rc > 0) {
+              const vOther = mode === 'L' ? C.vS : C.vL;
+              const sinOut = Math.sin(incDeg * DEG) * vOther / v;
+              if (sinOut < 1) {
+                const cosOut = Math.sqrt(1 - sinOut * sinOut);
+                const dn = dx * best.nx + dy * best.ny;
+                const tx = -best.ny, ty = best.nx;
+                const dt = dx * tx + dy * ty;
+                const sn = dn < 0 ? 1 : -1, st = dt < 0 ? -1 : 1;
+                const dOut = { x: sn * cosOut * best.nx + st * sinOut * tx, y: sn * cosOut * best.ny + st * sinOut * ty };
+                if (!conv) {
+                  if (!convDone && e * Rc >= CONV_MIN_E) {
+                    convDone = true;
+                    const other = mode === 'L' ? 'S' : 'L';
+                    const poly = { mode: other, kindTag: other, pts: [{ x: hp.x, y: hp.y, leg }], weight: w * e * Rc * tw };
+                    C.convPolys.push(poly);
+                    branches.push({
+                      pos: { x: hp.x + dOut.x * STEP_OFF, y: hp.y + dOut.y * STEP_OFF }, dir: dOut,
+                      len, tUs, att, mode: other, bounces, leg, e: e * Rc, hist: hist.slice(), sawDefect, sawBottom, slotPending: false, fromTag,
+                      zs, tw, draw: false, iter: iter + 1, conv: { first: other, legCap: leg + CONV_LEGS, re: false, poly }, noSpawn: true,
+                    });
+                    e *= 1 - Rc;
+                  }
+                } else if (!conv.re) {
+                  if (Rc >= CONV_BACK) {
+                    // dominant path: re-convert back (once), new drawing entry
+                    conv.re = true;
+                    mode = mode === 'L' ? 'S' : 'L';
+                    v = mode === 'L' ? C.vL : C.vS;
+                    alpha = mode === 'L' ? C.alphaL : C.alphaS;
+                    e *= Rc;
+                    nd = dOut;
+                    pos = { x: hp.x + nd.x * STEP_OFF, y: hp.y + nd.y * STEP_OFF };
+                    conv.poly = { mode, kindTag: mode, pts: [{ x: hp.x, y: hp.y, leg }], weight: w * e * tw };
+                    C.convPolys.push(conv.poly);
+                  } else e *= 1 - Rc;
+                }
+              }
+            }
+          }
         }
         if (hist.length > 2) hist.shift();
         dir = nd;
-        if (leg <= 3 && tw > 0) hits.push({ x: hp.x, y: hp.y, kind: best.tag, tag: best.tag, defectId: best.seg ? best.seg.defect.id : undefined });
+        if (leg <= 3 && tw > 0 && !conv) hits.push({ x: hp.x, y: hp.y, kind: best.tag, tag: best.tag, defectId: best.seg && best.seg.defect ? best.seg.defect.id : undefined });
         slotPending = false;
 
         // ---- return-to-probe test
@@ -610,10 +830,11 @@
             if (C.tandem) {
               const dRx = M.dist(cross.x, cross.y, C.rx.x, C.rx.y);
               const dev = M.angleBetween(dir.x, dir.y, C.rxDir.x, C.rxDir.y);
-              if (sawDefect && sawBottom && dRx <= C.diameter / 2 && dev < C.th20) {
+              if (sawDefect && sawBottom && dRx <= C.diameter / 2 && dev < C.devMax) {
                 const info = returnInfo(hist);
                 if (info.kind === 'defect' || info.kind === 'corner' || info.kind === 'lamination') {
-                  echoes.push(makeEcho(C, { path: (len + cross.t) / 2, kind: 'defect', leg: info.leg, x: info.x, y: info.y, w, wReturn: M.beamWeight20(dev, C.th20), e, S: info.S, dExp: info.dExp, defect: info.defect, tag: 'tandem', angleDev: delta, zs, tw }));
+                  const back = alpha * cross.t + weldExtraDb(C, pos.x, pos.y, cross.x, cross.y);
+                  echoes.push(makeEcho(C, { lenMm: (len + cross.t) / 2, tUs: tUs + cross.t / v, att: att + back, mode, conv: conv ? conv.first : null, kind: conv ? 'modeconv' : 'defect', leg: info.leg, x: info.x, y: info.y, w, wReturn: C.dirW(dev) * (conv && mode !== C.probeMode ? 0.5 : 1), e, S: info.S, dExp: info.dExp, defect: info.defect, tag: 'tandem', angleDev: delta, zs, tw }));
                 }
               }
             } else {
@@ -621,12 +842,13 @@
               const ra = C.diameter / 2 + (len + cross.t) * Math.sin(C.th6 * DEG);
               const dev = M.angleBetween(dir.x, dir.y, -C.u0.x, -C.u0.y);
               const tail = AP_TAIL * C.diameter;
-              if (dE < ra + tail && dev < 2 * C.th20) {
+              if (dE < ra + tail && dev < C.devMax) {
                 // full weight inside ra, cos² taper to 0 over the next AP_TAIL·D (SPEC NOTE 18)
                 const wAp = dE <= ra ? 1 : Math.pow(Math.cos(Math.PI / 2 * (dE - ra) / tail), 2);
                 const info = returnInfo(hist);
-                echoes.push(makeEcho(C, { path: (len + cross.t) / 2, kind: info.kind, leg: info.leg, x: info.x, y: info.y, w, wReturn: M.beamWeight20(dev, C.th20) * wAp, e, S: info.S, dExp: info.dExp, defect: info.defect, tag: info.tag, angleDev: delta, zs, tw }));
-                if (C.retroSlot && dE <= 1.0) slotPending = true;
+                const back = alpha * cross.t + weldExtraDb(C, pos.x, pos.y, cross.x, cross.y);
+                echoes.push(makeEcho(C, { lenMm: (len + cross.t) / 2, tUs: tUs + cross.t / v, att: att + back, mode, conv: conv ? conv.first : null, kind: conv ? 'modeconv' : info.kind, leg: info.leg, x: info.x, y: info.y, w, wReturn: C.dirW(dev) * wAp * (conv && mode !== C.probeMode ? 0.5 : 1), e, S: info.S, dExp: info.dExp, defect: info.defect, tag: info.tag, label: info.label, fbhD: info.fbhD, angleDev: delta, zs, tw }));
+                if (C.retroSlot && dE <= 1.0 && !conv) slotPending = true;
               }
             }
           }
@@ -702,17 +924,24 @@
       const seg = last.seg;
       return { kind: seg.kind, S: seg.S, dExp: seg.kind === 'lamination' ? 0.5 : 1.5, defect: seg.defect, tag: seg.defect.type, x: last.x, y: last.y, leg: last.leg };
     }
+    if (last.type === 'reflector') {
+      const seg = last.seg;   // SPEC NOTE 35
+      return { kind: seg.kind, S: seg.S, dExp: seg.dExp, tag: seg.tag, label: seg.label, fbhD: seg.fbhD, x: last.x, y: last.y, leg: last.leg };
+    }
     if (last.type === 'perspex') return { kind: 'perspex', S: 0.9, dExp: 0.5, tag: 'perspex', x: last.x, y: last.y, leg: last.leg };
     return { kind: tagKind(last.tag), S: 1, dExp: 0.5, tag: last.tag, x: last.x, y: last.y, leg: last.leg };
   }
 
-  /** Assemble one raw (unmerged) echo with the §6.1 rule-4 amplitude. */
+  /** Assemble one raw (unmerged) echo with the §6.1 rule-4 amplitude (v2: per-leg attenuation, tUs, focus gain). */
   function makeEcho(C, o) {
-    const q = C.nearField / Math.max(o.path, C.nearField);
+    const lenMm = o.lenMm;
+    const q = C.nearField / Math.max(lenMm, C.nearField);
     const D = Math.pow(q, o.dExp);
-    const Mf = Math.pow(10, -C.alpha * 2 * o.path / 20);
-    const base = o.w * o.wReturn * o.e * o.S * D * Mf * (o.extra === undefined ? 1 : o.extra);
-    const hz = o.path * Math.tan(C.th20 * DEG) + C.diameter / 2;
+    const Mf = Math.pow(10, -o.att / 20);
+    let S = o.S;
+    if (o.fbhD) S *= Math.min(1, Math.PI * o.fbhD * o.fbhD / (2 * C.lambda * Math.max(lenMm, C.nearField)));   // FBH law (§3.8)
+    const base = o.w * o.wReturn * o.e * S * D * Mf * (o.extra === undefined ? 1 : o.extra) * C.transferLin * C.Gf(lenMm);
+    const hz = lenMm * C.tan20z + C.crystalB / 2;
     const vol = !!o.defect && !UT.specimens.isPlanar(o.defect.type);   // volumetric scatterers: ×1 (§6.7)
     const skewed = !vol && (o.kind === 'defect' || o.kind === 'corner' || o.kind === 'geometry' || o.kind === 'lamination') && C.theta > 0;
     const sw = skewed ? M.skewWeight(C.skew) : 1;
@@ -725,11 +954,15 @@
       for (let i = 0; i < zs.length; i++) if (zs[i].defect === o.defect) { seen = true; break; }
       if (!seen) { zs = zs.concat([{ defect: o.defect, hz, trans: false }]); Z *= zOverlap(o.defect, C.probeZ, hz, C.L, C.wrap); }
     }
+    const converted = o.conv !== null && o.conv !== undefined;
+    const path = converted ? o.tUs * C.vel / 2 : lenMm;   // SPEC NOTE 32
     const ec = {
-      path: o.path, amp: base * sw * Z, ampNoZ: base * sw, hz, kind: o.kind, leg: o.leg, x: o.x, y: o.y,
+      path, amp: base * sw * Z, ampNoZ: base * sw, hz, kind: o.kind, leg: o.leg, x: o.x, y: o.y,
       defectId: o.defect ? o.defect.id : undefined, tag: o.tag, label: o.label || (o.defect ? o.defect.label : undefined),
       angleDev: o.angleDev, defectType: o.defect ? o.defect.type : undefined,
+      tUs: o.tUs, lenMm, mode: o.mode,
     };
+    if (converted) ec.conv = o.conv;
     if (o.w !== undefined) ec.w = o.w;   // one-way fan weight of the ray (merge coverage, SPEC NOTE 23; stripped by mergeEchoes)
     if (zs.length) ec.zs = zs.map(function (f) { return { defectId: f.defect.id, hz: f.hz, trans: !!f.trans }; });
     return ec;
@@ -747,6 +980,111 @@
     return Math.sqrt(M.clamp(ov / (2 * hz), 0, 1));
   }
 
+  // ------------------------------------------------------------------ surface wave (§3.3, SPEC NOTE 33)
+  /**
+   * Rayleigh wave along the chord scanning surface. Returns {echoes, surface} or null.
+   */
+  function surfaceWave(C, specimen, probe, derived, opts) {
+    if (!C.surfaceWave || probe.surface === 'brace' || probe.surface === 'web') return null;
+    if (derived.mode !== 'shear' || !(derived.refracted > 0)) return null;
+    const ref = derived.refracted;
+    const nearSecond = derived.secondCritical !== undefined && derived.wedgeAngle >= derived.secondCritical - 6;
+    if (!(ref >= 65 || nearSecond)) return null;
+    const eR = 0.15 * M.clamp((ref - 60) / 15, 0, 1);
+    if (!(eR > 0)) return null;
+    const edges = specimen.edges || [];
+    const seg = C.segment;
+    let i0 = edges.indexOf(seg);
+    if (i0 < 0) return null;
+    const dirX = -C.side;   // beam direction along x
+    const n = edges.length;
+    // walk orientation: forward when the edge runs along dirX
+    const fwd = (seg.b.x - seg.a.x) * dirX >= 0;
+    const at = function (k) { const e = edges[((k % n) + n) % n]; return fwd ? { a: e.a, b: e.b, tag: e.tag } : { a: e.b, b: e.a, tag: e.tag }; };
+    const step = fwd ? 1 : -1;
+    const vR = derived.vRayleigh || 0.92 * C.vS;
+    const dampers = (opts.damping && Array.isArray(opts.damping.points) ? opts.damping.points : []).filter(function (x) { return Number.isFinite(x); });
+    const reflectors = [];
+    const echoes = [];
+    const pts = [{ x: C.E.x, y: C.E.y }];
+    let dist = 0, energy = 1;
+    let x = C.E.x, y = C.E.y;
+    let k = i0;
+    let cur = at(k);
+    // surface-breaking planar defects (any vertex at y ≤ 0.5), sorted along the travel direction
+    const cracks = [];
+    for (const d of C.defects) {
+      if (!d || d.visible === false || !UT.specimens.isPlanar(d.type) || d.type === 'lamination' || !Array.isArray(d.pts)) continue;
+      let top = null;
+      for (const p of d.pts) if (p.y <= 0.5 && (top === null || p.y < top.y)) top = p;
+      if (top && (top.x - C.E.x) * dirX > 0.5) cracks.push({ x: top.x, defect: d });
+    }
+    cracks.sort(function (a, b) { return (a.x - b.x) * dirX; });
+    let ci = 0;
+    const emit = function (rx, ry, kind, refl, defect) {
+      const d = dist;
+      let damp = 1;
+      for (const xd of dampers) if ((xd - C.E.x) * dirX > 0 && (rx - xd) * dirX > 0) damp *= DAMPER_FACTOR;
+      const q = C.nearField / Math.max(d, C.nearField);
+      const lenMm = d;
+      const tUs = 2 * d / vR;
+      const hz = lenMm * C.tan20z + C.crystalB / 2;
+      let Z = 1;
+      const zs = [];
+      if (defect) { Z = zOverlap(defect, C.probeZ, hz, C.L, C.wrap); zs.push({ defectId: defect.id, hz, trans: false }); }
+      const ampNoZ = eR * energy * refl * Math.sqrt(q) * damp * C.transferLin;
+      const ec = { path: tUs * C.vel / 2, amp: ampNoZ * Z, ampNoZ, hz, kind: 'surface', leg: 1, x: rx, y: ry, tag: kind, label: undefined, angleDev: 0,
+        tUs, lenMm, mode: 'R', surfaceRefl: refl };
+      if (defect) { ec.defectId = defect.id; ec.defectType = defect.type; ec.label = defect.label; ec.zs = zs; }
+      echoes.push(ec);
+      reflectors.push({ x: rx, y: ry, kind, refl });
+      pts.push({ x: rx, y: ry });
+    };
+    for (let guard = 0; guard < 64 && reflectors.length < SURF_MAX_REFL && energy > 1e-4 && dist < C.maxLen; guard++) {
+      // cracks on the current edge before its end vertex
+      const ex = cur.b.x;
+      while (ci < cracks.length && (cracks[ci].x - x) * dirX > 0 && (ex - cracks[ci].x) * dirX >= 0) {
+        const cx = cracks[ci].x;
+        const t = Math.abs(cur.b.x - cur.a.x) > 1e-9 ? (cx - cur.a.x) / (cur.b.x - cur.a.x) : 0;
+        const cy = cur.a.y + (cur.b.y - cur.a.y) * M.clamp(t, 0, 1);
+        dist += M.dist(x, y, cx, cy); x = cx; y = cy;
+        emit(cx, cy, 'crack', 0.8, cracks[ci].defect);
+        energy *= 0.2;
+        ci++;
+      }
+      // move to the end vertex of the current edge
+      dist += M.dist(x, y, cur.b.x, cur.b.y); x = cur.b.x; y = cur.b.y;
+      pts.push({ x, y });
+      k += step;
+      const nxt = at(k);
+      if (nxt.tag === 'top' || nxt.tag === 'cap') {
+        if (cur.tag === 'top' && nxt.tag === 'cap') { emit(x, y, 'cap-toe', 0.5, null); energy *= 0.5; }
+        cur = nxt;
+        continue;
+      }
+      if (cur.tag === 'cap' && (nxt.tag === 'web' || nxt.tag === 'brace')) { emit(x, y, 'toe', 0.5, null); break; }
+      // notch: a 'top' edge at the same level resumes within NOTCH_GAP
+      let notch = null;
+      for (let j = 1; j <= 4; j++) {
+        const cand = at(k + j * step);
+        if (cand.tag === 'top' && Math.abs(cand.a.y - y) < 0.05 && Math.abs(cand.a.x - x) <= NOTCH_GAP) { notch = { k: k + j * step, e: cand }; break; }
+        if (cand.tag === 'top' || cand.tag === 'cap') break;
+      }
+      if (notch) {
+        emit(x, y, 'notch', 0.8, null);
+        energy *= 0.2;
+        dist += Math.abs(notch.e.a.x - x); x = notch.e.a.x; y = notch.e.a.y;
+        pts.push({ x, y });
+        k = notch.k; cur = at(k);
+        continue;
+      }
+      emit(x, y, nxt.tag === 'end' ? 'end' : 'toe', nxt.tag === 'end' ? 1.0 : 0.5, null);
+      break;
+    }
+    if (!echoes.length) return null;
+    return { echoes, surface: { pts, reflectors, dampers: dampers.map(function (xd) { return { x: xd }; }) } };
+  }
+
   // ------------------------------------------------------------------ merging
   function isVolumetricEcho(ec) {
     return ec.kind === 'defect' && ec.defectType !== undefined && !UT.specimens.isPlanar(ec.defectType);
@@ -758,7 +1096,7 @@
   }
 
   /**
-   * §6.1 rule 5 merging. `fan` = {deltas: number[], th20} describes the fan the raw echoes came from
+   * §6.1 rule 5 merging. `fan` = {deltas: number[], th20, weightOf(δ)} describes the fan the raw echoes came from
    * (optional; without it the coverage factor of SPEC NOTE 23 is skipped).
    */
   function mergeEchoes(raw, fan) {
@@ -787,6 +1125,7 @@
     const repFloor = Math.pow(10, -REP_DB / 20);
     const fanDeltas = fan && Array.isArray(fan.deltas) && fan.deltas.length > 1 ? fan.deltas : null;
     const th20 = fan && fan.th20 > 0 ? fan.th20 : 4;
+    const weightOf = fan && typeof fan.weightOf === 'function' ? fan.weightOf : function (d) { return M.beamWeight20(d, th20); };
     // SPEC NOTE 23: coverage symmetry per key (all groups of one face/leg share the fan interval)
     const covByKey = new Map();
     if (fanDeltas) {
@@ -802,7 +1141,7 @@
           const k = Math.round(m.angleDev * 1e6);
           if (seen.has(k)) continue;
           seen.add(k);
-          const wi = m.w !== undefined ? m.w : M.beamWeight20(m.angleDev, th20);
+          const wi = m.w !== undefined ? m.w : weightOf(m.angleDev);
           sumW2 += wi * wi;
         }
         if (!top) return;
@@ -810,7 +1149,7 @@
         let ref = 0;
         for (const d of fanDeltas) {
           if (Math.abs(d - top.angleDev) > half) continue;
-          const wi = M.beamWeight20(d, th20);
+          const wi = weightOf(d);
           ref += wi * wi;
         }
         if (ref > 0) covByKey.set(key, Math.min(1, sumW2 / ref));
@@ -847,18 +1186,75 @@
     return out;
   }
 
+  // ------------------------------------------------------------------ fan layout (§3.1, SPEC NOTE 28)
+  /**
+   * Fan ray descriptors for a probe: {delta, w, main, side, bin}. `n` = opts.fanCount (≥ 41 → v2 layout).
+   * @param {object} derived  UT.probe.derive(...)
+   * @param {number} n  requested ray count
+   * @param {boolean} sideLobes  physics.sideLobes
+   * @param {function} dirW  directivity weight with null/floor rule
+   */
+  function fanLayout(derived, n, sideLobes, dirW) {
+    const th20 = derived.halfAngle20dB || 4;
+    const nullA = Math.max(derived.nullAngle || th20 * 1.4, th20);
+    const fanMax = Math.max(derived.fanMax || nullA * 1.47, nullA);
+    const theta = derived.refracted || 0;
+    const rays = [];
+    const okAngle = function (d) { return theta + d <= 89 && theta + d >= -89; };
+    if (n >= 41) {
+      const binMain = 2 * th20 / 20;
+      for (let i = 0; i <= 20; i++) { const d = -th20 + 2 * th20 * i / 20; rays.push({ delta: d, w: dirW(d), main: true, side: false, bin: binMain }); }
+      const mid = (th20 + nullA) / 2, binRing = Math.max(1e-9, (nullA - th20) / 2);
+      for (const d of [-mid, mid, -nullA, nullA]) rays.push({ delta: d, w: dirW(d) * Math.min(1, binRing / binMain), main: true, side: false, bin: binRing });
+      if (sideLobes && fanMax > nullA + 1e-9) {
+        const binSide = (fanMax - nullA) / 8;
+        for (const s of [-1, 1]) for (let k = 1; k <= 8; k++) { const d = s * (nullA + (fanMax - nullA) * k / 8); rays.push({ delta: d, w: dirW(d) * Math.min(1, binSide / binMain), main: false, side: true, bin: binSide }); }
+      }
+    } else {
+      let m = n < 1 ? 1 : n;
+      if (m > 1 && m % 2 === 0) m += 1;
+      for (let i = 0; i < m; i++) { const d = m === 1 ? 0 : -th20 + 2 * th20 * i / (m - 1); rays.push({ delta: d, w: dirW(d), main: true, side: false, bin: m > 1 ? 2 * th20 / (m - 1) : 1 }); }
+    }
+    return rays.filter(function (r) { return okAngle(r.delta); });
+  }
+
+  /** Directivity weight with the §3.1 null / side-lobe floor rule (SPEC NOTE 29). */
+  function makeDirW(derived, sideLobes) {
+    const nullA = derived.nullAngle || Infinity;
+    const D = typeof derived.directivity === 'function' ? derived.directivity : function (d) { return M.beamWeight20(d, derived.halfAngle20dB || 4); };
+    return function (deltaDeg) {
+      const d = Math.abs(deltaDeg);
+      const v = D(d);
+      if (d <= nullA) return v;
+      return sideLobes ? Math.max(v, SIDELOBE_FLOOR) : 0;
+    };
+  }
+
+  /** Material lookup for the tracer (SPEC NOTE 31): velocities from spec.material, per-mode attenuation from the library. */
+  function materialInfo(specimen, derived) {
+    const sm = (specimen && specimen.material) || {};
+    const lib = (UT.specimens && UT.specimens.materials && UT.specimens.materials[sm.key]) || null;
+    const vS = sm.vShear || (derived.mode === 'shear' ? derived.vel : UT.consts.V_SHEAR_STEEL);
+    const vL = sm.vComp || (derived.mode === 'comp' ? derived.vel : UT.consts.V_COMP_STEEL);
+    const aL = lib && Number.isFinite(lib.attenL5) ? lib.attenL5 : 0.005;
+    const aS = lib && Number.isFinite(lib.attenS5) ? lib.attenS5 : 0.010;
+    return { vS, vL, attenL5: aL, attenS5: aS, key: sm.key || 'carbon' };
+  }
+
   // ------------------------------------------------------------------ public API
   /**
    * Trace the beam of a probe through a specimen and collect echoes.
    * @param {{specimen:object, probe:object, derived:object, display?:object, defects?:Array, opts?:object}} a
-   * @returns {{centre:object, fan:Array, edge20:Array, echoes:Array, hits:Array, transmitted?:number, receiver?:object}}
+   *   opts = {maxPath, fanCount, maxLegs, physics:{modeConv, surfaceWave, sideLobes}, damping:{points}, weldMaterial,
+   *           transferLossDb, debugRaw}
+   * @returns {{centre:object, fan:Array, edge20:Array, echoes:Array, hits:Array, surface:object|null, converted:Array, focus:object|null, transmitted?:number, receiver?:object}}
    */
   function trace(a) {
     const specimen = a.specimen, probe = a.probe || {};
     const derived = a.derived || UT.probe.derive(probe, specimen);
     const display = a.display || {};
     const opts = a.opts || {};
-    const empty = { centre: { pts: [], legs: [] }, fan: [], edge20: [[], []], echoes: [], hits: [] };
+    const empty = { centre: { pts: [], legs: [] }, fan: [], edge20: [[], []], echoes: [], hits: [], surface: null, converted: [], focus: null };
     if (!specimen || !specimen.edges) return empty;
     const em = emission(specimen, probe, derived);
     if (!em.segment) return empty;
@@ -867,16 +1263,42 @@
       : ((derived.refracted === 0 || specimen.kind === 'block') ? 12 : skips);
     const maxPath = opts.maxPath !== undefined ? opts.maxPath : 200;
     const theta = derived.refracted || 0;
+    const physics = opts.physics || {};
+    const modeConv = physics.modeConv !== false;
+    const sideLobes = physics.sideLobes !== false;
+    const surfOn = physics.surfaceWave !== false;
+    const mat = materialInfo(specimen, derived);
+    const freq = derived.freq || probe.freq || 5;
+    const fScale = Math.pow(freq / 5, 1.5);
+    const crystalB = derived.crystalB || derived.diameter || probe.diameter || 10;
+    const lambda = derived.lambda || derived.vel / freq;
+    const th20z = derived.halfAngle20dBz !== undefined ? derived.halfAngle20dBz : M.rad2deg(Math.asin(Math.min(0.999, 0.87 * lambda / crystalB)));
+    const dirW = makeDirW(derived, sideLobes);
+    const focusOn = !!(derived.focus && derived.focus.on) && theta <= 70;
+    const N = derived.nearField || 20;
+    const F = focusOn ? M.clamp(derived.focus.F || 30, 10, Math.max(10, N)) : 0;
+    const fanMaxA = derived.fanMax || (derived.halfAngle20dB || 4) * 2;
+    const isWeld = specimen.kind === 'weld';
+    const transferDb = isWeld && Number.isFinite(opts.transferLossDb) ? M.clamp(opts.transferLossDb, 0, 8) : 0;
     const C = {
+      specimen, defects: Array.isArray(a.defects) ? a.defects : [],
       E: em.E, u0: em.u0, ss: em, side: em.side, segment: em.segment, theta, mode: derived.mode,
-      th6: derived.halfAngle6dB || 1.9, th20: derived.halfAngle20dB || 4, vel: derived.vel,
-      nearField: derived.nearField || 20, diameter: derived.diameter || probe.diameter || 10,
-      alpha: derived.mode === 'comp' ? 0.005 : 0.01,
+      probeMode: derived.mode === 'comp' ? 'L' : 'S',
+      th6: derived.halfAngle6dB || 1.9, th20: derived.halfAngle20dB || 4, vel: derived.vel, lambda,
+      tan20: Math.tan((derived.halfAngle20dB || 4) * DEG), tan20z: Math.tan(th20z * DEG), crystalB,
+      nearField: N, diameter: derived.diameter || probe.diameter || 10,
+      vS: mat.vS, vL: mat.vL, alphaS: mat.attenS5 * fScale, alphaL: mat.attenL5 * fScale,
+      phiC: M.rad2deg(Math.asin(Math.min(1, mat.vS / mat.vL))),
+      weldExtra: isWeld && opts.weldMaterial === 'austenitic' ? WELD_AUST_DB * (freq / 5) : 0,
+      transferLin: Math.pow(10, -transferDb / 20),
+      modeConv, sideLobes, surfaceWave: surfOn, dirW,
+      devMax: Math.max(2 * (derived.halfAngle20dB || 4), fanMaxA),
+      Gf: focusOn ? function (len) { const g = Math.min(N / F, 3) - 1; const r = (len - F) / (0.25 * F); return 1 + g * Math.exp(-r * r); } : function () { return 1; },
       maxLegs, maxLen: Math.max(2 * maxPath + 100, 700), retroSlot: !!specimen.retroSlot,
       probeZ: probe.z || 0, skew: fold180(probe.skew || 0), L: specimen.L || 0, wrap: !!specimen.pipe,
       scene: buildScene(specimen, a.defects, probe),
       tt: probe.method === 'tt', tandem: probe.method === 'tandem',
-      rx: null, rxDir: null, volBest: new Map(),
+      rx: null, rxDir: null, volBest: new Map(), convPolys: [],
     };
     // receivers
     let receiver = null;
@@ -892,23 +1314,41 @@
       receiver = { x: xr, y: 0, tag: 'top' };
     }
 
-    let n = opts.fanCount || 21;
-    if (n < 1) n = 1;
-    if (n > 1 && n % 2 === 0) n += 1;
+    const n = opts.fanCount || 21;
     const fan = [];
     const raw = [];
     const hits = [];
     const deltas = [];
     let centre = null;
     let sumW = 0, sumT = 0;
-    for (let i = 0; i < n; i++) {
-      const delta = n === 1 ? 0 : -C.th20 + 2 * C.th20 * i / (n - 1);
-      deltas.push(delta);
-      const r = marchRay(C, delta);
+    let rayList;
+    let focus = null;
+    if (focusOn && !C.tt && !C.tandem) {
+      // SPEC NOTE 34: aperture rays aimed at the focal point
+      const nAp = n >= 21 ? 41 : Math.max(1, n);
+      const half = (derived.crystalA || C.diameter) / 2;
+      const Fp = { x: C.E.x + C.u0.x * F, y: C.E.y + C.u0.y * F };
+      focus = { F, x: Fp.x, y: Fp.y };
+      rayList = [];
+      for (let i = 0; i < nAp; i++) {
+        const s = nAp === 1 ? 0 : -half + 2 * half * i / (nAp - 1);
+        const Ex = C.E.x + C.ss.tangent.x * s, Ey = C.E.y + C.ss.tangent.y * s;
+        const d = norm(Fp.x - Ex, Fp.y - Ey);
+        const cross = C.u0.x * d.y - C.u0.y * d.x;
+        const ang = M.angleBetween(d.x, d.y, C.u0.x, C.u0.y) * (cross * C.side < 0 ? -1 : 1);
+        rayList.push({ delta: ang, w: typeof derived.directivity === 'function' ? derived.directivity(ang) : dirW(ang), dir0: d, off: s, main: Math.abs(ang) <= (derived.nullAngle || 90), side: false, focused: true });
+      }
+    } else {
+      rayList = fanLayout(derived, n, sideLobes, dirW).map(function (r) { return Object.assign(r, { dir0: dirAt(C.ss, C.side, theta + r.delta), off: 0, focused: false }); });
+    }
+    for (let i = 0; i < rayList.length; i++) {
+      const R = rayList[i];
+      deltas.push(R.delta);
+      const r = marchRay(C, R);
       sumW += r.w; sumT += r.transmitted;
       const drawPts = r.pts.filter(function (p) { return p.leg <= skips; });
-      fan.push({ angleOffsetDeg: +delta.toFixed(3), weight: r.w, pts: drawPts.map(function (p) { return { x: p.x, y: p.y }; }) });
-      if (Math.abs(delta) < 1e-9) {
+      fan.push({ angleOffsetDeg: +R.delta.toFixed(3), weight: r.w, pts: drawPts.map(function (p) { return { x: p.x, y: p.y }; }), sideLobe: !!R.side });
+      if (Math.abs(R.delta) < 1e-9 && !R.focused) {
         centre = { pts: drawPts.map(function (p) { return { x: p.x, y: p.y }; }), legs: r.legs.filter(function (l) { return l.leg <= skips; }) };
         for (const h of r.hits) hits.push(h);
       }
@@ -919,29 +1359,44 @@
       for (let k = 0; k < TT_SUB; k++) {
         const off = -C.diameter / 2 + C.diameter * (k + 0.5) / TT_SUB;
         if (Math.abs(off) < 1e-9) continue;
-        for (let i = 0; i < n; i++) {
-          const delta = n === 1 ? 0 : -C.th20 + 2 * C.th20 * i / (n - 1);
-          const r = marchRay(C, delta, off);
+        for (let i = 0; i < rayList.length; i++) {
+          const r = marchRay(C, Object.assign({}, rayList[i], { off }));
           sumW += r.w; sumT += r.transmitted;
         }
       }
     }
     C.volBest.forEach(function (ec) { raw.push(ec); });
-    if (!centre) centre = { pts: fan.length ? fan[Math.floor(fan.length / 2)].pts : [], legs: [] };
+    if (!centre) {
+      // focused fan: the middle aperture ray stands in for the centre polyline
+      const mid = fan.length ? fan[Math.floor(fan.length / 2)] : null;
+      centre = { pts: mid ? mid.pts.slice() : [], legs: [] };
+      if (mid && mid.pts.length > 1) for (let i = 0; i + 1 < mid.pts.length; i++) centre.legs.push({ a: mid.pts[i], b: mid.pts[i + 1], leg: i + 1, surfaceTag: i === 0 ? 'top' : 'outline', hitTag: 'outline' });
+    }
+    // surface wave (§3.3)
+    let surface = null;
+    if (!C.tt && !C.tandem) {
+      const sw = surfaceWave(C, specimen, probe, derived, opts);
+      if (sw) { surface = sw.surface; for (const ec of sw.echoes) raw.push(ec); }
+    }
     let echoes;
     if (C.tt) {
       const amp = sumW > 0 ? sumT / sumW : 0;
       const p0 = firstOutlineHit(C);
       const path = p0 ? M.dist(C.E.x, C.E.y, p0.x, p0.y) : (specimen.T || 0);
-      echoes = [{ path, amp, ampNoZ: amp, hz: path * Math.tan(C.th20 * DEG) + C.diameter / 2, kind: 'transmitted', leg: 1, x: C.rx.x, y: C.rx.y, tag: 'transmitted', angleDev: 0 }];
+      echoes = [{ path, amp: amp * C.transferLin, ampNoZ: amp * C.transferLin, hz: path * C.tan20z + crystalB / 2, kind: 'transmitted', leg: 1, x: C.rx.x, y: C.rx.y, tag: 'transmitted', angleDev: 0, tUs: 2 * path / derived.vel, lenMm: path, mode: C.probeMode }];
     } else {
-      echoes = mergeEchoes(raw, { deltas, th20: C.th20 });
+      echoes = mergeEchoes(raw, { deltas, th20: C.th20, weightOf: dirW });
     }
     for (const ec of echoes) {
       if (ec.kind === 'transmitted' || !(ec.amp >= AMP_FLOOR)) continue;
       hits.push({ x: ec.x, y: ec.y, kind: ec.kind, defectId: ec.defectId, tag: ec.tag });
     }
-    const res = { centre, fan, edge20: [fan.length ? fan[0].pts : [], fan.length ? fan[fan.length - 1].pts : []], echoes, hits, E: C.E, u0: C.u0 };
+    // converted polylines for drawing (§3.13): ≤ CONV_DRAW_MAX by weight
+    const converted = C.convPolys.filter(function (p) { return p.pts.length > 1 && p.weight >= CONV_DRAW_MIN; })
+      .sort(function (p, q) { return q.weight - p.weight; }).slice(0, CONV_DRAW_MAX)
+      .map(function (p) { return { mode: p.mode, kindTag: p.mode, weight: p.weight, pts: p.pts }; });
+    const edgeHi = focus ? fan.length - 1 : Math.min(20, fan.length - 1);
+    const res = { centre, fan, edge20: [fan.length ? fan[0].pts : [], fan.length ? fan[edgeHi].pts : []], echoes, hits, E: C.E, u0: C.u0, surface, converted, focus };
     if (receiver) res.receiver = receiver;
     if (opts.debugRaw) res.raw = raw;   // unmerged echoes (QA/diagnostics only)
     if (C.tt) res.transmitted = echoes[0].amp;
@@ -997,31 +1452,107 @@
   const KIND_NAMES = {
     backwall: 'Backwall', radius: 'Radius', corner: 'Corner (defect + surface)', geometry: 'Geometry', lamination: 'Lamination',
     perspex: 'Perspex insert', tip: 'Tip diffraction', transmitted: 'Transmitted pulse', sdh: 'SDH', volumetric: 'Volumetric defect', defect: 'Defect',
+    modeconv: 'Mode-converted', surface: 'Surface wave', fbh: 'FBH',
   };
+  const GEOM_CATEGORY = { root: 'geometry-root', cap: 'geometry-cap', backing: 'geometry-backing' };
+
+  /** Quiz category id (§4.5) of an echo-like object {kind, tag, y}. */
+  function categoryOf(kind, tag, y, T) {
+    switch (kind) {
+      case 'backwall': case 'radius': case 'perspex': case 'transmitted': return 'backwall';
+      case 'corner': return 'corner';
+      case 'tip': return 'tip';
+      case 'defect': case 'volumetric': return 'defect';
+      case 'lamination': return 'lamination';
+      case 'sdh': case 'fbh': return 'sdh';
+      case 'modeconv': return 'modeconv';
+      case 'surface': return 'surface';
+      case 'geometry': {
+        if (GEOM_CATEGORY[tag]) return GEOM_CATEGORY[tag];
+        if (Number.isFinite(y) && Number.isFinite(T) && T > 0) return y >= T / 2 ? 'geometry-root' : 'geometry-cap';
+        return 'geometry-root';
+      }
+      default: return 'defect';
+    }
+  }
 
   /**
-   * Human readable label for an echo, e.g. 'Backwall 25.0 mm (leg 1)'.
+   * Human readable description of an echo (or of a Readout {echoKind, path, leg}: the matching echo is looked up
+   * in UT.frame.echoes). Returns an object {text, name, category, kind, mode, path, leg, label, tag} whose
+   * toString() is the v1 label, e.g. 'Backwall 25.0 mm (leg 1)'. `category` is one of the §4.5 quiz ids.
    * @param {object} echo
-   * @returns {string}
+   * @returns {object}
    */
   function describe(echo) {
-    if (!echo) return '';
-    let name = KIND_NAMES[echo.kind] || echo.kind;
-    if (echo.kind === 'sdh' && echo.label) name = 'SDH ' + echo.label;
-    else if ((echo.kind === 'defect' || echo.kind === 'lamination' || echo.kind === 'corner' || echo.kind === 'tip') && echo.label) name = echo.label + (echo.kind === 'corner' ? ' (corner)' : echo.kind === 'tip' ? ' (tip)' : '');
-    else if (echo.kind === 'geometry' && echo.tag) name = 'Geometry (' + echo.tag + ')';
-    if (echo.tag === 'tandem') name = 'Tandem: ' + name;
-    const p = echo.path === undefined ? '' : ' ' + M.fmt(echo.path, 1) + ' mm';
-    const leg = echo.leg ? ' (leg ' + echo.leg + ')' : '';
-    return name + p + leg;
+    const out = { text: '', name: '', category: null, kind: null, mode: null, path: null, leg: null, label: null, tag: null, toString() { return this.text; } };
+    if (!echo) return out;
+    let e = echo;
+    if (e.kind === undefined && e.echoKind !== undefined) {
+      // Readout → resolve the echo in the current frame (same kind, nearest path)
+      let best = null;
+      const list = (UT.frame && Array.isArray(UT.frame.echoes)) ? UT.frame.echoes : [];
+      for (const c of list) {
+        if (c.kind !== e.echoKind) continue;
+        const dp = Math.abs((c.path || 0) - (e.path || 0));
+        if (!best || dp < best.dp) best = { c, dp };
+      }
+      e = best ? Object.assign({}, best.c, { path: e.path !== undefined ? e.path : best.c.path }) : { kind: e.echoKind, path: e.path, leg: e.leg };
+    }
+    let name = KIND_NAMES[e.kind] || e.kind || '';
+    if (e.kind === 'sdh' && e.label) name = 'SDH ' + e.label;
+    else if (e.kind === 'fbh' && e.label) name = e.label;
+    else if ((e.kind === 'defect' || e.kind === 'lamination' || e.kind === 'corner' || e.kind === 'tip') && e.label) name = e.label + (e.kind === 'corner' ? ' (corner)' : e.kind === 'tip' ? ' (tip)' : '');
+    else if (e.kind === 'geometry' && e.tag) name = 'Geometry (' + e.tag + ')';
+    else if (e.kind === 'modeconv') name = 'Mode-converted (' + (e.conv || e.mode || 'L') + ')' + (e.label ? ' ' + e.label : e.tag && e.tag !== 'modeconv' ? ' via ' + e.tag : '');
+    else if (e.kind === 'surface') name = 'Surface wave' + (e.tag ? ' (' + e.tag + ')' : '');
+    if (e.tag === 'tandem') name = 'Tandem: ' + name;
+    const p = e.path === undefined || e.path === null ? '' : ' ' + M.fmt(e.path, 1) + ' mm';
+    const leg = e.leg ? ' (leg ' + e.leg + ')' : '';
+    const T = UT.state && UT.state.specimen ? UT.state.specimen.T : undefined;
+    out.text = name + p + leg;
+    out.name = name;
+    out.category = categoryOf(e.kind, e.tag, e.y, T);
+    out.kind = e.kind || null;
+    out.mode = e.mode || null;
+    out.path = e.path === undefined ? null : e.path;
+    out.leg = e.leg === undefined ? null : e.leg;
+    out.label = e.label || null;
+    out.tag = e.tag || null;
+    return out;
   }
+
+  // ------------------------------------------------------------------ test API (§7, owner 30)
+  function currentDerived() {
+    if (UT.frame && UT.frame.derived && typeof UT.frame.derived.directivity === 'function') return UT.frame.derived;
+    return UT.probe.derive(UT.state.probe, UT.state.specimen);
+  }
+  Object.assign(UT.test, {
+    /** One-way directivity weight (with the null / side-lobe rule of the current physics settings) at an offset (deg). */
+    directivity(thetaDeg) {
+      const d = currentDerived();
+      const ph = (UT.state && UT.state.physics) || {};
+      return makeDirW(d, ph.sideLobes !== false)(+thetaDeg || 0);
+    },
+    /** Fan offsets (deg) that the current probe/physics settings trace (41 / 25 / 21 …). */
+    fanAngles() {
+      const d = currentDerived();
+      const ph = (UT.state && UT.state.physics) || {};
+      const n = ph.fanRays === 21 ? 21 : 41;
+      return fanLayout(d, n, ph.sideLobes !== false, makeDirW(d, ph.sideLobes !== false)).map(function (r) { return r.delta; });
+    },
+    /** Mode-conversion coefficient {R, phiOut} for the current specimen material. */
+    modeConv(mode, phiDeg) {
+      const spec = UT.state && UT.state.specimen;
+      return modeConvCoef(mode === 'L' ? 'L' : 'S', phiDeg, spec && spec.material);
+    },
+  });
 
   // ------------------------------------------------------------------ self test
   function dB(a, b) { return 20 * Math.log10(a / b); }
-  function run(spec, probe, display, defects, maxPath) {
+  function run(spec, probe, display, defects, maxPath, extra) {
     const p = Object.assign({ mode: probe.angle === 0 ? 'comp' : 'shear', freq: 5, diameter: 10, wedgeVel: 2.74, method: 'pe', z: spec.L / 2, side: 1, skew: 0 }, probe);
     const d = UT.probe.derive(p, spec);
-    return trace({ specimen: spec, probe: p, derived: d, display: display || { skips: 3 }, defects: defects || [], opts: { maxPath: maxPath || 100, fanCount: 21 } });
+    return trace({ specimen: spec, probe: p, derived: d, display: display || { skips: 3 }, defects: defects || [], opts: Object.assign({ maxPath: maxPath || 100, fanCount: 21 }, extra || {}) });
   }
   function near(echoes, kind, path, tol) {
     let best = null;
@@ -1039,6 +1570,7 @@
       const e = near(v1n.echoes, 'backwall', p, 0.5);
       if (!e) { f.push('v1 narrow backwall ' + p + ' missing'); continue; }
       if (prev) { const drop = dB(prev.amp, e.amp); if (drop < 2 || drop > 5) f.push('v1 narrow drop ' + p + ' = ' + drop.toFixed(2) + ' dB'); }
+      if (Math.abs(e.tUs - 2 * p / 5.9) > 1e-6 || e.mode !== 'L' || Math.abs(e.lenMm - p) > 1e-9) f.push('v1 narrow tUs/mode/lenMm ' + p);
       prev = e;
     }
     // (b) V1 wide: 45° and 0° at x = 100 → 100/200/300
@@ -1090,6 +1622,20 @@
           const e2 = near(run(iow, { angle: 60, x: x0 + dx }, { skips: 3 }, [], 100).echoes, 'sdh', 26, 3);
           if (e2 && e2.amp > e.amp) f.push('iow SDH louder at dx ' + dx);
         }
+        // V2-6: focus F = 26 → ≥ 3 dB louder and a narrower −6 dB x-width (≤ 0.7×)
+        const width6 = function (focus) {
+          const amps = [];
+          for (let dx = -6; dx <= 6; dx += 0.25) { const q = near(run(iow, { angle: 60, x: x0 + dx, focus }, { skips: 3 }, [], 100).echoes, 'sdh', 26, 3); amps.push([dx, q ? q.amp : 0]); }
+          let mx = 0; for (const a of amps) if (a[1] > mx) mx = a[1];
+          let lo = null, hi = null;
+          for (const a of amps) if (a[1] >= mx / 2) { if (lo === null) lo = a[0]; hi = a[0]; }
+          return { mx, w: hi - lo };
+        };
+        const wu = width6({ on: false, F: 26 }), wf = width6({ on: true, F: 26 });
+        if (!(dB(wf.mx, wu.mx) >= 3)) f.push('focus gain ' + dB(wf.mx, wu.mx).toFixed(2) + ' dB');
+        if (!(wf.w <= 0.7 * wu.w)) f.push('focus width ' + wf.w + ' vs ' + wu.w);
+        const rf = run(iow, { angle: 60, x: x0, focus: { on: true, F: 26 } }, { skips: 3 }, [], 100);
+        if (!rf.focus || Math.abs(rf.focus.F - 26) > 1e-9 || !rf.fan.length || rf.fan.length !== 41) f.push('focus result shape');
       }
     }
     // (f) lamination: echo + backwall ≥ 6 dB down
@@ -1103,10 +1649,22 @@
     if (!lamEcho) f.push('lamination echo missing');
     if (!bwClean) f.push('clean backwall missing');
     else if (bwOver && dB(bwClean.amp, bwOver.amp) < 6) f.push('backwall not shadowed by lamination');
-    // (g) clean plate, angle probe: no backwall
+    // (g) clean plate, angle probe: no backwall; fan shapes for 21 / 41 / 25 rays
     const g = run(S.plateWeld({ T: 20 }), { angle: 60, x: 40 }, { skips: 3 }, [], 100);
     if (g.echoes.some(function (e) { return e.kind === 'backwall'; })) f.push('angle probe backwall echo on a clean plate');
     if (!g.centre.pts.length || g.fan.length !== 21) f.push('centre/fan shape');
+    const g41 = run(S.plateWeld({ T: 20 }), { angle: 60, x: 40 }, { skips: 3 }, [], 100, { fanCount: 41, physics: { sideLobes: true } });
+    const g25 = run(S.plateWeld({ T: 20 }), { angle: 60, x: 40 }, { skips: 3 }, [], 100, { fanCount: 41, physics: { sideLobes: false } });
+    if (g41.fan.length !== 41 || g25.fan.length !== 25) f.push('v2 fan sizes ' + g41.fan.length + '/' + g25.fan.length);
+    const d60 = UT.probe.derive({ angle: 60, mode: 'shear', freq: 5, diameter: 10, wedgeVel: 2.74, side: 1 }, null);
+    if (Math.abs(g41.fan[0].angleOffsetDeg + d60.halfAngle20dB) > 0.002 || Math.abs(g41.fan[20].angleOffsetDeg - d60.halfAngle20dB) > 0.002) f.push('fan[0]/fan[20] edges');
+    if (!(g41.fan[40].angleOffsetDeg > d60.nullAngle) || !(Math.abs(g41.fan[24].angleOffsetDeg - d60.nullAngle) < 0.002)) f.push('ring/side-lobe offsets');
+    // directivity rule (V2-1)
+    const dw = makeDirW(d60, true), dwOff = makeDirW(d60, false);
+    const lam0 = d60.lambda, ang = function (k) { return M.rad2deg(Math.asin(k * lam0 / 10)); };
+    if (Math.abs(dw(ang(0.51)) - 0.712) > 0.02 || Math.abs(dw(ang(0.87)) - 0.316) > 0.03) f.push('directivity −3/−10 dB points');
+    if (!(dw(0.999 * ang(1.22)) <= 0.02) || Math.abs(dw(ang(1.635)) - 0.13) > 0.02) f.push('directivity null / side lobe ' + dw(ang(1.635)));
+    if (!(dw(ang(1.5)) > 0) || dwOff(ang(1.5)) !== 0) f.push('side-lobe floor rule');
     // (h) LOF on the right fusion face: 60° (leg 2) beats 45° by ≥ 6 dB (reduced scan)
     const pl = S.plateWeld({ T: 20 });
     const lof = S.defectPresets.lof(pl);
@@ -1129,12 +1687,12 @@
       const p = Object.assign({ mode: 'shear', freq: 5, diameter: 10, wedgeVel: 2.74, method: 'pe', z: pv.L / 2, side: 1, skew: 0 }, { angle: 60, x: 19 });
       const r = trace({ specimen: pv, probe: p, derived: UT.probe.derive(p, pv), display: { skips: 3 }, defects: [por], opts: { maxPath: 100, fanCount: fc, maxLegs: 3 } });
       let m = 0, kinds = 0;
-      for (const e of r.echoes) if (e.defectId !== undefined && e.kind !== 'tip') { kinds += e.kind === 'defect' ? 0 : 1; if (e.amp > m) m = e.amp; }
+      for (const e of r.echoes) if (e.defectId !== undefined && e.kind !== 'tip' && e.kind !== 'modeconv') { kinds += e.kind === 'defect' ? 0 : 1; if (e.amp > m) m = e.amp; }
       return { m, kinds };
     };
-    const v5 = volAmp(5), v21 = volAmp(21), v81 = volAmp(81);
+    const v5 = volAmp(5), v21 = volAmp(21), v41 = volAmp(41);
     if (v21.kinds) f.push('volumetric echo kind not defect');
-    if (!(v21.m > 0) || Math.abs(dB(v81.m, v21.m)) > 1 || Math.abs(dB(v5.m, v21.m)) > 1) f.push('volumetric amp vs fanCount: ' + v5.m + ' / ' + v21.m + ' / ' + v81.m);
+    if (!(v21.m > 0) || Math.abs(dB(v41.m, v21.m)) > 1 || Math.abs(dB(v5.m, v21.m)) > 1) f.push('volumetric amp vs fanCount: ' + v5.m + ' / ' + v21.m + ' / ' + v41.m);
     // (j) z-overlap 0 keeps the echo with amp 0 / finite ampNoZ (AUT re-weighting)
     const far = run(pw, { angle: 60, x: 34.6, z: 100 }, { skips: 3 }, [Object.assign({}, crack, { zFrom: 120, zTo: 150 })], 100);
     const farC = far.echoes.find(function (e) { return e.kind === 'corner'; });
@@ -1182,10 +1740,72 @@
     // (q) V2 5 mm hole, 0°: echo at the near surface (SPEC NOTE 24); IOW SDH stays at its centre
     const v2h = run(S.v2({ face: 'narrow' }), { angle: 0, x: 60 }, { skips: 3 }, [], 50);
     if (!near(v2h.echoes, 'sdh', 3.75, 0.1)) f.push('V2 hole echo not at 3.75');
-    // describe
-    if (typeof describe({ kind: 'backwall', path: 25, leg: 1 }) !== 'string') f.push('describe');
+    // ---- v2 ----
+    // (r) mode conversion coefficients and the reciprocal-path trap (V2-2)
+    const mc30 = modeConvCoef('S', 30), mc40 = modeConvCoef('S', 40), mcL60 = modeConvCoef('L', 60);
+    if (!(mc30.R >= 0.6) || Math.abs(mc30.phiOut - 65.6) > 1 || mc40.R !== 0 || !(mcL60.R >= 0.9)) f.push('modeConv coefficients ' + JSON.stringify([mc30, mc40, mcL60]));
+    const trap = S.plateWeld({ T: 20, rootHeight: 0, capHeight: 0 });
+    const incl = S.makeDefect({ type: 'planar', pts: [{ x: -3, y: 14 }, { x: 3, y: 9 }], zFrom: 135, zTo: 165, label: 'Inclined' });
+    let mcBest = null, mcOff = false;
+    for (let x = 44; x <= 54; x += 0.5) {
+      const r = run(trap, { angle: 60, x }, { skips: 3 }, [incl], 100, { physics: { modeConv: true } });
+      for (const e of r.echoes) if (e.kind === 'modeconv' && (!mcBest || e.amp > mcBest.amp)) mcBest = e;
+      if (run(trap, { angle: 60, x }, { skips: 3 }, [incl], 100, { physics: { modeConv: false } }).echoes.some(function (e) { return e.kind === 'modeconv'; })) mcOff = true;
+    }
+    if (!mcBest) f.push('reciprocal-path modeconv echo missing');
+    else if (Math.abs(mcBest.tUs - 38.1) > 1.0 || Math.abs(mcBest.path - 61.7) > 1.6) f.push('reciprocal-path modeconv at tUs ' + mcBest.tUs.toFixed(2) + ' path ' + mcBest.path.toFixed(2));
+    if (mcOff) f.push('modeconv echo with modeConv off');
+    const rConv = run(trap, { angle: 60, x: 49 }, { skips: 3 }, [incl], 100);
+    if (!Array.isArray(rConv.converted) || !rConv.converted.length || !rConv.converted[0].pts || !rConv.converted[0].mode) f.push('converted polylines');
+    // (s) surface wave (V2-3): 70° at x 40 on the default weld → cap toe at x 8, path 34.8; dampers −40 dB; 60° → none
+    const sw70 = run(pl, { angle: 70, x: 40 }, { skips: 3 }, [], 100);
+    const sEcho = sw70.echoes.find(function (e) { return e.kind === 'surface'; });
+    if (!sEcho || Math.abs(sEcho.path - 34.8) > 1.5 || sEcho.mode !== 'R' || !sw70.surface || !sw70.surface.pts.length) f.push('surface wave echo ' + (sEcho && sEcho.path));
+    else {
+      const sd = run(pl, { angle: 70, x: 40 }, { skips: 3 }, [], 100, { damping: { points: [20] } }).echoes.find(function (e) { return e.kind === 'surface' && Math.abs(e.path - sEcho.path) < 0.1; });
+      if (sd && dB(sEcho.amp, sd.amp) < 30) f.push('damper only ' + dB(sEcho.amp, sd.amp).toFixed(1) + ' dB');
+      if (run(pl, { angle: 70, x: 40 }, { skips: 3 }, [], 100, { physics: { surfaceWave: false } }).echoes.some(function (e) { return e.kind === 'surface'; })) f.push('surface wave with surfaceWave off');
+    }
+    if (run(pl, { angle: 60, x: 40 }, { skips: 3 }, [], 100).echoes.some(function (e) { return e.kind === 'surface'; })) f.push('60° surface wave');
+    // (t) materials (V2-4 echo part): austenitic 25 mm backwall 4…7 dB below carbon; transfer loss; austenitic weld
+    const pc = S.plateWeld({ T: 25 }), pa = S.plateWeld({ T: 25, material: 'austenitic' });
+    const bwC = near(run(pc, { angle: 0, x: -60 }, { skips: 3 }, [], 100).echoes, 'backwall', 25, 0.5);
+    const bwA = near(run(pa, { angle: 0, x: -60 }, { skips: 3 }, [], 100).echoes, 'backwall', 25, 0.5);
+    if (!bwC || !bwA) f.push('material backwalls');
+    else { const dd = dB(bwC.amp, bwA.amp); if (dd < 4 || dd > 7) f.push('austenitic backwall ' + dd.toFixed(2) + ' dB'); if (Math.abs(bwA.tUs - 50 / 5.66) > 1e-6) f.push('austenitic tUs'); }
+    const bwT = near(run(pc, { angle: 0, x: -60 }, { skips: 3 }, [], 100, { transferLossDb: 4 }).echoes, 'backwall', 25, 0.5);
+    if (!bwT || Math.abs(dB(bwC.amp, bwT.amp) - 4) > 0.01) f.push('transfer loss');
+    const bwBlock = near(run(S.dacBlock({ T: 40 }), { angle: 0, x: 40 }, { skips: 3 }, [], 100, { transferLossDb: 4 }).echoes, 'backwall', 40, 0.5);
+    const bwBlock0 = near(run(S.dacBlock({ T: 40 }), { angle: 0, x: 40 }, { skips: 3 }, [], 100).echoes, 'backwall', 40, 0.5);
+    if (!bwBlock || !bwBlock0 || bwBlock.amp !== bwBlock0.amp) f.push('transfer loss applied to a block');
+    const lofA = near(run(pl, { angle: 60, x: 60 }, { skips: 3 }, [lof], 100, { weldMaterial: 'austenitic' }).echoes, 'defect', 0, 200);
+    const lofC = near(run(pl, { angle: 60, x: 60 }, { skips: 3 }, [lof], 100).echoes, 'defect', 0, 200);
+    if (!lofA || !lofC || !(lofA.amp < lofC.amp)) f.push('austenitic weld metal attenuation');
+    // (u) FBH block (V2-9 tracer part): 0° over ⌀3 at 30 → 'fbh' echo at 30, ⌀6 louder, weaker than the backwall at 60
+    const fb = S.fbhBlock({ T: 60 });
+    const f3 = near(run(fb, { angle: 0, x: 110 }, { skips: 3 }, [], 100).echoes, 'fbh', 30, 0.5);
+    const f6 = near(run(fb, { angle: 0, x: 210 }, { skips: 3 }, [], 100).echoes, 'fbh', 30, 0.5);
+    const fbw = near(run(fb, { angle: 0, x: 30 }, { skips: 3 }, [], 100).echoes, 'backwall', 60, 0.5);
+    if (!f3 || !f6 || !fbw) f.push('fbh echoes');
+    else if (!(f6.amp > f3.amp) || !(f3.amp < fbw.amp)) f.push('fbh law ' + f3.amp + ' ' + f6.amp + ' ' + fbw.amp);
+    // (v) weld preps (V2-23): trace without errors; backing bar → 'geometry' tag 'backing'
+    for (const prep of ['single-bevel', 'j', 'single-v-backing', 'fillet-t', 'nozzle']) {
+      try {
+        const sp = S.plateWeld({ T: 20, prep });
+        const d = S.defectPresets.lof(sp);
+        run(sp, { angle: 60, x: sp.defaultProbe.x }, { skips: 3 }, [d], 100, { fanCount: 41 });
+      } catch (e) { f.push(prep + ' trace threw ' + e.message); }
+    }
+    const bk = S.plateWeld({ T: 20, prep: 'single-v-backing' });
+    let backing = false;
+    for (let x = 20; x <= 60; x += 2) if (run(bk, { angle: 60, x }, { skips: 3 }, [], 120).echoes.some(function (e) { return e.kind === 'geometry' && e.tag === 'backing' && e.amp > 1e-3; })) backing = true;
+    if (!backing) f.push('backing bar geometry echo missing');
+    // describe (object with toString + category)
+    const ds = describe({ kind: 'backwall', path: 25, leg: 1 });
+    if (String(ds).indexOf('Backwall') < 0 || ds.category !== 'backwall') f.push('describe');
+    if (describe({ kind: 'geometry', tag: 'root' }).category !== 'geometry-root' || describe({ kind: 'modeconv', conv: 'L' }).category !== 'modeconv' || describe({ kind: 'surface' }).category !== 'surface') f.push('describe categories');
     return f;
   }
 
-  UT.rays = { trace, zFactor, describe, emission, dirAt, arcHit, mergeEchoes, __selftest };
+  UT.rays = { trace, zFactor, describe, emission, dirAt, arcHit, mergeEchoes, modeConv: modeConvCoef, fanLayout, dirWeight: makeDirW, R_LS, R_SL, __selftest };
 })(window.UT = window.UT || {});
