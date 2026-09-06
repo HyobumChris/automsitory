@@ -169,7 +169,7 @@ trade: { /* …v1: active, revealed, report, score, seed, startedAt, truth */
   hintsUsed: 0, revealedOne: [] /* truth indices revealed via 'Reveal one' */,
 },
 pa: { elements: 16, pitch: 1.0, freq: 5, from: 35, to: 75, step: 1, focusDepth: null, view: 'S',
-  escanAngle: 60, scan: null /* {z0, z1, step, n, xBins, map: Float32Array} */, tcg: false },
+  escanAngle: 60, scan: null /* {z0, z1, step, n, xBins, map: Float32Array} */, tcg: false, angle: null /* selected S-scan column (deg), written by 56 */ },
 bscan: { axis: 'x', on: false, columns: null },    // columns is ALWAYS null in state (module buffer in 66)
 echodyn: { on: false, samples: [] },               // samples is ALWAYS [] in state (module buffer in 66)
 tofd: { /* …v1 */ modeConv: true, straighten: false, deadZones: true },
@@ -209,6 +209,14 @@ Not saved while `trade.active`.
   `wReturn = derived.directivity(δ_return)`. With `sideLobes:false` rays 25…40 are NOT traced (effective fan 25).
   Every `M.beamWeight20(...)` in 30-raytrace (fan weight, return weight, tandem/TT acceptance, `mergeEchoes` coverage)
   is replaced by `derived.directivity(δ)`; `hz = path·tan(halfAngle20dBz) + crystalB/2`.
+- **z-profile (binding; lead decision after integration — supersedes the 'planar exponent 1' overlap):** `zFactor` for a
+  defect spanning [zFrom, zTo] is the beam's z-directivity integrated over the defect extent, normalised to a defect much
+  longer than the beam: `Z(z) = ∫_{zFrom}^{zTo} Dz(z' − z) dz' / ∫ Dz`, with `Dz` the piston directivity across the beam
+  (`halfAngle20dBz`, `crystalDims.b`) mapped to the z axis at the echo's path (−20 dB at ±hz from the axis). Consequences that
+  the sizing tool and V2-17 rely on: at a defect END `Z = 0.5` (−6 dB); at END ± hz `Z ≈ 0.1` (−20 dB); beyond END + hz the
+  profile keeps falling with `Dz` (no cliff). Hence `6 dB drop = zR6 − zL6` and `20 dB drop = (zR20 − zL20) − 2·hz` both return
+  the true length within ± 2 mm for the 30 mm LOF of V2-17. Volumetric defects use the same rule with their z extent; AUT
+  gate windows (V1 #12) follow from the same profile (window ≈ z extent ± hz·0.7 at gate level 20 %).
 - Clamp every fan offset to `δ ≤ 89° − refracted` (drop rays beyond, never fold) — MWB70-2 (fanMax 21.4°) would otherwise
   launch above the surface. Optional refinement: `δ_steel = asin(sin(θ_w+δ_w)·v_s/v_w) − θ` for angle probes (asymmetric spread).
 - Side-lobe rays (25…40) trace ≤ 2 legs and skip volumetric sampling. Performance budget in §6.4.
@@ -342,7 +350,9 @@ higher than unfocused and its −6 dB x-width is 0.3–0.5× the unfocused width
   → `{G, ersMm, dBvsRef, dBvsDisc3}`: `H_echo = H_ref(A_ref)·10^((ampEchoDb − ampRefDb)/20)` with
   `ampDb = 20log10(pct) − gain + transferDb`; solve **`G = A_echo·sqrt(H_echo/(2π))`**, `ersMm = G·a`.
 - Tracer FBH law (30-raytrace, `spec.reflectors` tag `'fbh'`, 0° only, specular at normal incidence):
-  `amp_fbh(s) = amp_bw_law(s) · min(1, π·d²/(2·λ·max(s, N)))` where `amp_bw_law(s)` is the tracer's own backwall amplitude
+  `amp_fbh(s) = amp_bw_law(s) · π·d²/(2·λ·max(s, N))` — NO `min(1, …)` cap (lead decision after integration: the cap compressed
+  ⌀6 to an ERS of 4.2 mm; the ratio may exceed 1 for large discs close to the near field, which is accepted because the DGS ERS
+  readout inverts exactly this law and MUST round-trip ⌀2…⌀6 FBHs at s = 30…60 mm within ± 0.5 mm) where `amp_bw_law(s)` is the tracer's own backwall amplitude
   at path s (e = 1, S = 1, D = q^0.5); tip diffraction at the ends as for planar defects. Angle probes barely see it.
 - Window `dgs` (45): log–log plot (A vs H in dB), backwall curve, disc curves, markers for the reference and the gated
   echo, ERS readout `ERS = 2.3 mm (G 0.23)`, "Record reference (backwall)" / "(FBH)" buttons reading
@@ -436,7 +446,10 @@ UT.lessons = {
                                                           // 24 Transfer correction, 25 Sensitivity re-check); ≥ 5 steps each,
                                                           // ≥ 130 steps total; a choices or numeric input step in every lesson,
                                                           // ≥ 2 in lessons 5, 7, 12, 13, 20, 21
-  start(n), stop(), goto(step), current() → {n, step, done[]}, next(), prev(), hint(), doIt(), answer(value),
+  start(n) /* resets a BASELINE before setup(): instrument gates/tcg/pulser/receiver/reject/delay/freeze/peakMem/damping defaults,
+     display.hide false + beam true, physics defaults, damping.points [], probe crystal 'single' / method 'pe' / skew 0 / focus off,
+     weldOpts = defaultState().weldOpts; lessons must pass regardless of what earlier lessons/tests left behind (V2-14 runs after the physics checks) */,
+  stop(), goto(step), current() → {n, step, done[]}, next(), prev(), hint(), doIt(), answer(value),
   autoRun(n) → Promise<{n, completed, failedSteps}>, quiz /* §4.5 */, window /* dom.win 'lessons' */, css,
 }
 Step = {
@@ -1047,7 +1060,7 @@ to v1 for carbon (L 0.005 / S 0.010 one-way). #13 holds by the invariant of §4.
   −17.6 dB) with sideLobes on; at `asin(1.5λ/a)` > 0 with sideLobes on and = 0 with sideLobes off. `fanAngles().length` = 41
   (on) / 25 traced (off); `fanAngles()[0] = −halfAngle20dB`, `[20] = +halfAngle20dB`.
 - **V2-2 Mode conversion (reciprocal path)**: plate 20 (rootHeight 0, capHeight 0), 60° 5 MHz ⌀10 (`gen-60-5-10`), planar
-  defect pts (−3, 14) → (3, 9), probe scanned x = 44…54 (0.5 mm) with modeConv on: an echo of kind `modeconv` exists with
+  defect pts (−3, 14) → (3, 9), probe scanned x = 44…50 (0.5 mm; beyond x ≈ 50.5 the fan smear moves the trap to 39…41 µs — lead decision after integration) with modeConv on: an echo of kind `modeconv` exists with
   `tUs` = 38.1 ± 1.0 µs and displayed `path` = 61.7 ± 1.6 mm; with modeConv off no `modeconv` echo. Coefficient API:
   `modeConv('S', 30) → R ≥ 0.6 and phiOut = 65.6 ± 1°`, `modeConv('S', 40) → R = 0`, `modeConv('L', 60) → R ≥ 0.9`.
   TOFD (V2-10) is the timing check.
@@ -1068,7 +1081,7 @@ to v1 for carbon (L 0.005 / S 0.010 one-way). #13 holds by the invariant of §4.
   50 Ω vs 150 Ω = −2 ± 0.5 dB and pulse −6 dB width 0.75 ± 0.1×; filter mismatch (`receiver.filter '5-15'` with the 2 MHz
   `mwb60-2`) = −6 ± 1 dB and width ≥ 1.25×; `'broadband'` never changes amplitude.
 - **V2-9 DGS**: FBH block, 0° 5 MHz ⌀10: record the backwall reference on a clean spot, gate the ⌀3 mm FBH at 30 mm → `ers`
-  within 3 ± 0.9 mm; ⌀6 → 6 ± 1.5. `dgs.curves` disc G = 0.3 at A = 3 → H = 2π·0.09/9 = 0.0628 ± 1 %.
+  within 3 ± 0.9 mm; ⌀6 → 6 ± 1.0 (same law inverted, no cap). `dgs.curves` disc G = 0.3 at A = 3 → H = 2π·0.09/9 = 0.0628 ± 1 %.
 - **V2-10 TOFD v2** (pcs 60, T 20, 5 MHz, wedge 12 mm → 2wd 8.76 µs): events include `modeconv-backwall` at 24.77 ± 0.05 µs
   absolute and `modeconv-backwall-ss` at 31.02 ± 0.05; `pcsOptimise()` sets pcs = 46.2 ± 0.1; `tofd().deadZones.lateral` = 7.3 ± 0.5 mm
   and `.backwall` = 1.6 ± 0.2 mm; `tofdCursor({z:135, depth:8})` sets `state.cursor = {view:'dscan', depth ≈ 8}`.
@@ -1116,7 +1129,7 @@ to v1 for carbon (L 0.005 / S 0.010 one-way). #13 holds by the invariant of §4.
   `[data-i18n]` element whose text equals its key while `ko` (apart from the exemptions).
 - **V2-19 Scaling/touch**: at 1024×640 no element overflows the viewport (`scrollWidth/Height == inner`), `UT.dom.scale()` ≈ 0.8;
   pointer events (`pointerdown/move/up` at `rect.left + xCss·k`) on `#cv-cross` move the probe by the dragged mm and emit one
-  `'ui' probe-drag`; touch bar `on` shows 9 buttons + the Step button; `display.scale = 'fixed'` removes the transform.
+  `'ui' probe-drag`; touch bar `on` shows ≥ 10 buttons + the Step button (◀ ▶ ▲ ▼ − + Range Freeze Peak Hide + Step; Mark L/R and Row+ are contextual); `display.scale = 'fixed'` removes the transform.
 - **V2-20 Scenario/exam**: `scenario.capture()` → change gain/defects → `scenario.apply(saved)` restores them; `await toUrl()`
   → navigate to that URL in a fresh page → the scenario is applied (same defects/probe, title toast shown); exam URL
   (`toUrl(obj, {exam:{code:'1234'}})`) contains no `defects` key; after load `UT.test.trade.truth()` is `[]` and
@@ -1125,13 +1138,13 @@ to v1 for carbon (L 0.005 / S 0.010 one-way). #13 holds by the invariant of §4.
   tampered token returns `{ok:false}`.
 - **V2-21 Sound**: with `display.sound` on and `setInstrument({gates:[{on:true, alarm:true, start:10, width:60, level:20}]})` over
   an echo, `UT.audio.lastBeep` updates once (edge); no AudioContext is created while sound is off.
-- **V2-22 Accessibility**: `#menubar [role=menubar]` exists, `F10` then `ArrowRight` opens the Probes menu, arrow keys move
+- **V2-22 Accessibility**: `#menubar[role=menubar]` exists (the menubar element itself carries the role), `F10` then `ArrowRight` opens the Probes menu, arrow keys move
   focus, every `tb-*` has `aria-pressed`; `display.highContrast` adds `.hc`; the lessons window has an `[aria-live]` region.
 - **V2-23 Weld preps**: each of `single-bevel, j, single-v-backing, fillet-t, nozzle` builds, traces without errors, has ≥ 1
   fusion face, and `addPreset('lof')` lands on a fusion face; backing bar gives a `geometry` echo from its ends; `weldOpts.type`
   mirrors `prep` ('fillet' for fillet-t/nozzle).
 - **V2-24 Datalogger/compare/AUTO**: pressing SAVE adds a datalog entry; `2ND F + GATES` (= `UT.instruments.auto(80)`) sets the
-  gated peak to 80 ± 1 %; compare snapshot drawn (grey trace present) and `UT.test.state().instrument.compare` is undefined.
+  gated peak to 80 ± 1 %; compare snapshot drawn (grey trace present) and `UT.test.state().instrument.compare` is null or undefined (never the array).
 
 ### 9.4 Engineering
 - **V2-25** `node tools/acceptance.mjs` exits 0 and its JSON lists ≥ 40 checks (14 v1 + 33 v2 incl. the b–f sub-checks; V2-25 is the runner and is not self-listed).
