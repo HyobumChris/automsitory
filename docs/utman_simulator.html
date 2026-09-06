@@ -573,6 +573,13 @@ canvas { display: block; }
   };
 
   // ------------------------------------------------------------------ DOM helpers
+  /** Relabel every element created with the i18n shorthand (button/field/win titles/h({i18n})) after a language change. */
+  function relabelAuto() {
+    if (typeof document === 'undefined') return;
+    const els = document.querySelectorAll('[data-i18n-auto]');
+    for (let i = 0; i < els.length; i++) { const key = els[i].dataset.i18n; if (key) els[i].textContent = UT.i18n.t(key); }
+  }
+  UT.bus.on('lang', relabelAuto);
   const dom = {
     /** h('div', {class:'x', onclick: fn, dataset:{a:1}, style:{...}}, [children | strings]) */
     h(tag, attrs, children) {
@@ -586,6 +593,7 @@ canvas { display: block; }
           else if (k === 'dataset' && typeof v === 'object') Object.assign(el.dataset, v);
           else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v);
           else if (k === 'text') el.textContent = v;
+          else if (k === 'i18n') { el.dataset.i18n = v; el.dataset.i18nAuto = '1'; if (children === undefined) el.textContent = UT.i18n.t(v); }   // v2: auto-relabelled on 'lang'
           else if (k === 'html') el.innerHTML = v;   // only for trusted, module-authored markup
           else if (v === true) el.setAttribute(k, '');
           else el.setAttribute(k, String(v));
@@ -629,6 +637,7 @@ canvas { display: block; }
       return r.width > 0 ? r.width / app.offsetWidth : 1;
     },
     button(label, onClick, attrs) {
+      if (typeof label === 'string') return dom.h('button', Object.assign({ class: 'btn', type: 'button', onclick: onClick, i18n: label }, attrs || {}));
       return dom.h('button', Object.assign({ class: 'btn', type: 'button', onclick: onClick }, attrs || {}), label);
     },
     /** Labelled numeric/text input row: field('Gain', {type:'number', value: 30, min:0, max:110, step:1, onchange}) */
@@ -641,7 +650,7 @@ canvas { display: block; }
       if (o.step !== undefined) input.step = o.step;
       if (o.options) { for (const opt of o.options) input.appendChild(dom.h('option', { value: opt.value === undefined ? opt : opt.value, selected: String(opt.value === undefined ? opt : opt.value) === String(o.value) ? true : null }, opt.label === undefined ? String(opt) : opt.label)); }
       if (o.onchange) input.addEventListener(o.event || 'change', function (e) { o.onchange(o.type === 'checkbox' ? input.checked : (o.type === 'number' ? parseFloat(input.value) : input.value), e); });
-      const row = dom.h('label', { class: 'fld', title: o.title || null }, [dom.h('span', { class: 'fld-label' }, label), input]);
+      const row = dom.h('label', { class: 'fld', title: o.title || null }, [typeof label === 'string' ? dom.h('span', { class: 'fld-label', i18n: label }) : dom.h('span', { class: 'fld-label' }, label), input]);
       row.input = input;
       return row;
     },
@@ -684,7 +693,7 @@ canvas { display: block; }
     win(o) {
       const name = o.name || ('win-' + UT.uid());
       if (dom.wins[name] && !o.replace) { const existing = dom.wins[name]; if (o.content) existing.setContent(o.content); return existing; }
-      const titleEl = dom.h('span', { class: 'win-title-text' }, o.title || name);
+      const titleEl = dom.h('span', { class: 'win-title-text', i18n: o.title || name });   // title is an i18n KEY, relabelled on 'lang'
       const closeBtn = dom.h('button', { class: 'win-close', type: 'button', title: 'Close' }, '✕');
       const titleBar = dom.h('div', { class: 'win-title' }, [titleEl, closeBtn]);
       const body = dom.h('div', { class: 'win-body' });
@@ -694,7 +703,7 @@ canvas { display: block; }
         el, body, name,
         isOpen() { return el.style.display !== 'none'; },
         raise() { el.style.zIndex = String(++dom._z); },
-        setTitle(t) { titleEl.textContent = t; },
+        setTitle(t) { titleEl.dataset.i18n = t; titleEl.textContent = UT.i18n.t(t); },
         setContent(c) { body.textContent = ''; const node = typeof c === 'function' ? c(api) : c; if (node) body.appendChild(node); },
         show() {
           if (!el.parentNode) { (document.getElementById('app') || document.body).appendChild(el); }

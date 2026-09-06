@@ -860,9 +860,11 @@ side; presets `backingLof` (planar along the bar top) and `toeCrackFillet`. Weld
 2. `t()` is called at RENDER time only — module-level tables hold English KEYS (`HINTS`, tooltips, lesson titles, softkey
    labels) and are translated where they are put into the DOM. Templates instead of concatenation:
    `t('Time left {t}', {t})`, never `'Time left ' + clock`.
-3. Every user-visible DOM text node is created with `h(tag, {dataset:{i18n: key}}, t(key, params))` (`UT.dom.h` gets `i18n`
-   support — lead; `dom.button/field/win` set it automatically); canvases are out of scope. `dom.win({title: key})` stores
-   the key and re-labels on `'lang'` (lead). Menu `data-key`s stay English.
+3. Every user-visible DOM text node is created with `h(tag, {dataset:{i18n: key}}, t(key, params))` — or, for plain labels
+   without params, with the shorthand `h(tag, {i18n: key})` (DONE by the lead in core: sets `data-i18n` + `data-i18n-auto` and
+   `textContent = t(key)`; `dom.button(label)`, `dom.field(label)` and `dom.win({title: key})`/`setTitle(key)` use it automatically,
+   and core relabels every `[data-i18n-auto]` element on `'lang'`). Elements whose text used params must be re-rendered by their
+   owner on `'lang'`. Canvases are out of scope. Menu `data-key`s stay English.
 4. `UT.test.untranslated()` (92) = for `UT.i18n.lang === 'ko'`, the unique `dataset.i18n` keys of all `[data-i18n]` elements
    currently in the document for which `UT.i18n.has(key)` is false, excluding keys matching
    `/^[\d\s.,:%°+\-/×~()a-zA-Z]{0,3}$/` or `/^[\d\s.,%°:+\-/()µ]+$/`, product names (EPOCH, USK7, IIW, TOFD, DAC, AUT, PA, ASME,
