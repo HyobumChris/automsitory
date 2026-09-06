@@ -47,7 +47,7 @@
   function libEntry(id) { return libById[id] || null; }
 
   /**
-   * State patch that selects a library probe: {libId, angle, mode, freq, diameter, crystal, crystalDims, angleCustom}.
+   * State patch that selects a library probe: {libId, angle, mode, freq, diameter, crystal, crystalDims}.
    * @param {string} id
    */
   function select(id) {
@@ -56,7 +56,7 @@
     return {
       libId: p.id, angle: p.angle, mode: p.angle === 0 ? 'comp' : (p.family === 'tofd' ? 'comp' : 'shear'),
       freq: p.freq, diameter: p.crystal.a, crystalDims: Object.assign({}, p.crystal),
-      crystal: p.crystalType === 'twin' ? 'twin' : 'single', angleCustom: null,
+      crystal: p.crystalType === 'twin' ? 'twin' : 'single',
     };
   }
 

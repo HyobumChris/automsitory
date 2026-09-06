@@ -155,7 +155,7 @@
         x: 40, z: 150, side: 1, skew: 0, surface: 'chord',
         paFrom: 40, paTo: 70, paStep: 1,
         // v2
-        libId: 'gen-60-5-10', crystalDims: { a: 10, b: 10, shape: 'round' }, focus: { on: false, F: 30 }, angleCustom: null,
+        libId: 'gen-60-5-10', crystalDims: { a: 10, b: 10, shape: 'round' }, focus: { on: false, F: 30 },
       },
       material: 'carbon',
       physics: { modeConv: true, surfaceWave: true, sideLobes: true, fanRays: 41 },
@@ -175,17 +175,17 @@
         readout: 'dp',                 // which readout is shown big on EPOCH 600: 'sp' | 'sd' | 'dp' | 'amp'
         selectedParam: 'gain',         // softkey parameter being adjusted
         // v2
-        tcg: { on: false }, pulser: { energy: 'med', damping: 150, prf: 60 }, receiver: { filter: 'broadband' },
+        tcg: { on: false }, pulser: { energy: 200, damping: 150, prf: 60 }, receiver: { filter: 'broadband' },   // energy V ∈ {100,200,300,400}; damping Ω ∈ {50,100,150,200,400}
         autoPct: 80, compare: null, datalog: [],
       },
       display: {
         beam: true, skips: 3, colourCode: 'none', singleLine: false, focus: false,
         hide: false, plan: true, pipe3d: true, mirror: true, units: 'mm', legend: true, grid: true,
         // v2
-        sound: false, touchBar: 'auto', highContrast: false, scale: 'auto', convRays: true, deadZones: true, autoTrig: true,
+        sound: false, touchBar: 'auto', highContrast: false, scale: 'auto' /* 'auto'|'fixed' */, convRays: true, autoTrig: true,
       },
       weldOpts: { T: 20, L: 300, type: 'single-v', bevel: 30, rootGap: 2, rootFace: 2, capWidth: 16, capHeight: 2, rootHeight: 1.5, pipe: false, od: 168.3, wt: 20,
-        prep: 'single-v', weldMaterial: 'same', backing: false, webT: 12, branchOd: 114.3 },   // v2: prep supersedes type
+        prep: 'single-v', weldMaterial: 'same', backing: false, webT: 12, branchOd: 114.3, transferLossDb: 0 },   // v2: prep supersedes type; transferLossDb 0…8 two-way
       defects: [],
       selectedDefect: 0,
       tofd: { pcs: 60, txAngle: 60, rangeUs: 15, delayUs: 0, gainDb: 40, scan: null, running: false,
@@ -203,19 +203,22 @@
         activeGate: 0, scan: null, running: false, rectified: true, revMap: false,
         channels: 3, map: null, speed: 6,
       },
-      standards: { standard: 'iso11666', level: 'AL2', technique: 1, testingLevel: 'B', transferDb: 0, rulesOverride: null, procedure: null },
-      lessons: { active: null, step: 0, progress: {}, answers: {} },
+      standards: { standard: 'iso11666', level: 'AL2', technique: 1, testingLevel: 'B', transferDb: 0, rulesOverride: null, procedure: null, lastEval: null },
+      lessons: { active: null, step: 0, progress: {}, answers: {}, memo: {}, stepStartedAt: 0 },
+      quiz: { active: false, i: 0, n: 10, seed: null, difficulty: 'basic', correct: 0, wrong: 0, times: [], item: null },
+      autocal: { stage: 0, t1: null, d1: 10, d2: 25 },   // written by 80-modes (0 idle | 1 after Start | 2 after the first tick)
       pa: { elements: 16, pitch: 1.0, freq: 5, from: 35, to: 75, step: 1, focusDepth: null, view: 'S', escanAngle: 60, scan: null, tcg: false },
       bscan: { axis: 'x', on: false, columns: null },
       echodyn: { on: false, samples: [] },
-      scenario: { slot: null, name: '' },
+      scenario: { slot: null, name: '', title: '', noteKo: '', noteEn: '', author: '' },
       plot: { points: [], edgeMarks: [], mirror: true, refPct: 80, cardStyle: 'iow' },
       sizing: { method: '6dB', marks: [], result: null },
       trade: { active: false, revealed: false, report: [], score: null, seed: null, startedAt: null, truth: [],
-        difficulty: 'intermediate', timeLimitMin: 60, history: [], exam: null },
+        difficulty: 'intermediate', timeLimitMin: 60, history: [], exam: null,
+        candidate: '', coverage: null, result: null, practice: false, hintsUsed: 0, revealedOne: [] },
       lesson: null,
       status: { left: '', mid: '', right: '' },
-      cursor: { x: null, y: null, view: null },
+      cursor: { x: null, y: null, view: null, tUs: null, depth: null, z: null },   // 60 writes x/y/view; 50 writes view:'dscan', tUs/depth/z
       editing: { defect: false, brush: 'planar' },   // cross-section brush active when defect editor open
     };
   };

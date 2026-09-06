@@ -526,6 +526,12 @@
       labels: o.steps.map(function (t, i) { return { x: i * len + len / 2, y: t + 5, text: t + 'mm', small: true }; }),
     });
     spec.thicknessAt = function (x) { const i = M.clamp(Math.floor(x / len), 0, n - 1); return o.steps[i]; };
+    /** Centre x of the step whose thickness is nearest to t (v2; used by lesson 12). */
+    spec.stepX = function (t) {
+      let best = 0;
+      for (let i = 1; i < n; i++) if (Math.abs(o.steps[i] - t) < Math.abs(o.steps[best] - t)) best = i;
+      return best * len + len / 2;
+    };
     return spec;
   }
 
@@ -913,6 +919,7 @@
       if (!pointInside(w, 60, 10)) f.push('v2 inside');
       if (pointInside(w, 40, 20)) f.push('v2 outside R25');
       const s = stepWedge();
+      if (s.stepX(10) !== 60 || s.stepX(25) !== 180 || s.stepX(12) !== 60) f.push('stepX');
       if (s.thicknessAt(10) !== 5 || s.thicknessAt(190) !== 25) f.push('step thickness');
       const t = tky();
       if (!pointInside(t, 50, 10)) f.push('tky chord inside');
