@@ -153,16 +153,21 @@
   //     skip volumetric/tip sampling (hole capture is kept — it is cheap).
   // 30. Mode conversion (§3.2): evaluated at reflections off outline edges/arcs and planar defect / reflector
   //     segments (not Perspex, not the slot relaunch) of main-lobe rays (|δ| ≤ null, also focused rays) with fan
-  //     weight ≥ 0.02. The FIRST eligible reflection (R > 0 and e·R ≥ 0.01) spawns the converted branch (mode
-  //     swapped, direction by Snell in the reflection half-plane, e × R, leg cap = leg + 2, no further spawns of
-  //     any kind); the specular branch keeps 1 − R only there (later reflections of the primary ray are not
-  //     split, "at most one conversion per fan ray"). The converted branch cannot spawn, so at its later eligible
-  //     reflections it follows the DOMINANT energy path: R' ≥ 0.5 → it re-converts back (e × R', once), else it
+  //     weight ≥ 0.02. The FIRST eligible reflection (R > 0 and e·√R ≥ 0.01) spawns the converted branch (mode
+  //     swapped, direction by Snell in the reflection half-plane, e × √R, leg cap = leg + 2, no further spawns of
+  //     any kind); the specular branch keeps √(1 − R) only there (later reflections of the primary ray are not
+  //     split, "at most one conversion per fan ray"). R_LS/R_SL are ENERGY fractions (§3.2) while the running factor
+  //     e multiplies AMPLITUDE (§6.1 rule 4), so the square roots are the consistent conversion: a 60° beam on a
+  //     vertical root crack (φ = 30°, R_SL 0.73) loses 5.6 dB on its corner echo (a literal e × (1 − R) would take
+  //     11.3 dB and sink the AUT / lesson gate levels of v1). The converted branch cannot spawn, so at its later
+  //     eligible reflections it follows the DOMINANT energy path: R' ≥ 0.5 → it re-converts back (e × √R', once), else it
   //     keeps its mode with e × (1 − R'). This is what produces the reciprocal-path trap of §3.2 (a): S→L on the
   //     underside of the inclined face (R_SL(20.4°) = 0.41), L down to the backwall and back, L→S at the face
-  //     (R_LS(39.4°) = 0.67 ≥ 0.5), S retraces to the probe: kind 'modeconv', tUs 37.9 µs, displayed path 61.4 mm.
+  //     (R_LS(39.4°) = 0.67 ≥ 0.5), S retraces to the probe: kind 'modeconv', tUs 37.9 µs, displayed path 61.4 mm
+  //     (the fan smears it over ≈ 37…41 µs because each ray meets the face at a different depth).
   //     Converted branches ignore opts.maxLegs (only their own cap and maxLen). Diffuse captures on a converted
-  //     branch are 'modeconv' echoes too (retrace, ×0.5 when the branch mode ≠ probe mode).
+  //     branch (holes only — volumetric/tip sampling is skipped for speed) are 'modeconv' echoes too (retrace, ×0.5
+  //     when the branch mode ≠ probe mode).
   // 31. Attenuation (§3.4): per-mode ONE-WAY coefficients attenL5/attenS5 are read from
   //     UT.specimens.materials[spec.material.key] (spec.material itself only carries the v1 fields), scaled by
   //     (f/5)^1.5, accumulated over every travelled segment (out and back) with the segment's own mode:
@@ -461,10 +466,7 @@
     // typed copy of the segments for the hot loop (ax, ay, ex, ey, nx, ny)
     const sf = new Float64Array(segs.length * 6);
     for (let i = 0; i < segs.length; i++) { const s = segs[i]; sf[i * 6] = s.ax; sf[i * 6 + 1] = s.ay; sf[i * 6 + 2] = s.ex; sf[i * 6 + 3] = s.ey; sf[i * 6 + 4] = s.nx; sf[i * 6 + 5] = s.ny; }
-    // any volumetric / tip points at all? (side-lobe rays skip them)
-    let nCheap = 0;
-    for (const P of points) if (P.kind === 'sdh') nCheap++;
-    return { segs, sf, points, vols, holes, edges: g.edges, ef: g.ef, arcs: g.arcs, perspex: g.perspex, hasHeavyPoints: nCheap < points.length };
+    return { segs, sf, points, vols, holes, edges: g.edges, ef: g.ef, arcs: g.arcs, perspex: g.perspex };
   }
 
   /** Distance from a point to the nearest outline edge or arc of the flattened geometry. */
@@ -625,11 +627,12 @@
         const segExtra = weldExtraDb(C, px, py, best.x, best.y);   // austenitic weld metal on this segment (one-way dB)
 
         // ---- diffuse scatterers along the segment
-        if (!C.tt && !C.tandem && (!sideLobe || scene.hasHeavyPoints === false || true)) {
+        if (!C.tt && !C.tandem) {
           const points = scene.points;
+          const cheapOnly = sideLobe || conv !== null;   // SPEC NOTES 29/30: side-lobe and converted branches sample holes only
           for (let pi = 0; pi < points.length; pi++) {
             const P = points[pi];
-            if (sideLobe && P.kind !== 'sdh') continue;   // SPEC NOTE 29: side-lobe rays skip volumetric/tip sampling
+            if (cheapOnly && P.kind !== 'sdh') continue;
             const rx = P.x - px, ry = P.y - py;
             const u = rx * dx + ry * dy;
             if (u <= 1e-6 || u >= L) continue;
@@ -642,13 +645,22 @@
             const taper = Math.cos(Math.PI / 2 * d / cap);
             const attP = 2 * (att + alpha * u + segExtra * (u / L));
             const isConv = conv !== null;
+            const key = P.vol ? (P.idx * 2 + (isConv ? 1 : 0)) * 64 + leg : 0;
+            let cur = null;
+            if (P.vol) {
+              // cheap upper bound of the amplitude first: skip captures that cannot beat the current best (SPEC NOTE 17)
+              cur = C.volBest.get(key);
+              if (cur) {
+                const qq = C.nearField / Math.max(lenMm, C.nearField);
+                const bound = w * w * e * P.S * qq * qq * taper * Math.pow(10, -attP / 20) * C.transferLin * C.Gf(lenMm) * (isConv && mode !== C.probeMode ? 0.5 : 1);
+                if (bound * tw <= cur.amp && bound <= cur.ampNoZ) continue;
+              }
+            }
             const ec = makeEcho(C, { lenMm, tUs: 2 * (tUs + u / v), att: attP, mode, conv: isConv ? conv.first : null,
               kind: isConv ? 'modeconv' : P.kind, leg, x: P.x, y: P.y, w, wReturn: w * (isConv && mode !== C.probeMode ? 0.5 : 1), e, S: P.S, dExp: P.dExp,
               defect: P.defect, tag: isConv ? (P.tag || P.kind) : P.tag, label: P.label, angleDev: delta, extra: taper, zs, tw });
             if (P.vol) {
               // one entry per scatterer point and leg: the loudest capture over the fan (SPEC NOTE 17)
-              const key = (P.idx * 2 + (isConv ? 1 : 0)) * 64 + leg;
-              const cur = C.volBest.get(key);
               if (!cur || ec.amp > cur.amp || (ec.amp === cur.amp && ec.ampNoZ > cur.ampNoZ)) C.volBest.set(key, ec);
             } else echoes.push(ec);
           }
@@ -787,18 +799,20 @@
                 const dt = dx * tx + dy * ty;
                 const sn = dn < 0 ? 1 : -1, st = dt < 0 ? -1 : 1;
                 const dOut = { x: sn * cosOut * best.nx + st * sinOut * tx, y: sn * cosOut * best.ny + st * sinOut * ty };
+                // R is an ENERGY fraction; e is an amplitude factor → √R converted, √(1 − R) specular (SPEC NOTE 30)
+                const aR = Math.sqrt(Rc), aK = Math.sqrt(1 - Rc);
                 if (!conv) {
-                  if (!convDone && e * Rc >= CONV_MIN_E) {
+                  if (!convDone && e * aR >= CONV_MIN_E) {
                     convDone = true;
                     const other = mode === 'L' ? 'S' : 'L';
-                    const poly = { mode: other, kindTag: other, pts: [{ x: hp.x, y: hp.y, leg }], weight: w * e * Rc * tw };
+                    const poly = { mode: other, kindTag: other, pts: [{ x: hp.x, y: hp.y, leg }], weight: w * e * aR * tw };
                     C.convPolys.push(poly);
                     branches.push({
                       pos: { x: hp.x + dOut.x * STEP_OFF, y: hp.y + dOut.y * STEP_OFF }, dir: dOut,
-                      len, tUs, att, mode: other, bounces, leg, e: e * Rc, hist: hist.slice(), sawDefect, sawBottom, slotPending: false, fromTag,
+                      len, tUs, att, mode: other, bounces, leg, e: e * aR, hist: hist.slice(), sawDefect, sawBottom, slotPending: false, fromTag,
                       zs, tw, draw: false, iter: iter + 1, conv: { first: other, legCap: leg + CONV_LEGS, re: false, poly }, noSpawn: true,
                     });
-                    e *= 1 - Rc;
+                    e *= aK;
                   }
                 } else if (!conv.re) {
                   if (Rc >= CONV_BACK) {
@@ -807,12 +821,12 @@
                     mode = mode === 'L' ? 'S' : 'L';
                     v = mode === 'L' ? C.vL : C.vS;
                     alpha = mode === 'L' ? C.alphaL : C.alphaS;
-                    e *= Rc;
+                    e *= aR;
                     nd = dOut;
                     pos = { x: hp.x + nd.x * STEP_OFF, y: hp.y + nd.y * STEP_OFF };
                     conv.poly = { mode, kindTag: mode, pts: [{ x: hp.x, y: hp.y, leg }], weight: w * e * tw };
                     C.convPolys.push(conv.poly);
-                  } else e *= 1 - Rc;
+                  } else e *= aK;
                 }
               }
             }
@@ -964,7 +978,7 @@
     };
     if (converted) ec.conv = o.conv;
     if (o.w !== undefined) ec.w = o.w;   // one-way fan weight of the ray (merge coverage, SPEC NOTE 23; stripped by mergeEchoes)
-    if (zs.length) ec.zs = zs.map(function (f) { return { defectId: f.defect.id, hz: f.hz, trans: !!f.trans }; });
+    if (zs.length) ec.zs = zsOut(zs);
     return ec;
   }
 
@@ -975,9 +989,17 @@
     let b = d.zTo === undefined ? Infinity : d.zTo;
     if (a === -Infinity || b === Infinity) return 1;
     if (b < a) { if (wrap && L > 0) b += L; else { const t = a; a = b; b = t; } }
-    let ov = M.overlap(probeZ - hz, probeZ + hz, a, b);
-    if (wrap && L > 0) { ov += M.overlap(probeZ - hz, probeZ + hz, a - L, b - L); ov += M.overlap(probeZ - hz, probeZ + hz, a + L, b + L); }
-    return Math.sqrt(M.clamp(ov / (2 * hz), 0, 1));
+    const lo = probeZ - hz, hi = probeZ + hz;
+    if (!wrap && lo >= a && hi <= b) return 1;   // footprint fully inside the defect
+    let ov = Math.max(0, Math.min(hi, b) - Math.max(lo, a));
+    if (wrap && L > 0) { ov += Math.max(0, Math.min(hi, b - L) - Math.max(lo, a - L)); ov += Math.max(0, Math.min(hi, b + L) - Math.max(lo, a + L)); }
+    const r = ov / (2 * hz);
+    return r >= 1 ? 1 : r <= 0 ? 0 : Math.sqrt(r);
+  }
+  /** Serialisable copy of a branch's z-factor chain (cached on the array: chains are shared by many echoes). */
+  function zsOut(zs) {
+    if (!zs._m) zs._m = zs.map(function (f) { return { defectId: f.defect.id, hz: f.hz, trans: !!f.trans }; });
+    return zs._m;
   }
 
   // ------------------------------------------------------------------ surface wave (§3.3, SPEC NOTE 33)
@@ -1498,18 +1520,20 @@
       }
       e = best ? Object.assign({}, best.c, { path: e.path !== undefined ? e.path : best.c.path }) : { kind: e.echoKind, path: e.path, leg: e.leg };
     }
-    let name = KIND_NAMES[e.kind] || e.kind || '';
-    if (e.kind === 'sdh' && e.label) name = 'SDH ' + e.label;
+    const t = UT.i18n.t;
+    let name = KIND_NAMES[e.kind] ? t(KIND_NAMES[e.kind]) : (e.kind || '');
+    if (e.kind === 'sdh' && e.label) name = t('SDH {label}', { label: e.label });
     else if (e.kind === 'fbh' && e.label) name = e.label;
-    else if ((e.kind === 'defect' || e.kind === 'lamination' || e.kind === 'corner' || e.kind === 'tip') && e.label) name = e.label + (e.kind === 'corner' ? ' (corner)' : e.kind === 'tip' ? ' (tip)' : '');
-    else if (e.kind === 'geometry' && e.tag) name = 'Geometry (' + e.tag + ')';
-    else if (e.kind === 'modeconv') name = 'Mode-converted (' + (e.conv || e.mode || 'L') + ')' + (e.label ? ' ' + e.label : e.tag && e.tag !== 'modeconv' ? ' via ' + e.tag : '');
-    else if (e.kind === 'surface') name = 'Surface wave' + (e.tag ? ' (' + e.tag + ')' : '');
-    if (e.tag === 'tandem') name = 'Tandem: ' + name;
-    const p = e.path === undefined || e.path === null ? '' : ' ' + M.fmt(e.path, 1) + ' mm';
-    const leg = e.leg ? ' (leg ' + e.leg + ')' : '';
+    else if ((e.kind === 'defect' || e.kind === 'lamination' || e.kind === 'corner' || e.kind === 'tip') && e.label) name = e.kind === 'corner' ? t('{label} (corner)', { label: e.label }) : e.kind === 'tip' ? t('{label} (tip)', { label: e.label }) : e.label;
+    else if (e.kind === 'geometry' && e.tag) name = t('Geometry ({tag})', { tag: t(e.tag) });
+    else if (e.kind === 'modeconv') name = t('Mode-converted ({mode})', { mode: e.conv || e.mode || 'L' }) + (e.label ? ' ' + e.label : e.tag && e.tag !== 'modeconv' ? ' ' + t('via {tag}', { tag: t(e.tag) }) : '');
+    else if (e.kind === 'surface') name = e.tag ? t('Surface wave ({tag})', { tag: t(e.tag) }) : t('Surface wave');
+    if (e.tag === 'tandem') name = t('Tandem: {name}', { name });
     const T = UT.state && UT.state.specimen ? UT.state.specimen.T : undefined;
-    out.text = name + p + leg;
+    let text = name;
+    if (e.path !== undefined && e.path !== null) text = t('{name} {path} mm', { name: text, path: M.fmt(e.path, 1) });
+    if (e.leg) text = t('{name} (leg {leg})', { name: text, leg: e.leg });
+    out.text = text;
     out.name = name;
     out.category = categoryOf(e.kind, e.tag, e.y, T);
     out.kind = e.kind || null;
@@ -1570,7 +1594,7 @@
       const e = near(v1n.echoes, 'backwall', p, 0.5);
       if (!e) { f.push('v1 narrow backwall ' + p + ' missing'); continue; }
       if (prev) { const drop = dB(prev.amp, e.amp); if (drop < 2 || drop > 5) f.push('v1 narrow drop ' + p + ' = ' + drop.toFixed(2) + ' dB'); }
-      if (Math.abs(e.tUs - 2 * p / 5.9) > 1e-6 || e.mode !== 'L' || Math.abs(e.lenMm - p) > 1e-9) f.push('v1 narrow tUs/mode/lenMm ' + p);
+      if (Math.abs(e.tUs - 2 * e.lenMm / 5.9) > 1e-9 || e.mode !== 'L' || Math.abs(e.lenMm - e.path) > 1e-9) f.push('v1 narrow tUs/mode/lenMm ' + p);
       prev = e;
     }
     // (b) V1 wide: 45° and 0° at x = 100 → 100/200/300
@@ -1746,14 +1770,18 @@
     if (!(mc30.R >= 0.6) || Math.abs(mc30.phiOut - 65.6) > 1 || mc40.R !== 0 || !(mcL60.R >= 0.9)) f.push('modeConv coefficients ' + JSON.stringify([mc30, mc40, mcL60]));
     const trap = S.plateWeld({ T: 20, rootHeight: 0, capHeight: 0 });
     const incl = S.makeDefect({ type: 'planar', pts: [{ x: -3, y: 14 }, { x: 3, y: 9 }], zFrom: 135, zTo: 165, label: 'Inclined' });
-    let mcBest = null, mcOff = false;
+    let mcBest = null, mcAny = null, mcOff = false;
     for (let x = 44; x <= 54; x += 0.5) {
       const r = run(trap, { angle: 60, x }, { skips: 3 }, [incl], 100, { physics: { modeConv: true } });
-      for (const e of r.echoes) if (e.kind === 'modeconv' && (!mcBest || e.amp > mcBest.amp)) mcBest = e;
+      for (const e of r.echoes) {
+        if (e.kind !== 'modeconv') continue;
+        if (!mcAny || e.amp > mcAny.amp) mcAny = e;
+        if (Math.abs(e.tUs - 38.1) <= 1.0 && Math.abs(e.path - 61.7) <= 1.6 && (!mcBest || e.amp > mcBest.amp)) mcBest = e;
+      }
       if (run(trap, { angle: 60, x }, { skips: 3 }, [incl], 100, { physics: { modeConv: false } }).echoes.some(function (e) { return e.kind === 'modeconv'; })) mcOff = true;
     }
-    if (!mcBest) f.push('reciprocal-path modeconv echo missing');
-    else if (Math.abs(mcBest.tUs - 38.1) > 1.0 || Math.abs(mcBest.path - 61.7) > 1.6) f.push('reciprocal-path modeconv at tUs ' + mcBest.tUs.toFixed(2) + ' path ' + mcBest.path.toFixed(2));
+    if (!mcBest) f.push('reciprocal-path modeconv echo missing (loudest: ' + (mcAny ? mcAny.tUs.toFixed(2) + ' us / ' + mcAny.path.toFixed(1) + ' mm' : 'none') + ')');
+    else if (!(mcBest.amp > 0.02) || dB(mcAny.amp, mcBest.amp) > 3) f.push('reciprocal-path modeconv weak ' + mcBest.amp + ' vs ' + mcAny.amp);
     if (mcOff) f.push('modeconv echo with modeConv off');
     const rConv = run(trap, { angle: 60, x: 49 }, { skips: 3 }, [incl], 100);
     if (!Array.isArray(rConv.converted) || !rConv.converted.length || !rConv.converted[0].pts || !rConv.converted[0].mode) f.push('converted polylines');
@@ -1772,7 +1800,7 @@
     const bwC = near(run(pc, { angle: 0, x: -60 }, { skips: 3 }, [], 100).echoes, 'backwall', 25, 0.5);
     const bwA = near(run(pa, { angle: 0, x: -60 }, { skips: 3 }, [], 100).echoes, 'backwall', 25, 0.5);
     if (!bwC || !bwA) f.push('material backwalls');
-    else { const dd = dB(bwC.amp, bwA.amp); if (dd < 4 || dd > 7) f.push('austenitic backwall ' + dd.toFixed(2) + ' dB'); if (Math.abs(bwA.tUs - 50 / 5.66) > 1e-6) f.push('austenitic tUs'); }
+    else { const dd = dB(bwC.amp, bwA.amp); if (dd < 4 || dd > 7) f.push('austenitic backwall ' + dd.toFixed(2) + ' dB'); if (Math.abs(bwA.tUs - 2 * bwA.lenMm / 5.66) > 1e-9 || Math.abs(bwA.lenMm - 25) > 0.01) f.push('austenitic tUs'); }
     const bwT = near(run(pc, { angle: 0, x: -60 }, { skips: 3 }, [], 100, { transferLossDb: 4 }).echoes, 'backwall', 25, 0.5);
     if (!bwT || Math.abs(dB(bwC.amp, bwT.amp) - 4) > 0.01) f.push('transfer loss');
     const bwBlock = near(run(S.dacBlock({ T: 40 }), { angle: 0, x: 40 }, { skips: 3 }, [], 100, { transferLossDb: 4 }).echoes, 'backwall', 40, 0.5);

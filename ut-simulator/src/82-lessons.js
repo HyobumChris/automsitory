@@ -160,7 +160,7 @@
       H.click('tb-' + angle);
       const T = spec.T || 20, cap = (spec.weld && spec.weld.capWidth) || s.weldOpts.capWidth || 16;
       const x = +(T * Math.tan(angle * DEG) + cap / 2 + 1).toFixed(1);
-      for (let z = 0; z <= spec.L; z += 5) H.setProbe({ x, z, side });
+      for (let z = 0; z <= spec.L; z += 5) H.setProbe({ x: side === -1 ? -x : x, z, side });
     },
     addRow() {
       if (has('trade.addRowFromReadout')) { UT.trade.addRowFromReadout(); return UT.renderNow(); }
@@ -371,16 +371,16 @@
       { hk: 'TKY 창(ADJUST MODE)의 슬라이더.', he: 'The slider in the TKY window (ADJUST MODE).', ok: '브레이스 각도가 작아질수록 힐 쪽 융합면이 가팔라집니다.', oe: 'A smaller brace angle steepens the heel-side fusion face.' }),
     S('Load Def: 토우 융합불량', 'Load Def: the toe LOF', function (c) { return c.S.defects.some(function (d) { return d.type === 'lof'; }); }, function () { H.toeLof(); },
       { hk: 'TKY 창의 Load Def 버튼.', he: 'The Load Def button of the TKY window.', ok: '토우 융합면은 코드 표면 바로 아래에 있습니다.', oe: 'The toe fusion face lies just under the chord surface.' }),
-    S('토우 LOF 에코를 최대로 (≥ 40 %)', 'Maximise the toe LOF echo (≥ 40 %)', function (c) { return c.E.some(function (e) { return (e.kind === 'defect' || e.kind === 'corner' || e.kind === 'tip') && e.ampPct >= 40; }); },
-      function () { const sp = st().specimen; const x0 = sp && sp.tky ? sp.tky.toe.x + sp.tky.weldLeg : 0; H.maximise(function (e) { return e.kind === 'defect' || e.kind === 'corner'; }, H.range(x0 + 4, x0 + 70, 2)); H.auto(80); },
-      { hk: '코드 위에서 탐촉자를 토우 쪽으로 움직이며 최대를 찾고 게인을 올리세요.', he: 'Move the probe on the chord toward the toe for the maximum, then raise the gain.', ok: '0.5 스킵으로 토우 융합면을 직접 맞힙니다.', oe: 'Half skip hits the toe fusion face directly.' }),
+    S('게인 40 dB, 토우 LOF의 (약한) 팁 에코를 최대로 (≥ 5 %)', 'Gain 40 dB, maximise the (weak) tip echo of the toe LOF (≥ 5 %)', function (c) { return c.E.some(function (e) { return (e.kind === 'defect' || e.kind === 'corner' || e.kind === 'tip') && e.ampPct >= 5; }); },
+      function () { H.setInstrument({ gain: 40, gates: [{ on: true, start: 2, width: 90, level: 3 }] }); const sp = st().specimen; const x0 = sp && sp.tky ? sp.tky.toe.x + sp.tky.weldLeg : 0; H.maximise(function (e) { return e.kind === 'defect' || e.kind === 'corner' || e.kind === 'tip'; }, H.range(Math.max(10, x0 + 2), x0 + 80, 2)); },
+      { hk: '코드 위에서 토우 바로 옆(x ≈ 10)부터 탐촉자를 움직여 보세요 — 면에 평행한 융합불량은 코드 쪽에서 거의 보이지 않습니다.', he: 'Move the probe on the chord starting right next to the toe (x ≈ 10) — a LOF parallel to the surface is nearly invisible from the chord.', ok: '코드 측에서는 팁 회절만 약하게 보입니다: 이 융합면은 브레이스 측에서 주사해야 합니다.', oe: 'From the chord only a weak tip diffraction shows: this fusion face must be scanned from the brace side.' }),
     S('45°로 전환', 'Switch to 45°', function (c) { return c.S.probe.angle === 45; }, function () { H.click('tb-45'); }, { hk: '노란 45° 버튼.', he: 'Yellow 45° button.', ok: '45°는 가파른 융합면에, 60/70°는 완만한 면에 수직으로 만납니다.', oe: '45° meets steep faces at right angles; 60/70° suit shallow faces.' }),
     C('브레이스 측에서 주사해야 하는 이유?', 'Why scan from the brace side too?', [['geometry', '코드 측에서 접근 불가한 융합면', 'Fusion faces unreachable from the chord'], ['gain', '게인이 낮아서', 'Lower gain'], ['easier', '더 쉬워서', 'Easier'], ['rule', '규정이라서', 'The rule says so']], 'geometry',
       { hk: '힐 쪽 융합면의 방향을 생각하세요.', he: 'Think about the heel fusion face direction.', ok: '힐 쪽 융합면은 브레이스에서 0.5 스킵으로만 수직 입사됩니다.', oe: 'The heel fusion face is only met normally from the brace at half skip.' }),
     N('브레이스 각도(°)?', 'Brace angle (°)?', function (c) { return c.spec && c.spec.tky ? c.spec.tky.braceAngle : 50; }, 2, { hk: '상태 표시줄 Brace angle.', he: 'Status bar: Brace angle.', ok: '각도는 절차서 도면과 일치해야 합니다.', oe: 'The angle must match the procedure drawing.' }),
   ]; };
   STEPS[9] = function () { return [
-    S('13 mm 횡공 에코를 최대로', 'Maximise the 13 mm SDH', function (c) { return near(c.E, 'sdh', 26, 0.5) && abs(c.S.probe.x - 262.5) <= 1.5; }, function () { H.setInstrument({ gates: [{ on: true, start: 10, width: 90, level: 10 }] }); H.setProbe({ x: 262.5 }); },
+    S('13 mm 횡공 에코를 최대로', 'Maximise the 13 mm SDH', function (c) { return near(c.E, 'sdh', 26, 0.5) && abs(c.S.probe.x - 262.5) <= 1.5; }, function () { H.setInstrument({ gates: [{ on: true, start: 10, width: 90, level: 5 }] }); H.setProbe({ x: 262.5 }); },
       { hk: 'x = 240 + 13·tan60 = 262.5.', he: 'x = 240 + 13·tan60 = 262.5.', ok: '빔 노정 13/cos60 = 26 mm.', oe: 'Beam path 13/cos60 = 26 mm.' }),
     S('80 %로 설정', 'Set 80 %', function (c) { return !!c.R && abs(c.R.peakPct - 80) <= 3; }, function () { H.auto(80); }, { hk: 'AUTO 80.', he: 'AUTO 80.', ok: '80 %가 20 dB 드롭(10 %)의 기준입니다.', oe: '80 % is the reference for the 20 dB drop (10 %).' }),
     TR('앞으로 이동해 10 % (−20 dB)에서 Mark 10% edge', 'Move forward to 10 % and press Mark 10% edge', function (c) { return c.S.plot.edgeMarks.some(function (m) { return m.depth === 13 && m.standOff < 22.5; }); }, function () { H.setProbe({ x: 262.5 }); H.walkUntil(-0.5, 10); H.markEdge(); },
@@ -419,7 +419,7 @@
       { hk: 'RANGE 하드키는 50/100/200/400을 순환합니다.', he: 'The RANGE hard key cycles 50/100/200/400.', ok: '범위 100: 60° 탐촉자의 1 스킵(80 mm)이 들어옵니다.', oe: 'Range 100 shows the full skip (80 mm) of the 60° probe.' }),
     S('GATES → G1 start 30, width 20', 'GATES → G1 start 30, width 20', function (c) { const g = c.S.instrument.gates[0]; return g.on && g.start === 30 && g.width === 20; }, function () { H.gate(30, 20); },
       { hk: 'GATES 키 → Start / Width 소프트키.', he: 'GATES key → Start / Width softkeys.', ok: '게이트 30…50이 루트 코너 에코(40 mm)를 감시합니다.', oe: 'Gate 30…50 watches the root corner echo (40 mm).' }),
-    TR('PEAK MEM 켜고 탐촉자를 앞뒤로 주사', 'PEAK MEM on, then sweep the probe', function (c) { return c.S.instrument.peakMem === true && c.memo.ui.drag >= 1; }, function () { H.setInstrument({ peakMem: true }); H.dragTo(30); H.dragTo(45); },
+    TR('PEAK MEM 켜고 탐촉자를 앞뒤로 주사', 'PEAK MEM on, then sweep the probe', function (c) { return c.S.instrument.peakMem === true && c.memo.ui.drag >= 1; }, function () { H.setInstrument({ peakMem: true }); H.dragTo(30); H.dragTo(38); },
       { hk: 'PEAK MEM 키 후 단면도에서 탐촉자를 드래그.', he: 'Press PEAK MEM, then drag the probe in the cross section.', ok: '피크 메모리는 에코 다이내믹 포락선을 남깁니다.', oe: 'Peak memory keeps the echo-dynamic envelope.' }),
     S('Freeze', 'Freeze', function (c) { return c.S.instrument.freeze === true; }, function () { H.setInstrument({ freeze: true }); }, { hk: 'FREEZE 키.', he: 'FREEZE key.', ok: '프리즈 상태에서 판독값을 기록합니다.', oe: 'Take the readings while frozen.' }),
     C('피크 메모리의 용도는?', 'Peak memory is used for…', [['echodynamic', '에코 다이내믹 포락선/최대치 기록', 'Echo-dynamic envelope / maximum capture'], ['gain', '게인 자동 조정', 'Automatic gain'], ['range', '범위 설정', 'Range setting'], ['cal', '교정', 'Calibration']], 'echodynamic',
@@ -523,3 +523,785 @@
     C('AUT 채널을 여러 개 쓰는 이유?', 'Why several AUT channels?', [['zones', '두께 방향 구역별 커버리지', 'Zone coverage through the thickness'], ['speed', '속도', 'Speed'], ['gain', '게인', 'Gain'], ['none', '이유 없음', 'No reason']], 'zones',
       { hk: '구역(zone) 판별.', he: 'Zone discrimination.', ok: '채널마다 다른 각도·게이트로 루트/충전/덧살 구역을 나눕니다.', oe: 'Each channel’s angle/gate covers a root/fill/cap zone.' }),
   ]; };
+  function r25x(spec) { const a = spec && spec.arcs ? spec.arcs.find(function (q) { return abs(q.r - 25) < 0.01; }) : null; return a ? a.cx : 60; }
+  STEPS[19] = function () { return [
+    S('60° 선택, V2, side +1', 'Select 60° on the V2 block, side +1', function (c) { return c.S.probe.angle === 60 && c.S.mode === 'v2' && c.S.probe.side === 1; }, function () { H.click('tb-60'); H.setProbe({ side: 1 }); },
+      { hk: '녹색 60° 버튼.', he: 'Green 60° button.', ok: '60°/70°도 같은 R25/R50 순서를 냅니다.', oe: '60°/70° give the same R25/R50 sequence.' }),
+    S('25 mm 에코를 최대로 하여 입사점을 확인', 'Maximise the 25 mm echo to check the index point', function (c) { return c.E.some(function (e) { return (e.kind === 'geometry' || e.kind === 'backwall' || e.kind === 'radius') && abs(e.path - 25) <= 0.5 && e.ampPct >= 50; }) && abs(c.S.probe.x - r25x(c.spec)) <= 1; },
+      function () { H.setInstrument({ range: 100 }); H.setProbe({ x: r25x(st().specimen), side: 1 }); H.auto(80); },
+      { hk: '반경 중심(눈금 0) 위에서 최대. 필요하면 게인을 올리세요.', he: 'Maximum over the radius centre (0 mark). Raise the gain if needed.', ok: '최대일 때 입사점이 눈금 0을 가리켜야 합니다.', oe: 'At the maximum the index mark should point at 0.' }),
+    N('입사점 오차(mm)? = |probe.x − 표시 눈금|', 'Index error (mm) = |probe.x − mark|', function (c) { return abs(c.S.probe.x - r25x(c.spec)); }, 1, { hk: '탐촉자 입사점 표시와 블록 눈금 0의 차.', he: 'Offset between the probe index mark and the block 0.', ok: '오차가 1 mm를 넘으면 입사점을 다시 표시합니다.', oe: 'More than 1 mm: re-mark the index point.' }),
+    S('5 mm 구멍(전면)으로 굴절각 확인: 60° 눈금 위치에서 최대', 'Angle check on the 5 mm hole (front face)', function (c) { return c.E.some(function (e) { return e.kind === 'sdh' && e.ampPct >= 40; }); },
+      function () { if (has('modes.setFace')) UT.modes.setFace('narrow'); const h = H.hole5(st().specimen); if (h) H.maximise(function (e) { return e.kind === 'sdh'; }, H.range(h.x + h.y * T60 - 4, h.x + h.y * T60 + 4, 0.5), { side: 1 }); H.setInstrument({ range: 100 }); H.auto(80); },
+      { hk: '좁은 면에서 x = 60 + 6.25·tan60 ≈ 70.8.', he: 'On the narrow face, x = 60 + 6.25·tan60 ≈ 70.8.', ok: '최대일 때 입사점이 가리키는 눈금이 실제 굴절각.', oe: 'The scale value under the index point at the maximum is the true angle.' }),
+    C('측정 굴절각이 63°로 나왔다. 조치는?', 'Measured 63°: action?', [['record-and-use', '측정각을 기록하고 Trig 설정을 63°로 수정', 'Record it and set the Trig angle to 63°'], ['ignore', '무시', 'Ignore'], ['replace-probe-only', '탐촉자만 교체', 'Replace the probe only'], ['change-freq', '주파수 변경', 'Change frequency']], 'record-and-use',
+      { also: function (c) { const a = c.S.instrument.trig.angle; return a >= 62 && a <= 64; }, ak: '기기 Trig 각도를 63°로 입력하세요 (setInstrument trig).', ae: 'Enter 63° as the instrument Trig angle.', doIt: function () { H.setInstrument({ trig: { angle: 63 } }); },
+        hk: '깊이·표면 거리 계산은 어떤 각도로 할까요?', he: 'Which angle should the depth/surface-distance maths use?', ok: '측정각이 기기에 들어가야 DP/SD가 맞습니다 (명판과 2° 이상 차이면 기록).', oe: 'The measured angle must go into the set for DP/SD to be right (record when > 2° off the nameplate).' }),
+  ]; };
+  STEPS[20] = function () { return [
+    S('DAC 블록, 70°', 'DAC block, 70°', function (c) { return c.S.mode === 'dac' && c.S.probe.angle === 70; }, function () { H.clickMode('dac'); H.click('tb-70'); H.setInstrument({ gates: [{ on: true, start: 5, width: 60, level: 10 }] }); }, { hk: 'DAC 버튼과 파란 70° 버튼.', he: 'DAC button and the blue 70° button.', ok: '3 mm 횡공 T/4·T/2·3T/4가 기준 반사체입니다.', oe: 'The 3 mm SDHs at T/4, T/2, 3T/4 are the reference reflectors.' }),
+    S('T/4 구멍 최대 → Record', 'Maximise T/4 → Record', function (c) { const p = c.S.instrument.dac.points; return p.length >= 1 && abs(p[0].path - 14.6) <= 1; }, function () { const h = H.hole(st().specimen, 5); if (h) H.setProbe({ x: +(h.x + 5 * T70).toFixed(1) }); if (has('modes.dac.record')) UT.modes.dac.record(); UT.renderNow(); },
+      { hk: 'x = 80 + 5·tan70 ≈ 93.7, Record (R).', he: 'x = 80 + 5·tan70 ≈ 93.7, Record (R).', ok: '빔 노정 5/cos70 = 14.6 mm.', oe: 'Beam path 5/cos70 = 14.6 mm.' }),
+    S('T/2 → Record', 'T/2 → Record', function (c) { const p = c.S.instrument.dac.points; return p.length >= 2 && abs(p[1].path - 29.2) <= 1; }, function () { const h = H.hole(st().specimen, 10); if (h) H.setProbe({ x: +(h.x + 10 * T70).toFixed(1) }); if (has('modes.dac.record')) UT.modes.dac.record(); UT.renderNow(); },
+      { hk: 'x = 150 + 10·tan70 ≈ 177.5.', he: 'x = 150 + 10·tan70 ≈ 177.5.', ok: '29.2 mm.', oe: '29.2 mm.' }),
+    S('3T/4 → Record', '3T/4 → Record', function (c) { const p = c.S.instrument.dac.points; return p.length >= 3 && abs(p[2].path - 43.9) <= 1; }, function () { const h = H.hole(st().specimen, 15); if (h) H.setProbe({ x: +(h.x + 15 * T70).toFixed(1) }); if (has('modes.dac.record')) UT.modes.dac.record(); UT.renderNow(); },
+      { hk: 'x = 220 + 15·tan70 ≈ 261.2.', he: 'x = 220 + 15·tan70 ≈ 261.2.', ok: '43.9 mm — 세 점이면 DAC를 그릴 수 있습니다.', oe: '43.9 mm — three points draw a DAC.' }),
+    S('Draw Curves / 커브 그리기', 'Draw Curves', function (c) { return !!c.S.instrument.dac.on && !!c.S.instrument.dac.curves; }, function () { if (has('modes.dac.curves')) UT.modes.dac.curves(true); else UT.setIn('instrument', { dac: Object.assign({}, st().instrument.dac, { on: true, curves: true }) }); UT.renderNow(); },
+      { hk: 'DAC 창의 Draw Curves.', he: 'Draw Curves in the DAC window.', ok: '−6 dB(50 %)·−14 dB(20 %) 보조 곡선이 함께 그려집니다.', oe: 'The −6 dB (50 %) and −14 dB (20 %) companions are drawn too.' }),
+    C('DAC 커브의 의미?', 'The DAC curve shows…', [['same-ref', '같은 기준 반사체(3 mm 횡공)의 거리별 에코 높이', 'The same reference reflector (3 mm SDH) versus distance'], ['defect-size', '결함 크기', 'Defect size'], ['beam', '빔 폭', 'Beam width'], ['atten', '재료 감쇠만', 'Attenuation only']], 'same-ref',
+      { hk: '거리에 따른 진폭 보정.', he: 'Distance–amplitude correction.', ok: '지시는 같은 거리의 기준 반사체와 비교됩니다 (% DAC).', oe: 'An indication is compared with the reference reflector at the same distance (% DAC).' }),
+    S('LOF 프리셋을 추가하고 최대 에코에서 DAC % 읽기', 'Add the LOF preset and read DAC % at its maximum', function (c) { return c.S.defects.length >= 1 && !!c.R && c.R.dacPct !== null && c.R.dacPct !== undefined; },
+      function () { H.enter('weld', { keepProbe: true }); H.addPreset('lof'); H.setInstrument({ gates: [{ on: true, start: 10, width: 60, level: 10 }] }); H.maximise(function (e) { return e.kind === 'defect'; }, H.range(40, 80, 1)); },
+      { hk: 'Defects ▸ Add Preset ▸ LOF, 그 뒤 x ≈ 60에서 최대.', he: 'Defects ▸ Add Preset ▸ LOF, then maximise near x ≈ 60.', ok: 'DAC %와 dB 판독이 지시 평가의 입력입니다.', oe: 'DAC % and dB readouts are the inputs to evaluation.' }),
+    N('DAC 대비 dB?', 'dB relative to DAC?', function (c) { return c.R ? c.R.dBToDac : NaN; }, 1, { hk: '판독 박스의 dB 값.', he: 'The dB readout.', ok: '0 dB = 커브 위, −6 dB = 50 % DAC.', oe: '0 dB = on the curve, −6 dB = 50 % DAC.' }),
+    C('ASME (기록 20 % DAC, 기준 초과 + 길이 초과 시 불합격)에서 조치는?', 'Under ASME (record ≥ 20 % DAC; reject when above reference and over length): action?', [['record-size', '기록하고 길이를 측정한 뒤 판정', 'Record, measure the length, then disposition'], ['ignore', '무시', 'Ignore'], ['reject-now', '즉시 불합격', 'Reject now'], ['lower-gain', '게인 감소', 'Lower the gain']], 'record-size',
+      { also: function (c) { const e = c.S.standards.lastEval; return !!e && Array.isArray(e.rows) && e.rows.length >= 1; }, ak: '평가 창(Tools ▸ Evaluation)에 이 지시를 추가하고 Evaluate all.', ae: 'Add this indication in Tools ▸ Evaluation and press Evaluate all.', doIt: function () { H.evaluateAll(); },
+        hk: '판정에는 진폭과 길이가 모두 필요합니다.', he: 'Disposition needs amplitude and length.', ok: '20 % DAC 이상은 기록·조사 대상; 불합격은 진폭 > 100 % DAC 이고 길이 초과일 때.', oe: '≥ 20 % DAC: record and investigate; reject only when > 100 % DAC and over the length limit.' }),
+  ]; };
+  STEPS[21] = function () { return [
+    S('Start', 'Start', function (c) { return !!c.S.trade.active; }, function () { H.tradeStart(21); }, { hk: 'Trade Test 창의 Start.', he: 'Start in the Trade Test window.', ok: '결함이 숨겨지고(HIDE) 타이머가 시작됩니다.', oe: 'Defects are hidden (HIDE) and the timer starts.' }),
+    S('A면에서 45°와 60°로 전체 주사 (커버리지 ≥ 80 %)', 'Scan side A fully with 45° and 60° (coverage ≥ 80 %)', function () { return H.coverage().sideA >= 0.8; }, function () { H.sweep(45, 1); H.sweep(60, 1); },
+      { hk: '0.5…1 스킵 거리에서 z 전체를 훑으세요.', he: 'Sweep the whole z at half- to full-skip stand-off.', ok: 'ISO 17640 B: 두 각도, 양면.', oe: 'ISO 17640 B: two angles, both sides.' }),
+    S('B면도 동일', 'Same on side B', function () { return H.coverage().sideB >= 0.8; }, function () { H.sweep(45, -1); H.sweep(60, -1); }, { hk: 'side −1.', he: 'Side −1.', ok: '양면 주사로 두 융합면을 모두 수직에 가깝게 맞힙니다.', oe: 'Both sides so each fusion face is met near-normally.' }),
+    S('지시 최대에서 Take from readout로 행 추가', 'Add a row from the readout at an indication maximum', function (c) { return c.S.trade.report.length >= 1; }, function () { const d = st().defects[0]; if (d) { H.click('tb-60'); H.setProbe({ z: (d.zFrom + d.zTo) / 2, side: 1 }); H.setInstrument({ gates: [{ on: true, start: 5, width: 80, level: 5 }] }); H.maximise(function (e) { return e.kind === 'defect' || e.kind === 'corner' || e.kind === 'tip'; }, H.range(15, 80, 1)); } const n0 = st().trade.report.length; H.addRow(); if (st().trade.report.length === n0) { const s = st(), r = UT.frame.readouts && UT.frame.readouts.primary; UT.setIn('trade', { report: s.trade.report.concat([{ n: n0 + 1, z: +s.probe.z.toFixed(1), length: 20, depth: r ? +r.dp.toFixed(1) : 0, type: 'planar', angle: s.probe.angle, side: s.probe.side }]) }); UT.renderNow(); } },
+      { hk: 'Take from readout 버튼.', he: 'The Take from readout button.', ok: '행에는 z, 길이, 깊이(상단), 종류, dB가 들어갑니다.', oe: 'A row carries z, length, depth (to the top), type and dB.' }),
+    S('Submit', 'Submit', function (c) { return !!c.S.trade.revealed; }, function () { H.tradeSubmit(); }, { hk: 'Submit 버튼.', he: 'Submit button.', ok: '제출 후 정답이 공개되고 점수가 계산됩니다.', oe: 'After submit the truth is revealed and scored.' }),
+    C('허위 지시(false call)의 대가는?', 'A false call costs…', [['15', '−15점', '−15 points'], ['0', '0점', '0 points'], ['-5', '−5점', '−5 points'], ['fail', '불합격', 'Fail']], '15',
+      { hk: '실제 검사에서 허위 지시는 불필요한 보수를 부릅니다.', he: 'In real work a false call means needless repair.', ok: '형상 에코를 결함으로 부르지 않도록 플로팅하세요.', oe: 'Plot before calling a geometry echo a defect.' }),
+    C('균열을 놓치면?', 'Missing a crack means…', [['fail', '점수와 무관하게 불합격', 'Fail regardless of score'], ['minus-40', '−40점', '−40 points'], ['retry', '재시험', 'Retake'], ['nothing', '없음', 'Nothing']], 'fail',
+      { hk: '치명적 누락(critical miss).', he: 'Critical miss.', ok: '높이 ≥ 3 mm의 평면 결함 누락 = 불합격.', oe: 'An undetected planar defect ≥ 3 mm high = FAIL.' }),
+  ]; };
+  STEPS[22] = function () { return [
+    S('페이지 2 (Gate 소프트키)', 'Page 2 (gate softkeys)', function (c) { return c.S.instrument.page === 2; }, function () { UT.setIn('instrument', { page: 2 }); UT.renderNow(); }, { hk: 'NEXT GROUP 키.', he: 'NEXT GROUP key.', ok: '페이지 2: Gate 1 / Gate 2.', oe: 'Page 2: Gate 1 / Gate 2.' }),
+    S('G2 켜기', 'G2 on', function (c) { return !!c.S.instrument.gates[1].on; }, function () { const g = st().instrument.gates.map(function (x) { return Object.assign({}, x); }); g[1].on = true; H.setInstrument({ gates: g }); },
+      { hk: 'Gate 2 소프트키 → On.', he: 'Gate 2 softkey → On.', ok: '두 번째 게이트는 저면 에코 감시(접촉 확인)에 씁니다.', oe: 'The second gate monitors the backwall (coupling check).' }),
+    S('2ND F + dB: 기준 게인 저장', '2ND F + dB stores the reference gain', function (c) { return c.S.instrument.refGain === c.S.instrument.gain; }, function () { H.storeRef(); },
+      { hk: '2ND F 후 dB.', he: '2ND F then dB.', ok: '게인 셀이 Ref xx + 0.0 dB로 바뀝니다.', oe: 'The gain cell now shows Ref xx + 0.0 dB.' }),
+    S('Auto Cal 소프트키', 'Auto Cal softkey', function () { return H.acStage() === 1; }, function () { if (has('modes.autoCal.start')) UT.modes.autoCal.start(); UT.renderNow(); }, { hk: '페이지 3의 Auto Cal.', he: 'Auto Cal on page 3.', ok: '마법사 1/2: 10 mm 스텝.', oe: 'Wizard 1/2: the 10 mm step.' }),
+    S('취소 (Esc)', 'Cancel (Esc)', function () { return H.acStage() === 0; }, function () { if (has('modes.autoCal.cancel')) UT.modes.autoCal.cancel(); UT.renderNow(); }, { hk: 'Esc 또는 창의 Cancel.', he: 'Esc or Cancel.', ok: '취소하면 기존 교정이 유지됩니다.', oe: 'Cancelling keeps the previous calibration.' }),
+    C('기준 게인 저장의 목적은?', 'Why store the reference gain?', [['return', '주사 후 기준 감도로 정확히 복귀', 'Return exactly to reference sensitivity after scanning'], ['louder', '더 큰 소리', 'Louder'], ['cal', '교정', 'Calibration'], ['none', '없음', 'None']], 'return',
+      { hk: '주사 감도 = 기준 + 6 dB.', he: 'Scanning gain = reference + 6 dB.', ok: '평가는 기준 감도에서만 — 잠금이 실수를 막습니다.', oe: 'Evaluate at reference only — the lock prevents mistakes.' }),
+    N('기준 게인(dB)?', 'Reference gain (dB)?', function (c) { return c.S.instrument.refGain; }, 0, { hk: '게인 셀의 Ref 값.', he: 'The Ref value in the gain cell.', ok: '보고서의 기준 감도 항목.', oe: 'The reference-sensitivity line of the report.' }),
+  ]; };
+  STEPS[23] = function () { return [
+    S('Tools ▸ Procedures ▸ iso-B-plate20 적용', 'Apply the procedure iso-B-plate20', function (c) { return c.S.standards.procedure === 'iso-B-plate20'; }, function () { H.applyProcedure('iso-B-plate20'); },
+      { hk: 'Tools 메뉴 ▸ Procedures.', he: 'Tools menu ▸ Procedures.', ok: '절차서가 표준·허용 수준·대비 시험편·탐촉자 세트를 정합니다.', oe: 'The procedure fixes standard, acceptance level, reference block and probe set.' }),
+    S('T/2 횡공을 80 %로', 'T/2 SDH at 80 %', function (c) { return !!c.R && abs(c.R.peakPct - 80) <= 2 && c.R.echoKind === 'sdh'; }, function () { H.clickMode('dac'); H.click('tb-60'); const h = H.hole(st().specimen, st().specimen.T / 2); if (h) H.setProbe({ x: +(h.x + h.y * T60).toFixed(1) }); H.gate(10, 30, 10); H.auto(80); },
+      { hk: HOLE_KO, he: HOLE_EN, ok: '기준 반사체 80 % — 이것이 기준 레벨(기준 감도)입니다.', oe: 'Reference reflector at 80 % — this is the reference level.' }),
+    S('2ND F + dB 로 기준 게인 저장', 'Store as reference gain (2ND F + dB)', function (c) { return c.S.instrument.refGain === c.S.instrument.gain; }, function () { H.storeRef(); }, { hk: '2ND F 후 dB.', he: '2ND F then dB.', ok: '기준 게인이 잠깁니다.', oe: 'The reference gain is locked.' }),
+    C('주사 감도는?', 'Scanning sensitivity is…', [['ref+6', '기준 + 6 dB (ISO 17640 — verify)', 'Reference + 6 dB (ISO 17640 — verify)'], ['ref', '기준과 동일', 'Same as reference'], ['ref-6', '기준 − 6 dB', 'Reference − 6 dB'], ['max', '최대', 'Maximum']], 'ref+6',
+      { hk: '작은 지시를 놓치지 않으려면.', he: 'So that small indications are not missed.', ok: '주사는 기준 + 6 dB, 평가는 기준 감도로 되돌려서.', oe: 'Scan at reference + 6 dB; evaluate back at reference.' }),
+    S('주사 감도로 설정 (기준 + 6)', 'Set scanning gain (ref + 6)', function (c) { return c.S.instrument.gain === c.S.instrument.refGain + 6; }, function () { H.setInstrument({ gain: st().instrument.refGain + 6 }); }, { hk: '▲ 12번 (0.5 dB) 또는 2ND F + ▲.', he: '▲ twelve times (0.5 dB) or 2ND F + ▲.', ok: '게인 셀: Ref xx + 6.0 dB.', oe: 'Gain cell: Ref xx + 6.0 dB.' }),
+  ]; };
+  STEPS[24] = function () { return [
+    S('대비 시험편에서 0° 저면 에코 80 % (T = 20)', '0° backwall 80 % on the block (T = 20)', function (c) { return c.S.mode === 'dac' && c.S.probe.angle === 0 && !!c.R && c.R.echoKind === 'backwall' && abs(c.R.peakPct - 80) <= 2; },
+      function () { H.clickMode('dac'); H.click('tb-0'); H.setProbe({ x: 40 }); H.gate(10, 20, 10); H.auto(80); },
+      { hk: '0° 선택, 구멍이 없는 곳(x 40)에서 저면 에코를 게이트하고 80 %.', he: 'Select 0°, gate the backwall on a hole-free spot (x 40), 80 %.', ok: '대비 시험편에서의 게인이 기준입니다.', oe: 'The gain on the reference block is the baseline.', keep: ['gainBlock'], onPass: function (c) { return { gainBlock: c.S.instrument.gain }; } }),
+    S('시험체 건전부에서 같은 경로의 저면 에코 80 %', 'Same on the specimen (clean spot)', function (c) { return c.S.mode === 'weld' && c.S.probe.angle === 0 && !!c.R && c.R.echoKind === 'backwall' && abs(c.R.peakPct - 80) <= 2; },
+      function () { H.enter('weld', { keepProbe: true }); H.setProbe({ x: -40 }); H.gate(10, 20, 10); H.auto(80); },
+      { hk: 'Weld 모드로 돌아가 x −40(용접부 밖)에서 80 %.', he: 'Back to the weld, x −40 (outside the weld), 80 %.', ok: '게인 차 = 전달 손실(표면·감쇠 차이).', oe: 'The gain difference = transfer loss (surface and attenuation).', keep: ['gainSpec'], onPass: function (c) { return { gainSpec: c.S.instrument.gain }; } }),
+    N('전달 손실(dB)?', 'Transfer loss (dB)?', function (c) { return (c.memo.gainSpec || 0) - (c.memo.gainBlock || 0); }, 1, { hk: '시험체 게인 − 시험편 게인.', he: 'Specimen gain − block gain.', ok: 'ISO 17640: 2 dB 이하 무시, 2…12 dB 보정, 12 dB 초과 시 원인 조사.', oe: 'ISO 17640: ≤ 2 dB ignore, 2…12 dB compensate, > 12 dB investigate.' }),
+    S('평가 창의 전달 보정에 입력', 'Enter it in Evaluation ▸ Transfer', function (c) { return abs(c.S.standards.transferDb - c.S.weldOpts.transferLossDb) <= 1; }, function () { UT.setIn('standards', { transferDb: st().weldOpts.transferLossDb }); UT.renderNow(); },
+      { hk: 'Tools ▸ Evaluation ▸ Transfer dB.', he: 'Tools ▸ Evaluation ▸ Transfer dB.', ok: '보정값은 지시 dB에 더해져 평가됩니다.', oe: 'The correction is added to the indication dB before evaluation.' }),
+    C('보정값이 +5 dB일 때 주사 감도는?', 'With +5 dB correction, scanning gain is…', [['ref+5+scan', '기준 + 5 + 주사 여유', 'Reference + 5 + scanning allowance'], ['ref', '기준', 'Reference'], ['ref-5', '기준 − 5', 'Reference − 5'], ['unchanged', '변화 없음', 'Unchanged']], 'ref+5+scan',
+      { hk: '손실은 게인으로 보상합니다.', he: 'Losses are compensated with gain.', ok: '기준 34 + 5 + 6 = 45 dB로 주사.', oe: 'Reference 34 + 5 + 6 = 45 dB for scanning.' }),
+  ]; };
+  STEPS[25] = function () { return [
+    S('시험 중 DAC 블록으로 돌아가 T/2 횡공 확인', 'Return to the DAC block and check the T/2 SDH', function (c) { return c.S.mode === 'dac' && c.E.some(function (e) { return e.kind === 'sdh' && abs(e.path - 20) <= 1; }); },
+      function () { H.clickMode('dac'); H.click('tb-60'); const h = H.hole(st().specimen, 10); if (h) H.setProbe({ x: +(h.x + 10 * T60).toFixed(1) }); H.gate(10, 30, 10); },
+      { hk: 'DAC 버튼, 60°, T/2 구멍 최대 위치.', he: 'DAC button, 60°, T/2 hole maximum.', ok: '80 %가 아닙니다 — 감도가 드리프트했습니다.', oe: 'It does not read 80 % — the sensitivity drifted.' }),
+    C('80 %가 아닌 74 %(또는 86 %)로 읽힘. 조치는?', 'It reads 74 % (or 86 %), not 80 %. Action?', [['reset-rescan', '기준 감도를 다시 맞추고 그 사이 주사한 부분을 재주사 (ISO 17640: > 4 dB 차이 시)', 'Reset the reference and re-scan what was scanned since (ISO 17640: when > 4 dB)'], ['ignore', '무시', 'Ignore'], ['note-only', '기록만', 'Note only'], ['reject-all', '전부 불합격', 'Reject everything']], 'reset-rescan',
+      { hk: '드리프트가 한계를 넘으면 그 사이의 결과를 믿을 수 없습니다.', he: 'Beyond the limit, the results since the last check are unreliable.', ok: 'ISO 17640: 감도 확인은 최소 4시간마다·검사 종료 시; 4 dB 초과 시 재주사.', oe: 'ISO 17640: check sensitivity at least every 4 h and at the end; > 4 dB → re-scan.' }),
+    S('기준 감도 복원', 'Restore the reference', function (c) { return !!c.R && abs(c.R.peakPct - 80) <= 2 && c.S.instrument.gain === c.S.instrument.refGain; }, function () { H.setInstrument({ gain: st().instrument.refGain }); },
+      { hk: '게인을 저장된 기준 게인으로.', he: 'Set the gain back to the stored reference.', ok: '잠긴 기준 게인 덕분에 정확히 복귀합니다.', oe: 'The locked reference makes the return exact.' }),
+    N('드리프트(dB)?', 'Drift (dB)?', function (c) { return c.memo.driftDb; }, 1, { anySign: true, hk: '드리프트된 게인 − 기준 게인.', he: 'Drifted gain − reference gain.', ok: '3 dB: 한계(4 dB) 이내지만 기록합니다.', oe: '3 dB: within the 4 dB limit, but record it.' }),
+    C('허용 드리프트 한계는?', 'Tolerated drift before re-scanning', [['4', '4 dB', '4 dB'], ['1', '1 dB', '1 dB'], ['10', '10 dB', '10 dB'], ['any', '무제한', 'Unlimited']], '4',
+      { hk: 'ISO 17640 (verify).', he: 'ISO 17640 (verify).', ok: '4 dB 초과 → 직전 확인 이후 주사 구간 재검사.', oe: '> 4 dB → re-test everything since the previous check.' }),
+  ]; };
+
+  // ------------------------------------------------------------------ setups (late binding to 80-modes, §1)
+  const setupsV1 = (UT.modes && (UT.modes.lessonSetups || (Array.isArray(UT.modes.lessons) ? UT.modes.lessons : null))) || [];
+  function v1Setup(i) { const l = setupsV1[i]; return l && typeof l.setup === 'function' ? l.setup : function () { console.warn('[UT.lessons] v1 setup ' + (i + 1) + ' missing'); }; }
+  const dacHole = function (y) { return H.hole(st().specimen, y); };
+  const SETUP_OVERRIDES = {
+    2: function () { v1Setup(1)(); H.setInstrument({ range: 50 }); },
+    11: function () { v1Setup(10)(); H.setInstrument({ range: 200, gain: 30, peakMem: false, freeze: false, gates: [{ on: true, start: 10, width: 60, level: 20 }] }); },
+    15: function () { H.weld({ T: 20, pipe: false }); H.setProbe({ angle: 60, x: 40 }); },
+    17: function () {
+      H.weld({ T: 25, pipe: true, od: 219.1, wt: 25, capWidth: 18 }); H.setProbe({ angle: 60, x: 40, z: 130 });
+      const spec = st().specimen;
+      const lam = UT.specimens.makeDefect({ n: 1, type: 'lamination', label: 'Lamination', pts: [{ x: -45, y: 12 }, { x: -15, y: 12 }], height: 0.5, zFrom: 100, zTo: 160 });
+      H.setDefects([lam]); H.addPreset('rootCrack', { zFrom: 115, zTo: 145 }); H.setInstrument({ range: 100, gain: 30 }); void spec;
+    },
+    18: function () { v1Setup(17)(); H.addPreset('rootCrack', { zFrom: 120, zTo: 150 }); },
+    22: function () { v1Setup(10)(); H.setInstrument({ page: 1, gain: 36, refGain: 30, range: 100, gates: [{ on: true, start: 10, width: 60, level: 20 }, { on: false, start: 70, width: 20, level: 40 }] }); UT.setIn('instrument', { page: 1 }); if (has('modes.autoCal.cancel')) UT.modes.autoCal.cancel(); },
+  };
+  const NEW_LESSONS = {
+    23: { n: 23, title: 'Set the reference level', ko: '기준 감도 설정: 절차서, T/2 횡공 80 %, 기준 게인 잠금, 주사 감도', en: 'Reference level: procedure, T/2 SDH at 80 %, reference-gain lock, scanning gain',
+      setup() { UT.setIn('weldOpts', { T: 20 }, { noRender: true }); H.enter('dac', { keepProbe: false }); H.setProbe({ angle: 60 }); H.setInstrument({ gain: 30, refGain: 30, range: 100, gates: [{ on: true, start: 10, width: 30, level: 10 }] }); UT.setIn('standards', { procedure: null, transferDb: 0 }); const h = dacHole(10); if (h) H.setProbe({ x: +(h.x + 10 * T60).toFixed(1) }); } },
+    24: { n: 24, title: 'Transfer correction', ko: '전달 손실 보정: 대비 시험편 vs 시험체 저면 에코', en: 'Transfer correction: block versus specimen backwall',
+      setup() { UT.set({ weldOpts: Object.assign({}, UT.defaultState().weldOpts, { T: 20, transferLossDb: 4 }) }, { noRender: true }); H.enter('dac', { keepProbe: false }); H.setProbe({ angle: 60, x: 40 }); H.setInstrument({ gain: 30, range: 100, gates: [{ on: true, start: 10, width: 20, level: 10 }] }); UT.setIn('standards', { transferDb: 0 }); } },
+    25: { n: 25, title: 'Sensitivity re-check', ko: '감도 재확인: 드리프트 발견, 기준 복원, 재주사 판단', en: 'Sensitivity re-check: spot the drift, restore the reference, decide on re-scanning',
+      setup() {
+        UT.setIn('weldOpts', { T: 20 }, { noRender: true }); H.enter('dac', { keepProbe: false }); H.setProbe({ angle: 60 }); H.setInstrument({ gain: 34, range: 100, gates: [{ on: true, start: 10, width: 30, level: 10 }] });
+        const h = dacHole(10); if (h) H.setProbe({ x: +(h.x + 10 * T60).toFixed(1) });
+        H.auto(80); H.storeRef();
+        H.enter('weld', { keepProbe: true }); H.setProbe({ x: 40 });
+        L.drift++;
+        const sign = M.rng(25 + L.drift)() < 0.5 ? -1 : 1;
+        H.setInstrument({ gain: st().instrument.refGain + sign * 3 });
+        return { driftDb: sign * 3 };
+      } },
+  };
+  const list = [];
+  for (let n = 1; n <= 25; n++) {
+    const base = n <= 22 ? (setupsV1[n - 1] || { n, title: 'Lesson ' + n, ko: '레슨 ' + n, en: 'Lesson ' + n, setup: v1Setup(n - 1), steps: [] }) : NEW_LESSONS[n];
+    const entry = Object.assign({}, base, { n, steps: STEPS[n](), stepsText: Array.isArray(base.steps) && typeof base.steps[0] === 'string' ? base.steps.slice() : [] });
+    if (SETUP_OVERRIDES[n]) entry.setup = SETUP_OVERRIDES[n];
+    entry.keep = []; entry.steps.forEach(function (s) { (s.keep || []).forEach(function (k) { if (entry.keep.indexOf(k) < 0) entry.keep.push(k); }); });
+    list.push(entry);
+  }
+
+  // ------------------------------------------------------------------ engine
+  const api = {};
+  function lesson(n) { return list[n - 1] || null; }
+  function progOf(n) { return Object.assign({ done: false, best: 0, hints: 0, doIt: 0, wrong: 0, auto: false }, (ls().progress || {})[n] || {}); }
+  function writeProg(n, patch) { const p = Object.assign({}, ls().progress || {}); p[n] = Object.assign(progOf(n), patch); writeL({ progress: p }); }
+  function ctx() {
+    const s = st(), f = UT.frame || {}, l = s.lessons || {}, n = l.active, i = l.step;
+    const memo = l.memo && typeof l.memo === 'object' ? l.memo : {};
+    if (!memo.ui) memo.ui = tally();
+    return { state: s, S: s, frame: f, modes: UT.modes, memo, ans: n !== null && l.answers && l.answers[n] ? l.answers[n][i] : undefined, prevFrame: L.prevFrame, spec: s.specimen, R: f.readouts ? f.readouts.primary : null, E: f.echoes || [], H };
+  }
+  function curStep() { const l = ls(); const ln = l.active !== null ? lesson(l.active) : null; return ln ? ln.steps[l.step] || null : null; }
+  function safeCheck(step, c) { try { return !!step.check(c); } catch (e) { return false; } }
+  function announce(text, kind) { L.feedback = text || ''; L.feedbackKind = kind || ''; if (L.ui.live) L.ui.live.textContent = L.feedback; }
+  function stopHintTimer() { if (L.hintTimer) { clearTimeout(L.hintTimer); L.hintTimer = null; } }
+  function startHintTimer() {
+    stopHintTimer();
+    if (L.autoRunning || typeof setTimeout !== 'function') return;
+    L.hintTimer = setTimeout(function () { L.hintTimer = null; if (ls().active !== null && !L.hintShown) api.hint(); }, 30000);
+  }
+  /** Enter step i of the active lesson: reset memo (keep set), record `was`, restart the hint timer. */
+  function enterStep(n, i) {
+    const ln = lesson(n), step = ln.steps[i]; if (!step) return;
+    const old = ls().memo || {};
+    const memo = { ui: tally() };
+    ln.keep.forEach(function (k) { if (old[k] !== undefined) memo[k] = old[k]; });
+    (old.__init || []).forEach(function (k) { if (old[k] !== undefined) memo[k] = old[k]; });
+    if (old.__init) memo.__init = old.__init;
+    writeL({ step: i, memo, stepStartedAt: Date.now() });
+    L.hintShown = false;
+    if (step.onEnter) { try { const r = step.onEnter(ctx()); if (r && typeof r === 'object') writeL({ memo: Object.assign({}, ls().memo, r) }); } catch (e) { /* ignore */ } }
+    if (step.mode === 'transition') writeL({ memo: Object.assign({}, ls().memo, { was: safeCheck(step, ctx()) }) });
+    startHintTimer();
+    refresh(true);
+  }
+  function passStep(n, i, how) {
+    const ln = lesson(n), step = ln.steps[i];
+    const p = progOf(n);
+    if (how === 'doIt') p.doIt = (p.doIt || 0) + 1;
+    p.passed = Object.assign({}, p.passed || {}); p.passed[i] = how;
+    writeProg(n, p);
+    if (step.onPass) { try { const r = step.onPass(ctx()); if (r && typeof r === 'object') writeL({ memo: Object.assign({}, ls().memo, r) }); } catch (e) { /* ignore */ } }
+    announce((ko() ? step.okKo : step.okEn) || t('Step {n} done', { n: i + 1 }), 'ok');
+    if (i + 1 < ln.steps.length) enterStep(n, i + 1); else complete(n);
+  }
+  function complete(n) {
+    const ln = lesson(n), p = progOf(n), total = ln.steps.length;
+    const byDoIt = Object.keys(p.passed || {}).filter(function (k) { return p.passed[k] === 'doIt' || p.passed[k] === 'skip'; }).length;
+    const score = M.clamp(Math.round(100 * (total - byDoIt - 0.5 * (p.hints || 0) - 0.5 * (p.wrong || 0)) / total), 0, 100);
+    const patch = { done: true, auto: !!L.autoRunning };
+    if (!L.autoRunning) patch.best = Math.max(p.best || 0, score);
+    patch.last = score;
+    writeProg(n, patch);
+    L.lastCompleted = n;
+    stopHintTimer();
+    writeL({ active: null, step: 0, memo: {} });
+    UT.set({ lesson: null }, { noRender: true });
+    if (!L.autoRunning) { announce(t('Lesson {n} complete — score {s} %', { n, s: score }), 'ok'); UT.status({ right: t('Lesson {n} complete — score {s} %', { n, s: score }) }); }
+    refresh(true);
+  }
+  /** Evaluate only the current step (pure function of state + frame). Returns true when it passed. */
+  function evaluate() {
+    const l = ls(); if (l.active === null || l.active === undefined) return false;
+    const n = l.active, i = l.step, ln = lesson(n), step = ln && ln.steps[i];
+    if (!step) return false;
+    const c = ctx();
+    const ok = safeCheck(step, c);
+    if (step.mode === 'transition') {
+      if (!ok) { if (c.memo.was !== false) writeL({ memo: Object.assign({}, c.memo, { was: false }) }); return false; }
+      if (c.memo.was !== false) return false;
+    }
+    if (!ok) return false;
+    passStep(n, i, 'user');
+    return true;
+  }
+  function scheduleEval() {
+    if (L.evalTimer || typeof setTimeout !== 'function') return;
+    const wait = Math.max(0, 150 - (Date.now() - L.lastEval));
+    L.evalTimer = setTimeout(function () { L.evalTimer = null; L.lastEval = Date.now(); if (!L.autoRunning && ls().active !== null) evaluate(); }, wait);
+  }
+
+  api.list = list;
+  /** Start lesson n (1…25): runs setup(), resets answers/memo, enters step 0. */
+  api.start = function (n) {
+    n = +n; const ln = lesson(n); if (!ln) return null;
+    stopHintTimer();
+    if (has('modes.defectEditor.isOpen') && UT.modes.defectEditor.isOpen()) UT.modes.defectEditor.close();
+    if (has('modes.autoCal.cancel')) UT.modes.autoCal.cancel();
+    L.cov = { 1: {}, '-1': {} };
+    let init = null;
+    try { init = ln.setup(); } catch (e) { console.error('[UT.lessons] setup ' + n, e); }
+    const memo = { ui: tally() };
+    if (init && typeof init === 'object') { Object.assign(memo, init); memo.__init = Object.keys(init); }
+    const answers = Object.assign({}, ls().answers || {}); answers[n] = {};
+    writeProg(n, { hints: 0, doIt: 0, wrong: 0, passed: {} });
+    writeL({ active: n, step: 0, memo, answers, stepStartedAt: Date.now() });
+    UT.set({ lesson: n - 1 }, { noRender: true });
+    L.lastCompleted = null;
+    announce('', '');
+    enterStep(n, 0);
+    UT.renderNow();
+    UT.status({ right: (ko() ? ln.ko : ln.en) });
+    return ln;
+  };
+  /** Stop the active lesson (keeps progress). */
+  api.stop = function () { stopHintTimer(); writeL({ active: null, step: 0, memo: {} }); UT.set({ lesson: null }, { noRender: true }); refresh(true); };
+  /** Jump to step i of the active lesson. */
+  api.goto = function (i) { const l = ls(); if (l.active === null) return; const ln = lesson(l.active); i = M.clamp(Math.round(+i || 0), 0, ln.steps.length - 1); enterStep(l.active, i); };
+  /** {n, step, done[]} of the active lesson (n null when idle). */
+  api.current = function () {
+    const l = ls(); if (l.active === null || l.active === undefined) return { n: null, step: 0, done: [] };
+    const p = progOf(l.active), ln = lesson(l.active);
+    return { n: l.active, step: l.step, done: ln.steps.map(function (s, i) { return i < l.step || !!(p.passed && p.passed[i]); }) };
+  };
+  /** Skip to the next step (counts like 'Do it for me' for the score). */
+  api.next = function () { const l = ls(); if (l.active === null) return; passStep(l.active, l.step, 'skip'); };
+  api.prev = function () { const l = ls(); if (l.active === null || l.step === 0) return; enterStep(l.active, l.step - 1); };
+  /** Show the hint of the current step (once per step it lowers the score). */
+  api.hint = function () {
+    const l = ls(), step = curStep(); if (!step) return '';
+    if (!L.hintShown) { L.hintShown = true; writeProg(l.active, { hints: progOf(l.active).hints + 1 }); }
+    const text = ko() ? step.hintKo : step.hintEn;
+    announce(text || t('No hint for this step'), 'hint');
+    refresh(true);
+    return text;
+  };
+  /** Perform the current step for the user (never leaves the user stuck). */
+  api.doIt = function () {
+    const l = ls(), step = curStep(); if (!step) return false;
+    const n = l.active, i = l.step;
+    try { if (step.doIt) step.doIt(ctx()); } catch (e) { console.error('[UT.lessons] doIt ' + n + '/' + (i + 1), e); }
+    UT.renderNow();
+    if (ls().active === n && ls().step === i) {
+      let ok = safeCheck(step, ctx());
+      if (!ok) { UT.renderNow(); ok = safeCheck(step, ctx()); }
+      passStep(n, i, 'doIt');
+      return ok;
+    }
+    writeProg(n, { doIt: progOf(n).doIt + 1 });
+    return true;
+  };
+  /** Answer the current choice/numeric step. Returns true when the step passed. */
+  api.answer = function (value) {
+    const l = ls(), step = curStep(); if (!step) return false;
+    const n = l.active, i = l.step;
+    const answers = Object.assign({}, l.answers || {}); answers[n] = Object.assign({}, answers[n] || {}); answers[n][i] = value;
+    const patch = { answers };
+    if (step.input === 'number') patch.memo = Object.assign({}, l.memo, { expected: step.expected(ctx()) });
+    writeL(patch);
+    const c = ctx();
+    const ok = safeCheck(step, c);
+    if (ok) { passStep(n, i, 'user'); return true; }
+    if (step.choices) {
+      const ch = step.choices.find(function (q) { return q.id === value; });
+      if (value === step.answer && step.also) { announce(ko() ? step.alsoKo : step.alsoEn, 'hint'); refresh(true); return false; }
+      writeProg(n, { wrong: progOf(n).wrong + 1 });
+      announce((ch && (ko() ? ch.wrongKo : ch.wrongEn)) || (ko() ? step.wrongKo : step.wrongEn), 'wrong');
+    } else {
+      writeProg(n, { wrong: progOf(n).wrong + 1 });
+      announce(ko() ? step.wrongKo : step.wrongEn, 'wrong');
+    }
+    refresh(true);
+    return false;
+  };
+  /** Headless run of lesson n: doIt per step, then check. → Promise<{n, completed, failedSteps}> */
+  api.autoRun = function (n) {
+    return new Promise(function (resolve) {
+      n = +n; const ln = lesson(n);
+      if (!ln) { resolve({ n, completed: false, failedSteps: ['no such lesson'] }); return; }
+      const failed = [];
+      L.autoRunning = true;
+      try {
+        api.start(n);
+        for (let i = 0; i < ln.steps.length; i++) {
+          if (ls().active !== n) break;
+          if (ls().step !== i) enterStep(n, i);
+          const step = ln.steps[i];
+          try { if (step.doIt) step.doIt(ctx()); } catch (e) { failed.push((i + 1) + ': doIt threw ' + (e && e.message)); }
+          UT.renderNow();
+          let ok = ls().active !== n || ls().step !== i;
+          if (!ok) ok = safeCheck(step, ctx()) && (step.mode !== 'transition' || ls().memo.was === false);
+          if (!ok) { UT.renderNow(); ok = safeCheck(step, ctx()) && (step.mode !== 'transition' || ls().memo.was === false); }
+          if (!ok) failed.push((i + 1) + ': ' + step.en);
+          if (ls().active === n && ls().step === i) passStep(n, i, ok ? 'auto' : 'skip');
+        }
+      } catch (e) { failed.push('error: ' + (e && e.message)); }
+      L.autoRunning = false;
+      if (ls().active === n) api.stop();
+      writeProg(n, { done: true, auto: true });
+      resolve({ n, completed: failed.length === 0, failedSteps: failed });
+    });
+  };
+
+  // ------------------------------------------------------------------ bus consumers
+  UT.bus.on('ui', function (ev) {
+    L.uiSeen++;
+    if (!ev || ls().active === null || ls().active === undefined) return;
+    const memo = Object.assign({}, ls().memo || {});
+    const ui = Object.assign(tally(), memo.ui || {});
+    ui.tbClickCount = Object.assign({}, ui.tbClickCount || {});
+    const id = ev.id === undefined || ev.id === null ? '' : String(ev.id);
+    switch (ev.kind) {
+      case 'menu-open': ui.menuOpen = pushU(ui.menuOpen, id); break;
+      case 'tb-hover': ui.tbHover = pushU(ui.tbHover, id); break;
+      case 'tb-click': ui.tbClick = pushU(ui.tbClick, id); ui.tbClickCount[id] = (ui.tbClickCount[id] || 0) + 1; if (id === 'tb-beam') memo.beamToggles = (memo.beamToggles || 0) + 1; break;
+      case 'wheel': ui.wheel = (ui.wheel || 0) + 1; break;
+      case 'probe-drag': ui.drag = (ui.drag || 0) + 1; break;
+      case 'window-open': ui.win = pushU(ui.win, id); break;
+      case 'softkey': ui.softkey = pushU(ui.softkey, id); break;
+      default: return;
+    }
+    memo.ui = ui;
+    writeL({ memo });
+    scheduleEval();
+  });
+  UT.bus.on('win:show', function (w) {
+    if (!w || !w.name || ls().active === null || ls().active === undefined) return;
+    const memo = Object.assign({}, ls().memo || {}); const ui = Object.assign(tally(), memo.ui || {});
+    if (ui.win.indexOf(w.name) >= 0) return;
+    ui.win = pushU(ui.win, w.name); memo.ui = ui; writeL({ memo }); scheduleEval();
+  });
+  UT.bus.on('lang', function () {
+    if (ls().active !== null && ls().active !== undefined) { const memo = Object.assign({}, ls().memo || {}); memo.langChanges = (memo.langChanges || 0) + 1; writeL({ memo }); scheduleEval(); }
+    if (L.win) { L.win.setTitle(t('Lessons')); refresh(true); }
+    if (Q.win) { Q.win.setTitle(t('Echo quiz')); quizRefresh(); }
+  });
+  UT.bus.on('render', function (frame) {
+    L.prevFrame = L.curFrame; L.curFrame = frame;
+    const s = st();
+    if (s.lessons && s.lessons.active === 21 && s.trade && s.trade.active && s.specimen && !L.autoRunning) covRecord(s);
+    else if (s.lessons && s.lessons.active === 21 && s.trade && s.trade.active && s.specimen) covRecord(s);
+    if (s.lessons && s.lessons.active !== null && s.lessons.active !== undefined) scheduleEval();
+    if (L.win && L.win.isOpen() && Date.now() - L.lastRefresh > 250) { L.lastRefresh = Date.now(); refresh(false); }
+    if (Q.win && Q.win.isOpen() && Q.dirty) { Q.dirty = false; quizRefresh(); }
+  });
+  function covRecord(s) {
+    const spec = s.specimen, p = s.probe; if (!spec || p.angle === 0) return;
+    const T = spec.T || 20, th = Math.tan(p.angle * DEG), cap = (spec.weld && spec.weld.capWidth) || s.weldOpts.capWidth || 16;
+    const x = (p.side === -1 ? -1 : 1) * p.x, lo = 0.5 * T * th, hi = 2 * T * th + cap / 2;
+    if (x < lo || x > hi) return;
+    L.cov[p.side === -1 ? -1 : 1][Math.floor(p.z / 5)] = 1;
+  }
+
+  // ------------------------------------------------------------------ window 'lessons' (v2)
+  function hT(tag, attrs, key, params) { const a = Object.assign({}, attrs || {}); a.dataset = Object.assign({}, a.dataset || {}, { i18n: key }); return UT.dom.h(tag, a, t(key, params)); }
+  function badgeOf(n) { const p = progOf(n); return !p.done ? { cls: 'ls2-b0', txt: '' } : (p.best >= 100 ? { cls: 'ls2-b2', txt: '★' } : { cls: 'ls2-b1', txt: '✓' }); }
+  function headerText() {
+    let done = 0, gold = 0;
+    list.forEach(function (l) { const p = progOf(l.n); if (p.done) done++; if (p.done && p.best >= 100) gold++; });
+    return t('{x}/25 done, {y} ★', { x: done, y: gold });
+  }
+  function buildList() {
+    const dom = UT.dom, l = ls();
+    return dom.h('div', { class: 'ls2-list', role: 'list' }, list.map(function (ln) {
+      const b = badgeOf(ln.n);
+      return dom.h('div', { class: 'ls2-row' + (l.active === ln.n ? ' active' : ''), role: 'listitem', tabindex: 0, title: ln.title,
+        onclick: function () { api.start(ln.n); }, onkeydown: function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); api.start(ln.n); } } }, [
+        dom.h('span', { class: 'ls2-badge ' + b.cls, 'aria-hidden': 'true' }, b.txt),
+        dom.h('span', { class: 'ls2-n' }, String(ln.n)),
+        dom.h('span', { class: 'ls2-txt' }, [dom.h('span', { class: 'ls2-t' }, ln.title), dom.h('span', { class: 'ls2-d' }, ko() ? ln.ko : ln.en)]),
+      ]);
+    }));
+  }
+  function echoList() {
+    const dom = UT.dom, f = UT.frame, es = f && f.ascan && f.ascan.echoesOnScreen ? f.ascan.echoesOnScreen.slice().sort(function (a, b) { return a.pDisp - b.pDisp; }).slice(0, 12) : [];
+    const ol = dom.h('ol', { class: 'ls2-echoes', 'aria-label': t('Echoes on screen') });
+    es.forEach(function (e) {
+      const name = has('rays.describe') ? UT.rays.describe(e.echo) : (e.echo && e.echo.kind);
+      const label = (typeof name === 'object' && name ? (ko() && name.ko ? name.ko : name.en || name.text || '') : String(name || '')) + ' — ' + M.fmt(e.pDisp, 1) + ' mm, ' + Math.round(e.ampPct) + ' %';
+      ol.appendChild(dom.h('li', {}, [dom.h('span', { class: 'ls2-echo' }, label), dom.button(t('Select'), function () { H.setInstrument({ gates: [{ on: true, start: Math.max(0.5, +(e.pDisp - 4).toFixed(1)), width: 8 }] }); }, { class: 'btn small', title: t('Gate this echo') })]));
+    });
+    if (!es.length) ol.appendChild(dom.h('li', { class: 'ls2-dim' }, t('No echoes on screen')));
+    return ol;
+  }
+  function buildPanel() {
+    const dom = UT.dom, l = ls();
+    const wrap = dom.h('div', { class: 'ls2-panel' });
+    const active = l.active !== null && l.active !== undefined ? lesson(l.active) : null;
+    const shown = active || (L.lastCompleted ? lesson(L.lastCompleted) : null);
+    if (!shown) {
+      wrap.appendChild(hT('div', { class: 'ls2-dim' }, 'Select a lesson on the left and press Start'));
+      wrap.appendChild(dom.h('div', { class: 'ls2-btns' }, [dom.button(t('Start'), function () { api.start(1); }, { class: 'btn primary' }), dom.button(t('Echo quiz'), function () { api.quiz.window.show(); })]));
+      return wrap;
+    }
+    const p = progOf(shown.n);
+    wrap.appendChild(dom.h('div', { class: 'ls2-title' }, shown.n + '. ' + shown.title));
+    wrap.appendChild(dom.h('div', { class: 'ls2-desc' }, ko() ? shown.ko : shown.en));
+    const stepIdx = active ? l.step : shown.steps.length;
+    const ol = dom.h('ol', { class: 'ls2-steps', 'aria-label': t('Steps') }, shown.steps.map(function (s, i) {
+      const passed = active ? (i < stepIdx) : true;
+      const cls = passed ? 'done' : (i === stepIdx && active ? 'cur' : 'todo');
+      const mark = passed ? '✓' : (cls === 'cur' ? '▶' : '○');
+      return dom.h('li', { class: 'ls2-step ' + cls, 'aria-current': cls === 'cur' ? 'step' : null }, [dom.h('span', { class: 'ls2-tick', 'aria-hidden': 'true' }, mark), dom.h('span', {}, ko() ? s.ko : s.en)]);
+    }));
+    wrap.appendChild(ol);
+    const step = active ? shown.steps[stepIdx] : null;
+    if (step) {
+      const box = dom.h('div', { class: 'ls2-cur', id: 'ls2-cur' });
+      const text = ko() ? step.ko : step.en;
+      box.appendChild(dom.h('div', { class: 'ls2-q', id: 'ls2-q' }, t('Step {n} of {m}', { n: stepIdx + 1, m: shown.steps.length }) + ': ' + text));
+      if (step.choices) {
+        const ans = l.answers && l.answers[shown.n] ? l.answers[shown.n][stepIdx] : undefined;
+        box.appendChild(dom.h('div', { class: 'ls2-choices', role: 'group', 'aria-labelledby': 'ls2-q' }, step.choices.map(function (c) {
+          return dom.button(ko() ? c.ko : c.en, function () { api.answer(c.id); }, { class: 'btn ls2-choice' + (ans === c.id ? ' picked' : ''), 'aria-pressed': ans === c.id ? 'true' : 'false' });
+        })));
+      } else if (step.input === 'number') {
+        const inp = dom.h('input', { type: 'number', step: 'any', class: 'fld-input ls2-num', 'aria-label': text });
+        const ok = dom.button(t('Answer'), function () { const v = parseFloat(inp.value); if (Number.isFinite(v)) api.answer(v); }, { class: 'btn primary' });
+        inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); ok.click(); } });
+        box.appendChild(dom.h('div', { class: 'ls2-numrow' }, [inp, ok]));
+      }
+      wrap.appendChild(box);
+    }
+    const fb = dom.h('div', { class: 'ls2-fb ' + (L.feedbackKind || '') }, L.feedback || '');
+    wrap.appendChild(fb);
+    const btns = dom.h('div', { class: 'ls2-btns' }, [
+      dom.button(t(active ? 'Restart' : 'Start'), function () { api.start(shown.n); }, { class: 'btn' }),
+      dom.button(t('Hint'), function () { api.hint(); }, { class: 'btn', disabled: !active ? true : null }),
+      dom.button(t('Do it for me'), function () { api.doIt(); }, { class: 'btn', disabled: !active ? true : null }),
+      dom.button(t('Next lesson'), function () { api.start(shown.n < 25 ? shown.n + 1 : 1); }, { class: 'btn' }),
+      dom.button(t('Stop'), function () { api.stop(); }, { class: 'btn', disabled: !active ? true : null }),
+    ]);
+    wrap.appendChild(btns);
+    wrap.appendChild(dom.h('div', { class: 'ls2-score' }, [
+      hT('span', {}, 'Best {b} % · hints {h} · do-it {d} · wrong {w}', { b: p.best || 0, h: p.hints || 0, d: p.doIt || 0, w: p.wrong || 0 }),
+    ]));
+    wrap.appendChild(hT('div', { class: 'ls2-sub' }, 'Echoes on screen (keyboard alternative to clicking the A-scan)'));
+    L.ui.echoes = echoList();
+    wrap.appendChild(L.ui.echoes);
+    return wrap;
+  }
+  function build() {
+    const dom = UT.dom;
+    L.ui.head = dom.h('div', { class: 'ls2-head' }, headerText());
+    L.ui.list = buildList();
+    L.ui.panel = buildPanel();
+    L.ui.live = L.ui.live || dom.h('div', { class: 'ls2-live', 'aria-live': 'polite', role: 'status' }, L.feedback || '');
+    return dom.h('div', { class: 'ls2' }, [L.ui.head, dom.h('div', { class: 'ls2-body' }, [L.ui.list, L.ui.panel]), L.ui.live]);
+  }
+  /** Refresh the window: full rebuild, or light (ticks + echo list) from 'render'. */
+  function refresh(full) {
+    if (!L.win || !hasDoc() || !L.win.isOpen()) return;
+    if (full) { L.win.setContent(build()); return; }
+    if (L.ui.echoes && L.ui.echoes.parentNode) { const nu = echoList(); L.ui.echoes.parentNode.replaceChild(nu, L.ui.echoes); L.ui.echoes = nu; }
+  }
+  function ensureWin() {
+    if (L.win) return L.win;
+    UT.dom.injectCss('lessons', api.css);
+    L.win = UT.dom.win({ name: 'lessons', title: t('Lessons'), x: 240, y: 60, w: 780, content: build(), onShow: function () { refresh(true); } });
+    return L.win;
+  }
+  api.window = {
+    show() { if (!hasDoc()) return null; ensureWin().show(); refresh(true); return L.win; },
+    hide() { if (L.win) L.win.hide(); return L.win; },
+    toggle() { return L.win && L.win.isOpen() ? api.window.hide() : api.window.show(); },
+    open() { return api.window.show(); },
+    close() { return api.window.hide(); },
+    isOpen() { return !!(L.win && L.win.isOpen()); },
+    get el() { return L.win ? L.win.el : null; },
+    get win() { return L.win; },
+  };
+  api.show = api.window.show; api.hide = api.window.hide; api.toggle = api.window.toggle; api.open = api.window.show; api.close = api.window.hide;
+  api.lessonsWindow = api.window;
+  api.css = [
+    '.win[data-win=lessons] .win-body{padding:6px;background:#ececec;font-size:12px}',
+    '.ls2{display:flex;flex-direction:column;gap:4px;width:100%}',
+    '.ls2-head{font-weight:bold;color:#123;padding:2px 4px}',
+    '.ls2-body{display:flex;gap:6px;align-items:flex-start}',
+    '.ls2-list{width:250px;max-height:460px;overflow:auto;background:#fff;border:1px inset #999;flex:none}',
+    '.ls2-row{display:flex;gap:4px;align-items:center;padding:3px 4px;border-bottom:1px solid #e4e4e4;cursor:pointer}',
+    '.ls2-row:hover{background:#eef4ff}.ls2-row.active{background:#0a246a;color:#fff}.ls2-row:focus-visible{outline:2px solid #ff8800;outline-offset:-2px}',
+    '.ls2-badge{width:16px;height:16px;border-radius:50%;flex:none;display:inline-flex;align-items:center;justify-content:center;font-size:11px;line-height:1}',
+    '.ls2-b0{background:#bbb}.ls2-b1{background:#2f6fd6;color:#fff}.ls2-b2{background:#e6b800;color:#000}',
+    '.ls2-n{width:18px;text-align:right;flex:none;font-weight:bold}',
+    '.ls2-txt{display:flex;flex-direction:column;min-width:0}.ls2-t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ls2-d{font-size:10px;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.ls2-panel{flex:1;min-width:0;max-height:460px;overflow:auto;background:#fff;border:1px inset #999;padding:6px}',
+    '.ls2-title{font-weight:bold;font-size:13px}.ls2-desc{color:#345;margin-bottom:4px}',
+    '.ls2-steps{margin:4px 0;padding-left:4px;list-style:none}.ls2-step{display:flex;gap:6px;padding:1px 0}.ls2-step.done{color:#2a7a2a}.ls2-step.cur{font-weight:bold;color:#0a246a}.ls2-step.todo{color:#666}.ls2-tick{width:14px;flex:none}',
+    '.ls2-cur{border:1px solid #9ab;background:#f4f8ff;padding:6px;margin:4px 0}.ls2-q{font-weight:bold;margin-bottom:4px}',
+    '.ls2-choices{display:flex;flex-wrap:wrap;gap:4px}.ls2-choice{text-align:left}.ls2-choice.picked{outline:2px solid #0a246a}',
+    '.ls2-numrow{display:flex;gap:4px;align-items:center}.ls2-num{width:110px}',
+    '.ls2-fb{min-height:16px;padding:3px 4px;margin:2px 0}.ls2-fb.ok{color:#1b6e1b}.ls2-fb.wrong{color:#b00}.ls2-fb.hint{color:#8a5a00}',
+    '.ls2-btns{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0}',
+    '.ls2-score{font-size:11px;color:#456}.ls2-sub{font-size:11px;margin-top:6px;color:#345}',
+    '.ls2-echoes{margin:2px 0;padding-left:18px;max-height:120px;overflow:auto}.ls2-echoes li{display:flex;gap:6px;align-items:center;padding:1px 0}.ls2-echo{flex:1}',
+    '.ls2-dim{color:#777;padding:6px}',
+    '.ls2-live{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}',
+    '.hc .ls2-row.active{background:#000;color:#ff0}.hc .ls2-step.cur{color:#000}',
+  ].join('\n');
+
+  // ------------------------------------------------------------------ §4.5 T7 echo-identification quiz (window 'quiz')
+  const LABELS = {
+    backwall: { ko: '저면 에코', en: 'Backwall echo', dko: '뒷면(저면)에서의 반사 — 형상 에코, 접촉 확인용', den: 'Reflection from the far surface — geometry, useful as a coupling check' },
+    'geometry-root': { ko: '이면 비드(형상)', en: 'Root bead (geometry)', dko: '이면 비드 표면의 반사 — 0.5 스킵 경로, 저면 위치의 형상 에코', den: 'Reflection from the root bead — half-skip path, a geometry echo at the backwall position' },
+    'geometry-cap': { ko: '덧살(형상)', en: 'Cap (geometry)', dko: '덧살 토우/표면에서의 반사 — 1 스킵 근처의 형상 에코', den: 'Reflection from the cap toe/surface — a geometry echo near the full skip' },
+    'geometry-backing': { ko: '배킹 바 에지', en: 'Backing bar edge', dko: '배킹 바의 끝/아래면 반사 — 형상 에코', den: 'Reflection from the backing bar end/lower face — geometry' },
+    corner: { ko: '코너 에코(루트 결함)', en: 'Corner echo (root defect)', dko: '표면 개구 결함과 저면이 이루는 코너의 강한 반사 — 기록', den: 'Strong reflection from the corner of a surface-breaking defect and the backwall — record' },
+    tip: { ko: '팁 회절', en: 'Tip diffraction', dko: '결함 끝에서의 약한 회절 — 높이 측정에 사용, 기록', den: 'Weak diffraction from a defect tip — used for height, record' },
+    defect: { ko: '결함(융합면)', en: 'Defect (fusion face)', dko: '융합면 결함의 반사 — 기록·사이징', den: 'Reflection from a fusion-face defect — record and size' },
+    modeconv: { ko: '모드 변환 에코', en: 'Mode-converted echo', dko: '표면/결함에서 파 모드가 바뀐 의사 지시 — 형상 에코로 메모', den: 'Spurious indication from an S↔L conversion — note as geometry' },
+    surface: { ko: '표면파', en: 'Surface wave', dko: '레일리파가 덧살 토우/끝면에서 되돌아온 의사 지시 — 손가락으로 감쇠 확인', den: 'Rayleigh wave returned from the cap toe/end — damp it with a finger to prove it' },
+    lamination: { ko: '라미네이션', en: 'Lamination', dko: '압연 방향 판 내부 분리 — 기록, 사각 주사 계획 조정', den: 'In-plane separation of the plate — record, adapt the angle scan' },
+    sdh: { ko: '횡공', en: 'SDH', dko: '기준 횡공의 반사 — 기준 감도 설정용 형상 에코', den: 'Reflection from the reference side-drilled hole — geometry, used to set sensitivity' },
+  };
+  const LABEL_IDS = Object.keys(LABELS);
+  const ACTIONS = [{ id: 'record', ko: '기록', en: 'Record' }, { id: 'geometry-note', ko: '형상 에코로 메모', en: 'Note as geometry echo' }, { id: 'ignore', ko: '무시', en: 'Ignore' }];
+  const DEFECT_CATS = ['corner', 'tip', 'defect', 'lamination'];
+  function actionFor(cat) { return DEFECT_CATS.indexOf(cat) >= 0 ? 'record' : 'geometry-note'; }
+  /** Category id of an echo/readout (fallback when UT.rays.describe returns a string). */
+  function categoryOf(e) {
+    if (!e) return null;
+    const k = e.kind || e.echoKind, tag = e.tag || '';
+    switch (k) {
+      case 'backwall': case 'radius': return 'backwall';
+      case 'geometry': return /back/.test(tag) ? 'geometry-backing' : (/cap|toe/.test(tag) ? 'geometry-cap' : 'geometry-root');
+      case 'corner': return 'corner';
+      case 'tip': return 'tip';
+      case 'defect': case 'volumetric': return 'defect';
+      case 'modeconv': return 'modeconv';
+      case 'surface': return 'surface';
+      case 'lamination': return 'lamination';
+      case 'sdh': return 'sdh';
+      default: return null;
+    }
+  }
+  function describeCategory(R) {
+    if (!R) return null;
+    let d = null; try { d = UT.rays && UT.rays.describe ? UT.rays.describe(R) : null; } catch (e) { d = null; }
+    if (d && typeof d === 'object' && d.category) return d.category;
+    const e = (UT.frame.echoes || []).find(function (q) { return q.kind === R.echoKind && abs(q.path - R.path) < 0.05; });
+    return categoryOf(e || R);
+  }
+  const Q = { win: null, ui: {}, dirty: false, saved: null, seed: null, rng: null, ids: [] };
+  function gateOn(path) { H.setInstrument({ gates: [{ on: true, start: Math.max(0.5, +(path - 4).toFixed(1)), width: 8, level: 10 }] }); }
+  /** Quiz scenarios: each applies a state and returns the target predicate for the gated echo. */
+  const SCEN = [
+    { id: 'v1-backwall', lvl: 0, apply() { H.setProbe({ angle: 0, crystal: 'single' }); H.enter('v1', { keepProbe: true }); H.setInstrument({ range: 125, gain: 30 }); H.setProbe({ x: 150 }); return { pred: function (e) { return e.kind === 'backwall' && abs(e.path - 50) < 1; }, xs: [150] }; } },
+    { id: 'dac-sdh', lvl: 0, apply() { UT.setIn('weldOpts', { T: 20 }, { noRender: true }); H.enter('dac', { keepProbe: false }); H.setProbe({ angle: 60 }); H.setInstrument({ range: 100, gain: 30 }); const h = H.hole(st().specimen, 10); return { pred: function (e) { return e.kind === 'sdh' && abs(e.path - 20) < 1.5; }, xs: h ? H.range(h.x + 10 * T60 - 2, h.x + 10 * T60 + 2, 1) : [167] }; } },
+    { id: 'lamination', lvl: 0, apply() { H.enter('lamination', { keepProbe: false }); H.setInstrument({ range: 100, gain: 30 }); H.setProbe({ z: 65 }); return { pred: function (e) { return e.kind === 'lamination'; }, xs: H.range(20, 36, 4) }; } },
+    { id: 'root-bead', lvl: 0, apply() { H.weld({ T: 20 }); H.setDefects([]); H.setProbe({ angle: 60, side: 1 }); H.setInstrument({ range: 100, gain: 36 }); return { pred: function (e) { return e.kind === 'geometry' && /root/.test(e.tag || '') ; }, xs: H.range(30, 44, 1) }; } },
+    { id: 'cap', lvl: 0, apply() { H.weld({ T: 20 }); H.setDefects([]); H.setProbe({ angle: 60, side: 1 }); H.setInstrument({ range: 100, gain: 40 }); return { pred: function (e) { return e.kind === 'geometry' && /cap|toe/.test(e.tag || ''); }, xs: H.range(66, 90, 1) }; } },
+    { id: 'root-crack', lvl: 0, apply() { H.weld({ T: 20, rootHeight: 0, capHeight: 0 }); H.setDefects([]); H.addPreset('rootCrack'); H.setProbe({ angle: 60, side: 1 }); H.setInstrument({ range: 100, gain: 30 }); return { pred: function (e) { return e.kind === 'corner'; }, xs: H.range(30, 40, 1) }; } },
+    { id: 'lof-30', lvl: 1, apply() { H.weld({ T: 20 }); H.setDefects([]); H.addPreset('lof'); H.setProbe({ angle: 45, side: 1 }); H.setInstrument({ range: 100, gain: 36 }); return { pred: function (e) { return e.kind === 'defect' || e.kind === 'modeconv'; }, xs: H.range(30, 60, 1) }; } },
+    { id: 'cap-toe-70', lvl: 2, apply() { H.weld({ T: 20 }); H.setDefects([]); H.setProbe({ angle: 70, side: 1 }); H.setInstrument({ range: 100, gain: 40 }); return { pred: function (e) { return e.kind === 'surface'; }, xs: H.range(36, 44, 2) }; } },
+    { id: 'backing-edge', lvl: 2, apply() { H.weld({ T: 20, prep: 'single-v-backing', backing: true }); H.setDefects([]); H.setProbe({ angle: 60, side: 1 }); H.setInstrument({ range: 100, gain: 40 }); return { pred: function (e) { return e.kind === 'geometry' && /back/.test(e.tag || ''); }, xs: H.range(40, 70, 1) }; } },
+  ];
+  function scenPool(diff) { const lvl = diff === 'advanced' ? 2 : diff === 'intermediate' ? 1 : 0; return SCEN.filter(function (s) { return s.lvl <= lvl; }); }
+  /** Build one quiz item deterministically from Q.rng; returns the item or null when no scenario yields a gated echo. */
+  function buildItem(pool) {
+    const start = Math.floor(Q.rng() * pool.length);
+    const draws = [Q.rng(), Q.rng(), Q.rng(), Q.rng()];
+    for (let k = 0; k < pool.length; k++) {
+      const sc = pool[(start + k) % pool.length];
+      let target = null;
+      try { target = sc.apply(); } catch (e) { target = null; }
+      if (!target) continue;
+      const best = H.maximise(target.pred, target.xs);
+      if (!best) continue;
+      gateOn(best.echo.path);
+      H.auto(80);
+      const R = UT.frame.readouts && UT.frame.readouts.primary;
+      const cat = describeCategory(R);
+      if (!cat || LABEL_IDS.indexOf(cat) < 0 || !R || abs(R.path - best.echo.path) > 1) continue;
+      const others = LABEL_IDS.filter(function (id) { return id !== cat; });
+      for (let i = others.length - 1; i > 0; i--) { const j = Math.floor(draws[i % 3] * (i + 1)) % (i + 1); const tmp = others[i]; others[i] = others[j]; others[j] = tmp; }
+      const options = others.slice(0, 3); options.splice(Math.floor(draws[3] * 4), 0, cat);
+      return { scenarioId: sc.id, correctId: cat, options, askedAt: Date.now(), phase: 'what', answered: null, actionAnswered: null, correctAction: actionFor(cat), path: +R.path.toFixed(1) };
+    }
+    return null;
+  }
+  function quizWrite(patch) { UT.setIn('quiz', patch, { noRender: true }); Q.dirty = true; }
+  function nextItem() {
+    const q = st().quiz;
+    if (q.i >= q.n) { finishQuiz(); return null; }
+    Q.saved = { beam: st().display.beam, hide: st().display.hide };
+    const item = buildItem(scenPool(q.difficulty));
+    if (!item) { finishQuiz(); return null; }
+    UT.setIn('display', { hide: true, beam: false }, { noRender: true });
+    quizWrite({ item });
+    UT.renderNow();
+    quizRefresh();
+    return item;
+  }
+  function finishQuiz() {
+    const q = st().quiz;
+    const score = q.n ? Math.round(100 * q.correct / q.n) : 0;
+    const prog = Object.assign({}, ls().progress || {});
+    const prev = prog.quiz || { best: 0, attempts: 0 };
+    prog.quiz = { best: Math.max(prev.best || 0, score), attempts: (prev.attempts || 0) + 1, last: score, meanTimeSec: q.times.length ? +(q.times.reduce(function (a, b) { return a + b; }, 0) / q.times.length).toFixed(1) : 0 };
+    writeL({ progress: prog });
+    quizWrite({ active: false, item: null });
+    if (Q.saved) UT.setIn('display', { beam: Q.saved.beam, hide: false }, { noRender: true });
+    UT.renderNow();
+    quizAnnounce(t('Quiz finished: {c}/{n} correct', { c: q.correct, n: q.n }));
+    quizRefresh();
+  }
+  function quizAnnounce(text) { Q.feedback = text; if (Q.ui.live) Q.ui.live.textContent = text; }
+  const quiz = {
+    /** Start a quiz: {n:10, seed, difficulty:'basic'|'intermediate'|'advanced'}. Same seed → same items. */
+    start(o) {
+      o = o || {};
+      const n = M.clamp(Math.round(+o.n || 10), 1, 50);
+      const seed = o.seed === undefined || o.seed === null ? (Date.now() & 0xffff) : (+o.seed >>> 0);
+      Q.rng = M.rng(seed); Q.seed = seed;
+      if (ls().active !== null && ls().active !== undefined) api.stop();
+      quizWrite({ active: true, i: 0, n, seed, difficulty: ['basic', 'intermediate', 'advanced'].indexOf(o.difficulty) >= 0 ? o.difficulty : 'basic', correct: 0, wrong: 0, times: [], item: null });
+      quizAnnounce('');
+      return nextItem();
+    },
+    /** Answer the echo question with a label id. Returns {correct, correctId}. */
+    answer(id) {
+      const q = st().quiz, item = q.item;
+      if (!q.active || !item || item.phase !== 'what') return null;
+      const correct = id === item.correctId;
+      const dt = +((Date.now() - item.askedAt) / 1000).toFixed(2);
+      quizWrite({ times: q.times.concat([dt]), item: Object.assign({}, item, { phase: 'action', answered: id, whatCorrect: correct }) });
+      if (Q.saved) UT.setIn('display', { beam: Q.saved.beam, hide: false }, { noRender: true });
+      const lab = LABELS[item.correctId];
+      quizAnnounce((correct ? t('Correct') : t('Wrong')) + ' — ' + (ko() ? lab.ko + ': ' + lab.dko : lab.en + ': ' + lab.den));
+      UT.status({ right: (ko() ? lab.ko : lab.en) + ' — ' + (ko() ? lab.dko : lab.den) });
+      UT.renderNow();
+      quizRefresh();
+      return { correct, correctId: item.correctId };
+    },
+    /** Answer the action question ('record' | 'geometry-note' | 'ignore'); advances to the next item. */
+    answerAction(id) {
+      const q = st().quiz, item = q.item;
+      if (!q.active || !item || item.phase !== 'action') return null;
+      const ok = id === item.correctAction;
+      const both = ok && item.whatCorrect;
+      quizWrite({ correct: q.correct + (both ? 1 : 0), wrong: q.wrong + (both ? 0 : 1), i: q.i + 1, item: Object.assign({}, item, { phase: 'done', actionAnswered: id }) });
+      quizAnnounce(ok ? t('Correct action') : t('Wrong action — {a}', { a: (ACTIONS.find(function (a) { return a.id === item.correctAction; }) || {})[ko() ? 'ko' : 'en'] }));
+      nextItem();
+      return { correct: ok, correctAction: item.correctAction };
+    },
+    /** Skip the current item (counts as wrong). */
+    skip() { const q = st().quiz; if (!q.active) return null; quizWrite({ wrong: q.wrong + 1, i: q.i + 1 }); if (Q.saved) UT.setIn('display', { beam: Q.saved.beam, hide: false }, { noRender: true }); return nextItem(); },
+    /** {active, i, n, correct, wrong, times[], seed, difficulty, item} */
+    state() { const q = st().quiz; return { active: q.active, i: q.i, n: q.n, correct: q.correct, wrong: q.wrong, times: q.times.slice(), seed: q.seed, difficulty: q.difficulty, item: q.item ? UT.clone(q.item) : null }; },
+    labels: LABELS, actions: ACTIONS, categoryOf, describeCategory, scenarios: SCEN.map(function (s) { return s.id; }),
+  };
+  function quizBuild() {
+    const dom = UT.dom, q = st().quiz, item = q.item;
+    const root = dom.h('div', { class: 'qz' });
+    root.appendChild(dom.h('div', { class: 'qz-head' }, [
+      dom.h('span', {}, t('Question {i} of {n}', { i: Math.min(q.i + 1, q.n), n: q.n })), dom.h('span', {}, t('Score {c} correct, {w} wrong', { c: q.correct, w: q.wrong })),
+      dom.h('span', { class: 'qz-dim' }, t('Seed {s} · {d}', { s: q.seed === null ? '—' : q.seed, d: q.difficulty })),
+    ]));
+    if (!q.active) {
+      const prog = (ls().progress || {}).quiz;
+      root.appendChild(dom.h('div', { class: 'qz-q' }, prog ? t('Best {b} % · attempts {a}', { b: prog.best, a: prog.attempts }) : t('Identify the gated echo: geometry, defect or spurious?')));
+      const nIn = dom.h('input', { type: 'number', class: 'fld-input qz-n', value: q.n || 10, min: 1, max: 50 });
+      const dSel = dom.h('select', { class: 'fld-input' }, ['basic', 'intermediate', 'advanced'].map(function (d) { return dom.h('option', { value: d, selected: d === q.difficulty ? true : null }, t(d)); }));
+      const sIn = dom.h('input', { type: 'number', class: 'fld-input qz-n', placeholder: t('seed'), value: q.seed === null ? '' : q.seed });
+      root.appendChild(dom.h('div', { class: 'qz-row' }, [dom.h('label', { class: 'fld' }, [dom.h('span', { class: 'fld-label' }, t('Questions')), nIn]), dom.h('label', { class: 'fld' }, [dom.h('span', { class: 'fld-label' }, t('Difficulty')), dSel]), dom.h('label', { class: 'fld' }, [dom.h('span', { class: 'fld-label' }, t('Seed')), sIn])]));
+      root.appendChild(dom.h('div', { class: 'qz-row' }, [dom.button(t('Start'), function () { quiz.start({ n: +nIn.value || 10, difficulty: dSel.value, seed: sIn.value === '' ? undefined : +sIn.value }); }, { class: 'btn primary' })]));
+    } else if (item) {
+      if (item.phase === 'what') {
+        root.appendChild(dom.h('div', { class: 'qz-q', id: 'qz-q' }, ko() ? '게이트 안의 에코는 무엇입니까?' : 'What is the gated echo?'));
+        root.appendChild(dom.h('div', { class: 'qz-choices', role: 'group', 'aria-labelledby': 'qz-q' }, item.options.map(function (id) { const lab = LABELS[id]; return dom.button(ko() ? lab.ko : lab.en, function () { quiz.answer(id); }, { class: 'btn qz-choice' }); })));
+        root.appendChild(dom.h('div', { class: 'qz-row' }, [dom.button(t('Skip'), function () { quiz.skip(); })]));
+      } else {
+        root.appendChild(dom.h('div', { class: 'qz-fb ' + (item.whatCorrect ? 'ok' : 'wrong') }, Q.feedback || ''));
+        root.appendChild(dom.h('div', { class: 'qz-q', id: 'qz-q' }, ko() ? '조치?' : 'Action?'));
+        root.appendChild(dom.h('div', { class: 'qz-choices', role: 'group', 'aria-labelledby': 'qz-q' }, ACTIONS.map(function (a) { return dom.button(ko() ? a.ko : a.en, function () { quiz.answerAction(a.id); }, { class: 'btn qz-choice' }); })));
+      }
+    }
+    Q.ui.live = Q.ui.live || dom.h('div', { class: 'ls2-live', 'aria-live': 'polite', role: 'status' });
+    Q.ui.live.textContent = Q.feedback || '';
+    root.appendChild(Q.ui.live);
+    if (!q.active && Q.feedback) root.appendChild(dom.h('div', { class: 'qz-fb ok' }, Q.feedback));
+    return root;
+  }
+  function quizRefresh() { if (Q.win && hasDoc() && Q.win.isOpen()) Q.win.setContent(quizBuild()); }
+  quiz.window = {
+    show() { if (!hasDoc()) return null; UT.dom.injectCss('lessons', api.css); if (!Q.win) Q.win = UT.dom.win({ name: 'quiz', title: t('Echo quiz'), x: 300, y: 120, w: 460, content: quizBuild(), onShow: function () { quizRefresh(); } }); Q.win.show(); quizRefresh(); return Q.win; },
+    hide() { if (Q.win) Q.win.hide(); return Q.win; },
+    toggle() { return Q.win && Q.win.isOpen() ? quiz.window.hide() : quiz.window.show(); },
+    open() { return quiz.window.show(); }, close() { return quiz.window.hide(); },
+    isOpen() { return !!(Q.win && Q.win.isOpen()); },
+    get el() { return Q.win ? Q.win.el : null; },
+  };
+  quiz.show = quiz.window.show; quiz.hide = quiz.window.hide; quiz.toggle = quiz.window.toggle; quiz.open = quiz.window.show; quiz.close = quiz.window.hide;
+  quiz.css = [
+    '.win[data-win=quiz] .win-body{padding:6px;background:#ececec;font-size:12px}',
+    '.qz{display:flex;flex-direction:column;gap:6px}.qz-head{display:flex;gap:10px;flex-wrap:wrap;font-weight:bold}.qz-dim{font-weight:normal;color:#666}',
+    '.qz-q{font-size:13px;font-weight:bold}.qz-choices{display:flex;flex-wrap:wrap;gap:4px}.qz-choice{min-width:120px;text-align:left}',
+    '.qz-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.qz-n{width:70px}',
+    '.qz-fb{padding:4px}.qz-fb.ok{color:#1b6e1b}.qz-fb.wrong{color:#b00}',
+  ].join('\n');
+  api.css += '\n' + quiz.css;
+  api.quiz = quiz;
+
+  // ------------------------------------------------------------------ test API (§7) + selftest
+  Object.assign(UT.test, {
+    lessons() { return list.map(function (l) { return l.title; }); },
+    lessonAutoRun(n) { return api.autoRun(n); },
+    lessonState() { const c = api.current(); const l = ls(); return { n: c.n, step: c.step, done: c.done, answers: UT.clone(l.answers || {}), progress: UT.clone(l.progress || {}) }; },
+    lessonAnswer(value) { return api.answer(value); },
+    quiz: { start: quiz.start, answer: quiz.answer, answerAction: quiz.answerAction, state: quiz.state, skip: quiz.skip },
+  });
+
+  function __selftest() {
+    const f = [];
+    if (list.length !== 25) f.push('list ' + list.length);
+    let total = 0;
+    const need2 = { 5: 1, 7: 1, 12: 1, 13: 1, 20: 1, 21: 1 };
+    list.forEach(function (l) {
+      if (!l.title || !l.ko || !l.en || typeof l.setup !== 'function') f.push('lesson ' + l.n + ' incomplete');
+      if (!Array.isArray(l.steps) || l.steps.length < 5) f.push('lesson ' + l.n + ' < 5 steps');
+      total += l.steps.length;
+      let q = 0;
+      l.steps.forEach(function (s, i) {
+        if (!s.ko || !s.en || typeof s.check !== 'function') f.push('lesson ' + l.n + ' step ' + (i + 1) + ' schema');
+        if (s.mode !== 'state' && s.mode !== 'transition') f.push('lesson ' + l.n + ' step ' + (i + 1) + ' mode');
+        if (s.choices) { q++; if (!s.choices.some(function (c) { return c.id === s.answer; })) f.push('lesson ' + l.n + ' step ' + (i + 1) + ' answer not in choices'); if (s.choices.length < 3) f.push('lesson ' + l.n + ' step ' + (i + 1) + ' < 3 choices'); }
+        if (s.input === 'number') { q++; if (!(s.tol >= 0)) f.push('lesson ' + l.n + ' step ' + (i + 1) + ' tol'); }
+        if (typeof s.doIt !== 'function') f.push('lesson ' + l.n + ' step ' + (i + 1) + ' doIt');
+      });
+      if (q < 1) f.push('lesson ' + l.n + ' has no choice/numeric step');
+      if (need2[l.n] && q < 2) f.push('lesson ' + l.n + ' needs ≥ 2 decision steps');
+    });
+    if (total < 130) f.push('total steps ' + total);
+    for (let n = 1; n <= 22; n++) if (setupsV1[n - 1] && !SETUP_OVERRIDES[n] && list[n - 1].setup !== setupsV1[n - 1].setup) f.push('lesson ' + n + ' setup not reused');
+    if (!has('modes.lessonSetups') && !Array.isArray(has('modes.lessons'))) f.push('80-modes lessonSetups missing (guarded)');
+    // quiz invariants
+    if (LABEL_IDS.length !== 11) f.push('labels ' + LABEL_IDS.length);
+    if (categoryOf({ kind: 'geometry', tag: 'cap' }) !== 'geometry-cap' || categoryOf({ kind: 'radius' }) !== 'backwall' || categoryOf({ kind: 'corner' }) !== 'corner') f.push('categoryOf');
+    if (actionFor('corner') !== 'record' || actionFor('sdh') !== 'geometry-note') f.push('actionFor');
+    if (SCEN.length !== 9) f.push('scenarios ' + SCEN.length);
+    // step DSL
+    const num = N('a', 'b', function () { return 10; }, 1);
+    if (!num.check({ ans: 10.5, memo: {} }) || num.check({ ans: 12, memo: {} })) f.push('numeric check');
+    const ch = C('a', 'b', [['x', 'x', 'x'], ['y', 'y', 'y'], ['z', 'z', 'z']], 'y');
+    if (!ch.check({ ans: 'y' }) || ch.check({ ans: 'x' })) f.push('choice check');
+    if (typeof UT.test.lessonAutoRun !== 'function' || typeof UT.test.quiz.start !== 'function') f.push('test api');
+    if (api.current().n !== null && !UT.state.lessons.active) f.push('current idle');
+    return f;
+  }
+
+  Object.assign(api, { __selftest, helpers: H, categoryOf });
+  UT.lessons = api;
+})(window.UT = window.UT || {});
