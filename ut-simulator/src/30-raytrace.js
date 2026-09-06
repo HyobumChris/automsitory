@@ -49,7 +49,7 @@
   // 14. Raw echoes with max(amp, ampNoZ) < 1e-6 (−120 dB, < 1 % FSH even at 110 dB gain) are dropped
   //     before merging. An echo whose z-overlap Z is 0 (defect not under the probe's z) is KEPT with
   //     amp 0 when its ampNoZ is finite, so the AUT trace-once + zFactor() re-weighting (§15.11) can
-  //     recover it at other z; such echoes contribute no highlight dot.
+  //     recover it at other z; such echoes contribute no highlight dot (see also SPEC NOTE 19).
   // 15. Step-wedge floors (tag 'step') report kind 'backwall' (§6.3: "backwall at the local step
   //     thickness"); the vertical risers ('end') stay 'geometry'.
   // 16. TT receiver aperture: a fan ray counts when its first outline hit lies within D/2 of the
@@ -71,6 +71,25 @@
   //     0 at ra + 2D; a 21-ray fan then fades in ≤ 6 dB steps per ray at the fan edge), so a mirror-like
   //     reflector leaving the fan fades out instead of switching off (the dev < θ20 gate is widened to
   //     2·θ20 for the same reason; w(2θ20) = −40 dB one-way).
+  // 19. z-overlap is geometric, not only an amplitude scale (§6.7 "a defect whose z extent does not overlap
+  //     the footprint must neither reflect nor shadow"). When a ray meets a planar defect segment the
+  //     §6.7 factor Z is evaluated at the hit (hz = len·tanθ20 + D/2) and the ray SPLITS: the reflected
+  //     branch carries weight Z, a transmitted branch (same direction, no bounce/leg change, defect not in
+  //     its reflection history) carries sqrt(1 − Z²). Each echo records the chain of factors it went through
+  //     (`echo.zs = [{defectId, hz, trans}]`, the echo's own defect added as a reflection factor unless
+  //     already present); amp = ampNoZ · Π factors and zFactor() recomputes the same product for another z
+  //     (AUT trace-once). A dead branch (weight 0) is still marched so AUT can restore it, but never splits
+  //     again; each defect splits at most once per fan ray (MAX_SPLITS overall), later encounters follow the
+  //     dominant side (Z² ≥ 0.5 → reflect, else pass through). The drawn polyline follows the dominant side.
+  //     Consequences: at Z = 0 a lamination is transparent (backwall + multiples return), TT transmits
+  //     sqrt(1 − Z²), a corner reflector behind an out-of-z planar defect is reached.
+  // 20. Hole shadow (§6.1 2c "the backwall behind a hole is shadowed"): the fan is launched from the index
+  //     POINT, so a literal specular reflection off a 5 mm hole at 6 mm depth would swallow every fan ray
+  //     (total shadow) instead of the ≈ 5 dB drop of the original V2 exercise. Holes therefore stay
+  //     pass-through (diffuse capture for the echo, SPEC NOTE 1) and, when a hole lies inside the beam band
+  //     (half-width D/2 + len·tanθ20 about the ray), the ray's energy beyond it is scaled by the uncovered
+  //     fraction 1 − overlap(hole chord, band)/band width, i.e. (1 − 2r/W) for a hole centred on the axis.
+  //     Applies in every method (pulse-echo, TT, tandem); holes span all z.
 
   const M = UT.math;
   const DEG = Math.PI / 180;
@@ -85,6 +104,7 @@
   const TT_SUB = 7;           // through-transmission sub-apertures across the crystal (SPEC NOTE 16)
   const TT_EXTINCTION = 1.5;  // dB per mm of TT ray chord through a volumetric defect (SPEC NOTE 16)
   const AP_TAIL = 2;          // return-aperture taper zone beyond ra, in crystal diameters (SPEC NOTE 18)
+  const MAX_SPLITS = 6;       // transmitted branches spawned per fan ray at partially-overlapping defects (SPEC NOTE 19)
   const sampleCache = new WeakMap();
   const geomCache = new WeakMap();   // specimen → flattened edges/arcs with precomputed normals
 
@@ -213,13 +233,16 @@
         if (d.pts.length >= 3) vols.push({ pts: d.pts, refl, defect: d });
       }
     }
+    const holes = [];     // hole discs: diffuse capture point + beam-coverage shadow (SPEC NOTE 20)
     for (const h of specimen.holes || []) {
+      if (!h || !(h.r > 0)) continue;
       const dia = 2 * h.r;
       points.push({ x: h.x, y: h.y, kind: 'sdh', S: Math.min(1, Math.sqrt(dia / 3)), dExp: 1.5, cap: h.r + 0.5, tag: h.tag || 'sdh', label: h.label || (dia + 'mm'), hole: h });
+      holes.push({ x: h.x, y: h.y, r: h.r });
     }
     for (let i = 0; i < points.length; i++) points[i].idx = i;
     const g = geometryOf(specimen);
-    return { segs, points, vols, edges: g.edges, arcs: g.arcs, perspex: g.perspex };
+    return { segs, points, vols, holes, edges: g.edges, arcs: g.arcs, perspex: g.perspex };
   }
 
   /** Length of the ray segment [pos, pos + dir·L] inside a closed polygon (sum of chords). */
@@ -257,177 +280,238 @@
     const o = off || 0;
     const E0 = { x: C.E.x + C.ss.tangent.x * o, y: C.E.y + C.ss.tangent.y * o };
     const rx0 = C.rx ? { x: C.rx.x + C.ss.tangent.x * o, y: C.rx.y + C.ss.tangent.y * o } : null;
-    let pos = { x: E0.x + dir0.x * STEP_OFF, y: E0.y + dir0.y * STEP_OFF };
-    let dir = { x: dir0.x, y: dir0.y };
-    let len = 0, bounces = 0, leg = 1, e = 1;
-    const hist = [];                   // last two reflections
-    let sawDefect = false, sawBottom = false;
-    let slotPending = false;
     const pts = [{ x: E0.x, y: E0.y, leg: 1 }];
     const legs = [];
     const echoes = [];
     const hits = [];
-    let fromTag = 'top';
     let transmitted = 0;
     const isCentre = Math.abs(delta) < 1e-9;
     const scene = C.scene;
+    const tan20 = Math.tan(C.th20 * DEG);
+    // Branch stack (SPEC NOTE 19): a ray meeting a planar defect segment whose z-overlap is partial
+    // splits into a reflected branch (weight Z) and a transmitted branch (weight sqrt(1 − Z²)).
+    const branches = [{
+      pos: { x: E0.x + dir0.x * STEP_OFF, y: E0.y + dir0.y * STEP_OFF }, dir: { x: dir0.x, y: dir0.y },
+      len: 0, bounces: 0, leg: 1, e: 1, hist: [], sawDefect: false, sawBottom: false, slotPending: false,
+      fromTag: 'top', zs: [], tw: 1, draw: true, iter: 0,
+    }];
+    let spawned = 0;
+    const splitDone = new Set();   // defects already split on this fan ray (one split per defect, SPEC NOTE 19)
 
-    for (let iter = 0; iter < 200; iter++) {
-      if (bounces > C.maxLegs + 5 || len > C.maxLen || leg > C.maxLegs) break;
-      // ---- nearest intersection (inlined ray–segment maths, no allocation until the winner is known)
-      let bestT = Infinity, bestObj = null, bestType = 0;   // 1 edge, 2 arc, 3 perspex, 4 defect
-      let bestNx = 0, bestNy = 0;
-      const px = pos.x, py = pos.y, dx = dir.x, dy = dir.y;
-      for (let i = 0; i < scene.edges.length; i++) {
-        const ed = scene.edges[i];
-        const den = dx * ed.ey - dy * ed.ex;
-        if (den > -1e-12 && den < 1e-12) continue;
-        const t = ((ed.ax - px) * ed.ey - (ed.ay - py) * ed.ex) / den;
-        if (t < EPS || t >= bestT) continue;
-        const u = ((ed.ax - px) * dy - (ed.ay - py) * dx) / den;
-        if (u < 0 || u > 1) continue;
-        bestT = t; bestObj = ed; bestType = 1;
-      }
-      for (let i = 0; i < scene.arcs.length; i++) {
-        const h = arcHit(px, py, dx, dy, scene.arcs[i], EPS);
-        if (h && h.t < bestT + 1e-7) { bestT = h.t; bestObj = scene.arcs[i]; bestType = 2; bestNx = h.nx; bestNy = h.ny; }   // ties → arc
-      }
-      if (scene.perspex) {
-        const h = M.rayCircle(px, py, dx, dy, scene.perspex.x, scene.perspex.y, scene.perspex.r, EPS);
-        if (h && h.t < bestT) { bestT = h.t; bestObj = scene.perspex; bestType = 3; }
-      }
-      for (let i = 0; i < scene.segs.length; i++) {
-        const sg = scene.segs[i];
-        const dn = dx * sg.nx + dy * sg.ny;
-        if (dn > -GRAZE_COS && dn < GRAZE_COS) continue;   // grazing: pass through
-        const den = dx * sg.ey - dy * sg.ex;
-        if (den > -1e-12 && den < 1e-12) continue;
-        const t = ((sg.ax - px) * sg.ey - (sg.ay - py) * sg.ex) / den;
-        if (t < EPS || t >= bestT) continue;
-        const u = ((sg.ax - px) * dy - (sg.ay - py) * dx) / den;
-        if (u < 0 || u > 1) continue;
-        bestT = t; bestObj = sg; bestType = 4;
-      }
-      let best = null;
-      if (bestType === 1) best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: bestObj.nx, ny: bestObj.ny, type: 'outline', tag: bestObj.tag };
-      else if (bestType === 2) best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: bestNx, ny: bestNy, type: 'outline', tag: bestObj.tag || 'radius' };
-      else if (bestType === 3) { const hx = px + dx * bestT, hy = py + dy * bestT; const n = norm(hx - bestObj.x, hy - bestObj.y); best = { t: bestT, x: hx, y: hy, nx: n.x, ny: n.y, type: 'perspex', tag: 'perspex' }; }
-      else if (bestType === 4) best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: bestObj.nx, ny: bestObj.ny, type: 'defect', tag: bestObj.kind, seg: bestObj };
-      if (!best) break;
-      const L = best.t;
+    while (branches.length) {
+      const B = branches.pop();
+      let pos = B.pos, dir = B.dir, len = B.len, bounces = B.bounces, leg = B.leg, e = B.e;
+      const hist = B.hist;
+      let sawDefect = B.sawDefect, sawBottom = B.sawBottom, slotPending = B.slotPending, fromTag = B.fromTag;
+      let zs = B.zs, tw = B.tw, draw = B.draw;
 
-      // ---- diffuse scatterers along the segment
-      if (!C.tt && !C.tandem) {
-        for (const P of scene.points) {
-          const rx = P.x - pos.x, ry = P.y - pos.y;
+      for (let iter = B.iter; iter < 200; iter++) {
+        if (bounces > C.maxLegs + 5 || len > C.maxLen || leg > C.maxLegs) break;
+        // ---- nearest intersection (inlined ray–segment maths, no allocation until the winner is known)
+        let bestT = Infinity, bestObj = null, bestType = 0;   // 1 edge, 2 arc, 3 perspex, 4 defect
+        let bestNx = 0, bestNy = 0;
+        const px = pos.x, py = pos.y, dx = dir.x, dy = dir.y;
+        for (let i = 0; i < scene.edges.length; i++) {
+          const ed = scene.edges[i];
+          const den = dx * ed.ey - dy * ed.ex;
+          if (den > -1e-12 && den < 1e-12) continue;
+          const t = ((ed.ax - px) * ed.ey - (ed.ay - py) * ed.ex) / den;
+          if (t < EPS || t >= bestT) continue;
+          const u = ((ed.ax - px) * dy - (ed.ay - py) * dx) / den;
+          if (u < 0 || u > 1) continue;
+          bestT = t; bestObj = ed; bestType = 1;
+        }
+        for (let i = 0; i < scene.arcs.length; i++) {
+          const h = arcHit(px, py, dx, dy, scene.arcs[i], EPS);
+          if (h && h.t < bestT + 1e-7) { bestT = h.t; bestObj = scene.arcs[i]; bestType = 2; bestNx = h.nx; bestNy = h.ny; }   // ties → arc
+        }
+        if (scene.perspex) {
+          const h = M.rayCircle(px, py, dx, dy, scene.perspex.x, scene.perspex.y, scene.perspex.r, EPS);
+          if (h && h.t < bestT) { bestT = h.t; bestObj = scene.perspex; bestType = 3; }
+        }
+        for (let i = 0; i < scene.segs.length; i++) {
+          const sg = scene.segs[i];
+          const dn = dx * sg.nx + dy * sg.ny;
+          if (dn > -GRAZE_COS && dn < GRAZE_COS) continue;   // grazing: pass through
+          const den = dx * sg.ey - dy * sg.ex;
+          if (den > -1e-12 && den < 1e-12) continue;
+          const t = ((sg.ax - px) * sg.ey - (sg.ay - py) * sg.ex) / den;
+          if (t < EPS || t >= bestT) continue;
+          const u = ((sg.ax - px) * dy - (sg.ay - py) * dx) / den;
+          if (u < 0 || u > 1) continue;
+          bestT = t; bestObj = sg; bestType = 4;
+        }
+        let best = null;
+        if (bestType === 1) best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: bestObj.nx, ny: bestObj.ny, type: 'outline', tag: bestObj.tag };
+        else if (bestType === 2) best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: bestNx, ny: bestNy, type: 'outline', tag: bestObj.tag || 'radius' };
+        else if (bestType === 3) { const hx = px + dx * bestT, hy = py + dy * bestT; const n = norm(hx - bestObj.x, hy - bestObj.y); best = { t: bestT, x: hx, y: hy, nx: n.x, ny: n.y, type: 'perspex', tag: 'perspex' }; }
+        else if (bestType === 4) best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: bestObj.nx, ny: bestObj.ny, type: 'defect', tag: bestObj.kind, seg: bestObj };
+        if (!best) break;
+        const L = best.t;
+
+        // ---- diffuse scatterers along the segment
+        if (!C.tt && !C.tandem) {
+          for (const P of scene.points) {
+            const rx = P.x - pos.x, ry = P.y - pos.y;
+            const u = rx * dir.x + ry * dir.y;
+            if (u <= 1e-6 || u >= L) continue;
+            const d = Math.abs(rx * dir.y - ry * dir.x);
+            const c = 0.5 + 0.03 * (len + u);
+            const cap = Math.max(c, P.cap);
+            if (d > cap) continue;
+            const path = len + u;
+            const taper = Math.cos(Math.PI / 2 * d / cap);
+            const ec = makeEcho(C, { path, kind: P.kind, leg, x: P.x, y: P.y, w, wReturn: w, e, S: P.S, dExp: P.dExp,
+              defect: P.defect, tag: P.tag, label: P.label, angleDev: delta, extra: taper, zs, tw });
+            if (P.vol) {
+              // one entry per scatterer point and leg: the loudest capture over the fan (SPEC NOTE 17)
+              const key = P.idx * 64 + leg;
+              const cur = C.volBest.get(key);
+              if (!cur || ec.amp > cur.amp || (ec.amp === cur.amp && ec.ampNoZ > cur.ampNoZ)) C.volBest.set(key, ec);
+            } else echoes.push(ec);
+          }
+        } else if (C.tt && scene.vols.length) {
+          // extinction through volumetric defects (SPEC NOTE 16)
+          for (const V of scene.vols) {
+            const chord = chordThrough(V.pts, pos.x, pos.y, dir.x, dir.y, L);
+            if (chord <= 0) continue;
+            const zf = zOverlap(V.defect, C.probeZ, C.diameter / 2 + (len + L) * tan20, C.L, C.wrap);
+            e *= Math.pow(10, -TT_EXTINCTION * V.refl * zf * zf * chord / 20);
+          }
+        }
+        // ---- hole shadow (SPEC NOTE 20): a hole inside the beam band attenuates everything beyond it by
+        //      the uncovered fraction of the beam width at that depth (holes span all z)
+        for (let i = 0; i < scene.holes.length; i++) {
+          const H = scene.holes[i];
+          const rx = H.x - pos.x, ry = H.y - pos.y;
           const u = rx * dir.x + ry * dir.y;
           if (u <= 1e-6 || u >= L) continue;
-          const d = Math.abs(rx * dir.y - ry * dir.x);
-          const c = 0.5 + 0.03 * (len + u);
-          const cap = Math.max(c, P.cap);
-          if (d > cap) continue;
-          const path = len + u;
-          const taper = Math.cos(Math.PI / 2 * d / cap);
-          const ec = makeEcho(C, { path, kind: P.kind, leg, x: P.x, y: P.y, w, wReturn: w, e, S: P.S, dExp: P.dExp,
-            defect: P.defect, tag: P.tag, label: P.label, angleDev: delta, extra: taper });
-          if (P.vol) {
-            // one entry per scatterer point and leg: the loudest capture over the fan (SPEC NOTE 17)
-            const key = P.idx * 64 + leg;
-            const cur = C.volBest.get(key);
-            if (!cur || ec.ampNoZ > cur.ampNoZ) C.volBest.set(key, ec);
-          } else echoes.push(ec);
+          const d = rx * dir.y - ry * dir.x;
+          const half = C.diameter / 2 + (len + u) * tan20;
+          const ov = M.overlap(d - H.r, d + H.r, -half, half);
+          if (ov <= 0) continue;
+          e *= Math.max(0, 1 - ov / (2 * half));
         }
-      } else if (C.tt && scene.vols.length) {
-        // extinction through volumetric defects (SPEC NOTE 16)
-        for (const V of scene.vols) {
-          const chord = chordThrough(V.pts, pos.x, pos.y, dir.x, dir.y, L);
-          if (chord <= 0) continue;
-          const zf = zOverlap(V.defect, C.probeZ, C.diameter / 2 + (len + L) * Math.tan(C.th20 * DEG), C.L, C.wrap);
-          e *= Math.pow(10, -TT_EXTINCTION * V.refl * zf * zf * chord / 20);
+
+        // ---- move
+        len += L;
+        const hp = { x: best.x, y: best.y };
+        if (draw) {
+          pts.push({ x: hp.x, y: hp.y, leg });
+          legs.push({ a: { x: pos.x, y: pos.y }, b: hp, leg, surfaceTag: fromTag, hitTag: best.tag });
         }
-      }
 
-      // ---- move
-      len += L;
-      const hp = { x: best.x, y: best.y };
-      pts.push({ x: hp.x, y: hp.y, leg });
-      legs.push({ a: { x: pos.x, y: pos.y }, b: hp, leg, surfaceTag: fromTag, hitTag: best.tag });
+        // through transmission receiver test (first outline hit only)
+        if (C.tt && best.type === 'outline' && leg === 1 && rx0) {
+          const dPerp = Math.abs((hp.x - rx0.x) * C.u0.y - (hp.y - rx0.y) * C.u0.x);   // distance from the sub-aperture's centre-ray line
+          if (dPerp <= C.diameter / 2 && M.dist(hp.x, hp.y, rx0.x, rx0.y) <= C.diameter) transmitted += w * e * tw;
+        }
 
-      // through transmission receiver test (first outline hit only)
-      if (C.tt && best.type === 'outline' && leg === 1 && rx0) {
-        const dPerp = Math.abs((hp.x - rx0.x) * C.u0.y - (hp.y - rx0.y) * C.u0.x);   // distance from the sub-aperture's centre-ray line
-        if (dPerp <= C.diameter / 2 && M.dist(hp.x, hp.y, rx0.x, rx0.y) <= C.diameter) transmitted += w * e;
-      }
-
-      // ---- reflect
-      let nd;
-      const retro = slotPending && best.type === 'outline' && best.tag === 'top' && M.dist(hp.x, hp.y, C.E.x, C.E.y) <= 1.0;
-      if (retro) {
-        nd = { x: C.u0.x, y: C.u0.y };
-        pos = { x: C.E.x + nd.x * STEP_OFF, y: C.E.y + nd.y * STEP_OFF };
-        e *= 0.5;
-        bounces++; leg++;
-        fromTag = 'top';
-        hist.push({ type: 'outline', tag: 'top', x: hp.x, y: hp.y, leg: leg - 1, inc: 0 });
-      } else {
-        nd = reflect(dir.x, dir.y, best.nx, best.ny);
-        pos = { x: hp.x + nd.x * STEP_OFF, y: hp.y + nd.y * STEP_OFF };
-        bounces++;
-        const legAtHit = leg;
-        const incDeg = Math.acos(M.clamp(Math.abs(dot(dir.x, dir.y, best.nx, best.ny)), 0, 1)) / DEG;
-        if (best.type === 'outline') {
-          leg++;
-          e *= best.tag === 'top' ? TOP_LOSS : OTHER_LOSS;
-          if (best.tag === 'bottom') sawBottom = true;
-          fromTag = best.tag;
-          // rough weld bead: weak diffuse geometry scatter (SPEC NOTE 2)
-          if (!C.tt && !C.tandem && (best.tag === 'cap' || best.tag === 'root')) {
-            const inc = Math.abs(dot(dir.x, dir.y, best.nx, best.ny));
-            const slope = Math.min(1, Math.abs(best.nx) / 0.5);   // 0 for a flat bead (SPEC NOTE 2)
-            if (slope > 1e-6) echoes.push(makeEcho(C, { path: len, kind: 'geometry', leg: leg - 1, x: hp.x, y: hp.y, w, wReturn: w, e: e / OTHER_LOSS, S: BEAD_SCATTER * inc * slope, dExp: 1.5, tag: best.tag, angleDev: delta }));
+        // ---- z-overlap split at a planar defect segment (SPEC NOTE 19)
+        if (best.type === 'defect') {
+          const sd = best.seg.defect;
+          const hzHit = len * tan20 + C.diameter / 2;
+          const Zs = zOverlap(sd, C.probeZ, hzHit, C.L, C.wrap);
+          if (Zs < 1 || (sd.zFrom !== undefined && sd.zTo !== undefined)) {
+            const Ts = Math.sqrt(Math.max(0, 1 - Zs * Zs));
+            const transDominant = Zs * Zs < 0.5;
+            if (tw > 0 && spawned < MAX_SPLITS && !splitDone.has(sd)) {
+              // queue the transmitted branch (weight Ts) and continue below with the reflected one (weight Zs);
+              // the drawn polyline follows the dominant side
+              spawned++;
+              splitDone.add(sd);
+              branches.push({
+                pos: { x: hp.x + dir.x * STEP_OFF, y: hp.y + dir.y * STEP_OFF }, dir: { x: dir.x, y: dir.y },
+                len, bounces, leg, e, hist: hist.slice(), sawDefect, sawBottom, slotPending: false, fromTag,
+                zs: zs.concat([{ defect: sd, hz: hzHit, trans: true }]), tw: tw * Ts, draw: draw && transDominant, iter: iter + 1,
+              });
+              if (transDominant) draw = false;
+              zs = zs.concat([{ defect: sd, hz: hzHit, trans: false }]);
+              tw *= Zs;
+            } else if (transDominant) {
+              // no split budget (or a dead branch): follow the dominant side only — pass through
+              zs = zs.concat([{ defect: sd, hz: hzHit, trans: true }]);
+              tw *= Ts;
+              pos = { x: hp.x + dir.x * STEP_OFF, y: hp.y + dir.y * STEP_OFF };
+              slotPending = false;
+              continue;
+            } else {
+              zs = zs.concat([{ defect: sd, hz: hzHit, trans: false }]);
+              tw *= Zs;
+            }
           }
-        } else if (best.type === 'perspex') {
-          e *= OTHER_LOSS;
-          fromTag = 'perspex';
-          if (isCentre && C.theta === 0 && C.mode === 'comp') {
-            const p = scene.perspex;
-            echoes.push(makeEcho(C, { path: len + 2 * p.r * (C.vel / (UT.consts.V_PERSPEX)), kind: 'perspex', leg, x: p.x, y: p.y + p.r, w, wReturn: w, e, S: 0.2, dExp: 0.5, tag: 'perspex', angleDev: delta }));
-          }
+        }
+
+        // ---- reflect
+        let nd;
+        const retro = slotPending && best.type === 'outline' && best.tag === 'top' && M.dist(hp.x, hp.y, C.E.x, C.E.y) <= 1.0;
+        if (retro) {
+          nd = { x: C.u0.x, y: C.u0.y };
+          pos = { x: C.E.x + nd.x * STEP_OFF, y: C.E.y + nd.y * STEP_OFF };
+          e *= 0.5;
+          bounces++; leg++;
+          fromTag = 'top';
+          hist.push({ type: 'outline', tag: 'top', x: hp.x, y: hp.y, leg: leg - 1, inc: 0 });
         } else {
-          sawDefect = true;
-          fromTag = 'defect';
-        }
-        hist.push({ type: best.type, tag: best.tag, x: hp.x, y: hp.y, seg: best.seg, leg: legAtHit, inc: incDeg });
-      }
-      if (hist.length > 2) hist.shift();
-      dir = nd;
-      if (leg <= 3) hits.push({ x: hp.x, y: hp.y, kind: best.tag, tag: best.tag, defectId: best.seg ? best.seg.defect.id : undefined });
-      slotPending = false;
-
-      // ---- return-to-probe test
-      if (C.segment && !C.tt && (dir.x * C.ss.normal.x + dir.y * C.ss.normal.y) < 0) {
-        const cross = M.raySegment(pos.x, pos.y, dir.x, dir.y, C.segment.a.x, C.segment.a.y, C.segment.b.x, C.segment.b.y, EPS);
-        if (cross) {
-          if (C.tandem) {
-            const dRx = M.dist(cross.x, cross.y, C.rx.x, C.rx.y);
-            const dev = M.angleBetween(dir.x, dir.y, C.rxDir.x, C.rxDir.y);
-            if (sawDefect && sawBottom && dRx <= C.diameter / 2 && dev < C.th20) {
-              const info = returnInfo(hist);
-              if (info.kind === 'defect' || info.kind === 'corner' || info.kind === 'lamination') {
-                echoes.push(makeEcho(C, { path: (len + cross.t) / 2, kind: 'defect', leg: info.leg, x: info.x, y: info.y, w, wReturn: M.beamWeight20(dev, C.th20), e, S: info.S, dExp: info.dExp, defect: info.defect, tag: 'tandem', angleDev: delta }));
-              }
+          nd = reflect(dir.x, dir.y, best.nx, best.ny);
+          pos = { x: hp.x + nd.x * STEP_OFF, y: hp.y + nd.y * STEP_OFF };
+          bounces++;
+          const legAtHit = leg;
+          const incDeg = Math.acos(M.clamp(Math.abs(dot(dir.x, dir.y, best.nx, best.ny)), 0, 1)) / DEG;
+          if (best.type === 'outline') {
+            leg++;
+            e *= best.tag === 'top' ? TOP_LOSS : OTHER_LOSS;
+            if (best.tag === 'bottom') sawBottom = true;
+            fromTag = best.tag;
+            // rough weld bead: weak diffuse geometry scatter (SPEC NOTE 2)
+            if (!C.tt && !C.tandem && (best.tag === 'cap' || best.tag === 'root')) {
+              const inc = Math.abs(dot(dir.x, dir.y, best.nx, best.ny));
+              const slope = Math.min(1, Math.abs(best.nx) / 0.5);   // 0 for a flat bead (SPEC NOTE 2)
+              if (slope > 1e-6) echoes.push(makeEcho(C, { path: len, kind: 'geometry', leg: leg - 1, x: hp.x, y: hp.y, w, wReturn: w, e: e / OTHER_LOSS, S: BEAD_SCATTER * inc * slope, dExp: 1.5, tag: best.tag, angleDev: delta, zs, tw }));
+            }
+          } else if (best.type === 'perspex') {
+            e *= OTHER_LOSS;
+            fromTag = 'perspex';
+            if (isCentre && C.theta === 0 && C.mode === 'comp') {
+              const p = scene.perspex;
+              echoes.push(makeEcho(C, { path: len + 2 * p.r * (C.vel / (UT.consts.V_PERSPEX)), kind: 'perspex', leg, x: p.x, y: p.y + p.r, w, wReturn: w, e, S: 0.2, dExp: 0.5, tag: 'perspex', angleDev: delta, zs, tw }));
             }
           } else {
-            const dE = M.dist(cross.x, cross.y, C.E.x, C.E.y);
-            const ra = C.diameter / 2 + (len + cross.t) * Math.sin(C.th6 * DEG);
-            const dev = M.angleBetween(dir.x, dir.y, -C.u0.x, -C.u0.y);
-            const tail = AP_TAIL * C.diameter;
-            if (dE < ra + tail && dev < 2 * C.th20) {
-              // full weight inside ra, cos² taper to 0 over the next AP_TAIL·D (SPEC NOTE 18)
-              const wAp = dE <= ra ? 1 : Math.pow(Math.cos(Math.PI / 2 * (dE - ra) / tail), 2);
-              const info = returnInfo(hist);
-              echoes.push(makeEcho(C, { path: (len + cross.t) / 2, kind: info.kind, leg: info.leg, x: info.x, y: info.y, w, wReturn: M.beamWeight20(dev, C.th20) * wAp, e, S: info.S, dExp: info.dExp, defect: info.defect, tag: info.tag, angleDev: delta }));
-              if (C.retroSlot && dE <= 1.0) slotPending = true;
+            sawDefect = true;
+            fromTag = 'defect';
+          }
+          hist.push({ type: best.type, tag: best.tag, x: hp.x, y: hp.y, seg: best.seg, leg: legAtHit, inc: incDeg });
+        }
+        if (hist.length > 2) hist.shift();
+        dir = nd;
+        if (leg <= 3 && tw > 0) hits.push({ x: hp.x, y: hp.y, kind: best.tag, tag: best.tag, defectId: best.seg ? best.seg.defect.id : undefined });
+        slotPending = false;
+
+        // ---- return-to-probe test
+        if (C.segment && !C.tt && (dir.x * C.ss.normal.x + dir.y * C.ss.normal.y) < 0) {
+          const cross = M.raySegment(pos.x, pos.y, dir.x, dir.y, C.segment.a.x, C.segment.a.y, C.segment.b.x, C.segment.b.y, EPS);
+          if (cross) {
+            if (C.tandem) {
+              const dRx = M.dist(cross.x, cross.y, C.rx.x, C.rx.y);
+              const dev = M.angleBetween(dir.x, dir.y, C.rxDir.x, C.rxDir.y);
+              if (sawDefect && sawBottom && dRx <= C.diameter / 2 && dev < C.th20) {
+                const info = returnInfo(hist);
+                if (info.kind === 'defect' || info.kind === 'corner' || info.kind === 'lamination') {
+                  echoes.push(makeEcho(C, { path: (len + cross.t) / 2, kind: 'defect', leg: info.leg, x: info.x, y: info.y, w, wReturn: M.beamWeight20(dev, C.th20), e, S: info.S, dExp: info.dExp, defect: info.defect, tag: 'tandem', angleDev: delta, zs, tw }));
+                }
+              }
+            } else {
+              const dE = M.dist(cross.x, cross.y, C.E.x, C.E.y);
+              const ra = C.diameter / 2 + (len + cross.t) * Math.sin(C.th6 * DEG);
+              const dev = M.angleBetween(dir.x, dir.y, -C.u0.x, -C.u0.y);
+              const tail = AP_TAIL * C.diameter;
+              if (dE < ra + tail && dev < 2 * C.th20) {
+                // full weight inside ra, cos² taper to 0 over the next AP_TAIL·D (SPEC NOTE 18)
+                const wAp = dE <= ra ? 1 : Math.pow(Math.cos(Math.PI / 2 * (dE - ra) / tail), 2);
+                const info = returnInfo(hist);
+                echoes.push(makeEcho(C, { path: (len + cross.t) / 2, kind: info.kind, leg: info.leg, x: info.x, y: info.y, w, wReturn: M.beamWeight20(dev, C.th20) * wAp, e, S: info.S, dExp: info.dExp, defect: info.defect, tag: info.tag, angleDev: delta, zs, tw }));
+                if (C.retroSlot && dE <= 1.0) slotPending = true;
+              }
             }
           }
         }
@@ -470,12 +554,22 @@
     const hz = o.path * Math.tan(C.th20 * DEG) + C.diameter / 2;
     const skewed = (o.kind === 'defect' || o.kind === 'corner' || o.kind === 'geometry' || o.kind === 'lamination') && C.theta > 0;
     const sw = skewed ? M.skewWeight(C.skew) : 1;
-    const Z = o.defect ? zOverlap(o.defect, C.probeZ, hz, C.L, C.wrap) : 1;
-    return {
+    // z-overlap factors (§6.7, SPEC NOTE 19): the branch's reflection/transmission factors, plus the
+    // echo's own defect (reflection Z) unless the branch already carries that defect
+    let zs = o.zs || [];
+    let Z = o.tw === undefined ? 1 : o.tw;
+    if (o.defect) {
+      let seen = false;
+      for (let i = 0; i < zs.length; i++) if (zs[i].defect === o.defect) { seen = true; break; }
+      if (!seen) { zs = zs.concat([{ defect: o.defect, hz, trans: false }]); Z *= zOverlap(o.defect, C.probeZ, hz, C.L, C.wrap); }
+    }
+    const ec = {
       path: o.path, amp: base * sw * Z, ampNoZ: base * sw, hz, kind: o.kind, leg: o.leg, x: o.x, y: o.y,
       defectId: o.defect ? o.defect.id : undefined, tag: o.tag, label: o.label || (o.defect ? o.defect.label : undefined),
       angleDev: o.angleDev, defectType: o.defect ? o.defect.type : undefined,
     };
+    if (zs.length) ec.zs = zs.map(function (f) { return { defectId: f.defect.id, hz: f.hz, trans: !!f.trans }; });
+    return ec;
   }
 
   /** §6.7 z-overlap factor for a defect (wrapping on pipes). */
@@ -645,11 +739,26 @@
    */
   function zFactor(echo, probeZ, probeSkew, defects, specimen) {
     void probeSkew;
-    if (!echo || echo.defectId === undefined) return 1;
-    const d = (defects || []).find(function (x) { return x && x.id === echo.defectId; });
+    if (!echo) return 1;
+    const L = (specimen && specimen.L) || 0, wrap = !!(specimen && specimen.pipe);
+    const list = defects || [];
+    const find = function (id) { for (let i = 0; i < list.length; i++) if (list[i] && list[i].id === id) return list[i]; return null; };
+    if (Array.isArray(echo.zs) && echo.zs.length) {
+      // SPEC NOTE 19: product of the branch factors (reflection Z, transmission sqrt(1 − Z²))
+      let Z = 1;
+      for (const f of echo.zs) {
+        const d = find(f.defectId);
+        if (!d) continue;
+        const z = zOverlap(d, probeZ || 0, f.hz !== undefined ? f.hz : 10, L, wrap);
+        Z *= f.trans ? Math.sqrt(Math.max(0, 1 - z * z)) : z;
+      }
+      return Z;
+    }
+    if (echo.defectId === undefined) return 1;
+    const d = find(echo.defectId);
     if (!d) return 1;
     const hz = echo.hz !== undefined ? echo.hz : 10;
-    return zOverlap(d, probeZ || 0, hz, (specimen && specimen.L) || 0, !!(specimen && specimen.pipe));
+    return zOverlap(d, probeZ || 0, hz, L, wrap);
   }
 
   const KIND_NAMES = {

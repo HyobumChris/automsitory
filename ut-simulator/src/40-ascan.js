@@ -27,9 +27,11 @@
 //   / 'initial' with the sample value and the inverse-cal true path.
 // - SD = path·sin(trig.angle) − trig.xValue (X Value = wedge front offset, default 0); DP/leg fold
 //   d = path·cos(trig.angle) into 0..trig.thick: leg = floor(d/T) + 1, dp = leg odd ? d mod T : T − d mod T.
-// - dacCurve() returns the recorded points sorted by path, scaled to the CURRENT gain (unclipped; the
-//   renderer clips at the screen top), each with xDiv; dacCurves() adds the −6 / −14 dB curves;
-//   dacAt(instrument, path) interpolates with end-value hold (readouts use TRUE path).
+// - dacCurve() returns the recorded points sorted by path, each CLIPPED to 100 % at the reference gain
+//   (§6.2: a point may be recorded up to 120 % but the drawn curve never exceeds the screen top at
+//   refGain) and then scaled to the CURRENT gain, each with xDiv; dacCurves() adds the −6 / −14 dB
+//   curves; dacAt(instrument, path) interpolates the same clipped points with end-value hold (readouts
+//   use TRUE path), so the DAC % / dB-to-DAC readouts agree with the drawn curve.
 //   dacRecord(instrument, primary) returns the new `dac` object (or null when the normalised value
 //   would exceed 120 %) — the workflow itself belongs to 80-modes.
 // - Peak memory is only updated by compute() (synth() never touches the buffer, so AUT/TOFD re-use is
@@ -40,6 +42,16 @@
 // - Trace failures are caught (logged once) so the UI keeps rendering with an empty frame.
 // - setInstrument() clamps gain 0…110, range 10…1000, delay −50…1000, reject 0…80; gates given as an
 //   array are merged per index into clones of the existing gates. It returns a clone of the instrument.
+//   Test API validation (setProbe / setInstrument): numeric fields are applied only when they coerce to
+//   a finite number (then clamped), otherwise the previous value is kept; side → ±1, skew → 0..360,
+//   crystal / method / surface / mode / rectify are checked against their enum lists; gate entries that
+//   are not objects are ignored and gate fields are coerced the same way (fallback = current gate).
+//   State therefore never receives NaN / strings for numeric fields (a bad angle used to brick render).
+// - traceOpts(): §15.4 says maxLegs = 12 for 0° / blocks; for the 0° probe that stops the backwall
+//   multiples after 6 echoes (bottom + top = 2 legs each) and leaves the right of a long range empty,
+//   unlike the original. For angle 0 maxLegs is therefore derived from the range,
+//   max(12, ceil(2·maxPath/T) + 2) capped at 60 (T = local step thickness on the step wedge), so the
+//   multiples continue to the end of the screen while the tracer amplitude law decays them.
 (function (UT) {
   'use strict';
   const M = UT.math;
@@ -169,10 +181,14 @@
   }
 
   // ------------------------------------------------------------------ DAC
+  const DAC_CURVE_MAX_PCT = 100;
+
+  /** Recorded points sorted by path with ampPct clipped to 100 % at the reference gain (§6.2). */
   function sortedDacPoints(instrument) {
     const dac = (instrument && instrument.dac) || {};
     const pts = (dac.points || []).filter(function (p) { return p && Number.isFinite(p.path) && Number.isFinite(p.ampPct); });
-    return pts.slice().sort(function (a, b) { return a.path - b.path; });
+    return pts.map(function (p) { return { path: p.path, ampPct: Math.min(DAC_CURVE_MAX_PCT, p.ampPct) }; })
+      .sort(function (a, b) { return a.path - b.path; });
   }
 
   function dacRefDb(instrument) {
@@ -207,7 +223,8 @@
   }
 
   /**
-   * DAC curve polyline at the current gain: [{path, pct, xDiv}] sorted by TRUE path (unclipped).
+   * DAC curve polyline at the current gain: [{path, pct, xDiv}] sorted by TRUE path; each point is
+   * clipped to 100 % at the reference gain before the gain scale (so the curve still follows gain).
    * @param {object} instrument
    * @param {object} derived  UT.probe.derive result (for the time base)
    * @param {number} [dbOffset]  e.g. −6 or −14 for the ASME 50 % / 20 % curves
@@ -427,13 +444,20 @@
 
   function now() { return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now(); }
 
+  const MAX_LEGS_0DEG = 60;
+
   function traceOpts(state, spec, probe) {
     const inst = state.instrument;
-    return {
-      maxPath: (inst.delay || 0) + (inst.range || 100),
-      fanCount: 21,
-      maxLegs: ((probe.angle || 0) === 0 || (spec && spec.kind === 'block')) ? 12 : (state.display.skips || 3),
-    };
+    const maxPath = (inst.delay || 0) + (inst.range || 100);
+    const zero = (probe.angle || 0) === 0;
+    let maxLegs = (zero || (spec && spec.kind === 'block')) ? 12 : (state.display.skips || 3);
+    if (zero && spec) {
+      // 0°: let the backwall multiples run to the end of the range (bottom + top = 2 legs per echo)
+      let T = spec.T;
+      if (typeof spec.thicknessAt === 'function' && Number.isFinite(probe.x)) T = spec.thicknessAt(probe.x);
+      if (Number.isFinite(T) && T > 0) maxLegs = Math.max(12, Math.min(MAX_LEGS_0DEG, Math.ceil(2 * maxPath / T) + 2));
+    }
+    return { maxPath, fanCount: 21, maxLegs };
   }
 
   function safeTrace(args) {
@@ -511,13 +535,38 @@
   }
 
   // ------------------------------------------------------------------ test API
+  /** Finite-number coercion: numbers / numeric strings are clamped to [lo, hi]; anything else keeps prev. */
+  function num(v, prev, lo, hi) {
+    const n = (typeof v === 'number' || (typeof v === 'string' && v.trim() !== '')) ? +v : NaN;
+    return Number.isFinite(n) ? M.clamp(n, lo, hi) : prev;
+  }
+  function oneOf(v, list, prev) { return list.indexOf(v) >= 0 ? v : prev; }
+  function bool(v, prev) { return v === undefined ? prev : !!v; }
+  function isObj(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
+
+  const PROBE_ENUMS = { crystal: ['single', 'twin'], method: ['pe', 'tt', 'tandem', 'pa'], surface: ['chord', 'brace'], mode: ['comp', 'shear'] };
+  const RECTIFY_ENUM = ['full', 'half+', 'half-', 'rf'];
+
   function testSetProbe(p) {
     const cur = UT.state.probe;
-    const next = Object.assign({}, cur, p || {});
-    if (p && p.angle !== undefined) {
-      const preset = UT.probe.presets[p.angle];
-      if (preset && p.mode === undefined) next.mode = preset.mode;
+    const q = isObj(p) ? p : {};
+    const next = Object.assign({}, cur);
+    if (q.angle !== undefined) {
+      next.angle = num(q.angle, cur.angle, 0, 89);
+      const preset = UT.probe.presets[next.angle];
+      if (preset && q.mode === undefined) next.mode = preset.mode;
     }
+    for (const k in PROBE_ENUMS) if (q[k] !== undefined) next[k] = oneOf(q[k], PROBE_ENUMS[k], cur[k]);
+    if (q.x !== undefined) next.x = num(q.x, cur.x, -1e4, 1e4);
+    if (q.z !== undefined) next.z = num(q.z, cur.z, -1e4, 1e4);
+    if (q.skew !== undefined) { const sk = num(q.skew, NaN, -1e6, 1e6); if (Number.isFinite(sk)) next.skew = ((sk % 360) + 360) % 360; }
+    if (q.side !== undefined) { const sd = num(q.side, 0, -1e6, 1e6); if (sd !== 0) next.side = sd < 0 ? -1 : 1; }
+    if (q.freq !== undefined) next.freq = num(q.freq, cur.freq, 0.5, 25);
+    if (q.diameter !== undefined) next.diameter = num(q.diameter, cur.diameter, 1, 50);
+    if (q.wedgeVel !== undefined) next.wedgeVel = num(q.wedgeVel, cur.wedgeVel, 1, 6);
+    if (q.paFrom !== undefined) next.paFrom = num(q.paFrom, cur.paFrom, 0, 89);
+    if (q.paTo !== undefined) next.paTo = num(q.paTo, cur.paTo, 0, 89);
+    if (q.paStep !== undefined) next.paStep = num(q.paStep, cur.paStep, 0.25, 10);
     const spec = UT.state.specimen;
     if (spec && spec.scanSurface && next.surface !== 'brace') next.x = M.clamp(next.x, spec.scanSurface.xMin, spec.scanSurface.xMax);
     if (spec && Number.isFinite(next.z)) next.z = M.clamp(next.z, 0, spec.L || next.z);
@@ -526,30 +575,61 @@
     return UT.clone(frame.derived);
   }
 
+  function coerceGate(g, base) {
+    return Object.assign({}, base, {
+      on: bool(g.on, base.on), alarm: bool(g.alarm, base.alarm),
+      start: num(g.start, base.start, -50, 2000), width: num(g.width, base.width, 0.1, 2000), level: num(g.level, base.level, 0, 100),
+    });
+  }
+
   function testSetInstrument(p) {
     const cur = UT.state.instrument;
     const patch = {};
-    const q = p || {};
-    if (q.gain !== undefined) patch.gain = M.clamp(+q.gain, 0, 110);
-    if (q.refGain !== undefined) patch.refGain = M.clamp(+q.refGain, 0, 110);
-    if (q.range !== undefined) patch.range = M.clamp(+q.range, 10, 1000);
-    if (q.delay !== undefined) patch.delay = M.clamp(+q.delay, -50, 1000);
-    if (q.reject !== undefined) patch.reject = M.clamp(+q.reject, 0, 80);
+    const q = isObj(p) ? p : {};
+    if (q.gain !== undefined) patch.gain = num(q.gain, cur.gain, 0, 110);
+    if (q.refGain !== undefined) patch.refGain = num(q.refGain, cur.refGain, 0, 110);
+    if (q.range !== undefined) patch.range = num(q.range, cur.range, 10, 1000);
+    if (q.delay !== undefined) patch.delay = num(q.delay, cur.delay, -50, 1000);
+    if (q.reject !== undefined) patch.reject = num(q.reject, cur.reject, 0, 80);
     if (q.damping !== undefined) patch.damping = !!q.damping;
-    if (q.rectify !== undefined) patch.rectify = q.rectify;
+    if (q.rectify !== undefined) patch.rectify = oneOf(q.rectify, RECTIFY_ENUM, cur.rectify);
     if (q.peakMem !== undefined) patch.peakMem = !!q.peakMem;
     if (q.freeze !== undefined) patch.freeze = !!q.freeze;
-    if (q.activeGate !== undefined) patch.activeGate = M.clamp(Math.round(+q.activeGate), 0, 7);
-    if (q.gates !== undefined && Array.isArray(q.gates)) {
+    if (q.activeGate !== undefined) patch.activeGate = Math.round(num(q.activeGate, cur.activeGate || 0, 0, 7));
+    if (Array.isArray(q.gates)) {
       const gates = cur.gates.map(function (g) { return Object.assign({}, g); });
       q.gates.forEach(function (g, i) {
-        if (!g) return;
-        gates[i] = Object.assign({}, gates[i] || { on: true, start: 10, width: 60, level: 20, alarm: false }, g);
+        if (!isObj(g)) return;
+        gates[i] = coerceGate(g, gates[i] || { on: true, start: 10, width: 60, level: 20, alarm: false });
       });
       patch.gates = gates;
     }
-    for (const k of ['dac', 'cal', 'trig']) if (q[k] !== undefined && q[k] !== null && typeof q[k] === 'object') patch[k] = Object.assign({}, cur[k], q[k]);
-    for (const k of ['page', 'readout', 'selectedParam']) if (q[k] !== undefined) patch[k] = q[k];
+    if (isObj(q.cal)) {
+      const c = Object.assign({}, cur.cal);
+      if (q.cal.vel !== undefined) { const v = q.cal.vel === null ? null : num(q.cal.vel, NaN, 0.5, 20); if (v === null || Number.isFinite(v)) c.vel = v; }
+      if (q.cal.zero !== undefined) c.zero = num(q.cal.zero, c.zero, -100, 100);
+      patch.cal = c;
+    }
+    if (isObj(q.trig)) {
+      const t = Object.assign({}, cur.trig);
+      if (q.trig.angle !== undefined) t.angle = num(q.trig.angle, t.angle, 0, 89);
+      if (q.trig.thick !== undefined) t.thick = num(q.trig.thick, t.thick, 0.1, 1000);
+      if (q.trig.xValue !== undefined) t.xValue = num(q.trig.xValue, t.xValue, -100, 100);
+      patch.trig = t;
+    }
+    if (isObj(q.dac)) {
+      const d = Object.assign({}, cur.dac);
+      if (q.dac.on !== undefined) d.on = !!q.dac.on;
+      if (q.dac.curves !== undefined) d.curves = !!q.dac.curves;
+      if (q.dac.refDb !== undefined) { const r = q.dac.refDb === null ? null : num(q.dac.refDb, NaN, 0, 110); if (r === null || Number.isFinite(r)) d.refDb = r; }
+      if (Array.isArray(q.dac.points)) {
+        d.points = q.dac.points.filter(function (pt) { return isObj(pt) && Number.isFinite(+pt.path) && Number.isFinite(+pt.ampPct); })
+          .map(function (pt) { return { path: M.clamp(+pt.path, 0, 2000), ampPct: M.clamp(+pt.ampPct, 0, CLIP_PCT) }; })
+          .sort(function (a, b) { return a.path - b.path; });
+      }
+      patch.dac = d;
+    }
+    for (const k of ['page', 'readout', 'selectedParam']) if (q[k] !== undefined && (typeof q[k] === 'string' || typeof q[k] === 'number')) patch[k] = q[k];
     UT.setIn('instrument', patch);
     UT.renderNow();
     return UT.clone(UT.state.instrument);
@@ -629,6 +709,14 @@
     const rec2 = dacRecord(Object.assign({}, inst, { gain: 46, dac: rec }), { path: 50, peakPct: 80 });
     if (!rec2 || Math.abs(rec2.points[1].ampPct - 40.09) > 0.1) f.push('dacRecord normalise');
     if (dacRecord(Object.assign({}, inst, { gain: 20, dac: rec }), { path: 50, peakPct: 80 }) !== null) f.push('dacRecord refuse >120');
+    const hot = Object.assign({}, inst, { gain: 40, dac: { points: [{ path: 25, ampPct: 119 }, { path: 50, ampPct: 76 }], on: true, refDb: 34 } });
+    if (Math.abs(dacCurve(hot, derived)[0].pct - 100 * M.dB2lin(6)) > 0.05) f.push('dacCurve clip 100 @ refGain');
+    if (Math.abs(dacAt(hot, 25) - 100 * M.dB2lin(6)) > 0.05 || Math.abs(dacAt(hot, 50) - 76 * M.dB2lin(6)) > 0.05) f.push('dacAt clip');
+    const tOpts = traceOpts({ instrument: { range: 100, delay: 0 }, display: { skips: 3 } }, { kind: 'weld', T: 10 }, { angle: 0, x: 60 });
+    if (tOpts.maxLegs !== 22) f.push('traceOpts 0deg maxLegs ' + tOpts.maxLegs);
+    if (traceOpts({ instrument: { range: 1000, delay: 0 }, display: { skips: 3 } }, { kind: 'weld', T: 5 }, { angle: 0, x: 60 }).maxLegs !== MAX_LEGS_0DEG) f.push('traceOpts cap');
+    if (traceOpts({ instrument: { range: 100, delay: 0 }, display: { skips: 3 } }, { kind: 'weld', T: 10 }, { angle: 60, x: 60 }).maxLegs !== 3) f.push('traceOpts angle');
+    if (num('abc', 7, 0, 10) !== 7 || num(NaN, 7, 0, 10) !== 7 || num('12', 7, 0, 10) !== 10 || num(null, 7, 0, 10) !== 7 || num(true, 7, 0, 10) !== 7 || num(-3, 7, 0, 10) !== 0) f.push('num()');
     // cal round-trip (auto-cal numbers per §15.5)
     const dz = UT.probe.derive({ angle: 0, freq: 5, diameter: 10 }, null);
     const wrong = Object.assign({}, inst, { cal: { vel: 5.6, zero: 0.4 } });

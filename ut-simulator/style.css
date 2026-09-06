@@ -18,12 +18,16 @@ canvas { display: block; }
   position: relative;
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  /* definite height: #main (flex 1 1 auto) then gets a definite size, so the grid below sizes its rows
+   * from the real free space (whatever the title/menu/tool bars and the — possibly two-line — status
+   * bar leave) instead of assumed constants. The bars are `flex: none`, so #main (min-height 0) is
+   * the only flex item that gives way. Windows are position:fixed children, unaffected. */
+  height: 100vh;
   min-width: 1024px;
   background: #fdfbd8;
 }
 #titlebar {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 10px; flex: none;
   height: 26px; padding: 0 8px;
   background: #ffffff; color: #222; border-bottom: 1px solid #c8c8c8;
   font-size: 12px; white-space: nowrap; overflow: hidden; user-select: none;
@@ -36,7 +40,7 @@ canvas { display: block; }
 /* ------------------------------------------------------------------ menu bar */
 #menubar {
   position: relative; z-index: 60;
-  display: flex; align-items: stretch;
+  display: flex; align-items: stretch; flex: none;
   height: 22px; padding: 0 2px;
   background: #f5f5f5; border-bottom: 1px solid #c8c8c8;
   user-select: none; font-size: 12px;
@@ -68,7 +72,7 @@ canvas { display: block; }
 
 /* ------------------------------------------------------------------ toolbar */
 #toolbar {
-  display: flex; align-items: flex-end; gap: 2px;
+  display: flex; align-items: flex-end; gap: 2px; flex: none;
   height: 52px; padding: 2px 4px 3px 4px;
   background: #ececec; border-bottom: 1px solid #b0b0b0;
   user-select: none; overflow: hidden;
@@ -92,20 +96,28 @@ canvas { display: block; }
 #main {
   flex: 1 1 auto;
   display: grid;
-  /* cross-section row: what is left of the viewport once the fixed parts are taken — bars 100 px,
-   * #main padding 6 px, EPOCH instrument column 396 px (this is what sizes the plan row: the grid's
-   * free space is indefinite, so the 1fr row is content-sized), ruler 30 px, status bar 28 px = 560 px.
-   * ≈ 26vh on tall screens, and exactly fits the smallest supported viewport 1024 × 700 (§7). */
-  --cross-h: clamp(120px, calc(100vh - 560px), 236px);
+  /* Row sizing is intrinsic, so it holds for every UT set (EPOCH 600 396 px, EPOCH 4 486 px, USK7 dock
+   * 200 px) and for a wrapped two-line status bar without hard-coded heights:
+   * - plan/instrument row `minmax(auto, 1fr)`: never smaller than the instrument column (or the plan
+   *   view's min-height), and it takes whatever is left once the cross-section row is sized;
+   * - cross-section row `minmax(--cross-min, --cross-max)`: the grid fills fixed-max tracks before the
+   *   fr track, so it grows to its cap (236 px ≈ 26vh; 340 px / 36vh for block specimens) when the
+   *   viewport allows and shrinks towards its minimum on small screens (1024 × 700, §7). */
+  --cross-min: 120px;
+  --cross-max: 236px;
   grid-template-columns: 470px minmax(0, 1fr);
-  grid-template-rows: minmax(360px, 1fr) 30px var(--cross-h);
+  grid-template-rows: minmax(auto, 1fr) 30px minmax(var(--cross-min), var(--cross-max));
   gap: 0;
   min-height: 0;
+  /* below the supported envelope the rows (instrument + ruler + minimum cross-section) can exceed the
+   * space: clip inside #main rather than painting over / pushing down the status bar */
+  overflow: hidden;
   padding: 4px 6px 2px 6px;
   background: #fdfbd8;
 }
 #instrument { grid-area: 1 / 1 / 2 / 2; align-self: start; min-width: 0; overflow: visible; padding-right: 6px; }
-#plan-area { grid-area: 1 / 2 / 2 / 3; position: relative; min-height: 300px; min-width: 0; overflow: hidden; }
+/* the plan row floor (360 px, 300 px for block specimens) lives on the plan view: the row min is `auto` */
+#plan-area { grid-area: 1 / 2 / 2 / 3; position: relative; min-height: 360px; min-width: 0; overflow: hidden; }
 #ruler-area { grid-area: 2 / 1 / 3 / 3; position: relative; min-width: 0; overflow: hidden; }
 #cross-area { grid-area: 3 / 1 / 4 / 3; position: relative; min-width: 0; overflow: hidden; }
 /* absolutely positioned so the canvas backing-store size never feeds back into the grid row sizes */
@@ -126,10 +138,17 @@ canvas { display: block; }
 #main.block.no-ruler #ruler-area { display: none; }
 #main.block.no-ruler #instrument { grid-area: 1 / 1 / 2 / 2; }
 #main.block.no-ruler #cross-area { grid-area: 1 / 2 / 2 / 3; }
-#main.no-ruler:not(.block) { grid-template-rows: minmax(360px, 1fr) 0 var(--cross-h); }
+#main.no-ruler:not(.block) { grid-template-rows: minmax(auto, 1fr) 0 minmax(var(--cross-min), var(--cross-max)); }
 /* block specimens (IOW 45 mm, DAC, step wedge, lamination plate): taller cross-section so the whole block fits */
-#main.tall:not(.block) { grid-template-rows: minmax(300px, 1fr) 30px clamp(140px, min(36vh, calc(100vh - 560px)), 340px); }
+#main.tall { --cross-min: 140px; --cross-max: min(36vh, 340px); }
+#main.tall #plan-area { min-height: 300px; }
 #main.no-ruler:not(.block) #ruler-area { display: none; }
+/* EPOCH 4 (486 px, ASME keypad) is 90 px taller than the EPOCH 600 column the grid was sized for: on
+ * viewports shorter than 770 px (806 px when the status bar wraps to two lines, i.e. ≤ ~1100 px wide)
+ * scale the skin to the EPOCH 600 height (486 × 0.815 ≈ 396 px) so the 1024 × 700 minimum still fits —
+ * `zoom` scales layout too (unlike transform), and the A-scan canvas keeps its CSS box so the renderer
+ * needs no change. */
+@media (max-height: 769px), (max-height: 805px) and (max-width: 1149px) { #instrument .skin-epoch4 { zoom: 0.815; } }
 /* USK7: the instrument column shrinks to the small launcher panel */
 #main.usk7 { grid-template-columns: max-content minmax(0, 1fr); }
 #main.usk7 #instrument { min-width: 24px; }
@@ -142,7 +161,7 @@ canvas { display: block; }
  * and the hint are never shrunk or cut: only when even those do not fit on one row (TOFD/IOW hints at
  * 1024 px) does the hint drop to a second row, right-aligned. */
 #statusbar {
-  display: flex; flex-wrap: wrap; align-items: stretch; gap: 3px;
+  display: flex; flex-wrap: wrap; align-items: stretch; gap: 3px; flex: none;
   min-height: 28px; padding: 1px 4px 2px;
   background: #ececec; border-top: 1px solid #b0b0b0;
   font-size: 10px; line-height: 11px; white-space: nowrap; overflow: hidden; user-select: none;

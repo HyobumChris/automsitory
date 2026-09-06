@@ -12,6 +12,10 @@
 //   trade uses the seeded truth. Returning to a weld-kind mode restores the stash.
 // - step and lamination modes force a 0° probe (comp mode); tofd sets probe.x = 0 and rectify 'rf'
 //   (restored to 'full' on exit); leaving step restores cal {vel: null, zero: 0}.
+//   Entering step also stashes instrument.gates and sets gate 1 to {start 6, width 40, level 20} so the first
+//   backwall of the 10 mm step (8.4 mm under the wrong cal) is gated for Auto Cal; the gates are restored on exit.
+//   Auto Cal captures the earliest 'backwall' echo above the gate level (gated max only when it IS that echo).
+//   tky enters with brace 60° / braceT 12 / chordT 20 / offset 0 (= the Default button) and a 60° probe (§14.9).
 // - Windows of other modules are opened/closed through the first available of
 //   UT.<owner>.open/close, UT.<owner>.panel.open/close, UT.<owner>.window.show/hide, UT.dom.wins[name].
 // - Brush size lives in state.editing.brushPx (10–60, default 26); type in state.editing.brush.
@@ -82,11 +86,13 @@
   let stash = null;            // weld defects stashed while in a block / lamination / trade mode
   let lastAngle = null;        // for the v1/v2 face rebuild on angle change
   let savedAngle = null;       // angle probe in use before step/lamination forced 0°, restored on exit
+  let savedGates = null;       // instrument.gates before step mode reset gate 1 for the auto-cal, restored on exit
+  const STEP_GATE1 = { on: true, start: 6, width: 40, level: 20, alarm: false };   // covers the 1st backwall of the 10 mm step under the wrong cal (8.4 mm)
   let tradeTimer = null;
   let autoCalState = null;     // {step: 1|2, t1, d1, d2}
   let dacWin = null, tkyWin = null, tradeWin = null, lessonsWin = null, editorWin = null, autoCalWin = null;
   const ui = {};               // live DOM refs of the windows (rebuilt lazily)
-  const tkyOpts = { braceAngle: 45, braceT: 12, chordT: 20, braceOffset: 0, precision: 1, kind: 'T-joint' };
+  const tkyOpts = { braceAngle: 60, braceT: 12, chordT: 20, braceOffset: 0, precision: 1, kind: 'T-joint' };   // §14.9 Default
 
   function st() { return UT.state; }
   function has(path) {
@@ -200,7 +206,7 @@
     if (name !== 'weld' && defectEditor.isOpen()) defectEditor.close();
     if (prev !== name) {
       closeModeWindows(prev);
-      if (prev === 'step') instr.cal = { vel: null, zero: 0 };
+      if (prev === 'step') { instr.cal = { vel: null, zero: 0 }; if (savedGates) { instr.gates = savedGates; savedGates = null; } }
       if (prev === 'tofd') instr.rectify = 'full';
       if (prev === 'trade') { stopTradeTimer(); patch.trade = Object.assign({}, s.trade, { active: false }); patch.display = Object.assign({}, s.display, { hide: false }); }
     }
@@ -213,6 +219,7 @@
       probe.angle = savedAngle; probe.mode = presetMode(savedAngle); savedAngle = null;
     }
     if (name !== 'tky') probe.surface = 'chord';
+    else if (!o.keepProbe) { probe.angle = 60; probe.mode = presetMode(60); }   // §14.9: default probe 60° on the chord
     if (name === 'tofd') {
       probe.method = probe.method === 'pa' ? 'pe' : probe.method;
       if (probe.angle === 0) { probe.angle = s.tofd.txAngle || 60; probe.mode = presetMode(probe.angle); }
@@ -233,7 +240,16 @@
       if (stash) { defects = stash; stash = null; }
     }
     // mode specific instrument / state patches
-    if (name === 'step') instr.cal = { vel: 5.60, zero: 0.4 };
+    if (name === 'step') {
+      instr.cal = { vel: 5.60, zero: 0.4 };
+      // Gate 1 must contain the FIRST backwall of the 10 mm step as displayed under the wrong cal
+      // ((3.39 − 0.4)·5.6/2 = 8.4 mm, below the default gate start of 10) or Auto Cal would capture the 20 mm multiple.
+      if (prev !== 'step') {
+        savedGates = s.instrument.gates;
+        instr.gates = s.instrument.gates.map(function (g, i) { return i === 0 ? Object.assign({}, g, STEP_GATE1) : g; });
+        instr.activeGate = 0;
+      }
+    }
     if (name === 'tofd') instr.rectify = 'rf';
     if (name === 'iow') patch.plot = Object.assign({}, s.plot, { cardStyle: 'iow' });
     if (name === 'trade') {
@@ -346,6 +362,15 @@
     const d = (f && f.derived) || (UT.probe && UT.probe.derive(st().probe, st().specimen));
     const r = f && f.readouts && f.readouts.primary;
     if (!d) return null;
+    // The two-point cal assigns d1 = 10 / d2 = 25 to the FIRST backwall of the step, so when the gate sits on a
+    // later multiple (or on noise) use the earliest backwall echo above the gate level instead of the gated max.
+    const g = st().instrument.gates[st().instrument.activeGate || 0] || st().instrument.gates[0] || {};
+    const level = Number.isFinite(g.level) ? g.level : 20;
+    let first = null;
+    for (const e of (f && f.echoes) || []) {
+      if (e.kind === 'backwall' && e.ampPct >= level && (!first || e.path < first.path)) first = e;
+    }
+    if (first && (!r || !(r.path > 0) || first.path < r.path - 0.5)) return { t: 2 * first.path / d.vel + d.wedgeDelayUs, d, firstBackwall: true };
     if (r && r.path > 0) return { t: 2 * r.path / d.vel + d.wedgeDelayUs, d };
     // fallback: the backwall under the probe (no gated echo yet)
     const spec = st().specimen;
@@ -381,7 +406,7 @@
     start() {
       if (st().mode !== 'step' && !(st().mode === 'v1' && st().specimen && st().specimen.face === 'narrow')) enter('step');
       autoCalState = { step: 1, d1: 10, d2: 25, t1: null };
-      acShow('Auto Cal 1/2: Place the probe on the 10 mm step (gate on the backwall), then press ✓');
+      acShow('Auto Cal 1/2: Place the probe on the 10 mm step (gate 1 start below the first backwall echo), then press ✓');
       return autoCalState;
     },
     /** Capture the current gated peak time for the current wizard step. Returns the new cal when finished. */
@@ -540,7 +565,17 @@
   function coerceTypes(list) {
     return list.map(function (d) { return DEFECT_TYPES.indexOf(d.type) >= 0 ? d : Object.assign({}, d, { type: 'volumetric' }); });
   }
-  function setDefects(arr) { UT.set({ defects: coerceTypes(S.normaliseDefects(arr)) }); return st().defects; }
+  /** Enforce §15.8: at most 8 defects with unique slots n = 1..8 (duplicates move to the next free slot, the rest are dropped). */
+  function limitSlots(list) {
+    const out = [];
+    for (const d of list) {
+      const n = Number.isInteger(d.n) && d.n >= 1 && d.n <= 8 && !slotDefect(out, d.n) ? d.n : freeSlot(out);
+      if (!n) break;
+      out.push(n === d.n ? d : Object.assign({}, d, { n }));
+    }
+    return out;
+  }
+  function setDefects(arr) { UT.set({ defects: limitSlots(coerceTypes(S.normaliseDefects(arr))) }); return st().defects; }
   function scaleHeight(d, height) {
     const b = S.bbox(d.pts);
     const h = Math.max(1e-6, b.h);
@@ -554,7 +589,8 @@
     const fn = S.defectPresets[name];
     if (!fn) throw new Error('Unknown preset: ' + name);
     const spec = s.specimen || S.plateWeld(s.weldOpts);
-    const n = freeSlot(s.defects) || (s.defects.length + 1);
+    const n = freeSlot(s.defects);
+    if (!n) { UT.status({ right: 'Maximum 8 defects' }); return null; }
     const d = fn(spec, Object.assign({ n }, opts || {}));
     d.n = n;
     UT.set({ defects: s.defects.concat([d]) });
@@ -813,9 +849,8 @@
       }, { class: 'btn dfe-btn' }),
       presetSel,
       dom.button('Add preset', function () {
-        if (st().defects.length >= 8) { UT.status({ right: 'Maximum 8 defects' }); return; }
         const d = addPreset(presetSel.value);
-        UT.set({ selectedDefect: d.n - 1 });
+        if (d) UT.set({ selectedDefect: d.n - 1 });
       }, { class: 'btn dfe-btn' }),
     ]);
     // middle: canvas
@@ -956,6 +991,7 @@
         selectedDefect: 0,
       });
       startTradeTimer();
+      if (ui.tRows) { ui.tRows.textContent = ''; tradeAddRow(); }     // fresh report table with one empty row
       tradeRefresh();
       UT.status({ right: 'Trade Test started (' + g.truth.length + ' hidden defects). Fill in the report, then Submit' });
       return g.truth.map(function (t) { return Object.assign({}, t); });
@@ -968,9 +1004,11 @@
     submit(rows) {
       const s = st();
       const truth = s.trade.truth || [];
-      const report = (rows || []).map(function (r, i) {
-        return { n: r.n === undefined ? i + 1 : +r.n, z: +r.z, length: +r.length, depth: +r.depth, type: r.type ? String(r.type) : '' };
-      }).filter(function (r) { return Number.isFinite(r.z); });
+      const num = function (v) { const x = typeof v === 'string' && v.trim() === '' ? NaN : +v; return Number.isFinite(x) ? x : NaN; };
+      const report = (Array.isArray(rows) ? rows : []).filter(function (r) { return r && typeof r === 'object'; }).map(function (r, i) {
+        const n = num(r.n);
+        return { n: Number.isFinite(n) ? n : i + 1, z: num(r.z), length: num(r.length), depth: num(r.depth), type: typeof r.type === 'string' ? r.type : '' };
+      }).filter(function (r) { return Number.isFinite(r.z) && Number.isFinite(r.depth); });
       const used = {};
       let matched = 0, typeMatches = 0, falseCalls = 0;
       const detail = [];
@@ -1069,7 +1107,7 @@
           dom.h('div', { class: 'tt-head' }, [
             dom.button('Start', function () { trade.start(seedIn.value === '' ? undefined : +seedIn.value); }, { class: 'btn primary' }),
             seedIn,
-            dom.button('New test', function () { seedIn.value = ''; trade.start(); ui.tRows.textContent = ''; }),
+            dom.button('New test', function () { seedIn.value = ''; trade.start(); }),
             ui.tClock, ui.tSeed,
           ]),
           dom.h('div', { class: 'tt-intro' }, 'Report every defect you find: start position along the weld (z), length, depth of the top of the defect and its type. Tolerance ±10 mm (z), ±3 mm (depth). 실기시험: 발견한 결함의 위치(z), 길이, 깊이, 종류를 기록하고 Submit을 누르세요.'),
@@ -1116,8 +1154,8 @@
       UT.dom.injectCss('modes', modes.css);
       const dom = UT.dom;
       if (!tkyWin) {
-        ui.tkyLabel = dom.h('div', { class: 'tky-label' }, 'Brace angle = 45°');
-        ui.tkySlider = dom.h('input', { type: 'range', min: 30, max: 90, step: 1, value: 45, class: 'tky-slider' });
+        ui.tkyLabel = dom.h('div', { class: 'tky-label' }, 'Brace angle = 60°');
+        ui.tkySlider = dom.h('input', { type: 'range', min: 30, max: 90, step: 1, value: 60, class: 'tky-slider' });
         ui.tkySlider.addEventListener('input', function () { tkyApply({ braceAngle: +(+ui.tkySlider.value).toFixed(1) }); });
         ui.tkyKind = ['Plate', 'T-joint', 'Pipe'].map(function (k) {
           return dom.button(k, function () { tkyApply({ kind: k }); }, { class: 'btn tky-kind', dataset: { kind: k } });
@@ -1201,7 +1239,7 @@
       setup() { weld({ T: 20 }); setProbe({ angle: 60 }); defectEditor.open(); },
       steps: ['Paint a root crack with the brush (26 px)', 'LENGTH 30, SEPARATION 20, APPLY TO ALL, OK', 'Scan along z with ↑/↓'] },
     { n: 11, title: 'How to use the EPOCH', ko: 'EPOCH 600 조작: 게인, 레인지, 게이트, 피크메모리, 프리즈', en: 'EPOCH 600: gain, range, gates, peak memory, freeze',
-      setup() { weld({ T: 20 }); UT.set({ utSet: 'epoch600' }); setProbe({ angle: 60 }); addPreset('rootCrack'); },
+      setup() { weld({ T: 20 }); UT.set({ utSet: 'epoch600' }); setProbe({ angle: 60 }); setDefects([]); addPreset('rootCrack'); },
       steps: ['Gain softkey + ▲▼', 'RANGE key cycles 50/100/200/400', 'GATES → G1 start / width', 'PEAK MEM sweep, then Freeze'] },
     { n: 12, title: 'EPOCH AUTO Calibration', ko: 'EPOCH 자동 교정: 10/25 mm 2점 속도·영점', en: 'EPOCH auto-cal: two-point velocity and zero on the step wedge',
       setup() { UT.set({ utSet: 'epoch600' }); enter('step'); setInstr({ range: 50, gain: 30 }); },
@@ -1394,6 +1432,7 @@
   function isToolbarEnabled(id) {
     const key = id.indexOf('tb-') === 0 ? id : 'tb-' + id;
     if (defectEditor.isOpen() && enabled.editor.disabledToolbar.indexOf(key) >= 0) return false;
+    if (st().mode === 'trade' && key === 'tb-hide' && st().trade.revealed) return true;   // §14.7: locked only until Submit / Reveal
     const e = enabled[st().mode] || enabled.weld;
     return e.disabledToolbar.indexOf(key) < 0;
   }

@@ -760,6 +760,12 @@ UT.test.lessons()                      // list of lesson titles
 UT.test.trade.start(seed); UT.test.trade.truth(); UT.test.trade.submit(rows) → score
 UT.test.version                        // UT.VERSION
 ```
+Validation contract (`setProbe` / `setInstrument`, implemented in 40-ascan): numeric fields are applied
+only when they coerce to a finite number (then clamped: gain 0…110, range 10…1000, delay −50…1000,
+reject 0…80, gates 1 mm / 1 %), otherwise the previous value is kept; `side` → ±1; `skew` → 0..360;
+`crystal` / `method` / `surface` / `mode` / `rectify` are checked against their enum lists (unknown values
+keep the previous one); gate entries that are not objects are ignored. State never receives NaN or
+strings for numeric fields.
 Toolbar button ids: `tb-0, tb-45, tb-60, tb-70, tb-v2, tb-v1, tb-dac, tb-plot, tb-damp, tb-size,
 tb-defect, tb-hide, tb-clear, tb-beam, tb-rad, tb-pipe, tb-tky, tb-tofd, tb-aut`. Menu bar items have
 ids `menu-file, menu-probes, menu-stepwedge, menu-weld, menu-defects, menu-options, menu-help`.
@@ -1140,7 +1146,10 @@ UT.frame = {
   synthesising samples.
 - `UT.rays.trace({specimen, probe, derived, display, defects, opts})` with
   `opts = { maxPath /* mm, = instrument.delay + instrument.range */, fanCount: 21, maxLegs }` where
-  `maxLegs = (probe.angle === 0 || specimen.kind === 'block') ? 12 : display.skips`; stop marching when
+  `maxLegs`: for `probe.angle === 0` → `max(12, min(60, ceil(2·opts.maxPath/T) + 2))` with T = local
+  thickness under the probe (step wedge: `thicknessAt(probe.x)`), so the 0° backwall multiples continue to
+  the end of the range as in the original; `specimen.kind === 'block'` with an angled probe → 12; otherwise
+  `display.skips`; stop marching when
   `len > max(2·opts.maxPath + 100, 700)` or `leg > opts.maxLegs`. Drawing always shows only the first
   `display.skips` legs. Every `Echo` also carries `ampNoZ` (amp with Z = 1) and `hz`;
   `UT.rays.zFactor(echo, probeZ, probeSkew, defects, specimen) → Z` recomputes §6.7 for another z

@@ -6,9 +6,12 @@
  *   active UT set `#instrument` shows a small dark panel with a "Show USK 7" button (the window can be closed
  *   with its OFF button and re-opened from that panel or Options ▸ UT Set).  Only one `#cv-ascan` exists at a time.
  * - `UT.instruments.window` is a lazy getter: the window is created on first access (needs a document).
+ *   In v1/v2 the USK7 is parked bottom-right (§14.8); leaving those modes restores the position it had before.
  * - 2ND F is a latch: it highlights until the next key consumes it (dB → refGain = gain; ▲▼ → 6 dB gain steps;
  *   RANGE → previous preset instead of next; ↶ cancels).
- * - GATES hard key: cycles the active gate 1 → 2 → 1, turns that gate on and selects its Start parameter.
+ * - GATES hard key: cycles the active gate 1 → 2 → 1, turns that gate on, selects its Start parameter and shows it
+ *   (page 2, Gate1/Gate2 sub-page).  P1–P5 always return to the top level of the page (sub-page cleared).
+ *   dB / RANGE leave a sub-page that does not show Gain / Range (and fall back to page 1) so the selected value is visible.
  *   Selecting a Gate2 parameter from the Gate2 sub-page also switches `activeGate` and turns the gate on.
  * - ◀ ▶ (and Shift+▲▼) are coarse steps: gain 6 dB, range 10 %, delay 10 mm, gates 10 mm / 10 %, velocity
  *   100 m/s, zero 0.1 µs, trig angle 1°, trig thickness 1 mm.  Fine steps per §15.7 (velocity 10 m/s, zero
@@ -35,7 +38,7 @@
   // ------------------------------------------------------------------ module memory
   const mem = {
     container: null, skin: null, canvas: null, iconCanvas: null, refs: {}, mounted: false,
-    secondF: false, subPage: null, gateMode: 'Peak', focused: false, uskWin: null, drag: null,
+    secondF: false, subPage: null, gateMode: 'Peak', focused: false, uskWin: null, uskParked: null, drag: null,
     lastTexts: {}, ledOn: true,
   };
 
@@ -50,7 +53,7 @@
   function fmtRead(mm) { if (mm === null || mm === undefined || Number.isNaN(mm)) return '--.--'; return isInch() ? (mm / 25.4).toFixed(3) : M.fmt2(mm); }
   function unitLabel() { return isInch() ? 'in' : 'mm'; }
   function setText(el, text) { if (el && el.textContent !== text) el.textContent = text; }
-  function gateOf(i) { const g = inst().gates; return g[i] || { on: false, start: 0, width: 0, level: 0, alarm: false }; }
+  function gateOf(i, ins) { const g = (ins || inst()).gates; return g[i] || { on: false, start: 0, width: 0, level: 0, alarm: false }; }
   function patchGate(i, patch) {
     const gates = inst().gates.map(function (g, j) { return j === i ? Object.assign({}, g, patch) : Object.assign({}, g); });
     while (gates.length <= i) gates.push(Object.assign({ on: false, start: 70, width: 20, level: 40, alarm: false }, patch));
@@ -98,20 +101,20 @@
 
   // ------------------------------------------------------------------ parameter model
   const PARAMS = {
-    gain: { label: 'Gain', get() { return inst().gain; }, set(v) { setInst({ gain: M.clamp(v, 0, 110) }); }, step: 0.5, coarse: 6, fmt(v) { return fmtGain(v); } },
-    range: { label: 'Range', get() { return inst().range; }, set(v) { setInst({ range: M.clamp(v, 10, 1000) }); }, mul: true, step: 0.01, coarse: 0.1, fmt(v) { return v.toFixed(1); } },
-    delay: { label: 'Delay', get() { return inst().delay; }, set(v) { setInst({ delay: M.clamp(v, 0, 1000) }); }, step: 1, coarse: 10, fmt(v) { return (v < 10 ? '0' : '') + v.toFixed(1); } },
-    reject: { label: 'Reject', get() { return inst().reject; }, set(v) { setInst({ reject: M.clamp(Math.round(v), 0, 80) }); }, step: 1, coarse: 10, fmt(v) { return v + '%'; } },
-    velocity: { label: 'Velocity', get() { const c = inst().cal; return (c && c.vel !== null && c.vel !== undefined) ? c.vel : derived().vel; }, set(v) { setInst({ cal: Object.assign({}, inst().cal, { vel: M.clamp(v, 1, 10) }) }); }, step: 0.01, coarse: 0.1, fmt(v) { return Math.round(v * 1000) + 'm/s'; } },
-    zero: { label: 'Zero', get() { const c = inst().cal; return (c && c.zero) || 0; }, set(v) { setInst({ cal: Object.assign({}, inst().cal, { zero: M.clamp(v, -50, 50) }) }); }, step: 0.01, coarse: 0.1, fmt(v) { return v.toFixed(2) + 'us'; } },
-    trigAngle: { label: 'Angle', get() { return inst().trig.angle; }, set(v) { setInst({ trig: Object.assign({}, inst().trig, { angle: M.clamp(v, 0, 89) }) }); UT.setIn('display', { autoTrig: false }); }, step: 0.1, coarse: 1, fmt(v) { return v.toFixed(1) + '°'; } },
-    trigThick: { label: 'Thick', get() { return inst().trig.thick; }, set(v) { setInst({ trig: Object.assign({}, inst().trig, { thick: M.clamp(v, 1, 1000) }) }); UT.setIn('display', { autoTrig: false }); }, step: 0.1, coarse: 1, fmt(v) { return v.toFixed(1); } },
+    gain: { label: 'Gain', get(ins) { return (ins || inst()).gain; }, set(v) { setInst({ gain: M.clamp(v, 0, 110) }); }, step: 0.5, coarse: 6, fmt(v) { return fmtGain(v); } },
+    range: { label: 'Range', get(ins) { return (ins || inst()).range; }, set(v) { setInst({ range: M.clamp(v, 10, 1000) }); }, mul: true, step: 0.01, coarse: 0.1, fmt(v) { return v.toFixed(1); } },
+    delay: { label: 'Delay', get(ins) { return (ins || inst()).delay; }, set(v) { setInst({ delay: M.clamp(v, 0, 1000) }); }, step: 1, coarse: 10, fmt(v) { return (v < 10 ? '0' : '') + v.toFixed(1); } },
+    reject: { label: 'Reject', get(ins) { return (ins || inst()).reject; }, set(v) { setInst({ reject: M.clamp(Math.round(v), 0, 80) }); }, step: 1, coarse: 10, fmt(v) { return v + '%'; } },
+    velocity: { label: 'Velocity', get(ins) { const c = (ins || inst()).cal; return (c && c.vel !== null && c.vel !== undefined) ? c.vel : derived().vel; }, set(v) { setInst({ cal: Object.assign({}, inst().cal, { vel: M.clamp(v, 1, 10) }) }); }, step: 0.01, coarse: 0.1, fmt(v) { return Math.round(v * 1000) + 'm/s'; } },
+    zero: { label: 'Zero', get(ins) { const c = (ins || inst()).cal; return (c && c.zero) || 0; }, set(v) { setInst({ cal: Object.assign({}, inst().cal, { zero: M.clamp(v, -50, 50) }) }); }, step: 0.01, coarse: 0.1, fmt(v) { return v.toFixed(2) + 'us'; } },
+    trigAngle: { label: 'Angle', get(ins) { return (ins || inst()).trig.angle; }, set(v) { setInst({ trig: Object.assign({}, inst().trig, { angle: M.clamp(v, 0, 89) }) }); UT.setIn('display', { autoTrig: false }); }, step: 0.1, coarse: 1, fmt(v) { return v.toFixed(1) + '°'; } },
+    trigThick: { label: 'Thick', get(ins) { return (ins || inst()).trig.thick; }, set(v) { setInst({ trig: Object.assign({}, inst().trig, { thick: M.clamp(v, 1, 1000) }) }); UT.setIn('display', { autoTrig: false }); }, step: 0.1, coarse: 1, fmt(v) { return v.toFixed(1); } },
   };
   [0, 1].forEach(function (gi) {
     const n = gi + 1;
-    PARAMS['g' + n + 'start'] = { label: 'G' + n + 'Start', gate: gi, get() { return gateOf(gi).start; }, set(v) { patchGate(gi, { start: M.clamp(v, 0, 1000), on: true }); }, step: 1, coarse: 10, fmt(v) { return M.fmt2(v); } };
-    PARAMS['g' + n + 'width'] = { label: 'G' + n + 'Width', gate: gi, get() { return gateOf(gi).width; }, set(v) { patchGate(gi, { width: M.clamp(v, 1, 1000), on: true }); }, step: 1, coarse: 10, fmt(v) { return M.fmt2(v); } };
-    PARAMS['g' + n + 'level'] = { label: 'G' + n + 'Level', gate: gi, get() { return gateOf(gi).level; }, set(v) { patchGate(gi, { level: M.clamp(Math.round(v), 1, 100), on: true }); }, step: 1, coarse: 10, fmt(v) { return Math.round(v) + '%'; } };
+    PARAMS['g' + n + 'start'] = { label: 'G' + n + 'Start', gate: gi, get(ins) { return gateOf(gi, ins).start; }, set(v) { patchGate(gi, { start: M.clamp(v, 0, 1000), on: true }); }, step: 1, coarse: 10, fmt(v) { return M.fmt2(v); } };
+    PARAMS['g' + n + 'width'] = { label: 'G' + n + 'Width', gate: gi, get(ins) { return gateOf(gi, ins).width; }, set(v) { patchGate(gi, { width: M.clamp(v, 1, 1000), on: true }); }, step: 1, coarse: 10, fmt(v) { return M.fmt2(v); } };
+    PARAMS['g' + n + 'level'] = { label: 'G' + n + 'Level', gate: gi, get(ins) { return gateOf(gi, ins).level; }, set(v) { patchGate(gi, { level: M.clamp(Math.round(v), 1, 100), on: true }); }, step: 1, coarse: 10, fmt(v) { return Math.round(v) + '%'; } };
   });
 
   /** Select a parameter for ▲▼ / wheel adjustment. */
@@ -142,9 +145,15 @@
 
   // ------------------------------------------------------------------ hard-key actions (shared by skins)
   const keys = {
-    dB() { if (mem.secondF) { setInst({ refGain: inst().gain, selectedParam: 'gain' }); setSecondF(false); UT.status({ right: 'Reference gain locked at ' + fmtGain(inst().gain) }); } else selectParam('gain'); },
-    range() { setInst({ range: nextRange(inst().range, mem.secondF), selectedParam: 'range' }); setSecondF(false); },
-    gates() { const g = (inst().activeGate + 1) % 2; setInst({ activeGate: g, selectedParam: 'g' + (g + 1) + 'start' }); if (!gateOf(g).on) patchGate(g, { on: true }); setSecondF(false); },
+    dB() { if (mem.secondF) { setInst({ refGain: inst().gain, selectedParam: 'gain' }); setSecondF(false); UT.status({ right: 'Reference gain locked at ' + fmtGain(inst().gain) }); } else selectParam('gain'); revealParam('gain'); },
+    range() { setInst({ range: nextRange(inst().range, mem.secondF), selectedParam: 'range' }); setSecondF(false); revealParam('range'); },
+    gates() {
+      const g = (inst().activeGate + 1) % 2;
+      mem.subPage = 'Gate' + (g + 1);
+      setInst({ activeGate: g, selectedParam: 'g' + (g + 1) + 'start', page: 2 });
+      if (!gateOf(g).on) patchGate(g, { on: true });
+      setSecondF(false); rebuildSoftkeys();
+    },
     peakMem() { setInst({ peakMem: !inst().peakMem }); setSecondF(false); },
     freeze() { setInst({ freeze: !inst().freeze }); setSecondF(false); },
     secondF() { setSecondF(!mem.secondF); },
@@ -181,36 +190,52 @@
   };
 
   // ------------------------------------------------------------------ EPOCH 600 softkey pages (§14.4)
-  function valueOf(name) { const p = PARAMS[name]; return p ? p.fmt(p.get()) : ''; }
+  /** Formatted value of a parameter; `ins` (default `state.instrument`) lets tests evaluate a local copy. */
+  function valueOf(name, ins) { const p = PARAMS[name]; return p ? p.fmt(p.get(ins)) : ''; }
   function calVel() { return PARAMS.velocity.get(); }
   const PAGES = {
     1: function () { return [pk('Gain', 'gain'), pk('Range', 'range'), pk('Delay', 'delay'), sub('Basic'), sub('Pulsar'), sub('Rcvr'), sub('Trig'), act('Auto Cal', keys.autoCal)]; },
     2: function () { return [pk('Gain', 'gain'), pk('Range', 'range'), pk('G1Level', 'g1level'), sub('Gate1'), sub('Gate2'), sub('Gate Setup')]; },
-    3: function () { return [pk('Gain', 'gain'), sub('DAC Setup'), act('Record', keys.record), act('Erase', keys.erase), act('Curve', keys.curve, inst().dac.on ? 'On' : 'Off'), act('Draw', keys.draw, inst().dac.curves ? '-6/-14' : 'Off')]; },
-    4: function () { return [hdr('Display'), act('Rectify', keys.rectify, rectLabel()), act('Grid', keys.grid, st().display.grid ? 'On' : 'Off'), act('Peak Mem', keys.peakMem, inst().peakMem ? 'On' : 'Off'), act('Freeze', keys.freeze, inst().freeze ? 'On' : 'Off')]; },
-    5: function () { return [act('Units', keys.units, isInch() ? 'inch' : 'mm'), hdr('Trig'), pk('Angle', 'trigAngle'), pk('Thick', 'trigThick'), act('X Value', null, inst().trig.xValue.toFixed(1)), act('Reset', keys.reset)]; },
+    3: function (ins) { return [pk('Gain', 'gain'), sub('DAC Setup'), act('Record', keys.record), act('Erase', keys.erase), act('Curve', keys.curve, ins.dac.on ? 'On' : 'Off'), act('Draw', keys.draw, ins.dac.curves ? '-6/-14' : 'Off')]; },
+    4: function (ins) { return [hdr('Display'), act('Rectify', keys.rectify, rectLabel(ins)), act('Grid', keys.grid, st().display.grid ? 'On' : 'Off'), act('Peak Mem', keys.peakMem, ins.peakMem ? 'On' : 'Off'), act('Freeze', keys.freeze, ins.freeze ? 'On' : 'Off')]; },
+    5: function (ins) { return [act('Units', keys.units, isInch() ? 'inch' : 'mm'), hdr('Trig'), pk('Angle', 'trigAngle'), pk('Thick', 'trigThick'), act('X Value', null, ins.trig.xValue.toFixed(1)), act('Reset', keys.reset)]; },
   };
   const SUBPAGES = {
     'Basic': function () { return [pk('Range', 'range'), pk('Velocity', 'velocity'), pk('Zero', 'zero'), pk('Delay', 'delay')]; },
-    'Pulsar': function () { return [act('Freq', null, st().probe.freq.toFixed(1) + 'MHz'), act('Energy', null, 'Med'), act('Damping', keys.damping, inst().damping ? '400Ω' : '50Ω'), act('PRF', null, '60Hz')]; },
-    'Rcvr': function () { return [act('Filter', null, 'Std'), act('Rectify', keys.rectify, rectLabel()), pk('Reject', 'reject')]; },
-    'Trig': function () { return [pk('Angle', 'trigAngle'), pk('Thick', 'trigThick'), act('X Value', null, inst().trig.xValue.toFixed(1)), act('CSC', null, 'Off')]; },
-    'Gate1': function () { return gatePage(0); },
-    'Gate2': function () { return gatePage(1); },
-    'Gate Setup': function () { return [act('Mode', keys.gateMode, mem.gateMode), act('Measure', keys.measure, inst().readout === 'sp' ? 'SP' : 'Depth')]; },
-    'DAC Setup': function () { return [act('DAC', keys.curve, inst().dac.on ? 'On' : 'Off'), act('Ref dB', null, inst().dac.refDb === null || inst().dac.refDb === undefined ? '--' : fmtGain(inst().dac.refDb)), act('Points', null, String(inst().dac.points.length)), act('Curves', keys.draw, inst().dac.curves ? 'On' : 'Off')]; },
+    'Pulsar': function (ins) { return [act('Freq', null, st().probe.freq.toFixed(1) + 'MHz'), act('Energy', null, 'Med'), act('Damping', keys.damping, ins.damping ? '400Ω' : '50Ω'), act('PRF', null, '60Hz')]; },
+    'Rcvr': function (ins) { return [act('Filter', null, 'Std'), act('Rectify', keys.rectify, rectLabel(ins)), pk('Reject', 'reject')]; },
+    'Trig': function (ins) { return [pk('Angle', 'trigAngle'), pk('Thick', 'trigThick'), act('X Value', null, ins.trig.xValue.toFixed(1)), act('CSC', null, 'Off')]; },
+    'Gate1': function (ins) { return gatePage(0, ins); },
+    'Gate2': function (ins) { return gatePage(1, ins); },
+    'Gate Setup': function (ins) { return [act('Mode', keys.gateMode, mem.gateMode), act('Measure', keys.measure, ins.readout === 'sp' ? 'SP' : 'Depth')]; },
+    'DAC Setup': function (ins) { return [act('DAC', keys.curve, ins.dac.on ? 'On' : 'Off'), act('Ref dB', null, ins.dac.refDb === null || ins.dac.refDb === undefined ? '--' : fmtGain(ins.dac.refDb)), act('Points', null, String(ins.dac.points.length)), act('Curves', keys.draw, ins.dac.curves ? 'On' : 'Off')]; },
   };
-  function gatePage(gi) { const n = gi + 1; return [act('Zoom', null, 'Off'), pk('Start', 'g' + n + 'start'), pk('Width', 'g' + n + 'width'), pk('Level', 'g' + n + 'level'), act('Alarm', function () { keys.alarm(gi); }, gateOf(gi).alarm ? 'On' : 'Off')]; }
-  function rectLabel() { const r = inst().rectify; return r === 'rf' ? 'RF' : r === 'half+' ? 'Half+' : r === 'half-' ? 'Half−' : 'Full'; }
+  function gatePage(gi, ins) { const n = gi + 1; return [act('Zoom', null, 'Off'), pk('Start', 'g' + n + 'start'), pk('Width', 'g' + n + 'width'), pk('Level', 'g' + n + 'level'), act('Alarm', function () { keys.alarm(gi); }, gateOf(gi, ins).alarm ? 'On' : 'Off')]; }
+  function rectLabel(ins) { const r = (ins || inst()).rectify; return r === 'rf' ? 'RF' : r === 'half+' ? 'Half+' : r === 'half-' ? 'Half−' : 'Full'; }
   function pk(label, param) { return { kind: 'param', label, param }; }
   function sub(label) { return { kind: 'sub', label }; }
   function act(label, fn, value) { return { kind: 'act', label, fn, value }; }
   function hdr(label) { return { kind: 'hdr', label }; }
-  /** Softkey items for the current page / sub-page (exported for tests). */
-  function softkeyItems() {
-    if (mem.subPage && SUBPAGES[mem.subPage]) return [{ kind: 'back', label: mem.subPage }].concat(SUBPAGES[mem.subPage]());
-    const page = M.clamp(Math.round(inst().page) || 1, 1, 5);
-    return PAGES[page]();
+  /**
+   * Softkey items for a page / sub-page (exported for tests).  Pure: reads `ins` (default `state.instrument`)
+   * and `subPage` (default the live `mem.subPage`; pass `null` for the top level) without touching state.
+   */
+  function softkeyItems(ins, subPage) {
+    ins = ins || inst();
+    const sp = subPage === undefined ? mem.subPage : subPage;
+    if (sp && SUBPAGES[sp]) return [{ kind: 'back', label: sp }].concat(SUBPAGES[sp](ins));
+    const page = M.clamp(Math.round(ins.page) || 1, 1, 5);
+    return PAGES[page](ins);
+  }
+  /**
+   * After a hard key selected `param`, make sure its softkey cell is on screen: leave a sub-page that does not
+   * show it and, if the page still hides it, return to page 1 (Gain / Range / Delay).
+   */
+  function revealParam(param) {
+    const shown = function () { return softkeyItems().some(function (it) { return it.kind === 'param' && it.param === param; }); };
+    if (!shown() && mem.subPage) mem.subPage = null;
+    if (!shown() && PAGES[1]().some(function (it) { return it.kind === 'param' && it.param === param; })) setInst({ page: 1 });
+    rebuildSoftkeys();
   }
 
   // ------------------------------------------------------------------ DOM builders
@@ -286,7 +311,7 @@
     const centre = h('div', { class: 'e6-centre' }, [
       h('div', { class: 'e6-top' }, [h('span', { class: 'e6-leds' }, R.leds), h('span', { class: 'e6-olympus' }, 'OLYMPUS'), key('⏻', function () { mem.ledOn = !mem.ledOn; R.leds[0].classList.toggle('on', mem.ledOn); }, 'ik-power')]),
       screen,
-      h('div', { class: 'e6-prow' }, ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7'].map(function (p) { return key(p, function () { const n = parseInt(p.slice(1), 10); if (n <= 5) setInst({ page: n }); mem.subPage = null; }, 'ik-p'); })),
+      h('div', { class: 'e6-prow' }, ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7'].map(function (p) { return key(p, function () { const n = parseInt(p.slice(1), 10); mem.subPage = null; if (n <= 5) setInst({ page: n }); rebuildSoftkeys(); }, 'ik-p'); })),
     ]);
     const right = h('div', { class: 'e6-right' }, [key('NEXT GROUP', keys.nextGroup, 'ik-next'), h('div', { class: 'e6-fkeys' }, ['F1', 'F2', 'F3', 'F4', 'F5'].map(function (f, i) { return key(f, function () { softkeyPress(i + (mem.subPage ? 1 : 0)); }, 'ik-f'); }))]);
     const body = h('div', { class: 'skin skin-epoch600' }, [leftPad, centre, right]);
@@ -307,6 +332,7 @@
   }
   function rebuildSoftkeys() {
     const col = mem.refs.softCol; if (!col) return;
+    col.dataset.page = inst().page + '|' + (mem.subPage || '');
     col.textContent = '';
     const items = softkeyItems();
     const sel = inst().selectedParam;
@@ -732,7 +758,7 @@
     const c = mem.container; if (!c) return;
     c.textContent = '';
     mem.refs = {}; mem.canvas = null; mem.iconCanvas = null; mem.subPage = null; setSecondF(false);
-    if (mem.uskWin && name !== 'usk7') { mem.uskWin.setContent(null); mem.uskWin.hide(); }
+    if (mem.uskWin && name !== 'usk7') { mem.uskWin.setContent(null); mem.uskWin.hide(); mem.uskParked = null; }
     mem.skin = name;
     if (name === 'epoch4') buildEpoch4(c);
     else if (name === 'usk7') buildUsk7(c);
@@ -764,9 +790,17 @@
       });
       document.addEventListener('mouseup', function () { mem.drag = null; });
       UT.bus.on('mode', function (p) {
-        if (mem.skin === 'usk7' && mem.uskWin && p && (p.mode === 'v1' || p.mode === 'v2')) {
+        if (mem.skin !== 'usk7' || !mem.uskWin || !p) return;
+        const el = mem.uskWin.el;
+        if (p.mode === 'v1' || p.mode === 'v2') {
+          // §14.8: the USK7 floats bottom-right on the block screens; remember where it was so it can go back.
+          if (!mem.uskParked) mem.uskParked = { left: el.style.left, top: el.style.top };
           const app = document.getElementById('app'); const r = app ? app.getBoundingClientRect() : { right: window.innerWidth, bottom: window.innerHeight };
-          mem.uskWin.el.style.left = Math.max(0, r.right - 500) + 'px'; mem.uskWin.el.style.top = Math.max(0, r.bottom - 260) + 'px';
+          el.style.left = Math.max(0, r.right - 500) + 'px'; el.style.top = Math.max(0, r.bottom - 260) + 'px';
+        } else if (mem.uskParked) {
+          const prev = mem.uskParked; mem.uskParked = null;
+          if (prev.left && prev.top) { el.style.left = prev.left; el.style.top = prev.top; }
+          else { mem.uskPositioned = false; positionUsk(mem.uskWin); }   // default: top-left of the plan view (§14.4)
         }
       });
     }
@@ -952,21 +986,17 @@
       if (!THEMES.epoch600 || !THEMES.epoch4 || !THEMES.usk7) f.push('themes');
       if (resolveTheme({ base: 'usk7', trace: '#fff' }).bg !== THEMES.usk7.bg) f.push('resolveTheme override');
       // softkey page structure (§14.4)
-      const saved = UT.state.instrument; const savedSub = mem.subPage;
-      try {
-        UT.state.instrument = Object.assign({}, UT.defaultState().instrument);
-        const labels = function (p) { UT.state.instrument.page = p; mem.subPage = null; return softkeyItems().map(function (i) { return i.label; }).join('|'); };
-        if (labels(1) !== 'Gain|Range|Delay|Basic|Pulsar|Rcvr|Trig|Auto Cal') f.push('page 1: ' + labels(1));
-        if (labels(2) !== 'Gain|Range|G1Level|Gate1|Gate2|Gate Setup') f.push('page 2: ' + labels(2));
-        if (labels(3) !== 'Gain|DAC Setup|Record|Erase|Curve|Draw') f.push('page 3: ' + labels(3));
-        if (labels(4) !== 'Display|Rectify|Grid|Peak Mem|Freeze') f.push('page 4: ' + labels(4));
-        if (labels(5) !== 'Units|Trig|Angle|Thick|X Value|Reset') f.push('page 5: ' + labels(5));
-        mem.subPage = 'Basic'; UT.state.instrument.page = 1;
-        if (softkeyItems().map(function (i) { return i.label; }).join('|') !== 'Basic|Range|Velocity|Zero|Delay') f.push('Basic sub-page');
-        mem.subPage = 'Gate2';
-        if (softkeyItems().map(function (i) { return i.label; }).join('|') !== 'Gate2|Zoom|Start|Width|Level|Alarm') f.push('Gate2 sub-page');
-        if (valueOf('gain') !== '30dB' || valueOf('range') !== '100.0' || valueOf('g1level') !== '20%') f.push('valueOf ' + valueOf('gain') + ' ' + valueOf('range') + ' ' + valueOf('g1level'));
-      } finally { UT.state.instrument = saved; mem.subPage = savedSub; }
+      // (evaluated on a local copy of the default instrument — UT.state and mem are never mutated here, §15.1/§15.12)
+      const tmp = Object.assign({}, UT.defaultState().instrument);
+      const labels = function (p, sp) { return softkeyItems(Object.assign({}, tmp, { page: p }), sp === undefined ? null : sp).map(function (i) { return i.label; }).join('|'); };
+      if (labels(1) !== 'Gain|Range|Delay|Basic|Pulsar|Rcvr|Trig|Auto Cal') f.push('page 1: ' + labels(1));
+      if (labels(2) !== 'Gain|Range|G1Level|Gate1|Gate2|Gate Setup') f.push('page 2: ' + labels(2));
+      if (labels(3) !== 'Gain|DAC Setup|Record|Erase|Curve|Draw') f.push('page 3: ' + labels(3));
+      if (labels(4) !== 'Display|Rectify|Grid|Peak Mem|Freeze') f.push('page 4: ' + labels(4));
+      if (labels(5) !== 'Units|Trig|Angle|Thick|X Value|Reset') f.push('page 5: ' + labels(5));
+      if (labels(1, 'Basic') !== 'Basic|Range|Velocity|Zero|Delay') f.push('Basic sub-page');
+      if (labels(1, 'Gate2') !== 'Gate2|Zoom|Start|Width|Level|Alarm') f.push('Gate2 sub-page');
+      if (valueOf('gain', tmp) !== '30dB' || valueOf('range', tmp) !== '100.0' || valueOf('g1level', tmp) !== '20%') f.push('valueOf ' + valueOf('gain', tmp) + ' ' + valueOf('range', tmp) + ' ' + valueOf('g1level', tmp));
       if (css.indexOf('<\/style') >= 0 || css.indexOf('<\/script') >= 0) f.push('css contains closing tag');
       return f;
     },

@@ -112,7 +112,8 @@
     const instLike = Object.assign({}, inst, { gates, activeGate: a.activeGate || 0, peakMem: false, freeze: false });
     return {
       spec, probe, derived, inst, instLike, defects, echoes, rays, gates,
-      zDep: echoes.map(function (e) { return e.defectId !== undefined; }),
+      // z-dependent: defect echoes AND echoes shadowed by a defect (echo.zs = [{defectId, hz, trans}], e.g. the backwall behind a lamination)
+      zDep: echoes.map(function (e) { return e.defectId !== undefined || (Array.isArray(e.zs) && e.zs.length > 0); }),
       nSamples: (UT.ascan && UT.ascan.N_SAMPLES) || 1000,
     };
   }

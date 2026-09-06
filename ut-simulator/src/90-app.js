@@ -58,6 +58,24 @@
     const parent = has(path.split('.').slice(0, -1).join('.')) || UT;
     try { return fn.apply(parent, args || []); } catch (e) { console.error('[UT.app] ' + path, e); return undefined; }
   }
+  /**
+   * Normalise a defect list for state.defects: UT.specimens.normaliseDefects (up to 16, duplicate n possible)
+   * then the §15.8 rule also enforced by UT.modes.setDefects: at most 8 defects with unique slots n = 1..8
+   * (a taken / invalid n moves to the next free slot, the rest are dropped). Used wherever 90-app writes
+   * state.defects without going through UT.modes.setDefects (boot restore, preset fallback).
+   */
+  function limitDefectSlots(arr) {
+    const list = has('specimens.normaliseDefects') ? UT.specimens.normaliseDefects(arr) : (Array.isArray(arr) ? arr : []);
+    const out = [];
+    const taken = function (n) { return out.some(function (d) { return d.n === n; }); };
+    for (const d of list) {
+      let n = Number.isInteger(d.n) && d.n >= 1 && d.n <= 8 && !taken(d.n) ? d.n : 0;
+      if (!n) for (let k = 1; k <= 8; k++) if (!taken(k)) { n = k; break; }
+      if (!n) break;
+      out.push(n === d.n ? d : Object.assign({}, d, { n }));
+    }
+    return out;
+  }
   function t(key) { return UT.i18n && UT.i18n.t ? UT.i18n.t(key) : key; }
   function h(tag, attrs, kids) { return UT.dom.h(tag, attrs, kids); }
   function doc() { return typeof document === 'undefined' ? null : document; }
@@ -205,37 +223,44 @@
     const defects = st().defects.slice();
     d.n = defects.length + 1;
     defects.push(d);
-    UT.set({ defects: UT.specimens.normaliseDefects ? UT.specimens.normaliseDefects(defects) : defects });
+    UT.set({ defects: limitDefectSlots(defects) });
     return d;
   }
 
   // ------------------------------------------------------------------ toolbar model
+  // Each entry: id (button id 'tb-<id>'), label (visible), tip (EN description) + ko (Korean) → tooltip (§8/§12).
   const TOOLBAR = [
-    { id: '0', label: '0°', action: function () { setAngle(0); }, active: function () { return st().probe.angle === 0; } },
-    { id: '45', label: '45°', action: function () { setAngle(45); }, active: function () { return st().probe.angle === 45; } },
-    { id: '60', label: '60°', action: function () { setAngle(60); }, active: function () { return st().probe.angle === 60; } },
-    { id: '70', label: '70°', action: function () { setAngle(70); }, active: function () { return st().probe.angle === 70; } },
+    { id: '0', label: '0°', tip: '0° compression-wave probe (single/twin crystal)', ko: '0° 수직 탐촉자 (종파)', action: function () { setAngle(0); }, active: function () { return st().probe.angle === 0; } },
+    { id: '45', label: '45°', tip: '45° shear-wave angle probe', ko: '45° 사각 탐촉자 (횡파)', action: function () { setAngle(45); }, active: function () { return st().probe.angle === 45; } },
+    { id: '60', label: '60°', tip: '60° shear-wave angle probe', ko: '60° 사각 탐촉자 (횡파)', action: function () { setAngle(60); }, active: function () { return st().probe.angle === 60; } },
+    { id: '70', label: '70°', tip: '70° shear-wave angle probe', ko: '70° 사각 탐촉자 (횡파)', action: function () { setAngle(70); }, active: function () { return st().probe.angle === 70; } },
     { gap: true },
-    { id: 'v2', label: 'V2', action: function () { toggleMode('v2'); }, active: function () { return currentMode() === 'v2'; } },
-    { id: 'v1', label: 'V1', action: function () { toggleMode('v1'); }, active: function () { return currentMode() === 'v1'; } },
-    { id: 'dac', label: 'DAC', action: function () { toggleMode('dac'); }, active: function () { return currentMode() === 'dac'; } },
+    { id: 'v2', label: 'V2', tip: 'V2 (A4) calibration block: 25/50 mm radii, 5 mm hole', ko: 'V2 교정 시험편: 25/50 mm 반경, 5 mm 구멍', action: function () { toggleMode('v2'); }, active: function () { return currentMode() === 'v2'; } },
+    { id: 'v1', label: 'V1', tip: 'V1 (A2) calibration block: 100 mm radius, 25/100 mm faces, 50 mm hole', ko: 'V1 교정 시험편: 100 mm 반경, 25/100 mm 면', action: function () { toggleMode('v1'); }, active: function () { return currentMode() === 'v1'; } },
+    { id: 'dac', label: 'DAC', tip: 'record a distance-amplitude curve on the SDH block', ko: 'SDH 시험편에서 DAC 곡선 기록', action: function () { toggleMode('dac'); }, active: function () { return currentMode() === 'dac'; } },
     { gap: true },
-    { id: 'plot', label: 'PLOT', action: function () { toggleMode('iow'); }, active: function () { return currentMode() === 'iow'; } },
-    { id: 'damp', label: 'DAMP', action: function () { UT.setIn('instrument', { damping: !st().instrument.damping }); }, active: function () { return !!st().instrument.damping; } },
-    { id: 'size', label: 'SIZE', action: function () { toggleWindowOf('views.sizing'); }, active: function () { return winOpen('size'); } },
+    { id: 'plot', label: 'PLOT', tip: 'beam-spread plotting card on the IOW block (20 dB drop)', ko: 'IOW 시험편에서 빔 확산 플롯 (20 dB 드롭)', action: function () { toggleMode('iow'); }, active: function () { return currentMode() === 'iow'; } },
+    { id: 'damp', label: 'DAMP', tip: 'toggle probe damping (shorter pulse, lower amplitude)', ko: '탐촉자 댐핑 켜기/끄기 (펄스 폭 감소)', action: function () { UT.setIn('instrument', { damping: !st().instrument.damping }); }, active: function () { return !!st().instrument.damping; } },
+    { id: 'size', label: 'SIZE', tip: 'defect sizing panel: 6 dB / 20 dB drop, Mark L / Mark R', ko: '결함 크기 측정 패널: 6 dB / 20 dB 드롭', action: function () { toggleWindowOf('views.sizing'); }, active: function () { return winOpen('size'); } },
     { gap: true },
-    { id: 'defect', label: 'DEFECT', action: function () { toggleWindowOf('modes.defectEditor'); }, active: function () { return winOpen('defects'); } },
-    { id: 'hide', label: 'HIDE', action: function () { setDisplay({ hide: !st().display.hide }); }, active: function () { return !!st().display.hide; } },
-    { id: 'clear', label: 'CLEAR', action: clearAll, active: function () { return false; } },
+    { id: 'defect', label: 'DEFECT', tip: 'open the defect editor (position, length, height, type; draw with the brush)', ko: '결함 편집기 열기 (위치·길이·높이·종류, 브러시로 그리기)', action: function () { toggleWindowOf('modes.defectEditor'); }, active: function () { return winOpen('defects'); } },
+    { id: 'hide', label: 'HIDE', tip: 'hide defects and beam for blind practice', ko: '결함과 빔 숨기기 (블라인드 연습)', action: function () { setDisplay({ hide: !st().display.hide }); }, active: function () { return !!st().display.hide; } },
+    { id: 'clear', label: 'CLEAR', tip: 'clear peak memory, scans, plots and marks (defects are kept)', ko: '피크 메모리·스캔·플롯·마크 지우기 (결함은 유지)', action: clearAll, active: function () { return false; } },
     { gap: true },
-    { id: 'beam', label: 'BEAM', action: function () { setDisplay({ beam: !st().display.beam }); }, active: function () { return !!st().display.beam; } },
-    { id: 'rad', label: 'RAD', action: function () { toggleWindowOf('views.radiograph'); }, active: function () { return winOpen('rad'); } },
+    { id: 'beam', label: 'BEAM', tip: 'show / hide the sound beam', ko: '음향 빔 표시/숨기기', action: function () { setDisplay({ beam: !st().display.beam }); }, active: function () { return !!st().display.beam; } },
+    { id: 'rad', label: 'RAD', tip: 'radiograph strip of the weld (compare with UT)', ko: '용접부 방사선 투과 사진 표시', action: function () { toggleWindowOf('views.radiograph'); }, active: function () { return winOpen('rad'); } },
     { gap: true },
-    { id: 'pipe', label: 'PIPE', action: togglePipe, active: function () { return !!(st().weldOpts && st().weldOpts.pipe); } },
-    { id: 'tky', label: 'TKY', action: function () { toggleMode('tky'); }, active: function () { return currentMode() === 'tky'; } },
-    { id: 'tofd', label: 'TOFD', action: function () { toggleMode('tofd'); }, active: function () { return currentMode() === 'tofd'; } },
-    { id: 'aut', label: 'AUT', action: function () { toggleMode('aut'); }, active: function () { return currentMode() === 'aut'; } },
+    { id: 'pipe', label: 'PIPE', tip: 'switch plate weld ⇄ pipe circumferential weld (OD/WT in the Weld dialog)', ko: '평판 ⇄ 파이프 원주 용접부 전환 (Weld 대화상자의 OD/WT)', action: togglePipe, active: function () { return !!(st().weldOpts && st().weldOpts.pipe); } },
+    { id: 'tky', label: 'TKY', tip: 'TKY tubular joint: brace / chord geometry', ko: 'TKY 관 이음: 브레이스/코드 형상', action: function () { toggleMode('tky'); }, active: function () { return currentMode() === 'tky'; } },
+    { id: 'tofd', label: 'TOFD', tip: 'Time-of-Flight Diffraction: RF A-scan, D-scan, PCS', ko: 'TOFD (비행시간 회절법): RF A-스캔, D-스캔, PCS', action: function () { toggleMode('tofd'); }, active: function () { return currentMode() === 'tofd'; } },
+    { id: 'aut', label: 'AUT', tip: 'Automated UT: strip charts, gates, colour map', ko: '자동 초음파 탐상: 스트립 차트, 게이트, 컬러 맵', action: function () { toggleMode('aut'); }, active: function () { return currentMode() === 'aut'; } },
   ];
+  /** Tooltip text for a toolbar button: label — EN description / KO (KO first when the UI language is Korean). */
+  function tbTitle(def) {
+    const en = def.tip || '', ko = def.ko || '';
+    const parts = mem.lang === 'ko' ? [ko, en] : [en, ko];
+    return def.label + (parts[0] ? ' — ' + parts[0] : '') + (parts[1] ? ' / ' + parts[1] : '');
+  }
   const TB_IDS = TOOLBAR.filter(function (b) { return !b.gap; }).map(function (b) { return 'tb-' + b.id; });
 
   /** Whether a toolbar button is enabled in the current mode (§14.7). */
@@ -518,7 +543,7 @@
     for (const def of TOOLBAR) {
       if (def.gap) { tb.appendChild(h('span', { class: 'tb-gap' })); continue; }
       const id = 'tb-' + def.id;
-      const btn = h('button', { id, class: 'tb-btn', type: 'button', title: def.label, dataset: { key: def.label } }, [
+      const btn = h('button', { id, class: 'tb-btn', type: 'button', title: tbTitle(def), dataset: { key: def.label } }, [
         h('span', { class: 'tb-ico', html: ICONS[def.id] || '' }),
         h('span', { class: 'tb-lbl' }, def.label),
       ]);
@@ -757,38 +782,91 @@
     win.show();
     return win;
   }
-  function numField(label, o) { const f = UT.dom.field(label, Object.assign({ type: 'number', event: 'input' }, o)); if (o.unit) f.appendChild(h('span', { class: 'fld-unit' }, o.unit)); return f; }
+  /**
+   * Numeric dialog field: like UT.dom.field but the handler only ever sees a finite value clamped to
+   * [min, max]; a blank / NaN / out-of-range entry is flagged (class 'invalid', red outline) and NOT
+   * committed, and the visible value is normalised to the clamped one on blur ('change').
+   * @param {string} label
+   * @param {{value:number, min?:number, max?:number, step?:number, unit?:string, onchange?:function}} o
+   */
+  function numField(label, o) {
+    const lo = o.min === undefined ? -Infinity : o.min, hi = o.max === undefined ? Infinity : o.max;
+    const onchange = o.onchange;
+    const check = function (v) { return { ok: Number.isFinite(v), v: Number.isFinite(v) ? M.clamp(v, lo, hi) : NaN }; };
+    const f = UT.dom.field(label, Object.assign({ type: 'number', event: 'input' }, o, {
+      onchange: function (v, e) {
+        const c = check(v);
+        f.input.classList.toggle('invalid', !c.ok || c.v !== v);
+        if (c.ok && onchange) onchange(c.v, e);
+      },
+    }));
+    f.input.addEventListener('change', function () {
+      const c = check(parseFloat(f.input.value));
+      if (!c.ok) return; // stays flagged; the dialog's Apply falls back to the previous value
+      f.input.value = c.v;
+      f.input.classList.remove('invalid');
+      if (onchange) onchange(c.v);
+    });
+    if (o.unit) f.appendChild(h('span', { class: 'fld-unit' }, o.unit));
+    return f;
+  }
+  const DLG_CSS = '.fld-input.invalid { outline: 2px solid #e00000; background: #ffe6e6; } .dlg-msg { color: #b00000; min-height: 1.2em; margin: 2px 0; font-size: 12px; }';
   function inchOf(od) { for (const k of Object.keys(OD_INCH)) if (Math.abs(OD_INCH[k] - od) < 0.05) return k; return 'custom'; }
 
-  /** Weld dialog (thickness, type, bevel, root, cap, plate length, pipe OD/WT). */
+  /** Weld dialog (thickness, type, bevel, root, cap, plate length, pipe OD/WT). Numeric entries are
+   * validated against WELD_RANGES on Apply/OK: blank/NaN falls back to the previously applied value,
+   * out-of-range values are clamped (§8 Weld menu; the specimen can never be rebuilt from NaN). */
   function openWeld() {
+    UT.dom.injectCss && UT.dom.injectCss('app-dlg', DLG_CSS);
     dialog('weld', 'Weld', 640, function (win) {
-      const o = Object.assign({}, UT.defaultState().weldOpts, st().weldOpts || {});
+      const prev = Object.assign({}, UT.defaultState().weldOpts, st().weldOpts || {});
+      const o = Object.assign({}, prev);
+      const fields = {};
       const set = function (k) { return function (v) { o[k] = v; }; };
-      const odMm = numField('OD (mm)', { value: o.od, min: 25, max: 2000, step: 0.1, onchange: function (v) { o.od = v; odIn.input.value = inchOf(v); } });
+      const nf = function (k, label, opts) { fields[k] = numField(label, Object.assign({ value: o[k], min: WELD_RANGES[k][0], max: WELD_RANGES[k][1], onchange: set(k) }, opts || {})); return fields[k]; };
+      const odMm = nf('od', 'OD (mm)', { step: 0.1, onchange: function (v) { o.od = v; odIn.input.value = inchOf(v); } });
       const odIn = UT.dom.field('OD (inch)', { tag: 'select', type: 'text', value: inchOf(o.od), options: [4, 6, 8, 10, 12].map(function (i) { return { value: String(i), label: i + ' inch (' + OD_INCH[i] + ' mm)' }; }).concat([{ value: 'custom', label: 'custom (mm)' }]), onchange: function (v) { if (OD_INCH[v]) { o.od = OD_INCH[v]; odMm.input.value = o.od; } } });
-      const wt = numField('Wall thickness WT', { value: o.wt, min: 3, max: 100, step: 0.5, unit: 'mm', onchange: function (v) { o.wt = v; } });
+      const wt = nf('wt', 'Wall thickness WT', { step: 0.5, unit: 'mm' });
       const pipeChk = UT.dom.field('Pipe (circumferential weld)', { type: 'checkbox', value: !!o.pipe, onchange: function (v) { o.pipe = v; pipeBox.classList.toggle('disabled', !v); } });
       const pipeBox = h('div', { class: 'dlg-section' + (o.pipe ? '' : ' disabled') }, [h('span', { class: 'dlg-legend' }, 'Pipe'), odIn, odMm, wt]);
+      const msg = h('div', { class: 'dlg-msg' }, '');
+      /** Validate the draft: non-finite → previously applied value, numbers clamped; refresh the inputs; report. */
+      const validate = function () {
+        const bad = [];
+        for (const k of Object.keys(fields)) {
+          const raw = parseFloat(fields[k].input.value);
+          o[k] = Number.isFinite(raw) ? raw : prev[k]; // blank / NaN → previously applied value
+          if (!Number.isFinite(raw)) bad.push(fields[k].querySelector('.fld-label').textContent + ' (' + WELD_RANGES[k][0] + '…' + WELD_RANGES[k][1] + ')');
+          else if (raw !== M.clamp(raw, WELD_RANGES[k][0], WELD_RANGES[k][1])) bad.push(fields[k].querySelector('.fld-label').textContent + ' → ' + M.clamp(raw, WELD_RANGES[k][0], WELD_RANGES[k][1]));
+        }
+        const v = coerceLike(prev, o, WELD_RANGES, { type: WELD_TYPES });
+        if (!v.pipe) v.wt = v.T; else v.T = v.wt;
+        for (const k of Object.keys(fields)) { fields[k].input.value = v[k]; fields[k].input.classList.remove('invalid'); }
+        odIn.input.value = inchOf(v.od);
+        msg.textContent = bad.length ? 'Invalid entries were reset / clamped: ' + bad.join(', ') + '  (잘못된 값은 이전 값으로 되돌리거나 범위로 제한했습니다)' : '';
+        Object.assign(o, v);
+        return v;
+      };
       const apply = function () {
-        if (o.pipe) o.T = o.wt;
-        UT.setIn('weldOpts', o, { noRender: true });
+        const v = validate();
+        Object.assign(prev, v);
+        UT.setIn('weldOpts', Object.assign({}, v), { noRender: true });
         reenterWeldLike();
         syncPipe3d();
       };
       return h('div', {}, [
         h('div', { class: 'fld-grid' }, [
-          numField('Thickness T', { value: o.T, min: 3, max: 100, step: 0.5, unit: 'mm', onchange: function (v) { o.T = v; if (!o.pipe) o.wt = v; } }),
+          nf('T', 'Thickness T', { step: 0.5, unit: 'mm', onchange: function (v) { o.T = v; if (!o.pipe) o.wt = v; } }),
           UT.dom.field('Weld type', { tag: 'select', type: 'text', value: o.type, options: [{ value: 'single-v', label: 'Single-V' }, { value: 'double-v', label: 'Double-V' }, { value: 'none', label: 'No weld (plain plate)' }], onchange: set('type') }),
-          numField('Bevel angle', { value: o.bevel, min: 0, max: 60, step: 1, unit: '°', onchange: set('bevel') }),
-          numField('Root gap', { value: o.rootGap, min: 0, max: 10, step: 0.5, unit: 'mm', onchange: set('rootGap') }),
-          numField('Root face', { value: o.rootFace, min: 0, max: 10, step: 0.5, unit: 'mm', onchange: set('rootFace') }),
-          numField('Cap width', { value: o.capWidth, min: 0, max: 60, step: 1, unit: 'mm', onchange: set('capWidth') }),
-          numField('Cap height', { value: o.capHeight, min: 0, max: 10, step: 0.5, unit: 'mm', onchange: set('capHeight') }),
-          numField('Root height', { value: o.rootHeight, min: 0, max: 10, step: 0.5, unit: 'mm', onchange: set('rootHeight') }),
-          numField('Plate length L', { value: o.L, min: 50, max: 2000, step: 10, unit: 'mm', onchange: set('L') }),
+          nf('bevel', 'Bevel angle', { step: 1, unit: '°' }),
+          nf('rootGap', 'Root gap', { step: 0.5, unit: 'mm' }),
+          nf('rootFace', 'Root face', { step: 0.5, unit: 'mm' }),
+          nf('capWidth', 'Cap width', { step: 1, unit: 'mm' }),
+          nf('capHeight', 'Cap height', { step: 0.5, unit: 'mm' }),
+          nf('rootHeight', 'Root height', { step: 0.5, unit: 'mm' }),
+          nf('L', 'Plate length L', { step: 10, unit: 'mm' }),
         ]),
-        pipeChk, pipeBox,
+        pipeChk, pipeBox, msg,
         h('div', { class: 'dlg-note' }, '용접부 두께·형상·파이프 치수를 설정합니다. Apply/OK re-builds the specimen (defects are kept).'),
         h('div', { class: 'btn-row' }, [
           UT.dom.button('Apply', apply), UT.dom.button('OK', function () { apply(); win.close(); }, { class: 'btn primary' }), UT.dom.button('Cancel', function () { win.close(); }),
@@ -1004,7 +1082,7 @@
           const arr = JSON.parse(ta.value);
           if (!Array.isArray(arr)) throw new Error('expected a JSON array');
           if (has('modes.setDefects')) UT.modes.setDefects(arr);
-          else UT.set({ defects: has('specimens.normaliseDefects') ? UT.specimens.normaliseDefects(arr) : arr });
+          else UT.set({ defects: limitDefectSlots(arr) });
           win.close();
         } catch (e) { UT.dom.alert('Invalid defect JSON: ' + e.message, 'Import Defects'); }
       };
@@ -1062,6 +1140,7 @@
     const d = doc();
     if (d && mem.built) {
       for (const el of d.querySelectorAll('#menubar [data-key].menu-label')) el.textContent = t(el.dataset.key);
+      for (const def of TOOLBAR) if (!def.gap && mem.tb['tb-' + def.id]) mem.tb['tb-' + def.id].title = tbTitle(def);
       closeMenus();
       renderStatus(st().status);
     }
@@ -1146,7 +1225,7 @@
       patch.instrument = ins;
     }
     if (rec.display && typeof rec.display === 'object') patch.display = coerceLike(def.display, rec.display, DISPLAY_RANGES, DISPLAY_ENUMS);
-    if (Array.isArray(rec.defects)) patch.defects = has('specimens.normaliseDefects') ? UT.specimens.normaliseDefects(rec.defects) : rec.defects;
+    if (Array.isArray(rec.defects)) patch.defects = limitDefectSlots(rec.defects);
     if (rec.weldOpts && typeof rec.weldOpts === 'object') patch.weldOpts = coerceLike(def.weldOpts, rec.weldOpts, WELD_RANGES, { type: WELD_TYPES });
     if (rec.utSet === 'epoch600' || rec.utSet === 'epoch4' || rec.utSet === 'usk7') patch.utSet = rec.utSet;
     if (rec.lang === 'ko' || rec.lang === 'en') patch.__lang = rec.lang;
