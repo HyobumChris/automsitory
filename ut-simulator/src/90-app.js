@@ -759,6 +759,12 @@
     let items = top.items, it = null;
     for (let i = 1; i < parts.length; i++) {
       it = (items || []).find(function (x) { return !x.sep && keyMatches(x.key, parts[i]); });
+      // labels may themselves contain ' / ' (procedure names): re-join the following segments and retry
+      for (let j = i + 1; !it && j < parts.length; j++) {
+        const joined = parts.slice(i, j + 1).join(' / ');
+        it = (items || []).find(function (x) { return !x.sep && (keyMatches(x.key, joined) || keyMatches(x.key, parts.slice(i, j + 1).join('/'))); });
+        if (it) i = j;
+      }
       if (!it) return false;
       if (it.enabled && !it.enabled()) return false;
       items = it.sub;

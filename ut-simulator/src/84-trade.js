@@ -363,6 +363,8 @@
   // ------------------------------------------------------------------ matching + scoring (pure)
   function normRow(r, i) {
     let z = num(r.z), len = num(r.length);
+    // truth-shaped rows ({zFrom, zTo}) are accepted as a fallback so 'submit the truth rows' works literally (V1 #13 / V2-15)
+    if (!Number.isFinite(z) && Number.isFinite(num(r.zFrom))) { z = num(r.zFrom); if (!Number.isFinite(len) && Number.isFinite(num(r.zTo))) len = num(r.zTo) - z; }
     if (!Number.isFinite(len)) len = 0;
     if (len < 0) { z += len; len = -len; }
     return { n: Number.isFinite(num(r.n)) ? num(r.n) : i + 1, z, length: len, depth: num(r.depth), height: num(r.height),

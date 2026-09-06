@@ -673,7 +673,9 @@
     const n = vals.length;
     const z0 = Number.isFinite(m.z0) ? m.z0 : 0;
     const step = m.step > 0 ? m.step : (Number.isFinite(m.z1) && n > 1 ? (m.z1 - z0) / (n - 1) : 1);
-    return { z0, step, n, vals: pctScale(vals), rev };
+    // aut.map / aut.scan.amp (55) and pa.scan.map (56) are ALWAYS % FSH — never rescale (a clean scan whose
+    // maxima are ≈ 1 % must not be inflated ×100 by the fraction heuristic; pctScale stays a standalone helper).
+    return { z0, step, n, vals, rev };
   }
 
   /** AUT / PA C-scan hint band: thin colour strip along z just left of the ruler. */
@@ -1353,8 +1355,10 @@
     const s1 = scanBandSource({ probe: { method: 'pe' }, mode: 'aut', aut: { scan: { z0: 0, z1: 2, step: 1, n: 3, amp: [new Float32Array([10, 20, 30])] }, revMap: true } });
     if (!s1 || s1.n !== 3 || s1.step !== 1 || !s1.rev || s1.vals[2] !== 30) f.push('scanBandSource aut.scan');
     if (scanBandSource({ probe: { method: 'pe' }, mode: 'weld', aut: { scan: { n: 3, amp: [[1, 2, 3]] } } }) !== null) f.push('scanBandSource aut.scan only in aut mode');
-    const s2 = scanBandSource({ probe: { method: 'pa' }, mode: 'weld', pa: { scan: { z0: 10, z1: 20, n: 3, xBins: 2, map: new Float32Array([0.1, 0.2, 0.3, 0.05, 0, 0]) } }, aut: { map: { n: 1, map: [1] } } });
+    const s2 = scanBandSource({ probe: { method: 'pa' }, mode: 'weld', pa: { scan: { z0: 10, z1: 20, n: 3, xBins: 2, map: new Float32Array([10, 20, 30, 5, 0, 0]) } }, aut: { map: { n: 1, map: [1] } } });
     if (!s2 || s2.z0 !== 10 || Math.abs(s2.step - 5) > 1e-9 || Math.abs(s2.vals[0] - 20) > 1e-4 || Math.abs(s2.vals[1] - 30) > 1e-4) f.push('scanBandSource pa.scan ' + JSON.stringify(s2 && Array.from(s2.vals)));
+    const s3 = scanBandSource({ probe: { method: 'pe' }, mode: 'weld', aut: { map: { z0: 0, step: 1, n: 2, k: 1, map: new Float32Array([1, 0.8]) } } });
+    if (!s3 || Math.abs(s3.vals[0] - 1) > 1e-6) f.push('scanBandSource must not rescale a ≈1 % aut.map');
     if (scanBandSource({ probe: {}, mode: 'weld', aut: { scan: null, map: null } }) !== null) f.push('scanBandSource none');
     tf = saved;
     return f;
