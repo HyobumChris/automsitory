@@ -24,15 +24,15 @@
   const C = UT.consts;
 
   // ------------------------------------------------------------------ materials (SPEC-v2 §3.4)
-  /** key → {name, nameKo, vComp, vShear (mm/µs), atten5 (dB/mm two-way at 5 MHz), grass (0..1), anisotropic}. */
+  /** key → {name, nameKo, vComp, vShear (mm/µs), atten5 (legacy two-way dB/mm at 5 MHz), attenL5/attenS5 (ONE-WAY dB/mm at 5 MHz, longitudinal/shear — used by the v2 tracer as M = 10^(−atten·2·path/20)), poisson, grass (0..1), anisotropic}. */
   const materials = {
-    carbon:     { key: 'carbon',     name: 'Carbon steel',        nameKo: '탄소강',                 vComp: C.V_COMP_STEEL, vShear: C.V_SHEAR_STEEL, atten5: 0.010, grass: 0.02, anisotropic: false },
-    austenitic: { key: 'austenitic', name: 'Austenitic stainless', nameKo: '오스테나이트계 스테인리스강', vComp: 5.66, vShear: 3.12, atten5: 0.045, grass: 0.12, anisotropic: true },
-    aluminium:  { key: 'aluminium',  name: 'Aluminium',           nameKo: '알루미늄',               vComp: 6.32, vShear: 3.13, atten5: 0.004, grass: 0.01, anisotropic: false },
-    copper:     { key: 'copper',     name: 'Copper',              nameKo: '구리',                   vComp: 4.66, vShear: 2.33, atten5: 0.030, grass: 0.06, anisotropic: false },
-    titanium:   { key: 'titanium',   name: 'Titanium',            nameKo: '티타늄',                 vComp: 6.10, vShear: 3.12, atten5: 0.008, grass: 0.02, anisotropic: false },
-    castiron:   { key: 'castiron',   name: 'Cast iron',           nameKo: '주철',                   vComp: 4.60, vShear: 2.60, atten5: 0.080, grass: 0.20, anisotropic: true },
-    perspex:    { key: 'perspex',    name: 'Perspex (PMMA)',      nameKo: '퍼스펙스(아크릴)',        vComp: 2.74, vShear: 1.43, atten5: 0.15,  grass: 0.0,  anisotropic: false },
+    carbon:     { key: 'carbon',     name: 'Carbon steel',        nameKo: '탄소강',                 vComp: C.V_COMP_STEEL, vShear: C.V_SHEAR_STEEL, atten5: 0.010, grass: 0.02, attenL5: 0.005, attenS5: 0.010, poisson: 0.29, anisotropic: false },
+    austenitic: { key: 'austenitic', name: 'Austenitic stainless', nameKo: '오스테나이트계 스테인리스강', vComp: 5.66, vShear: 3.12, atten5: 0.045, grass: 0.12, attenL5: 0.10, attenS5: 0.14, poisson: 0.29, anisotropic: true },
+    aluminium:  { key: 'aluminium',  name: 'Aluminium',           nameKo: '알루미늄',               vComp: 6.32, vShear: 3.13, atten5: 0.004, grass: 0.01, attenL5: 0.003, attenS5: 0.004, poisson: 0.33, anisotropic: false },
+    copper:     { key: 'copper',     name: 'Copper',              nameKo: '구리',                   vComp: 4.66, vShear: 2.33, atten5: 0.030, grass: 0.06, attenL5: 0.05, attenS5: 0.08, poisson: 0.34, anisotropic: false },
+    titanium:   { key: 'titanium',   name: 'Titanium',            nameKo: '티타늄',                 vComp: 6.10, vShear: 3.12, atten5: 0.008, grass: 0.02, attenL5: 0.006, attenS5: 0.008, poisson: 0.32, anisotropic: false },
+    castiron:   { key: 'castiron',   name: 'Cast iron',           nameKo: '주철',                   vComp: 4.60, vShear: 2.60, atten5: 0.080, grass: 0.20, attenL5: 0.10, attenS5: 0.15, poisson: 0.26, anisotropic: true },
+    perspex:    { key: 'perspex',    name: 'Perspex (PMMA)',      nameKo: '퍼스펙스(아크릴)',        vComp: 2.74, vShear: 1.43, atten5: 0.15,  grass: 0.0,  anisotropic: false, attenL5: 0.30, attenS5: 0.30, poisson: 0.35 },
   };
   const MATERIAL_FIELDS = ['key', 'name', 'nameKo', 'vComp', 'vShear', 'atten5', 'grass', 'anisotropic'];
 
