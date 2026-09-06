@@ -519,6 +519,8 @@
     s.aut = Object.assign({}, s.aut, { scan: null, map: null });
     s.pa = Object.assign({}, s.pa, { scan: null }); s.bscan = Object.assign({}, s.bscan, { columns: null });
     s.instrument = Object.assign({}, s.instrument, { compare: null });
+    // exam lock (SPEC-v2 §4.2.3): the hidden truth never leaves the page while an exam is locked and unrevealed
+    if (s.trade && s.trade.exam && s.trade.exam.locked && !s.trade.revealed) { delete s.defects; s.trade = Object.assign({}, s.trade, { truth: [] }); }
     s.specimen = s.specimen ? { id: s.specimen.id, name: s.specimen.name, T: s.specimen.T, L: s.specimen.L, face: s.specimen.face || null, kind: s.specimen.kind } : null;
     return UT.clone(s);
   };

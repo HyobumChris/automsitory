@@ -1134,7 +1134,7 @@ to v1 for carbon (L 0.005 / S 0.010 one-way). #13 holds by the invariant of §4.
 
 ### 9.4 Engineering
 - **V2-25** `node tools/acceptance.mjs` exits 0 and its JSON lists ≥ 40 checks (14 v1 + 33 v2 incl. the b–f sub-checks; V2-25 is the runner and is not self-listed).
-- **V2-26** CI workflow file valid YAML with exactly the steps of §6.2; `build.py` writes both outputs and they are byte-identical; size < 1.2 MB.
+- **V2-26** CI workflow file valid YAML with exactly the steps of §6.2; `build.py` writes both outputs and they are byte-identical; size < 2.5 MB (lead decision: the source is inlined unminified and commented by design — readability of the single file is a feature; the v2 modules total ≈ 1.5–2 MB).
 - **V2-27** Performance of §6.4: 41 rays + modeConv ≤ 10 ms (≤ 20 ms with `CI`), 21 rays ≤ 6 ms; AUT ≤ 1.5 s; TOFD ≤ 0.8 s; PA ≤ 60 ms.
 
 ---
