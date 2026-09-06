@@ -508,6 +508,12 @@
         },
       });
       pipe3d.window = win;
+      // §11 / §15.6: #cv-3d must resolve by id right after boot (hidden is fine). core's dom.win only
+      // appends the element on first show(), so attach it now while it keeps its display:none —
+      // without show()/hide(), which would run onShow and emit win:show/win:hide.
+      if (typeof document !== 'undefined' && win.el && !win.el.parentNode) {
+        (document.getElementById('app') || document.body).appendChild(win.el);
+      }
     }
     attachMouse(canvas);
     UT.bus.on('render', function (f) { if (!win || win.isOpen()) draw(f, UT.state); });

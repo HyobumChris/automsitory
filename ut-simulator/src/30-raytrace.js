@@ -117,6 +117,25 @@
   //     class: IOW 1.5 mm, DAC 3 mm) report the near-surface path (foot point − r, ≥ 0) — a 0° probe over
   //     the V2 5 mm hole reads 3.75, not the 6.25 of the centre. Calibration SDHs keep the §6.1 2b centre
   //     convention that §5.3 / §11.1 #4 and the 40-ascan K_REF calibration rely on.
+  // 25. Crack–bead corner (§6.1 3 "corner echo of root cracks"): a planar defect that reaches a weld bead
+  //     (an end point within BEAD_REACH of the bead's base chord or beyond it, inside the bead's span —
+  //     the default root-crack preset ends on the root-bead crown) forms its corner with that bead. The
+  //     bead reflection of the (defect, bead) pair — in either order: the ray arrives from the defect, or
+  //     the flat-mirrored ray would reach the defect before any outline surface — uses the bead's BASE
+  //     chord normal (the plate surface the bead sits on) and skips the BEAD_SPECULAR loss; the rough-bead
+  //     diffuse scatter (NOTE 2) still fires. With the literal sloped bead normal the fan rays whose bottom
+  //     hit fell on the bead (the beam centre at the nominal stand-off) were deviated > 2·θ20 and lost, so
+  //     one crack produced two corner maxima 7 mm apart (x ≈ 31 and 38) with a −6 dB dip between them and
+  //     two corner echoes 5 mm apart on the A-scan. Bead reflections not paired with a defect are unchanged.
+  // 26. Surface-breaking ends do not diffract: a planar-defect end point within TIP_SURFACE_TOL (0.5 mm) of
+  //     an outline edge/arc is the corner itself (kind 'corner' via 2d), not a free crack tip, so no 'tip'
+  //     scatterer is emitted there. Otherwise two tip echoes at exactly the corner path added ≈ +2.3 dB to
+  //     the A-scan envelope of every surface-breaking crack while the echo list reported the corner alone.
+  // 27. Corner merge window: 'corner' echoes of one defect and leg merge over CORNER_MERGE (6 mm) instead of
+  //     the 1.5 mm of NOTE 12. A crack through a bead is one corner reflector whose fan-ray paths step
+  //     between the flat-bottom part and the bead crown (2·y_mirror/cosθ' differs by ≈ 2·rootHeight), so
+  //     the literal window listed two corner echoes 4–5 mm apart at some stand-offs; the representative
+  //     (NOTE 22) still reports the beam-centre path.
 
   const M = UT.math;
   const DEG = Math.PI / 180;
@@ -135,6 +154,9 @@
   const TT_EXTINCTION = 1.5;  // dB per mm of TT ray chord through a volumetric defect (SPEC NOTE 16)
   const AP_TAIL = 2;          // return-aperture taper zone beyond ra, in crystal diameters (SPEC NOTE 18)
   const MAX_SPLITS = 6;       // transmitted branches spawned per fan ray at partially-overlapping defects (SPEC NOTE 19)
+  const BEAD_REACH = 0.5;     // mm: a planar-defect end this close to (or beyond) a bead's base chord reaches the bead (SPEC NOTE 25)
+  const TIP_SURFACE_TOL = 0.5; // mm: planar-defect ends this close to an outline surface emit no tip scatter (SPEC NOTE 26)
+  const CORNER_MERGE = 6;     // mm: merge window for corner echoes of one defect and leg (SPEC NOTE 27)
   const sampleCache = new WeakMap();
   const geomCache = new WeakMap();   // specimen → flattened edges/arcs with precomputed normals
 
@@ -216,7 +238,28 @@
       const n = norm(-ey, ex);
       edges.push({ ax: ed.a.x, ay: ed.a.y, ex, ey, nx: n.x, ny: n.y, tag: ed.tag, edge: ed });
     }
-    g = { edges, arcs: (specimen.arcs || []).slice(), perspex: specimen.perspex || null };
+    // weld beads (SPEC NOTE 25): each run of consecutive 'cap'/'root' edges gets its base chord (first
+    // vertex → last vertex, i.e. the plate surface it sits on), the chord's unit normal and the side of the
+    // chord the bead crown lies on
+    const beads = [];
+    for (let i = 0; i < edges.length;) {
+      const tag = edges[i].tag;
+      if (tag !== 'cap' && tag !== 'root') { i++; continue; }
+      let j = i;
+      while (j + 1 < edges.length && edges[j + 1].tag === tag) j++;
+      const a = edges[i], b = edges[j];
+      const cx = b.ax + b.ex - a.ax, cy = b.ay + b.ey - a.ay;
+      if (Math.hypot(cx, cy) > 1e-6) {
+        const n = norm(-cy, cx);
+        let crown = 0;
+        for (let k = i; k <= j; k++) { const s = (edges[k].ax - a.ax) * n.x + (edges[k].ay - a.ay) * n.y; if (Math.abs(s) > Math.abs(crown)) crown = s; }
+        const bead = { tag, ax: a.ax, ay: a.ay, ex: cx, ey: cy, nx: n.x, ny: n.y, crownSign: crown < 0 ? -1 : 1 };
+        beads.push(bead);
+        for (let k = i; k <= j; k++) edges[k].bead = bead;
+      }
+      i = j + 1;
+    }
+    g = { edges, arcs: (specimen.arcs || []).slice(), perspex: specimen.perspex || null, beads };
     geomCache.set(specimen, g);
     return g;
   }
@@ -235,6 +278,7 @@
     const points = [];    // diffuse scatterers
     const vols = [];      // volumetric defect polygons (TT extinction, SPEC NOTE 16)
     const list = Array.isArray(defects) ? defects : [];
+    const g = geometryOf(specimen);
     for (const d of list) {
       if (!d || d.visible === false || !Array.isArray(d.pts) || d.pts.length < 2) continue;
       const refl = d.reflectivity === undefined ? 1 : d.reflectivity;
@@ -249,12 +293,17 @@
           const a = d.pts[i], b = d.pts[i + 1];
           if (M.dist(a.x, a.y, b.x, b.y) < 1e-6) continue;
           const n = norm(-(b.y - a.y), b.x - a.x);
-          segs.push({ a, b, ax: a.x, ay: a.y, ex: b.x - a.x, ey: b.y - a.y, nx: n.x, ny: n.y, defect: d, S, kind: isLam ? 'lamination' : 'defect' });
+          const seg = { a, b, ax: a.x, ay: a.y, ex: b.x - a.x, ey: b.y - a.y, nx: n.x, ny: n.y, defect: d, S, kind: isLam ? 'lamination' : 'defect', beads: null };
+          if (!isLam) {
+            // beads this segment reaches at an end → crack–bead corner pairs use the flat base normal (SPEC NOTE 25)
+            for (const bead of g.beads) if (reachesBead(a.x, a.y, bead) || reachesBead(b.x, b.y, bead)) (seg.beads || (seg.beads = [])).push(bead);
+          }
+          segs.push(seg);
         }
-        // tips (diffraction)
+        // tips (diffraction) — not at surface-breaking ends (SPEC NOTE 26)
         const first = d.pts[0], last = d.pts[d.pts.length - 1];
-        points.push({ x: first.x, y: first.y, kind: 'tip', S: 0.12 * refl, dExp: 2, cap: 0, defect: d });
-        points.push({ x: last.x, y: last.y, kind: 'tip', S: 0.12 * refl, dExp: 2, cap: 0, defect: d });
+        if (distToOutline(first.x, first.y, g) > TIP_SURFACE_TOL) points.push({ x: first.x, y: first.y, kind: 'tip', S: 0.12 * refl, dExp: 2, cap: 0, defect: d });
+        if (distToOutline(last.x, last.y, g) > TIP_SURFACE_TOL) points.push({ x: last.x, y: last.y, kind: 'tip', S: 0.12 * refl, dExp: 2, cap: 0, defect: d });
       } else {
         const sm = samplesOf(d);
         const n = Math.max(1, sm.length);
@@ -272,8 +321,40 @@
       holes.push({ x: h.x, y: h.y, r: h.r });
     }
     for (let i = 0; i < points.length; i++) points[i].idx = i;
-    const g = geometryOf(specimen);
     return { segs, points, vols, holes, edges: g.edges, arcs: g.arcs, perspex: g.perspex };
+  }
+
+  /** Distance from a point to the nearest outline edge or arc of the flattened geometry. */
+  function distToOutline(x, y, g) {
+    let best = Infinity;
+    for (const ed of g.edges) {
+      const l2 = ed.ex * ed.ex + ed.ey * ed.ey;
+      const u = l2 > 0 ? M.clamp(((x - ed.ax) * ed.ex + (y - ed.ay) * ed.ey) / l2, 0, 1) : 0;
+      const d = Math.hypot(x - ed.ax - ed.ex * u, y - ed.ay - ed.ey * u);
+      if (d < best) best = d;
+    }
+    for (const arc of g.arcs) {
+      let a0 = arc.a0, a1 = arc.a1;
+      if (a1 < a0) { const t = a0; a0 = a1; a1 = t; }
+      let ang = Math.atan2(y - arc.cy, x - arc.cx) / DEG;
+      while (ang < a0 - 1e-9) ang += 360;
+      while (ang > a1 + 1e-9 && ang - 360 >= a0 - 1e-9) ang -= 360;
+      let d;
+      if (ang >= a0 - 1e-9 && ang <= a1 + 1e-9) d = Math.abs(Math.hypot(x - arc.cx, y - arc.cy) - arc.r);
+      else d = Math.min(M.dist(x, y, arc.cx + arc.r * Math.cos(a0 * DEG), arc.cy + arc.r * Math.sin(a0 * DEG)),
+        M.dist(x, y, arc.cx + arc.r * Math.cos(a1 * DEG), arc.cy + arc.r * Math.sin(a1 * DEG)));
+      if (d < best) best = d;
+    }
+    return best;
+  }
+
+  /** True when a point lies within BEAD_REACH of a bead's base chord (inside its span) or beyond it on the crown side (SPEC NOTE 25). */
+  function reachesBead(x, y, bead) {
+    const l2 = bead.ex * bead.ex + bead.ey * bead.ey;
+    const u = ((x - bead.ax) * bead.ex + (y - bead.ay) * bead.ey) / l2;
+    if (u < 0 || u > 1) return false;
+    const sd = ((x - bead.ax) * bead.nx + (y - bead.ay) * bead.ny) * bead.crownSign;
+    return sd >= -BEAD_REACH;
   }
 
   /** Length of the ray segment [pos, pos + dir·L] inside a closed polygon (sum of chords). */
@@ -373,7 +454,7 @@
           bestT = t; bestObj = sg; bestType = 4;
         }
         let best = null;
-        if (bestType === 1) best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: bestObj.nx, ny: bestObj.ny, type: 'outline', tag: bestObj.tag };
+        if (bestType === 1) best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: bestObj.nx, ny: bestObj.ny, type: 'outline', tag: bestObj.tag, bead: bestObj.bead || null };
         else if (bestType === 2) best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: bestNx, ny: bestNy, type: 'outline', tag: bestObj.tag || 'radius' };
         else if (bestType === 3) { const hx = px + dx * bestT, hy = py + dy * bestT; const n = norm(hx - bestObj.x, hy - bestObj.y); best = { t: bestT, x: hx, y: hy, nx: n.x, ny: n.y, type: 'perspex', tag: 'perspex' }; }
         else if (bestType === 4) best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: bestObj.nx, ny: bestObj.ny, type: 'defect', tag: bestObj.kind, seg: bestObj };
@@ -484,6 +565,9 @@
           fromTag = 'top';
           hist.push({ type: 'outline', tag: 'top', x: hp.x, y: hp.y, leg: leg - 1, inc: 0 });
         } else {
+          // crack–bead corner pair (SPEC NOTE 25): the bead reflects like the plate surface it sits on
+          const flatBead = best.bead && !C.tt && !C.tandem && cornerBead(best, hist, hp, dir, scene);
+          if (flatBead) { best.nx = best.bead.nx; best.ny = best.bead.ny; }
           nd = reflect(dir.x, dir.y, best.nx, best.ny);
           pos = { x: hp.x + nd.x * STEP_OFF, y: hp.y + nd.y * STEP_OFF };
           bounces++;
@@ -500,7 +584,7 @@
               const slope = Math.min(1, Math.abs(best.nx) / 0.5);   // 0 for a flat bead (SPEC NOTE 2)
               if (slope > 1e-6) echoes.push(makeEcho(C, { path: len, kind: 'geometry', leg: leg - 1, x: hp.x, y: hp.y, w, wReturn: w, e: e / OTHER_LOSS, S: BEAD_SCATTER * inc * slope, dExp: 1.5, tag: best.tag, angleDev: delta, zs, tw }));
             }
-            if (best.tag === 'cap' || best.tag === 'root') e *= BEAD_SPECULAR;   // convex bead diverges the specular reflection (SPEC NOTE 21)
+            if ((best.tag === 'cap' || best.tag === 'root') && !flatBead) e *= BEAD_SPECULAR;   // convex bead diverges the specular reflection (SPEC NOTE 21)
           } else if (best.type === 'perspex') {
             e *= OTHER_LOSS;
             fromTag = 'perspex';
@@ -550,6 +634,51 @@
       }
     }
     return { pts, legs, echoes, hits, transmitted, w };
+  }
+
+  /**
+   * SPEC NOTE 25: does this bead hit belong to a (planar defect, bead) corner pair? True when the ray
+   * arrived from a defect segment that reaches this bead, or when the ray mirrored about the bead's base
+   * normal would meet such a segment before any outline edge/arc.
+   */
+  function cornerBead(best, hist, hp, dir, scene) {
+    const bead = best.bead;
+    const last = hist.length ? hist[hist.length - 1] : null;
+    if (last && last.type === 'defect' && last.seg && last.seg.beads && last.seg.beads.indexOf(bead) >= 0) return true;
+    let any = false;
+    for (let i = 0; i < scene.segs.length && !any; i++) { const sg = scene.segs[i]; if (sg.beads && sg.beads.indexOf(bead) >= 0) any = true; }
+    if (!any) return false;
+    const nd = reflect(dir.x, dir.y, bead.nx, bead.ny);
+    const px = hp.x + nd.x * STEP_OFF, py = hp.y + nd.y * STEP_OFF, dx = nd.x, dy = nd.y;
+    let tSeg = Infinity;
+    for (let i = 0; i < scene.segs.length; i++) {
+      const sg = scene.segs[i];
+      if (!sg.beads || sg.beads.indexOf(bead) < 0) continue;
+      const dn = dx * sg.nx + dy * sg.ny;
+      if (dn > -GRAZE_COS && dn < GRAZE_COS) continue;
+      const den = dx * sg.ey - dy * sg.ex;
+      if (den > -1e-12 && den < 1e-12) continue;
+      const t = ((sg.ax - px) * sg.ey - (sg.ay - py) * sg.ex) / den;
+      if (t < EPS || t >= tSeg) continue;
+      const u = ((sg.ax - px) * dy - (sg.ay - py) * dx) / den;
+      if (u < 0 || u > 1) continue;
+      tSeg = t;
+    }
+    if (tSeg === Infinity) return false;
+    for (let i = 0; i < scene.edges.length; i++) {
+      const ed = scene.edges[i];
+      const den = dx * ed.ey - dy * ed.ex;
+      if (den > -1e-12 && den < 1e-12) continue;
+      const t = ((ed.ax - px) * ed.ey - (ed.ay - py) * ed.ex) / den;
+      if (t < EPS || t >= tSeg) continue;
+      const u = ((ed.ax - px) * dy - (ed.ay - py) * dx) / den;
+      if (u >= 0 && u <= 1) return false;
+    }
+    for (let i = 0; i < scene.arcs.length; i++) {
+      const h = arcHit(px, py, dx, dy, scene.arcs[i], EPS);
+      if (h && h.t < tSeg) return false;
+    }
+    return true;
   }
 
   /**
@@ -642,10 +771,11 @@
       let arr = byKey.get(key);
       if (!arr) { arr = []; byKey.set(key, arr); }
       let g = null;
+      const tol = ec.kind === 'corner' ? CORNER_MERGE : 1.5;   // SPEC NOTES 12 / 27
       for (let i = arr.length - 1; i >= 0; i--) {
         const cand = arr[i];
-        if (Math.abs(ec.path - cand.best.path) <= 1.5 || Math.abs(ec.path - cand.last) <= 0.75) { g = cand; break; }
-        if (cand.last < ec.path - 3) break;
+        if (Math.abs(ec.path - cand.best.path) <= tol || Math.abs(ec.path - cand.last) <= tol / 2) { g = cand; break; }
+        if (cand.last < ec.path - 2 * tol) break;
       }
       if (!g) { g = { key, best: ec, sum2: ec.amp * ec.amp, sumNoZ2: ec.ampNoZ * ec.ampNoZ, last: ec.path, members: [ec] }; arr.push(g); groups.push(g); }
       else {

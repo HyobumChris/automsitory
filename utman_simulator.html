@@ -156,22 +156,23 @@ canvas { display: block; }
 #main.tall #plan-area { min-height: 300px; }
 #main.no-ruler:not(.block) #ruler-area { display: none; }
 /* EPOCH 4 (486 px, ASME keypad) is 90 px taller than the EPOCH 600 column the grid was sized for: on
- * viewports shorter than 770 px (806 px when the status bar wraps to two lines, i.e. ≤ ~1100 px wide)
+ * viewports shorter than 770 px (775 px when the status bar wraps to two rows, i.e. ≤ ~1150 px wide)
  * scale the skin to the EPOCH 600 height (486 × 0.815 ≈ 396 px) so the 1024 × 700 minimum still fits —
  * `zoom` scales layout too (unlike transform), and the A-scan canvas keeps its CSS box so the renderer
  * needs no change. */
-@media (max-height: 769px), (max-height: 805px) and (max-width: 1149px) { #instrument .skin-epoch4 { zoom: 0.815; } }
+@media (max-height: 769px), (max-height: 774px) and (max-width: 1150px) { #instrument .skin-epoch4 { zoom: 0.815; } }
 /* USK7: the instrument column shrinks to the small launcher panel */
 #main.usk7 { grid-template-columns: max-content minmax(0, 1fr); }
 #main.usk7 #instrument { min-width: 24px; }
 
 /* ------------------------------------------------------------------ status bar */
-/* One 28 px row (1 border + 1 pad + 2 × 11 px lines + 2 panel borders + 2 pad) in the original's small
- * 10 px font: the physics line takes the free space and wraps onto a second line inside its panel when
- * the viewport is narrower than the whole line (< ~1300 px); its 430 px minimum is just above the
- * two-line wrap width, so it never needs a third line while sharing the row. The Pos/Range/AMP panels
- * and the hint are never shrunk or cut: only when even those do not fit on one row (TOFD/IOW hints at
- * 1024 px) does the hint drop to a second row, right-aligned. */
+/* Like the original (RcSqNFlOF4E.jpg, 5UovycItbKU.jpg) the physics line is ONE 10 px line (§14.10 formats
+ * are single-line): it is never wrapped or squeezed (nowrap, no shrink; ≈ 810 px, so it always fits the
+ * 1024 px minimum). The Pos/Range/AMP/… readouts form one group that is never shrunk or cut either; the
+ * hint is the flexible member: it fills the free space and is clipped with an ellipsis (its full text
+ * stays in the DOM) when the row is tight. Only when physics + readouts do not fit one row (TOFD/V1/V2
+ * < ~1500 px, plain weld mode < ~1150 px) does the whole readout group drop to a second row (two 13 px
+ * rows, 33 px bar) — one 28 px row (1 border + 1 pad + 24 px panels + 2 pad) otherwise. */
 #statusbar {
   display: flex; flex-wrap: wrap; align-items: stretch; gap: 3px; flex: none;
   min-height: 28px; padding: 1px 4px 2px;
@@ -183,8 +184,13 @@ canvas { display: block; }
   border: 1px solid; border-color: #808080 #fff #fff #808080;
   background: #ececec; overflow: hidden; flex: none;
 }
-.sb-left { flex: 1 1 430px; min-width: 430px; white-space: normal; }
-.sb-right { flex: 0 0 auto; min-width: max-content; margin-left: auto; }
+.sb-left { flex: 0 0 auto; white-space: nowrap; }
+/* the readout group wraps as a whole */
+.sb-mid { display: flex; flex: 0 0 auto; gap: 3px; align-items: stretch; }
+.sb-right { flex: 1 1 100px; min-width: 100px; margin-left: auto; display: block; text-overflow: ellipsis; }
+/* block (not flex) so the ellipsis applies; a full-height inline-block ghost keeps the text centred at any
+ * panel height (24 px stretched single row, 13 px wrapped rows) */
+.sb-right::before { content: ''; display: inline-block; height: 100%; vertical-align: middle; }
 .sb-panel.empty { min-width: 40px; }
 
 /* ------------------------------------------------------------------ windows (Win-classic chrome) */
@@ -912,7 +918,10 @@ canvas { display: block; }
     spec.id = 'pipe-weld';
     spec.name = `Pipe OD ${o.od} mm WT ${o.wt} mm`;
     spec.pipe = { od: o.od, wt: o.wt, circumference: circ, odInch: nominalInch(o.od) };
-    spec.defaultProbe.z = 0;
+    // Quarter circumference (3 o'clock, the near side of the 3-D cylinder; the reference shows Pos 124 mm on a
+    // 6 inch pipe). z = 0 put the probe symbol on the top edge of the plan-view z-window (half clipped, hidden
+    // under the USK7 window) and z = L/2 (6 o'clock) faces away from the 3-D camera — QA round 4.
+    spec.defaultProbe.z = Math.round(circ / 4);
     return spec;
   }
 
@@ -1547,6 +1556,25 @@ canvas { display: block; }
   //     class: IOW 1.5 mm, DAC 3 mm) report the near-surface path (foot point − r, ≥ 0) — a 0° probe over
   //     the V2 5 mm hole reads 3.75, not the 6.25 of the centre. Calibration SDHs keep the §6.1 2b centre
   //     convention that §5.3 / §11.1 #4 and the 40-ascan K_REF calibration rely on.
+  // 25. Crack–bead corner (§6.1 3 "corner echo of root cracks"): a planar defect that reaches a weld bead
+  //     (an end point within BEAD_REACH of the bead's base chord or beyond it, inside the bead's span —
+  //     the default root-crack preset ends on the root-bead crown) forms its corner with that bead. The
+  //     bead reflection of the (defect, bead) pair — in either order: the ray arrives from the defect, or
+  //     the flat-mirrored ray would reach the defect before any outline surface — uses the bead's BASE
+  //     chord normal (the plate surface the bead sits on) and skips the BEAD_SPECULAR loss; the rough-bead
+  //     diffuse scatter (NOTE 2) still fires. With the literal sloped bead normal the fan rays whose bottom
+  //     hit fell on the bead (the beam centre at the nominal stand-off) were deviated > 2·θ20 and lost, so
+  //     one crack produced two corner maxima 7 mm apart (x ≈ 31 and 38) with a −6 dB dip between them and
+  //     two corner echoes 5 mm apart on the A-scan. Bead reflections not paired with a defect are unchanged.
+  // 26. Surface-breaking ends do not diffract: a planar-defect end point within TIP_SURFACE_TOL (0.5 mm) of
+  //     an outline edge/arc is the corner itself (kind 'corner' via 2d), not a free crack tip, so no 'tip'
+  //     scatterer is emitted there. Otherwise two tip echoes at exactly the corner path added ≈ +2.3 dB to
+  //     the A-scan envelope of every surface-breaking crack while the echo list reported the corner alone.
+  // 27. Corner merge window: 'corner' echoes of one defect and leg merge over CORNER_MERGE (6 mm) instead of
+  //     the 1.5 mm of NOTE 12. A crack through a bead is one corner reflector whose fan-ray paths step
+  //     between the flat-bottom part and the bead crown (2·y_mirror/cosθ' differs by ≈ 2·rootHeight), so
+  //     the literal window listed two corner echoes 4–5 mm apart at some stand-offs; the representative
+  //     (NOTE 22) still reports the beam-centre path.
 
   const M = UT.math;
   const DEG = Math.PI / 180;
@@ -1565,6 +1593,9 @@ canvas { display: block; }
   const TT_EXTINCTION = 1.5;  // dB per mm of TT ray chord through a volumetric defect (SPEC NOTE 16)
   const AP_TAIL = 2;          // return-aperture taper zone beyond ra, in crystal diameters (SPEC NOTE 18)
   const MAX_SPLITS = 6;       // transmitted branches spawned per fan ray at partially-overlapping defects (SPEC NOTE 19)
+  const BEAD_REACH = 0.5;     // mm: a planar-defect end this close to (or beyond) a bead's base chord reaches the bead (SPEC NOTE 25)
+  const TIP_SURFACE_TOL = 0.5; // mm: planar-defect ends this close to an outline surface emit no tip scatter (SPEC NOTE 26)
+  const CORNER_MERGE = 6;     // mm: merge window for corner echoes of one defect and leg (SPEC NOTE 27)
   const sampleCache = new WeakMap();
   const geomCache = new WeakMap();   // specimen → flattened edges/arcs with precomputed normals
 
@@ -1646,7 +1677,28 @@ canvas { display: block; }
       const n = norm(-ey, ex);
       edges.push({ ax: ed.a.x, ay: ed.a.y, ex, ey, nx: n.x, ny: n.y, tag: ed.tag, edge: ed });
     }
-    g = { edges, arcs: (specimen.arcs || []).slice(), perspex: specimen.perspex || null };
+    // weld beads (SPEC NOTE 25): each run of consecutive 'cap'/'root' edges gets its base chord (first
+    // vertex → last vertex, i.e. the plate surface it sits on), the chord's unit normal and the side of the
+    // chord the bead crown lies on
+    const beads = [];
+    for (let i = 0; i < edges.length;) {
+      const tag = edges[i].tag;
+      if (tag !== 'cap' && tag !== 'root') { i++; continue; }
+      let j = i;
+      while (j + 1 < edges.length && edges[j + 1].tag === tag) j++;
+      const a = edges[i], b = edges[j];
+      const cx = b.ax + b.ex - a.ax, cy = b.ay + b.ey - a.ay;
+      if (Math.hypot(cx, cy) > 1e-6) {
+        const n = norm(-cy, cx);
+        let crown = 0;
+        for (let k = i; k <= j; k++) { const s = (edges[k].ax - a.ax) * n.x + (edges[k].ay - a.ay) * n.y; if (Math.abs(s) > Math.abs(crown)) crown = s; }
+        const bead = { tag, ax: a.ax, ay: a.ay, ex: cx, ey: cy, nx: n.x, ny: n.y, crownSign: crown < 0 ? -1 : 1 };
+        beads.push(bead);
+        for (let k = i; k <= j; k++) edges[k].bead = bead;
+      }
+      i = j + 1;
+    }
+    g = { edges, arcs: (specimen.arcs || []).slice(), perspex: specimen.perspex || null, beads };
     geomCache.set(specimen, g);
     return g;
   }
@@ -1665,6 +1717,7 @@ canvas { display: block; }
     const points = [];    // diffuse scatterers
     const vols = [];      // volumetric defect polygons (TT extinction, SPEC NOTE 16)
     const list = Array.isArray(defects) ? defects : [];
+    const g = geometryOf(specimen);
     for (const d of list) {
       if (!d || d.visible === false || !Array.isArray(d.pts) || d.pts.length < 2) continue;
       const refl = d.reflectivity === undefined ? 1 : d.reflectivity;
@@ -1679,12 +1732,17 @@ canvas { display: block; }
           const a = d.pts[i], b = d.pts[i + 1];
           if (M.dist(a.x, a.y, b.x, b.y) < 1e-6) continue;
           const n = norm(-(b.y - a.y), b.x - a.x);
-          segs.push({ a, b, ax: a.x, ay: a.y, ex: b.x - a.x, ey: b.y - a.y, nx: n.x, ny: n.y, defect: d, S, kind: isLam ? 'lamination' : 'defect' });
+          const seg = { a, b, ax: a.x, ay: a.y, ex: b.x - a.x, ey: b.y - a.y, nx: n.x, ny: n.y, defect: d, S, kind: isLam ? 'lamination' : 'defect', beads: null };
+          if (!isLam) {
+            // beads this segment reaches at an end → crack–bead corner pairs use the flat base normal (SPEC NOTE 25)
+            for (const bead of g.beads) if (reachesBead(a.x, a.y, bead) || reachesBead(b.x, b.y, bead)) (seg.beads || (seg.beads = [])).push(bead);
+          }
+          segs.push(seg);
         }
-        // tips (diffraction)
+        // tips (diffraction) — not at surface-breaking ends (SPEC NOTE 26)
         const first = d.pts[0], last = d.pts[d.pts.length - 1];
-        points.push({ x: first.x, y: first.y, kind: 'tip', S: 0.12 * refl, dExp: 2, cap: 0, defect: d });
-        points.push({ x: last.x, y: last.y, kind: 'tip', S: 0.12 * refl, dExp: 2, cap: 0, defect: d });
+        if (distToOutline(first.x, first.y, g) > TIP_SURFACE_TOL) points.push({ x: first.x, y: first.y, kind: 'tip', S: 0.12 * refl, dExp: 2, cap: 0, defect: d });
+        if (distToOutline(last.x, last.y, g) > TIP_SURFACE_TOL) points.push({ x: last.x, y: last.y, kind: 'tip', S: 0.12 * refl, dExp: 2, cap: 0, defect: d });
       } else {
         const sm = samplesOf(d);
         const n = Math.max(1, sm.length);
@@ -1702,8 +1760,40 @@ canvas { display: block; }
       holes.push({ x: h.x, y: h.y, r: h.r });
     }
     for (let i = 0; i < points.length; i++) points[i].idx = i;
-    const g = geometryOf(specimen);
     return { segs, points, vols, holes, edges: g.edges, arcs: g.arcs, perspex: g.perspex };
+  }
+
+  /** Distance from a point to the nearest outline edge or arc of the flattened geometry. */
+  function distToOutline(x, y, g) {
+    let best = Infinity;
+    for (const ed of g.edges) {
+      const l2 = ed.ex * ed.ex + ed.ey * ed.ey;
+      const u = l2 > 0 ? M.clamp(((x - ed.ax) * ed.ex + (y - ed.ay) * ed.ey) / l2, 0, 1) : 0;
+      const d = Math.hypot(x - ed.ax - ed.ex * u, y - ed.ay - ed.ey * u);
+      if (d < best) best = d;
+    }
+    for (const arc of g.arcs) {
+      let a0 = arc.a0, a1 = arc.a1;
+      if (a1 < a0) { const t = a0; a0 = a1; a1 = t; }
+      let ang = Math.atan2(y - arc.cy, x - arc.cx) / DEG;
+      while (ang < a0 - 1e-9) ang += 360;
+      while (ang > a1 + 1e-9 && ang - 360 >= a0 - 1e-9) ang -= 360;
+      let d;
+      if (ang >= a0 - 1e-9 && ang <= a1 + 1e-9) d = Math.abs(Math.hypot(x - arc.cx, y - arc.cy) - arc.r);
+      else d = Math.min(M.dist(x, y, arc.cx + arc.r * Math.cos(a0 * DEG), arc.cy + arc.r * Math.sin(a0 * DEG)),
+        M.dist(x, y, arc.cx + arc.r * Math.cos(a1 * DEG), arc.cy + arc.r * Math.sin(a1 * DEG)));
+      if (d < best) best = d;
+    }
+    return best;
+  }
+
+  /** True when a point lies within BEAD_REACH of a bead's base chord (inside its span) or beyond it on the crown side (SPEC NOTE 25). */
+  function reachesBead(x, y, bead) {
+    const l2 = bead.ex * bead.ex + bead.ey * bead.ey;
+    const u = ((x - bead.ax) * bead.ex + (y - bead.ay) * bead.ey) / l2;
+    if (u < 0 || u > 1) return false;
+    const sd = ((x - bead.ax) * bead.nx + (y - bead.ay) * bead.ny) * bead.crownSign;
+    return sd >= -BEAD_REACH;
   }
 
   /** Length of the ray segment [pos, pos + dir·L] inside a closed polygon (sum of chords). */
@@ -1803,7 +1893,7 @@ canvas { display: block; }
           bestT = t; bestObj = sg; bestType = 4;
         }
         let best = null;
-        if (bestType === 1) best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: bestObj.nx, ny: bestObj.ny, type: 'outline', tag: bestObj.tag };
+        if (bestType === 1) best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: bestObj.nx, ny: bestObj.ny, type: 'outline', tag: bestObj.tag, bead: bestObj.bead || null };
         else if (bestType === 2) best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: bestNx, ny: bestNy, type: 'outline', tag: bestObj.tag || 'radius' };
         else if (bestType === 3) { const hx = px + dx * bestT, hy = py + dy * bestT; const n = norm(hx - bestObj.x, hy - bestObj.y); best = { t: bestT, x: hx, y: hy, nx: n.x, ny: n.y, type: 'perspex', tag: 'perspex' }; }
         else if (bestType === 4) best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: bestObj.nx, ny: bestObj.ny, type: 'defect', tag: bestObj.kind, seg: bestObj };
@@ -1914,6 +2004,9 @@ canvas { display: block; }
           fromTag = 'top';
           hist.push({ type: 'outline', tag: 'top', x: hp.x, y: hp.y, leg: leg - 1, inc: 0 });
         } else {
+          // crack–bead corner pair (SPEC NOTE 25): the bead reflects like the plate surface it sits on
+          const flatBead = best.bead && !C.tt && !C.tandem && cornerBead(best, hist, hp, dir, scene);
+          if (flatBead) { best.nx = best.bead.nx; best.ny = best.bead.ny; }
           nd = reflect(dir.x, dir.y, best.nx, best.ny);
           pos = { x: hp.x + nd.x * STEP_OFF, y: hp.y + nd.y * STEP_OFF };
           bounces++;
@@ -1930,7 +2023,7 @@ canvas { display: block; }
               const slope = Math.min(1, Math.abs(best.nx) / 0.5);   // 0 for a flat bead (SPEC NOTE 2)
               if (slope > 1e-6) echoes.push(makeEcho(C, { path: len, kind: 'geometry', leg: leg - 1, x: hp.x, y: hp.y, w, wReturn: w, e: e / OTHER_LOSS, S: BEAD_SCATTER * inc * slope, dExp: 1.5, tag: best.tag, angleDev: delta, zs, tw }));
             }
-            if (best.tag === 'cap' || best.tag === 'root') e *= BEAD_SPECULAR;   // convex bead diverges the specular reflection (SPEC NOTE 21)
+            if ((best.tag === 'cap' || best.tag === 'root') && !flatBead) e *= BEAD_SPECULAR;   // convex bead diverges the specular reflection (SPEC NOTE 21)
           } else if (best.type === 'perspex') {
             e *= OTHER_LOSS;
             fromTag = 'perspex';
@@ -1980,6 +2073,51 @@ canvas { display: block; }
       }
     }
     return { pts, legs, echoes, hits, transmitted, w };
+  }
+
+  /**
+   * SPEC NOTE 25: does this bead hit belong to a (planar defect, bead) corner pair? True when the ray
+   * arrived from a defect segment that reaches this bead, or when the ray mirrored about the bead's base
+   * normal would meet such a segment before any outline edge/arc.
+   */
+  function cornerBead(best, hist, hp, dir, scene) {
+    const bead = best.bead;
+    const last = hist.length ? hist[hist.length - 1] : null;
+    if (last && last.type === 'defect' && last.seg && last.seg.beads && last.seg.beads.indexOf(bead) >= 0) return true;
+    let any = false;
+    for (let i = 0; i < scene.segs.length && !any; i++) { const sg = scene.segs[i]; if (sg.beads && sg.beads.indexOf(bead) >= 0) any = true; }
+    if (!any) return false;
+    const nd = reflect(dir.x, dir.y, bead.nx, bead.ny);
+    const px = hp.x + nd.x * STEP_OFF, py = hp.y + nd.y * STEP_OFF, dx = nd.x, dy = nd.y;
+    let tSeg = Infinity;
+    for (let i = 0; i < scene.segs.length; i++) {
+      const sg = scene.segs[i];
+      if (!sg.beads || sg.beads.indexOf(bead) < 0) continue;
+      const dn = dx * sg.nx + dy * sg.ny;
+      if (dn > -GRAZE_COS && dn < GRAZE_COS) continue;
+      const den = dx * sg.ey - dy * sg.ex;
+      if (den > -1e-12 && den < 1e-12) continue;
+      const t = ((sg.ax - px) * sg.ey - (sg.ay - py) * sg.ex) / den;
+      if (t < EPS || t >= tSeg) continue;
+      const u = ((sg.ax - px) * dy - (sg.ay - py) * dx) / den;
+      if (u < 0 || u > 1) continue;
+      tSeg = t;
+    }
+    if (tSeg === Infinity) return false;
+    for (let i = 0; i < scene.edges.length; i++) {
+      const ed = scene.edges[i];
+      const den = dx * ed.ey - dy * ed.ex;
+      if (den > -1e-12 && den < 1e-12) continue;
+      const t = ((ed.ax - px) * ed.ey - (ed.ay - py) * ed.ex) / den;
+      if (t < EPS || t >= tSeg) continue;
+      const u = ((ed.ax - px) * dy - (ed.ay - py) * dx) / den;
+      if (u >= 0 && u <= 1) return false;
+    }
+    for (let i = 0; i < scene.arcs.length; i++) {
+      const h = arcHit(px, py, dx, dy, scene.arcs[i], EPS);
+      if (h && h.t < tSeg) return false;
+    }
+    return true;
   }
 
   /**
@@ -2072,10 +2210,11 @@ canvas { display: block; }
       let arr = byKey.get(key);
       if (!arr) { arr = []; byKey.set(key, arr); }
       let g = null;
+      const tol = ec.kind === 'corner' ? CORNER_MERGE : 1.5;   // SPEC NOTES 12 / 27
       for (let i = arr.length - 1; i >= 0; i--) {
         const cand = arr[i];
-        if (Math.abs(ec.path - cand.best.path) <= 1.5 || Math.abs(ec.path - cand.last) <= 0.75) { g = cand; break; }
-        if (cand.last < ec.path - 3) break;
+        if (Math.abs(ec.path - cand.best.path) <= tol || Math.abs(ec.path - cand.last) <= tol / 2) { g = cand; break; }
+        if (cand.last < ec.path - 2 * tol) break;
       }
       if (!g) { g = { key, best: ec, sum2: ec.amp * ec.amp, sumNoZ2: ec.ampNoZ * ec.ampNoZ, last: ec.path, members: [ec] }; arr.push(g); groups.push(g); }
       else {
@@ -4213,7 +4352,10 @@ canvas { display: block; }
 //   3 px amplitude-colour tick beside it; red horizontal line at the scan head (probe.z when idle).
 //   Clicking on the strip sets probe.z. Faint z labels every 50 mm on the amplitude strip.
 // - OFF / ✕ leave the mode through UT.modes.exit() when available (re-entrancy guarded); without
-//   80-modes they simply hide the panel. The window is positioned over the instrument column.
+//   80-modes they simply hide the panel. The window is positioned over the instrument column and is
+//   laid out in two columns (strip charts | A-scan + Range/X-Shift/AMP + Transit/TOF Gate group) so that
+//   its width (462 px body → 464 px window) stays inside the 470 px instrument column and never covers
+//   the plan-view weld.
 (function (UT) {
   'use strict';
   const M = UT.math;
@@ -4453,14 +4595,14 @@ canvas { display: block; }
   // ================================================================== panel (DOM)
   const css = [
     '.win[data-win=aut] .win-body{padding:0;background:#000;color:#fff;overflow:hidden;font:12px "Segoe UI",Arial,sans-serif}',
-    '.win[data-win=aut] .aut-panel{display:flex;align-items:flex-start;gap:4px;padding:3px}',
+    '.win[data-win=aut] .aut-panel{display:flex;align-items:flex-start;gap:4px;padding:3px;width:462px;box-sizing:border-box}',
     '.win[data-win=aut] .aut-strip-col{display:flex;flex-direction:column;gap:3px}',
     '.win[data-win=aut] .aut-top{display:flex;align-items:stretch;height:34px}',
     '.win[data-win=aut] .aut-run{flex:1;margin:0;padding:0;font:bold 16px "Segoe UI",Arial,sans-serif;color:#000;background:#ececec;border:2px outset #fff;cursor:pointer}',
     '.win[data-win=aut] .aut-run.running{background:#ffe08a}',
     '.win[data-win=aut] .aut-clear{width:50px;margin:0 0 0 3px;padding:0;font:12px "Segoe UI",Arial,sans-serif;color:#000;background:#d8d8d8;border:2px outset #eee;cursor:pointer}',
     '.win[data-win=aut] #cv-aut-strip{display:block;width:186px;height:430px;cursor:crosshair;background:#000;border:1px solid #333}',
-    '.win[data-win=aut] .aut-mid{display:flex;flex-direction:column;gap:2px}',
+    '.win[data-win=aut] .aut-mid{display:flex;flex-direction:column;gap:2px;flex:1 1 auto;min-width:254px}',
     '.win[data-win=aut] .aut-scope{display:flex;gap:4px;align-items:flex-start}',
     '.win[data-win=aut] #cv-aut-ascan{display:block;width:232px;height:122px;background:#000}',
     '.win[data-win=aut] #cv-aut-legend{display:block;width:16px;height:122px;border:1px solid #555}',
@@ -4475,7 +4617,7 @@ canvas { display: block; }
     '.win[data-win=aut] .aut-amp input[type=range]{writing-mode:vertical-lr;direction:rtl;height:52px;width:18px;margin:0}',
     '.win[data-win=aut] .aut-amp .aut-amp-val{font-size:11px;white-space:nowrap}',
     '.win[data-win=aut] .aut-off{width:38px;height:54px;margin:0;padding:0;font:bold 12px "Segoe UI",Arial,sans-serif;color:#fff;background:#2b2b2b;border:2px outset #777;cursor:pointer;align-self:center}',
-    '.win[data-win=aut] .aut-gates{width:138px;border:1px groove #7fb;padding:4px 5px 5px;margin:0;position:relative}',
+    '.win[data-win=aut] .aut-gates{width:100%;box-sizing:border-box;border:1px groove #7fb;padding:4px 5px 5px;margin:2px 0 0;position:relative}',
     '.win[data-win=aut] .aut-gates legend{color:#7fe7ff;font:12px "Segoe UI",Arial,sans-serif;padding:0 2px}',
     '.win[data-win=aut] .aut-radios{display:flex;justify-content:space-around;align-items:center;margin:0 0 4px}',
     '.win[data-win=aut] .aut-radios label{display:flex;align-items:center;gap:2px;cursor:pointer}',
@@ -4485,7 +4627,7 @@ canvas { display: block; }
     '.win[data-win=aut] .aut-spin{display:flex;flex-direction:column;gap:1px}',
     '.win[data-win=aut] .aut-spin button{height:10px;line-height:8px;font-size:7px}',
     '.win[data-win=aut] .aut-hslider{display:flex;align-items:center;gap:1px}',
-    '.win[data-win=aut] .aut-hslider input[type=range]{width:54px;height:12px;margin:0}',
+    '.win[data-win=aut] .aut-hslider input[type=range]{width:110px;height:12px;margin:0}',
     '.win[data-win=aut] .aut-same{display:block;width:100%;margin:6px 0 4px;padding:2px 0;font:13px "Segoe UI",Arial,sans-serif;color:#000;background:#7fdf7f;border:2px outset #bfffbf;cursor:pointer}',
     '.win[data-win=aut] .aut-rdt{margin-top:2px}',
     '.win[data-win=aut] .aut-rdt .aut-rdt-cap{display:flex;gap:14px;text-decoration:underline;margin-bottom:2px}',
@@ -4588,6 +4730,7 @@ canvas { display: block; }
     return UT.dom.h('div', { class: 'aut-mid' }, [
       UT.dom.h('div', { class: 'aut-scope' }, [UT.dom.h('div', {}, [cv, axis]), legend]),
       UT.dom.h('div', { class: 'aut-ctl' }, [sliders, ampBox, off]),
+      buildGateGroup(),
     ]);
   }
 
@@ -4676,7 +4819,6 @@ canvas { display: block; }
     const content = UT.dom.h('div', { class: 'aut-panel' }, [
       UT.dom.h('div', { class: 'aut-strip-col' }, [UT.dom.h('div', { class: 'aut-top' }, [runBtn, clearBtn]), strip]),
       buildScope(),
-      buildGateGroup(),
     ]);
     const inst = anchorRect('instrument');
     ui.win = UT.dom.win({
@@ -7608,6 +7750,12 @@ canvas { display: block; }
         },
       });
       pipe3d.window = win;
+      // §11 / §15.6: #cv-3d must resolve by id right after boot (hidden is fine). core's dom.win only
+      // appends the element on first show(), so attach it now while it keeps its display:none —
+      // without show()/hide(), which would run onShow and emit win:show/win:hide.
+      if (typeof document !== 'undefined' && win.el && !win.el.parentNode) {
+        (document.getElementById('app') || document.body).appendChild(win.el);
+      }
     }
     attachMouse(canvas);
     UT.bus.on('render', function (f) { if (!win || win.isOpen()) draw(f, UT.state); });
@@ -8744,7 +8892,11 @@ canvas { display: block; }
  * - Page 5 `Reset` restores gain/range/delay/reject/gates/cal defaults (keeps DAC points and trig).
  * - `Gate Setup ▸ Mode Peak|Edge` is display only (kept in module memory); `Measure SP|Depth` sets `instrument.readout`.
  * - Focus: arrow keys reach `handleKey` only after the user clicked inside `#instrument` (or the USK7 window);
- *   clicking anywhere else releases the focus so the app can use the arrows for the probe again.
+ *   clicking anywhere else (mousedown or click, so synthetic clicks count too) releases the focus so the app can use
+ *   the arrows for the probe again.  EPOCH 4 screen softkeys / gate cells take the focus like the EPOCH 600 softkeys.
+ * - EPOCH 600 ref gain lock: while `instrument.refGain` is set the Gain softkey reads `Ref 30.2 + 2.0 dB` (small font)
+ *   and the `REF dB` caption above the dB key is lit; a second 2ND F + dB releases the lock (refGain = gain either
+ *   way, so the state contract of §15.7 is unchanged), page 5 Reset clears it.  The lock flag lives in module memory.
  * - EPOCH 4 `AUTO-80`: gain += 20·log10(80 / gated peak %) when a gated peak exists (clamped 0…110 dB).
  * - Half-wave / full-wave EPOCH 4 label follows `instrument.rectify`; `DAMPING` shows 50 when damping is on, else 150.
  * - drawAscan theme: string ('epoch600' | 'epoch4' | 'usk7' | 'aut' | 'tofd') or an object merged over the
@@ -8761,7 +8913,7 @@ canvas { display: block; }
   // ------------------------------------------------------------------ module memory
   const mem = {
     container: null, skin: null, canvas: null, iconCanvas: null, refs: {}, mounted: false,
-    secondF: false, subPage: null, gateMode: 'Peak', focused: false, uskWin: null, uskParked: null, drag: null,
+    secondF: false, subPage: null, gateMode: 'Peak', focused: false, refLock: false, uskWin: null, uskParked: null, drag: null,
     lastTexts: {}, ledOn: true,
   };
 
@@ -8877,7 +9029,15 @@ canvas { display: block; }
 
   // ------------------------------------------------------------------ hard-key actions (shared by skins)
   const keys = {
-    dB() { if (mem.secondF) { setInst({ refGain: inst().gain, selectedParam: 'gain' }); setSecondF(false); UT.status({ right: 'Reference gain locked at ' + fmtGain(inst().gain) }); } else selectParam('gain'); revealParam('gain'); },
+    dB() {
+      if (mem.secondF) {
+        // 2ND F + dB: lock the reference gain at the current gain (a second press releases the lock; refGain = gain either way)
+        mem.refLock = !mem.refLock;
+        setInst({ refGain: inst().gain, selectedParam: 'gain' }); setSecondF(false);
+        UT.status({ right: mem.refLock ? 'Reference gain locked at ' + fmtGain(inst().gain) + ' — ▲▼ add scanning dB' : 'Reference gain lock off' });
+      } else selectParam('gain');
+      revealParam('gain');
+    },
     range() { setInst({ range: nextRange(inst().range, mem.secondF), selectedParam: 'range' }); setSecondF(false); revealParam('range'); },
     gates() {
       const g = (inst().activeGate + 1) % 2;
@@ -8910,6 +9070,7 @@ canvas { display: block; }
     measure() { setInst({ readout: inst().readout === 'dp' ? 'sp' : 'dp' }); },
     reset() {
       const d = UT.defaultState().instrument;
+      mem.refLock = false;
       setInst({ gain: d.gain, refGain: d.refGain, range: d.range, delay: d.delay, reject: d.reject, gates: d.gates, cal: d.cal, selectedParam: 'gain', activeGate: 0 });
     },
     auto80() {
@@ -8923,7 +9084,12 @@ canvas { display: block; }
 
   // ------------------------------------------------------------------ EPOCH 600 softkey pages (§14.4)
   /** Formatted value of a parameter; `ins` (default `state.instrument`) lets tests evaluate a local copy. */
-  function valueOf(name, ins) { const p = PARAMS[name]; return p ? p.fmt(p.get(ins)) : ''; }
+  /** `instrument.refGain` is always numeric (default = gain, the DAC reference), so the on-screen lock is a skin flag
+   *  (`mem.refLock`) raised by 2ND F + dB and dropped by a second 2ND F + dB or page 5 Reset. */
+  function refLocked(ins) { const r = (ins || inst()).refGain; return !!mem.refLock && r !== null && r !== undefined && Number.isFinite(r); }
+  /** Gain cell text while a reference gain is locked (2ND F + dB): `Ref 30.2 + 2.0 dB` (§7.1 / §1.1 #22). */
+  function fmtRefGain(ins) { const I = ins || inst(); const d = I.gain - I.refGain; return 'Ref ' + I.refGain.toFixed(1) + ' ' + (d < 0 ? '−' : '+') + ' ' + Math.abs(d).toFixed(1) + ' dB'; }
+  function valueOf(name, ins) { const p = PARAMS[name]; if (!p) return ''; if (name === 'gain' && refLocked(ins)) return fmtRefGain(ins); return p.fmt(p.get(ins)); }
   function calVel() { return PARAMS.velocity.get(); }
   const PAGES = {
     1: function () { return [pk('Gain', 'gain'), pk('Range', 'range'), pk('Delay', 'delay'), sub('Basic'), sub('Pulsar'), sub('Rcvr'), sub('Trig'), act('Auto Cal', keys.autoCal)]; },
@@ -9007,8 +9173,9 @@ canvas { display: block; }
     const R = mem.refs = {};
     mem.canvas = h('canvas', { id: 'cv-ascan', class: 'e6-ascan' });
     R.secondF = key('2ND F', keys.secondF, 'ik-flat ik-2f');
+    R.refCap = h('span', { class: 'ik-cap ik-refcap' }, 'REF dB');
     const leftPad = h('div', { class: 'e6-keys' }, [
-      h('div', { class: 'e6-keyrow' }, [h('div', { class: 'e6-keycol' }, [h('span', { class: 'ik-cap' }, 'REF dB'), key('dB', keys.dB, 'ik-round ik-db')]), h('div', { class: 'e6-keycol' }, [h('span', { class: 'ik-cap' }, ' '), key('SAVE', null, 'ik-flat')])]),
+      h('div', { class: 'e6-keyrow' }, [h('div', { class: 'e6-keycol' }, [R.refCap, key('dB', keys.dB, 'ik-round ik-db')]), h('div', { class: 'e6-keycol' }, [h('span', { class: 'ik-cap' }, ' '), key('SAVE', null, 'ik-flat')])]),
       arrowPad('e6-pad'),
       h('div', { class: 'e6-keyrow' }, [h('div', { class: 'e6-keycol' }, [h('span', { class: 'ik-cap' }, 'AUTO XX%'), key('GATES', keys.gates, 'ik-flat')]), h('div', { class: 'e6-keycol' }, [h('span', { class: 'ik-cap' }, 'DELAY'), key('RANGE', keys.range, 'ik-flat')])]),
       h('div', { class: 'e6-keyrow' }, [h('div', { class: 'e6-keycol' }, [h('span', { class: 'ik-cap' }, ' '), R.secondF]), h('div', { class: 'e6-keycol' }, [h('span', { class: 'ik-cap' }, 'PEAK HOLD'), key('PEAK MEM', keys.peakMem, 'ik-flat ik-pm')])]),
@@ -9071,7 +9238,7 @@ canvas { display: block; }
     items.forEach(function (it, idx) {
       const cell = h('div', { class: 'e6-sk' + (it.kind === 'param' && it.param === sel ? ' sel' : '') + (it.kind === 'hdr' || it.kind === 'back' ? ' hdr' : '') + (it.kind === 'sub' ? ' sub' : ''), dataset: { sk: it.label } });
       cell.appendChild(h('span', { class: 'e6-skl' }, it.label));
-      if (it.kind === 'param') cell.appendChild(h('span', { class: 'e6-skv', dataset: { param: it.param } }, valueOf(it.param)));
+      if (it.kind === 'param') cell.appendChild(h('span', { class: 'e6-skv' + (it.param === 'gain' && refLocked() ? ' ref' : ''), dataset: { param: it.param } }, valueOf(it.param)));
       else if (it.kind === 'act' && it.value !== undefined) cell.appendChild(h('span', { class: 'e6-skv' }, it.value));
       cell.addEventListener('click', function () { softkeyAction(it); });
       if (it.kind === 'param') attachValueDrag(cell, it.param);
@@ -9113,8 +9280,9 @@ canvas { display: block; }
     const sel = inst().selectedParam;
     Array.prototype.forEach.call(col.querySelectorAll('.e6-sk'), function (cell) {
       const v = cell.querySelector('.e6-skv[data-param]');
-      if (v) { setText(v, valueOf(v.dataset.param)); cell.classList.toggle('sel', v.dataset.param === sel); }
+      if (v) { setText(v, valueOf(v.dataset.param)); cell.classList.toggle('sel', v.dataset.param === sel); if (v.dataset.param === 'gain') v.classList.toggle('ref', refLocked()); }
     });
+    if (R.refCap) R.refCap.classList.toggle('lit', refLocked());
     R.leds[1].classList.toggle('on', !!inst().freeze); R.leds[2].classList.toggle('on', !!inst().peakMem);
     drawMiniIcon(frame);
   }
@@ -9128,8 +9296,8 @@ canvas { display: block; }
     R.vel = h('span'); R.zero = h('span'); R.angle = h('span'); R.thick = h('span'); R.wave = h('span'); R.damp = h('span'); R.method = h('span'); R.freq = h('span');
     R.gateCells = [];
     const gateRows = [0, 1].map(function (gi) {
-      const cells = ['start', 'width', 'level'].map(function (f) { const c = h('td', { class: 'e4-gc', dataset: { param: 'g' + (gi + 1) + f }, onclick: function () { selectParam('g' + (gi + 1) + f); } }, '--'); R.gateCells.push(c); return c; });
-      const alarm = h('td', { class: 'e4-gc', onclick: function () { keys.alarm(gi); } }, 'OFF');
+      const cells = ['start', 'width', 'level'].map(function (f) { const c = h('td', { class: 'e4-gc', dataset: { param: 'g' + (gi + 1) + f }, onclick: function () { mem.focused = true; selectParam('g' + (gi + 1) + f); } }, '--'); R.gateCells.push(c); return c; });
+      const alarm = h('td', { class: 'e4-gc', onclick: function () { mem.focused = true; keys.alarm(gi); } }, 'OFF');
       R.gateCells.push(alarm);
       return h('tr', {}, [h('td', {}, String(gi + 1))].concat(cells, [alarm]));
     });
@@ -9148,11 +9316,11 @@ canvas { display: block; }
       ]),
       h('table', { class: 'e4-gates' }, [h('tr', {}, ['Gate', 'Start', 'Width', 'Level', 'Alarm'].map(function (t) { return h('th', {}, t); }))].concat(gateRows)),
       h('div', { class: 'e4-soft' }, [
-        h('span', { class: 'e4-sk', dataset: { sk: 'START' }, onclick: function () { selectParam('g' + (inst().activeGate + 1) + 'start'); } }, '1-START'),
-        h('span', { class: 'e4-sk', dataset: { sk: 'WIDTH' }, onclick: function () { selectParam('g' + (inst().activeGate + 1) + 'width'); } }, '1-WIDTH'),
-        h('span', { class: 'e4-sk', dataset: { sk: 'LEVEL' }, onclick: function () { selectParam('g' + (inst().activeGate + 1) + 'level'); } }, '1-LEVEL'),
+        h('span', { class: 'e4-sk', dataset: { sk: 'START' }, onclick: function () { mem.focused = true; selectParam('g' + (inst().activeGate + 1) + 'start'); } }, '1-START'),
+        h('span', { class: 'e4-sk', dataset: { sk: 'WIDTH' }, onclick: function () { mem.focused = true; selectParam('g' + (inst().activeGate + 1) + 'width'); } }, '1-WIDTH'),
+        h('span', { class: 'e4-sk', dataset: { sk: 'LEVEL' }, onclick: function () { mem.focused = true; selectParam('g' + (inst().activeGate + 1) + 'level'); } }, '1-LEVEL'),
         h('span', { class: 'e4-sk' }, ''),
-        h('span', { class: 'e4-sk', dataset: { sk: 'AUTO-80' }, onclick: keys.auto80 }, 'AUTO-80'),
+        h('span', { class: 'e4-sk', dataset: { sk: 'AUTO-80' }, onclick: function () { mem.focused = true; keys.auto80(); } }, 'AUTO-80'),
       ]),
     ]);
     R.softLabels = Array.prototype.slice.call(screen.querySelectorAll('.e4-sk'));
@@ -9223,11 +9391,25 @@ canvas { display: block; }
     });
     return mem.uskWin;
   }
+  /**
+   * Default USK7 placement (reference EGQxpCOD_xA.jpg): lower-left over the plan view, overlapping its bottom
+   * and the X ruler, so the plan-view probe symbol (always ≈ 30 mm below the z-window top, i.e. in the upper
+   * third of the plan) stays visible to the right of the window. Measured on the next frame because the
+   * instrument column only shrinks to the USK7 launcher after the skin switch has been laid out.
+   */
   function positionUsk(api) {
     if (mem.uskPositioned) return;
-    const plan = document.getElementById('cv-plan');
-    if (plan) { const r = plan.getBoundingClientRect(); if (r.width > 0) { api.el.style.left = Math.round(r.left + 4) + 'px'; api.el.style.top = Math.round(r.top + 4) + 'px'; } }
     mem.uskPositioned = true;
+    const place = function () {
+      const plan = document.getElementById('cv-plan');
+      const r = plan ? plan.getBoundingClientRect() : null;
+      if (!r || !(r.width > 0)) return;
+      const hWin = api.el.offsetHeight || 230;
+      const top = Math.max(r.top + 4, Math.round(r.bottom - Math.min(0.4 * r.height, hWin - 60)));
+      api.el.style.left = Math.round(r.left + 4) + 'px'; api.el.style.top = top + 'px';
+    };
+    place();
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(function () { if (mem.uskWin === api && api.isOpen()) place(); });
   }
   function knob(label, opts) {
     const dial = h('div', { class: 'usk-dial' }, [h('div', { class: 'usk-ptr' })]);
@@ -9510,10 +9692,12 @@ canvas { display: block; }
       UT.bus.on('render', onRender);
       container.addEventListener('mousedown', function () { mem.focused = true; });
       container.addEventListener('wheel', function (e) { e.preventDefault(); adjust(null, e.deltaY < 0 ? 1 : -1, e.shiftKey); }, { passive: false });
-      document.addEventListener('mousedown', function (e) {
+      const releaseFocus = function (e) {
         const inside = container.contains(e.target) || (mem.uskWin && mem.uskWin.el.contains(e.target));
         if (!inside) mem.focused = false;
-      });
+      };
+      document.addEventListener('mousedown', releaseFocus);
+      document.addEventListener('click', releaseFocus);   // synthetic clicks (canvas .click()) carry no mousedown
       document.addEventListener('mousemove', function (e) {
         const d = mem.drag; if (!d) return;
         d.acc += d.y - e.clientY; d.y = e.clientY;
@@ -9532,7 +9716,7 @@ canvas { display: block; }
         } else if (mem.uskParked) {
           const prev = mem.uskParked; mem.uskParked = null;
           if (prev.left && prev.top) { el.style.left = prev.left; el.style.top = prev.top; }
-          else { mem.uskPositioned = false; positionUsk(mem.uskWin); }   // default: top-left of the plan view (§14.4)
+          else { mem.uskPositioned = false; positionUsk(mem.uskWin); }   // default: lower-left of the plan view (reference EGQxpCOD_xA.jpg)
         }
       });
     }
@@ -9622,6 +9806,8 @@ canvas { display: block; }
     '.e6-sk.sub{background:#343634;}',
     '.e6-skl{font-size:9px;font-weight:bold;white-space:nowrap;}',
     '.e6-skv{font-size:8px;white-space:nowrap;}',
+    '.e6-skv.ref{font-size:6.5px;letter-spacing:-0.2px;}',
+    '.ik-cap.ik-refcap.lit{background:#f0c020;color:#000;border-radius:2px;padding:0 2px;}',
     '.e6-icon{height:34px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;background:#1a1c1a;}',
     '.e6-icon .mini-ascan{width:22px;height:26px;position:absolute;left:8px;top:2px;}',
     '.e6-icon1{position:absolute;left:32px;top:3px;font-size:8px;color:#f0c020;}',
@@ -9759,6 +9945,9 @@ canvas { display: block; }
 //   trade uses the seeded truth. Returning to a weld-kind mode restores the stash.
 // - step and lamination modes force a 0° probe (comp mode); tofd sets probe.x = 0 and rectify 'rf'
 //   (restored to 'full' on exit); leaving step restores cal {vel: null, zero: 0}.
+//   The angle the mode forced away (savedAngle) is restored on exit ONLY while the probe is still at that
+//   forced 0°: choosing 45/60/70 inside step/lamination (enabled there, §14.7), or setting an angle through
+//   the lesson setProbe just before enter(), drops the saved angle so the user's choice survives exit().
 //   Entering step also stashes instrument.gates and sets gate 1 to {start 6, width 40, level 20} so the first
 //   backwall of the 10 mm step (8.4 mm under the wrong cal) is gated for Auto Cal; the gates are restored on exit.
 //   Auto Cal captures the earliest 'backwall' echo above the gate level (gated max only when it IS that echo).
@@ -9772,7 +9961,19 @@ canvas { display: block; }
 // - Trade test: 3–6 defects from UT.specimens.defectPresets placed in sequential z windows; truth rows
 //   are rounded to 0.1 mm; the timer is 60 min (informational only, no auto-submit).
 // - DAC: dac.on becomes true once ≥ 2 points are recorded; Record replaces a point within 1 mm of an
-//   existing path; the first recorded point fixes refDb (= gain at that moment).
+//   existing path; the first recorded point fixes refDb (= gain at that moment). The −6/−14 dB companion
+//   curves start OFF when the first point is recorded (and after Erase) so that 'Draw Curves' really draws
+//   them (§1.1 #20 / §8.3); the panel button then reads 'Hide Curves' while they are shown.
+// - Lessons 7 / 20 (§14.12 says gain 34): with the §5.3 reference (3 mm SDH at 50 mm = 80 % at 34 dB) the
+//   near-field SDHs of the 20 mm DAC bar read 120–130 % at 34 dB, which Record refuses (> 120 % rule) and
+//   which clips the '+6 dB doubles' story. Lesson 20 therefore starts at 30 dB (70°: T/4 81 %, T/2 78 %,
+//   3T/4 62 %) and lesson 7 at 24 dB (60° T/2 hole 40 % → 30 dB softkey 80 % → 40 dB softkey 252 %, clipped).
+// - TKY joint kind row (§14.9): UT.specimens.tky() (frozen) models only the T-joint (plate chord + angled
+//   brace); the Plate / Pipe buttons are shown disabled with a tooltip instead of pretending to switch geometry.
+// - Defect z ranges: setDefects normalises zFrom <= zTo on plates (inverted ranges are swapped; on pipes an
+//   inverted range wraps through 0, see UT.specimens.defectLength) so defectLength is never negative.
+// - __selftest exercises enter()/trade on the live store but snapshots the top-level state (+ the module
+//   variables) first and restores everything in a finally block without opening any window.
 // - Plot markEdge picks the IOW hole whose depth is nearest the gated depth readout (fallback: 13 mm).
 // - Auto-cal wizard window is 'autocal' (owned here); ✓ = autoCal.step(), Cancel = autoCal.cancel().
 (function (UT) {
@@ -9837,6 +10038,7 @@ canvas { display: block; }
   let savedProbeMode = null;   // {angle, mode} before tofd forced the compression mode (§6.6), restored on exit
   const STEP_GATE1 = { on: true, start: 6, width: 40, level: 20, alarm: false };   // covers the 1st backwall of the 10 mm step under the wrong cal (8.4 mm)
   let tradeTimer = null;
+  let quietUI = false;         // true while __selftest runs: trade.start must not open the Trade Test window
   let autoCalState = null;     // {step: 1|2, t1, d1, d2}
   let dacWin = null, tkyWin = null, tradeWin = null, lessonsWin = null, editorWin = null, autoCalWin = null;
   const ui = {};               // live DOM refs of the windows (rebuilt lazily)
@@ -9974,7 +10176,10 @@ canvas { display: block; }
       if (probe.angle !== 0 && savedAngle === null) savedAngle = probe.angle;
       probe.angle = 0; probe.mode = 'comp';
     } else if (savedAngle !== null) {
-      probe.angle = savedAngle; probe.mode = presetMode(savedAngle); savedAngle = null;
+      // Restore only the angle the mode itself forced away: a probe that is no longer at 0° was chosen by the
+      // user / a lesson inside step or lamination (angles are enabled there, §14.7) and must survive exit().
+      if (probe.angle === 0 && (prev === 'step' || prev === 'lamination')) { probe.angle = savedAngle; probe.mode = presetMode(savedAngle); }
+      savedAngle = null;
     }
     if (name !== 'tky') probe.surface = 'chord';
     else if (!o.keepProbe) { probe.angle = 60; probe.mode = presetMode(60); }   // §14.9: default probe 60° on the chord
@@ -10094,6 +10299,8 @@ canvas { display: block; }
     if (!s.specimen) return;
     if (keys.indexOf('probe') >= 0) {
       const a = s.probe.angle;
+      // an angle picked inside step / lamination replaces the one the mode forced to 0°: nothing to restore on exit
+      if ((s.mode === 'step' || s.mode === 'lamination') && a !== 0) savedAngle = null;
       if (s.mode === 'tofd' && a !== 0 && s.probe.mode !== 'comp') { lastAngle = a; UT.setIn('probe', { mode: 'comp' }); return; }
       if ((s.mode === 'v1' || s.mode === 'v2') && lastAngle !== null && (a === 0) !== (lastAngle === 0)) {
         lastAngle = a;
@@ -10210,21 +10417,25 @@ canvas { display: block; }
       if (ampPct > 120) { UT.status({ right: 'DAC: point refused (' + Math.round(ampPct) + '% at ref gain) — reduce the amplitude' }); return null; }
       const pt = { path: +r.path.toFixed(2), ampPct: +ampPct.toFixed(1), gainAtRecord: s.instrument.gain };
       const points = cur.points.filter(function (p) { return Math.abs(p.path - pt.path) > 1; }).concat([pt]).sort(function (a, b) { return a.path - b.path; });
-      UT.setIn('instrument', { dac: Object.assign({}, cur, { points, refDb, on: points.length >= 2 }) });
+      // a fresh curve starts without the −6/−14 dB companions: 'Draw Curves' draws them (§8.3)
+      const curves = cur.points.length ? cur.curves : false;
+      UT.setIn('instrument', { dac: Object.assign({}, cur, { points, refDb, curves, on: points.length >= 2 }) });
       UT.status({ right: 'DAC point ' + points.length + ' recorded at ' + pt.path + ' mm, ' + pt.ampPct + '%' + (points.length < 2 ? ' — record another point' : '') });
       return pt;
     },
     /** Erase all DAC points. */
     erase() {
       const cur = st().instrument.dac;
-      UT.setIn('instrument', { dac: Object.assign({}, cur, { points: [], on: false, refDb: null }) });
+      UT.setIn('instrument', { dac: Object.assign({}, cur, { points: [], on: false, refDb: null, curves: false }) });
       UT.status({ right: HINTS[st().mode] || '' });
     },
-    /** Toggle the −6 / −14 dB companion curves (or set explicitly). */
+    /** Toggle the −6 / −14 dB companion curves (or set explicitly). Returns the new state. */
     curves(on) {
       const cur = st().instrument.dac;
       const v = on === undefined ? !cur.curves : !!on;
       UT.setIn('instrument', { dac: Object.assign({}, cur, { curves: v, on: cur.points.length >= 2 }) });
+      if (cur.points.length < 2) UT.status({ right: 'DAC: record at least 2 points, then Draw Curves' });
+      else UT.status({ right: v ? 'DAC −6 dB (50 %) / −14 dB (20 %) curves drawn' : 'DAC companion curves hidden' });
       return v;
     },
   };
@@ -10237,6 +10448,7 @@ canvas { display: block; }
     });
     if (!d.points.length) ui.dacList.appendChild(UT.dom.h('div', { class: 'dac-pt dim' }, 'no points'));
     ui.dacRef.textContent = 'Ref gain: ' + (d.refDb === null || d.refDb === undefined ? '--' : d.refDb + ' dB') + '   Curves: ' + (d.curves ? 'ON (−6 / −14 dB)' : 'off');
+    if (ui.dacDraw) ui.dacDraw.textContent = d.curves ? 'Hide Curves' : 'Draw Curves';
   }
   const dacPanel = {
     open() {
@@ -10250,7 +10462,7 @@ canvas { display: block; }
           UT.dom.h('div', { class: 'btn-row' }, [
             UT.dom.button('Record', function () { dac.record(); }, { class: 'btn primary', title: 'Record the gated peak (R)' }),
             UT.dom.button('Erase', function () { dac.erase(); }, { title: 'Erase all DAC points' }),
-            UT.dom.button('Draw Curves', function () { dac.curves(); }, { title: 'Toggle the −6 dB / −14 dB curves' }),
+            (ui.dacDraw = UT.dom.button('Draw Curves', function () { dac.curves(); }, { title: 'Draw / hide the −6 dB (50 %) and −14 dB (20 %) curves' })),
           ]),
           ui.dacRef, ui.dacList,
         ]);
@@ -10337,7 +10549,23 @@ canvas { display: block; }
     }
     return out;
   }
-  function setDefects(arr) { UT.set({ defects: limitSlots(coerceTypes(S.normaliseDefects(arr))) }); return st().defects; }
+  /**
+   * Normalise the z extent of every defect: on plates zFrom <= zTo (an inverted range is swapped), on pipes
+   * an inverted range means a wrap through 0 (kept, see UT.specimens.defectLength) but both ends are reduced
+   * to 0 <= z < circumference. Pure (returns copies for the records it changes).
+   */
+  function normaliseZ(list, spec) {
+    const pipe = !!(spec && spec.pipe);
+    const C = spec && spec.L > 0 ? spec.L : null;
+    return list.map(function (d) {
+      if (!Number.isFinite(d.zFrom) || !Number.isFinite(d.zTo)) return d;
+      let zFrom = d.zFrom, zTo = d.zTo;
+      if (pipe && C) { zFrom = ((zFrom % C) + C) % C; zTo = ((zTo % C) + C) % C; }
+      else if (zFrom > zTo) { const t = zFrom; zFrom = zTo; zTo = t; }
+      return zFrom === d.zFrom && zTo === d.zTo ? d : Object.assign({}, d, { zFrom, zTo });
+    });
+  }
+  function setDefects(arr) { UT.set({ defects: limitSlots(coerceTypes(normaliseZ(S.normaliseDefects(arr), st().specimen))) }); return st().defects; }
   function scaleHeight(d, height) {
     const b = S.bbox(d.pts);
     const h = Math.max(1e-6, b.h);
@@ -10741,7 +10969,7 @@ canvas { display: block; }
     start(seed) {
       const sd = seed === undefined || seed === null ? Math.floor(Math.random() * 1e9) : (seed >>> 0);
       if (defectEditor.isOpen()) defectEditor.close();
-      if (st().mode !== 'trade') enter('trade', { keepProbe: true, silentUI: typeof document === 'undefined' });
+      if (st().mode !== 'trade') enter('trade', { keepProbe: true, silentUI: quietUI || typeof document === 'undefined' });
       const s = st();
       const g = generateTruth(sd, s.specimen);
       UT.set({
@@ -10894,7 +11122,9 @@ canvas { display: block; }
 
   // ------------------------------------------------------------------ TKY panel (§14.9)
   function tkyApply(patch) {
-    Object.assign(tkyOpts, patch || {});
+    const p = Object.assign({}, patch || {});
+    if (p.kind !== undefined && p.kind !== 'T-joint') delete p.kind;   // only the T-joint geometry is modelled
+    Object.assign(tkyOpts, p);
     if (st().mode !== 'tky') enter('tky', { specimenOpts: Object.assign({}, tkyOpts) });
     else rebuild(Object.assign({}, tkyOpts));
     tkyRefresh();
@@ -10918,8 +11148,14 @@ canvas { display: block; }
         ui.tkyLabel = dom.h('div', { class: 'tky-label' }, 'Brace angle = 60°');
         ui.tkySlider = dom.h('input', { type: 'range', min: 30, max: 90, step: 1, value: 60, class: 'tky-slider' });
         ui.tkySlider.addEventListener('input', function () { tkyApply({ braceAngle: +(+ui.tkySlider.value).toFixed(1) }); });
+        // Only the T-joint (plate chord + angled brace) exists in UT.specimens.tky(): Plate / Pipe stay visible
+        // for fidelity (§14.9) but disabled, so the row never pretends to change the modelled geometry.
         ui.tkyKind = ['Plate', 'T-joint', 'Pipe'].map(function (k) {
-          return dom.button(k, function () { tkyApply({ kind: k }); }, { class: 'btn tky-kind', dataset: { kind: k } });
+          const modelled = k === 'T-joint';
+          return dom.button(k, function () { if (modelled) tkyApply({ kind: k }); }, {
+            class: 'btn tky-kind', dataset: { kind: k }, disabled: !modelled,
+            title: modelled ? 'T-joint: plate chord with an angled brace (modelled)' : k + ' joint is not modelled in this version — only the T-joint geometry is available',
+          });
         });
         ui.tkyPrec = dom.button('Precision 1°', function () { tkyApply({ precision: tkyOpts.precision === 1 ? 0.1 : 1 }); }, { class: 'btn tky-btn' });
         ui.fBraceT = dom.field('Brace T (mm)', { type: 'number', value: 12, min: 4, max: 60, step: 1, onchange: function (v) { if (v > 0) tkyApply({ braceT: v }); } });
@@ -10960,7 +11196,7 @@ canvas { display: block; }
   function setProbe(p) {
     const s = st();
     const np = Object.assign({}, s.probe, p);
-    if (p.angle !== undefined) np.mode = presetMode(p.angle);
+    if (p.angle !== undefined) { np.mode = presetMode(p.angle); savedAngle = null; }   // explicit angle (0° included): nothing to restore later
     UT.set({ probe: s.specimen ? clampProbe(np, s.specimen) : np });
   }
   function setInstr(p) { UT.setIn('instrument', p); }
@@ -10989,12 +11225,13 @@ canvas { display: block; }
       steps: ['Facing R25: 25 / 100 / 175 mm', 'Turn the probe (side −1): 50 / 125 / 200 mm', 'Index check at the maximum; angle check on the 5 mm hole (front face)'] },
     { n: 7, title: 'Making Sense of Amplitude', ko: '진폭과 dB: +6 dB = 2배, 퀵 게인 키', en: 'dB arithmetic: +6 dB doubles, quick gain keys, % readout',
       setup() {
-        enter('dac'); setProbe({ angle: 60 }); setInstr({ gain: 34, range: 100 });
+        // 24 dB: the T/2 hole reads ≈ 40 % so that the 30 dB softkey doubles it (80 %) and 40 dB clips (see SPEC NOTES)
+        enter('dac'); setProbe({ angle: 60 }); setInstr({ gain: 24, range: 100 });
         // §14.12: park the 60° probe at the T/2 hole maximum (hole x + depth·tan 60°)
         const spec = st().specimen, h = spec && spec.holes ? spec.holes.find(function (o) { return Math.abs(o.y - spec.T / 2) < 1e-6; }) : null;
         if (h) setProbe({ x: +(h.x + h.y * Math.tan(M.deg2rad(60))).toFixed(1) });
       },
-      steps: ['Maximise the T/2 hole echo', 'Press the 40.0dB softkey: the echo doubles', '+6 dB again: clipped — read the unclipped % box', 'Note 20·log10(ratio)'] },
+      steps: ['Maximise the T/2 hole echo (≈ 40 % at 24 dB)', 'Press the 30.0dB softkey (+6 dB): the echo doubles to ≈ 80 %', 'Press the 40.0dB softkey (+10 dB more): clipped — read the unclipped % box (≈ 250 %)', 'Note 20·log10(ratio): ×2 = 6 dB, ×3.16 = 10 dB'] },
     { n: 8, title: 'TKY Variable configuration Welds', ko: 'T/K/Y 이음: 브레이스 각도 조절, 토우 융합불량', en: 'T/K/Y joints: adjustable brace angle, toe LOF',
       setup() { enter('tky', { specimenOpts: { braceAngle: 60 } }); setProbe({ angle: 60, x: 35 }); },
       steps: ['Change the brace angle with the ADJUST MODE slider', 'Load Def: find the toe LOF', 'Switch to 45° and compare'] },
@@ -11030,8 +11267,9 @@ canvas { display: block; }
     { n: 19, title: 'Angle Probe using the V2 calibration block', ko: 'V2 블록 (반복)', en: 'V2 block (repeat of lesson 6)',
       setup() { lessons[5].setup(); }, steps: ['Same as lesson 6'] },
     { n: 20, title: 'Angleprobe Calibration', ko: 'DAC 기록: T/4, T/2, 3T/4 구멍 → Record → Draw Curves', en: 'DAC recording on the reference block and the −6/−14 dB curves',
-      setup() { enter('dac'); setProbe({ angle: 70 }); setInstr({ gain: 34, range: 100 }); },
-      steps: ['Maximise the T/4 hole → Record', 'T/2 → Record', '3T/4 → Record', 'Draw Curves (−6 / −14 dB), then scan a defect and read DAC %'] },
+      // 30 dB: the three 70° SDH echoes read ≈ 81 / 78 / 62 % (recordable; 34 dB would put the near-field holes > 120 %)
+      setup() { enter('dac'); setProbe({ angle: 70 }); setInstr({ gain: 30, range: 100 }); },
+      steps: ['Maximise the T/4 hole → Record (≈ 80 % at 30 dB)', 'T/2 → Record', '3T/4 → Record', 'Draw Curves (−6 / −14 dB), then scan a defect and read DAC %'] },
     { n: 21, title: 'Trade Test with UTman software', ko: '실기 시험: 숨은 결함 찾기, 보고서, 채점', en: 'Exam mode: hidden defects, report, score',
       setup() { weld({ T: 25, pipe: true, od: 219.1, wt: 25 }); setProbe({ angle: 60 }); enter('trade', { keepProbe: true }); trade.start(); },
       steps: ['Scan with 45° / 60° / 70°', 'Fill the report rows, Submit', 'Reveal, read the score (60 min timer)'] },
@@ -11175,6 +11413,7 @@ canvas { display: block; }
     '.tky-row{display:flex;gap:4px}',
     '.tky-kind,.tky-btn{flex:1;font-size:11px;background:#d8d8d8}',
     '.tky-kind.active{background:#00e000;color:#000;font-weight:bold}',
+    '.tky-kind[disabled]{opacity:.5;cursor:not-allowed}',
     '.tky-btn.active{background:#00e000}',
     '.tt{display:flex;flex-direction:column;gap:6px;max-height:70vh;overflow:auto}',
     '.tt-head{display:flex;gap:6px;align-items:center}',
@@ -11220,9 +11459,18 @@ canvas { display: block; }
   // ------------------------------------------------------------------ self test (headless)
   function __selftest() {
     const f = [];
+    // Snapshot the live store (top-level references: UT.set only ever REPLACES top-level objects) and the
+    // module variables, so the checks below leave the app, the toolbar and the persisted record untouched.
+    const saved = Object.assign({}, UT.state);
+    const savedVars = { stash, lastAngle, savedAngle, savedGates, savedProbeMode, autoCalState };
+    quietUI = true;
     try {
-      const save = UT.clone(UT.test.state());
-      void save;
+      // pure helpers first
+      const nz = normaliseZ([{ n: 1, type: 'crack', pts: [{ x: 0, y: 17 }, { x: 0, y: 20 }], zFrom: 200, zTo: 100 }], { L: 300 });
+      if (nz[0].zFrom !== 100 || nz[0].zTo !== 200) f.push('normaliseZ swap ' + JSON.stringify(nz[0]));
+      if (S.defectLength(nz[0], { L: 300 }) < 0) f.push('defectLength negative after normaliseZ');
+      const nzp = normaliseZ([{ n: 1, type: 'crack', pts: [], zFrom: 500, zTo: -500 }], { L: 400, pipe: { od: 168.3 } });
+      if (nzp[0].zFrom !== 100 || nzp[0].zTo !== 300) f.push('normaliseZ pipe wrap ' + JSON.stringify(nzp[0]));
       const before = st().mode;
       UT.setIn('probe', { angle: 60, mode: 'shear' }, { noRender: true });
       enter('v1', { silentUI: true });
@@ -11233,8 +11481,23 @@ canvas { display: block; }
       if (st().instrument.trig.thick !== 25) f.push('autoTrig thick ' + st().instrument.trig.thick);
       enter('step', { silentUI: true });
       if (st().instrument.cal.vel !== 5.6) f.push('step wrong cal');
+      if (st().probe.angle !== 0) f.push('step forces 0°');
       enter('weld', { silentUI: true });
       if (st().instrument.cal.vel !== null) f.push('cal restore');
+      // savedAngle: 60° forced to 0° by step is restored on exit, but an angle chosen inside step survives
+      UT.setIn('probe', { angle: 60, mode: 'shear' }, { noRender: true });
+      enter('step', { silentUI: true });
+      enter('weld', { silentUI: true });
+      if (st().probe.angle !== 60) f.push('forced angle restored on exit: ' + st().probe.angle);
+      enter('lamination', { silentUI: true });
+      UT.setIn('probe', { angle: 70, mode: 'shear' }, { noRender: true });
+      enter('weld', { silentUI: true });
+      if (st().probe.angle !== 70) f.push('angle chosen inside lamination must survive exit: ' + st().probe.angle);
+      enter('lamination', { silentUI: true });
+      setProbe({ angle: 0 });
+      enter('v1', { silentUI: true });
+      if (st().probe.angle !== 0 || st().specimen.face !== 'narrow') f.push('explicit 0° before v1 must give the narrow face: ' + st().probe.angle + '/' + st().specimen.face);
+      enter('weld', { silentUI: true });
       const g1 = generateTruth(42, st().specimen), g2 = generateTruth(42, st().specimen);
       if (JSON.stringify(g1.truth) !== JSON.stringify(g2.truth)) f.push('trade seed not deterministic');
       if (g1.truth.length < 3 || g1.truth.length > 6) f.push('trade count ' + g1.truth.length);
@@ -11251,8 +11514,22 @@ canvas { display: block; }
       if (z === null || Math.abs(z) > 0.01) f.push('circle z at 12 o\'clock ' + z);
       const zl = circleZFromPoint(15, 165, { cx: 165, cy: 165, R: 150, r: 120, C: 480 });
       if (zl === null || Math.abs(zl - 120) > 0.5) f.push('circle z at 9 o\'clock (anticlockwise 90°) ' + zl);
-      enter(before === 'weld' ? 'weld' : before, { silentUI: true, keepProbe: true });
+      void before;
     } catch (e) { f.push('exception ' + (e && e.message)); }
+    finally {
+      quietUI = false;
+      stopTradeTimer();
+      stash = savedVars.stash; lastAngle = savedVars.lastAngle; savedAngle = savedVars.savedAngle;
+      savedGates = savedVars.savedGates; savedProbeMode = savedVars.savedProbeMode; autoCalState = savedVars.autoCalState;
+      // put back exactly the top-level objects that changed (one 'state' event so the toolbar / layout resync)
+      const modeBefore = st().mode;
+      const patch = {};
+      Object.keys(saved).forEach(function (k) { if (k !== 'status' && k !== 'cursor' && UT.state[k] !== saved[k]) patch[k] = saved[k]; });
+      Object.keys(UT.state).forEach(function (k) { if (!(k in saved)) delete UT.state[k]; });
+      if (Object.keys(patch).length) UT.set(patch);
+      if (modeBefore !== saved.mode) UT.bus.emit('mode', { mode: saved.mode, prev: modeBefore });
+      UT.status(Object.assign({}, saved.status || {}, { right: saved.status && saved.status.right ? saved.status.right : UT.i18n.t(HINTS[saved.mode] || '') }));
+    }
     return f;
   }
 
@@ -11335,7 +11612,7 @@ canvas { display: block; }
    * (a taken / invalid n moves to the next free slot, the rest are dropped). Used wherever 90-app writes
    * state.defects without going through UT.modes.setDefects (boot restore, preset fallback).
    */
-  function limitDefectSlots(arr) {
+  function limitDefectSlots(arr, opts) {
     const list = has('specimens.normaliseDefects') ? UT.specimens.normaliseDefects(arr) : (Array.isArray(arr) ? arr : []);
     const out = [];
     const taken = function (n) { return out.some(function (d) { return d.n === n; }); };
@@ -11343,9 +11620,29 @@ canvas { display: block; }
       let n = Number.isInteger(d.n) && d.n >= 1 && d.n <= 8 && !taken(d.n) ? d.n : 0;
       if (!n) for (let k = 1; k <= 8; k++) if (!taken(k)) { n = k; break; }
       if (!n) break;
-      out.push(n === d.n ? d : Object.assign({}, d, { n }));
+      out.push(normaliseZ(n === d.n ? d : Object.assign({}, d, { n }), opts));
     }
     return out;
+  }
+  /**
+   * Same z normalisation as UT.modes.setDefects: on a plate zFrom <= zTo (an inverted range is swapped), on a
+   * pipe an inverted range wraps through 0 (kept) but both ends are reduced to 0 <= z < circumference.
+   * `opts = {pipe, circ}` — the specimen may not exist yet (boot restore), so the caller passes the weld options.
+   */
+  function normaliseZ(d, opts) {
+    if (!d || !Number.isFinite(d.zFrom) || !Number.isFinite(d.zTo)) return d;
+    const pipe = !!(opts && opts.pipe), C = opts && Number.isFinite(opts.circ) && opts.circ > 0 ? opts.circ : null;
+    let zFrom = d.zFrom, zTo = d.zTo;
+    if (pipe) { if (C) { zFrom = ((zFrom % C) + C) % C; zTo = ((zTo % C) + C) % C; } }
+    else if (zFrom > zTo) { const t = zFrom; zFrom = zTo; zTo = t; }
+    return zFrom === d.zFrom && zTo === d.zTo ? d : Object.assign({}, d, { zFrom, zTo });
+  }
+  /** `{pipe, circ}` of the current specimen (or of the weld options when no specimen is built yet). */
+  function zOptsOf(weldOpts) {
+    const sp = st().specimen;
+    if (sp) return { pipe: !!sp.pipe, circ: sp.pipe ? sp.L : null };
+    const o = weldOpts || st().weldOpts || {};
+    return { pipe: !!o.pipe, circ: o.pipe && Number.isFinite(o.od) ? Math.PI * o.od : null };
   }
   function t(key) { return UT.i18n && UT.i18n.t ? UT.i18n.t(key) : key; }
   function h(tag, attrs, kids) { return UT.dom.h(tag, attrs, kids); }
@@ -11512,7 +11809,7 @@ canvas { display: block; }
     const defects = st().defects.slice();
     d.n = defects.length + 1;
     defects.push(d);
-    UT.set({ defects: limitDefectSlots(defects) });
+    UT.set({ defects: limitDefectSlots(defects, zOptsOf()) });
     return d;
   }
 
@@ -11861,7 +12158,6 @@ canvas { display: block; }
       h('span', { class: 'sb-mid' }),
       h('span', { class: 'sb-panel sb-right' }, ''),
     ]);
-    sb.querySelector('.sb-mid').style.display = 'contents';
     root.appendChild(sb);
     mem.els.statusbar = sb;
     mem.built = true;
@@ -12021,7 +12317,7 @@ canvas { display: block; }
       for (const seg of segs) mid.appendChild(h('span', { class: 'sb-panel' }, seg));
     }
     const rt = s.right ? t(s.right) : '';
-    if (right.textContent !== rt) right.textContent = rt;
+    if (right.textContent !== rt) { right.textContent = rt; right.title = rt; }   // tooltip = full hint when ellipsized
     right.classList.toggle('empty', !rt);
   }
 
@@ -12190,13 +12486,13 @@ canvas { display: block; }
   }
   /** "Adjust Angle in Wedge (Shoe)" dialog: wedge angle ↔ refracted angle with both critical angles. */
   function openWedge() {
-    dialog('wedge', 'Adjust Angle in Wedge (Shoe)', 460, function (win) {
+    dialog('wedge', 'Adjust Angle in Wedge (Shoe)', 520, function (win) {
       const p = st().probe;
       const mat = st().specimen && st().specimen.material;
       const s = { vW: p.wedgeVel || UT.consts.V_PERSPEX, wedge: 0 };
       const d0 = has('probe.derive') ? UT.probe.derive(p, st().specimen) : null;
       s.wedge = d0 ? +d0.wedgeAngle.toFixed(1) : 0;
-      const readout = h('div', { class: 'wedge-readout' }, '');
+      const readout = h('div', { class: 'wedge-readout', style: { overflowX: 'auto' } }, '');
       const scale = h('div', { class: 'wedge-scale' });
       const slider = UT.dom.field('Angle in wedge (shoe)', { type: 'range', value: s.wedge, min: 0, max: 80, step: 0.1, event: 'input', onchange: function (v) { s.wedge = parseFloat(v); fromWedge(true); } });
       const refIn = UT.dom.field('Refracted angle in steel', { type: 'number', value: 0, min: 0, max: 89, step: 0.5, event: 'input', onchange: function (v) { if (Number.isFinite(v)) fromRefracted(v); } });
@@ -12222,9 +12518,9 @@ canvas { display: block; }
           'Wedge angle            : ' + s.wedge.toFixed(1) + '°   (wedge velocity ' + Math.round(s.vW * 1000) + ' m/s)\n' +
           '1st critical angle     : ' + crit.first.toFixed(1) + '°   (compression wave, ' + Math.round(vC) + ' m/s)\n' +
           '2nd critical angle     : ' + crit.second.toFixed(1) + '°   (shear wave, ' + Math.round(vS) + ' m/s)\n' +
-          (r.beyond ? 'Beyond 2nd critical: surface (Rayleigh) wave only — no bulk wave in steel\n'
+          (r.beyond ? 'Beyond 2nd critical    : surface (Rayleigh) wave only, no bulk wave\n'
             : (r.mode === 'comp' ? 'Compression wave angle : ' + r.refracted.toFixed(1) + '°' + (r.shearToo !== null && r.shearToo !== undefined ? '   (shear also present at ' + r.shearToo.toFixed(1) + '°)' : '') + '\n'
-              : 'Shear wave angle       : ' + r.refracted.toFixed(1) + '°   (compression wave totally reflected)\n')) +
+              : 'Shear wave angle       : ' + r.refracted.toFixed(1) + '°   (comp. wave totally reflected)\n')) +
           'sin(θ wedge)/v wedge = sin(θ steel)/v steel   (Snell)';
         readout.classList.toggle('dlg-warn', !!r.beyond);
       };
@@ -12379,7 +12675,7 @@ canvas { display: block; }
           const arr = JSON.parse(ta.value);
           if (!Array.isArray(arr)) throw new Error('expected a JSON array');
           if (has('modes.setDefects')) UT.modes.setDefects(arr);
-          else UT.set({ defects: limitDefectSlots(arr) });
+          else UT.set({ defects: limitDefectSlots(arr, zOptsOf()) });
           win.close();
         } catch (e) { UT.dom.alert('Invalid defect JSON: ' + e.message, 'Import Defects'); }
       };
@@ -12530,8 +12826,8 @@ canvas { display: block; }
       patch.instrument = ins;
     }
     if (rec.display && typeof rec.display === 'object') patch.display = coerceLike(def.display, rec.display, DISPLAY_RANGES, DISPLAY_ENUMS);
-    if (Array.isArray(rec.defects)) patch.defects = limitDefectSlots(rec.defects);
     if (rec.weldOpts && typeof rec.weldOpts === 'object') patch.weldOpts = clampPipeWall(coerceLike(def.weldOpts, rec.weldOpts, WELD_RANGES, { type: WELD_TYPES }));
+    if (Array.isArray(rec.defects)) patch.defects = limitDefectSlots(rec.defects, zOptsOf(patch.weldOpts));
     if (rec.utSet === 'epoch600' || rec.utSet === 'epoch4' || rec.utSet === 'usk7') patch.utSet = rec.utSet;
     if (rec.lang === 'ko' || rec.lang === 'en') patch.__lang = rec.lang;
     return patch;
@@ -12565,13 +12861,40 @@ canvas { display: block; }
   }
 
   // ------------------------------------------------------------------ boot
+  /**
+   * Run every `UT.*.__selftest()` (and `UT.views.*`) and log the results. Persistence is suspended for the whole
+   * run and the top-level state objects are snapshotted / restored around each module, so a side-effecting
+   * selftest can never reach localStorage or leave the app in a different mode.
+   */
   function runSelftests() {
     const out = {};
-    for (const k of Object.keys(UT)) {
-      const m = UT[k];
-      if (m && typeof m.__selftest === 'function') { try { out[k] = m.__selftest(); } catch (e) { out[k] = ['exception ' + e.message]; } }
-      if (k === 'views' && m) for (const v of Object.keys(m)) if (m[v] && typeof m[v].__selftest === 'function') { try { out['views.' + v] = m[v].__selftest(); } catch (e) { out['views.' + v] = ['exception ' + e.message]; } }
+    const wasSuspended = mem.suspendSave;
+    mem.suspendSave = true;
+    let dirty = false;
+    const run = function (label, fn) {
+      const saved = Object.assign({}, UT.state);
+      try { out[label] = fn(); } catch (e) { out[label] = ['exception ' + (e && e.message)]; }
+      const patch = {};
+      for (const key of Object.keys(saved)) if (key !== 'status' && key !== 'cursor' && UT.state[key] !== saved[key]) patch[key] = saved[key];
+      for (const key of Object.keys(UT.state)) if (!(key in saved)) delete UT.state[key];
+      if (Object.keys(patch).length) {
+        const modeBefore = st().mode;
+        try { UT.set(patch, { noRender: true }); } catch (e) { console.warn('[UT.app] selftest restore', label, e); }
+        if (patch.mode !== undefined && patch.mode !== modeBefore) UT.bus.emit('mode', { mode: patch.mode, prev: modeBefore });
+        dirty = true;
+      }
+    };
+    try {
+      for (const k of Object.keys(UT)) {
+        const m = UT[k];
+        if (m && typeof m.__selftest === 'function') run(k, function () { return m.__selftest(); });
+        if (k === 'views' && m) for (const v of Object.keys(m)) if (m[v] && typeof m[v].__selftest === 'function') run('views.' + v, function () { return m[v].__selftest(); });
+      }
+    } finally {
+      if (mem.saveTimer) { clearTimeout(mem.saveTimer); mem.saveTimer = null; }
+      mem.suspendSave = wasSuspended;
     }
+    if (dirty) { refreshToolbar(); applyLayout(); try { UT.renderNow(); } catch (e) { /* logged by core */ } }
     for (const k of Object.keys(out)) console.log('[selftest] ' + k + ': ' + (out[k].length ? 'FAIL ' + JSON.stringify(out[k]) : 'ok'));
     return out;
   }

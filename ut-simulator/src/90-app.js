@@ -64,7 +64,7 @@
    * (a taken / invalid n moves to the next free slot, the rest are dropped). Used wherever 90-app writes
    * state.defects without going through UT.modes.setDefects (boot restore, preset fallback).
    */
-  function limitDefectSlots(arr) {
+  function limitDefectSlots(arr, opts) {
     const list = has('specimens.normaliseDefects') ? UT.specimens.normaliseDefects(arr) : (Array.isArray(arr) ? arr : []);
     const out = [];
     const taken = function (n) { return out.some(function (d) { return d.n === n; }); };
@@ -72,9 +72,29 @@
       let n = Number.isInteger(d.n) && d.n >= 1 && d.n <= 8 && !taken(d.n) ? d.n : 0;
       if (!n) for (let k = 1; k <= 8; k++) if (!taken(k)) { n = k; break; }
       if (!n) break;
-      out.push(n === d.n ? d : Object.assign({}, d, { n }));
+      out.push(normaliseZ(n === d.n ? d : Object.assign({}, d, { n }), opts));
     }
     return out;
+  }
+  /**
+   * Same z normalisation as UT.modes.setDefects: on a plate zFrom <= zTo (an inverted range is swapped), on a
+   * pipe an inverted range wraps through 0 (kept) but both ends are reduced to 0 <= z < circumference.
+   * `opts = {pipe, circ}` — the specimen may not exist yet (boot restore), so the caller passes the weld options.
+   */
+  function normaliseZ(d, opts) {
+    if (!d || !Number.isFinite(d.zFrom) || !Number.isFinite(d.zTo)) return d;
+    const pipe = !!(opts && opts.pipe), C = opts && Number.isFinite(opts.circ) && opts.circ > 0 ? opts.circ : null;
+    let zFrom = d.zFrom, zTo = d.zTo;
+    if (pipe) { if (C) { zFrom = ((zFrom % C) + C) % C; zTo = ((zTo % C) + C) % C; } }
+    else if (zFrom > zTo) { const t = zFrom; zFrom = zTo; zTo = t; }
+    return zFrom === d.zFrom && zTo === d.zTo ? d : Object.assign({}, d, { zFrom, zTo });
+  }
+  /** `{pipe, circ}` of the current specimen (or of the weld options when no specimen is built yet). */
+  function zOptsOf(weldOpts) {
+    const sp = st().specimen;
+    if (sp) return { pipe: !!sp.pipe, circ: sp.pipe ? sp.L : null };
+    const o = weldOpts || st().weldOpts || {};
+    return { pipe: !!o.pipe, circ: o.pipe && Number.isFinite(o.od) ? Math.PI * o.od : null };
   }
   function t(key) { return UT.i18n && UT.i18n.t ? UT.i18n.t(key) : key; }
   function h(tag, attrs, kids) { return UT.dom.h(tag, attrs, kids); }
@@ -241,7 +261,7 @@
     const defects = st().defects.slice();
     d.n = defects.length + 1;
     defects.push(d);
-    UT.set({ defects: limitDefectSlots(defects) });
+    UT.set({ defects: limitDefectSlots(defects, zOptsOf()) });
     return d;
   }
 
@@ -590,7 +610,6 @@
       h('span', { class: 'sb-mid' }),
       h('span', { class: 'sb-panel sb-right' }, ''),
     ]);
-    sb.querySelector('.sb-mid').style.display = 'contents';
     root.appendChild(sb);
     mem.els.statusbar = sb;
     mem.built = true;
@@ -750,7 +769,7 @@
       for (const seg of segs) mid.appendChild(h('span', { class: 'sb-panel' }, seg));
     }
     const rt = s.right ? t(s.right) : '';
-    if (right.textContent !== rt) right.textContent = rt;
+    if (right.textContent !== rt) { right.textContent = rt; right.title = rt; }   // tooltip = full hint when ellipsized
     right.classList.toggle('empty', !rt);
   }
 
@@ -919,13 +938,13 @@
   }
   /** "Adjust Angle in Wedge (Shoe)" dialog: wedge angle ↔ refracted angle with both critical angles. */
   function openWedge() {
-    dialog('wedge', 'Adjust Angle in Wedge (Shoe)', 460, function (win) {
+    dialog('wedge', 'Adjust Angle in Wedge (Shoe)', 520, function (win) {
       const p = st().probe;
       const mat = st().specimen && st().specimen.material;
       const s = { vW: p.wedgeVel || UT.consts.V_PERSPEX, wedge: 0 };
       const d0 = has('probe.derive') ? UT.probe.derive(p, st().specimen) : null;
       s.wedge = d0 ? +d0.wedgeAngle.toFixed(1) : 0;
-      const readout = h('div', { class: 'wedge-readout' }, '');
+      const readout = h('div', { class: 'wedge-readout', style: { overflowX: 'auto' } }, '');
       const scale = h('div', { class: 'wedge-scale' });
       const slider = UT.dom.field('Angle in wedge (shoe)', { type: 'range', value: s.wedge, min: 0, max: 80, step: 0.1, event: 'input', onchange: function (v) { s.wedge = parseFloat(v); fromWedge(true); } });
       const refIn = UT.dom.field('Refracted angle in steel', { type: 'number', value: 0, min: 0, max: 89, step: 0.5, event: 'input', onchange: function (v) { if (Number.isFinite(v)) fromRefracted(v); } });
@@ -951,9 +970,9 @@
           'Wedge angle            : ' + s.wedge.toFixed(1) + '°   (wedge velocity ' + Math.round(s.vW * 1000) + ' m/s)\n' +
           '1st critical angle     : ' + crit.first.toFixed(1) + '°   (compression wave, ' + Math.round(vC) + ' m/s)\n' +
           '2nd critical angle     : ' + crit.second.toFixed(1) + '°   (shear wave, ' + Math.round(vS) + ' m/s)\n' +
-          (r.beyond ? 'Beyond 2nd critical: surface (Rayleigh) wave only — no bulk wave in steel\n'
+          (r.beyond ? 'Beyond 2nd critical    : surface (Rayleigh) wave only, no bulk wave\n'
             : (r.mode === 'comp' ? 'Compression wave angle : ' + r.refracted.toFixed(1) + '°' + (r.shearToo !== null && r.shearToo !== undefined ? '   (shear also present at ' + r.shearToo.toFixed(1) + '°)' : '') + '\n'
-              : 'Shear wave angle       : ' + r.refracted.toFixed(1) + '°   (compression wave totally reflected)\n')) +
+              : 'Shear wave angle       : ' + r.refracted.toFixed(1) + '°   (comp. wave totally reflected)\n')) +
           'sin(θ wedge)/v wedge = sin(θ steel)/v steel   (Snell)';
         readout.classList.toggle('dlg-warn', !!r.beyond);
       };
@@ -1108,7 +1127,7 @@
           const arr = JSON.parse(ta.value);
           if (!Array.isArray(arr)) throw new Error('expected a JSON array');
           if (has('modes.setDefects')) UT.modes.setDefects(arr);
-          else UT.set({ defects: limitDefectSlots(arr) });
+          else UT.set({ defects: limitDefectSlots(arr, zOptsOf()) });
           win.close();
         } catch (e) { UT.dom.alert('Invalid defect JSON: ' + e.message, 'Import Defects'); }
       };
@@ -1259,8 +1278,8 @@
       patch.instrument = ins;
     }
     if (rec.display && typeof rec.display === 'object') patch.display = coerceLike(def.display, rec.display, DISPLAY_RANGES, DISPLAY_ENUMS);
-    if (Array.isArray(rec.defects)) patch.defects = limitDefectSlots(rec.defects);
     if (rec.weldOpts && typeof rec.weldOpts === 'object') patch.weldOpts = clampPipeWall(coerceLike(def.weldOpts, rec.weldOpts, WELD_RANGES, { type: WELD_TYPES }));
+    if (Array.isArray(rec.defects)) patch.defects = limitDefectSlots(rec.defects, zOptsOf(patch.weldOpts));
     if (rec.utSet === 'epoch600' || rec.utSet === 'epoch4' || rec.utSet === 'usk7') patch.utSet = rec.utSet;
     if (rec.lang === 'ko' || rec.lang === 'en') patch.__lang = rec.lang;
     return patch;
@@ -1294,13 +1313,40 @@
   }
 
   // ------------------------------------------------------------------ boot
+  /**
+   * Run every `UT.*.__selftest()` (and `UT.views.*`) and log the results. Persistence is suspended for the whole
+   * run and the top-level state objects are snapshotted / restored around each module, so a side-effecting
+   * selftest can never reach localStorage or leave the app in a different mode.
+   */
   function runSelftests() {
     const out = {};
-    for (const k of Object.keys(UT)) {
-      const m = UT[k];
-      if (m && typeof m.__selftest === 'function') { try { out[k] = m.__selftest(); } catch (e) { out[k] = ['exception ' + e.message]; } }
-      if (k === 'views' && m) for (const v of Object.keys(m)) if (m[v] && typeof m[v].__selftest === 'function') { try { out['views.' + v] = m[v].__selftest(); } catch (e) { out['views.' + v] = ['exception ' + e.message]; } }
+    const wasSuspended = mem.suspendSave;
+    mem.suspendSave = true;
+    let dirty = false;
+    const run = function (label, fn) {
+      const saved = Object.assign({}, UT.state);
+      try { out[label] = fn(); } catch (e) { out[label] = ['exception ' + (e && e.message)]; }
+      const patch = {};
+      for (const key of Object.keys(saved)) if (key !== 'status' && key !== 'cursor' && UT.state[key] !== saved[key]) patch[key] = saved[key];
+      for (const key of Object.keys(UT.state)) if (!(key in saved)) delete UT.state[key];
+      if (Object.keys(patch).length) {
+        const modeBefore = st().mode;
+        try { UT.set(patch, { noRender: true }); } catch (e) { console.warn('[UT.app] selftest restore', label, e); }
+        if (patch.mode !== undefined && patch.mode !== modeBefore) UT.bus.emit('mode', { mode: patch.mode, prev: modeBefore });
+        dirty = true;
+      }
+    };
+    try {
+      for (const k of Object.keys(UT)) {
+        const m = UT[k];
+        if (m && typeof m.__selftest === 'function') run(k, function () { return m.__selftest(); });
+        if (k === 'views' && m) for (const v of Object.keys(m)) if (m[v] && typeof m[v].__selftest === 'function') run('views.' + v, function () { return m[v].__selftest(); });
+      }
+    } finally {
+      if (mem.saveTimer) { clearTimeout(mem.saveTimer); mem.saveTimer = null; }
+      mem.suspendSave = wasSuspended;
     }
+    if (dirty) { refreshToolbar(); applyLayout(); try { UT.renderNow(); } catch (e) { /* logged by core */ } }
     for (const k of Object.keys(out)) console.log('[selftest] ' + k + ': ' + (out[k].length ? 'FAIL ' + JSON.stringify(out[k]) : 'ok'));
     return out;
   }

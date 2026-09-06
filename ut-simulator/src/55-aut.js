@@ -39,7 +39,10 @@
 //   3 px amplitude-colour tick beside it; red horizontal line at the scan head (probe.z when idle).
 //   Clicking on the strip sets probe.z. Faint z labels every 50 mm on the amplitude strip.
 // - OFF / ✕ leave the mode through UT.modes.exit() when available (re-entrancy guarded); without
-//   80-modes they simply hide the panel. The window is positioned over the instrument column.
+//   80-modes they simply hide the panel. The window is positioned over the instrument column and is
+//   laid out in two columns (strip charts | A-scan + Range/X-Shift/AMP + Transit/TOF Gate group) so that
+//   its width (462 px body → 464 px window) stays inside the 470 px instrument column and never covers
+//   the plan-view weld.
 (function (UT) {
   'use strict';
   const M = UT.math;
@@ -279,14 +282,14 @@
   // ================================================================== panel (DOM)
   const css = [
     '.win[data-win=aut] .win-body{padding:0;background:#000;color:#fff;overflow:hidden;font:12px "Segoe UI",Arial,sans-serif}',
-    '.win[data-win=aut] .aut-panel{display:flex;align-items:flex-start;gap:4px;padding:3px}',
+    '.win[data-win=aut] .aut-panel{display:flex;align-items:flex-start;gap:4px;padding:3px;width:462px;box-sizing:border-box}',
     '.win[data-win=aut] .aut-strip-col{display:flex;flex-direction:column;gap:3px}',
     '.win[data-win=aut] .aut-top{display:flex;align-items:stretch;height:34px}',
     '.win[data-win=aut] .aut-run{flex:1;margin:0;padding:0;font:bold 16px "Segoe UI",Arial,sans-serif;color:#000;background:#ececec;border:2px outset #fff;cursor:pointer}',
     '.win[data-win=aut] .aut-run.running{background:#ffe08a}',
     '.win[data-win=aut] .aut-clear{width:50px;margin:0 0 0 3px;padding:0;font:12px "Segoe UI",Arial,sans-serif;color:#000;background:#d8d8d8;border:2px outset #eee;cursor:pointer}',
     '.win[data-win=aut] #cv-aut-strip{display:block;width:186px;height:430px;cursor:crosshair;background:#000;border:1px solid #333}',
-    '.win[data-win=aut] .aut-mid{display:flex;flex-direction:column;gap:2px}',
+    '.win[data-win=aut] .aut-mid{display:flex;flex-direction:column;gap:2px;flex:1 1 auto;min-width:254px}',
     '.win[data-win=aut] .aut-scope{display:flex;gap:4px;align-items:flex-start}',
     '.win[data-win=aut] #cv-aut-ascan{display:block;width:232px;height:122px;background:#000}',
     '.win[data-win=aut] #cv-aut-legend{display:block;width:16px;height:122px;border:1px solid #555}',
@@ -301,7 +304,7 @@
     '.win[data-win=aut] .aut-amp input[type=range]{writing-mode:vertical-lr;direction:rtl;height:52px;width:18px;margin:0}',
     '.win[data-win=aut] .aut-amp .aut-amp-val{font-size:11px;white-space:nowrap}',
     '.win[data-win=aut] .aut-off{width:38px;height:54px;margin:0;padding:0;font:bold 12px "Segoe UI",Arial,sans-serif;color:#fff;background:#2b2b2b;border:2px outset #777;cursor:pointer;align-self:center}',
-    '.win[data-win=aut] .aut-gates{width:138px;border:1px groove #7fb;padding:4px 5px 5px;margin:0;position:relative}',
+    '.win[data-win=aut] .aut-gates{width:100%;box-sizing:border-box;border:1px groove #7fb;padding:4px 5px 5px;margin:2px 0 0;position:relative}',
     '.win[data-win=aut] .aut-gates legend{color:#7fe7ff;font:12px "Segoe UI",Arial,sans-serif;padding:0 2px}',
     '.win[data-win=aut] .aut-radios{display:flex;justify-content:space-around;align-items:center;margin:0 0 4px}',
     '.win[data-win=aut] .aut-radios label{display:flex;align-items:center;gap:2px;cursor:pointer}',
@@ -311,7 +314,7 @@
     '.win[data-win=aut] .aut-spin{display:flex;flex-direction:column;gap:1px}',
     '.win[data-win=aut] .aut-spin button{height:10px;line-height:8px;font-size:7px}',
     '.win[data-win=aut] .aut-hslider{display:flex;align-items:center;gap:1px}',
-    '.win[data-win=aut] .aut-hslider input[type=range]{width:54px;height:12px;margin:0}',
+    '.win[data-win=aut] .aut-hslider input[type=range]{width:110px;height:12px;margin:0}',
     '.win[data-win=aut] .aut-same{display:block;width:100%;margin:6px 0 4px;padding:2px 0;font:13px "Segoe UI",Arial,sans-serif;color:#000;background:#7fdf7f;border:2px outset #bfffbf;cursor:pointer}',
     '.win[data-win=aut] .aut-rdt{margin-top:2px}',
     '.win[data-win=aut] .aut-rdt .aut-rdt-cap{display:flex;gap:14px;text-decoration:underline;margin-bottom:2px}',
@@ -414,6 +417,7 @@
     return UT.dom.h('div', { class: 'aut-mid' }, [
       UT.dom.h('div', { class: 'aut-scope' }, [UT.dom.h('div', {}, [cv, axis]), legend]),
       UT.dom.h('div', { class: 'aut-ctl' }, [sliders, ampBox, off]),
+      buildGateGroup(),
     ]);
   }
 
@@ -502,7 +506,6 @@
     const content = UT.dom.h('div', { class: 'aut-panel' }, [
       UT.dom.h('div', { class: 'aut-strip-col' }, [UT.dom.h('div', { class: 'aut-top' }, [runBtn, clearBtn]), strip]),
       buildScope(),
-      buildGateGroup(),
     ]);
     const inst = anchorRect('instrument');
     ui.win = UT.dom.win({

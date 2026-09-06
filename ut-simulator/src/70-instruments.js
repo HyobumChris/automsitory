@@ -21,7 +21,11 @@
  * - Page 5 `Reset` restores gain/range/delay/reject/gates/cal defaults (keeps DAC points and trig).
  * - `Gate Setup ▸ Mode Peak|Edge` is display only (kept in module memory); `Measure SP|Depth` sets `instrument.readout`.
  * - Focus: arrow keys reach `handleKey` only after the user clicked inside `#instrument` (or the USK7 window);
- *   clicking anywhere else releases the focus so the app can use the arrows for the probe again.
+ *   clicking anywhere else (mousedown or click, so synthetic clicks count too) releases the focus so the app can use
+ *   the arrows for the probe again.  EPOCH 4 screen softkeys / gate cells take the focus like the EPOCH 600 softkeys.
+ * - EPOCH 600 ref gain lock: while `instrument.refGain` is set the Gain softkey reads `Ref 30.2 + 2.0 dB` (small font)
+ *   and the `REF dB` caption above the dB key is lit; a second 2ND F + dB releases the lock (refGain = gain either
+ *   way, so the state contract of §15.7 is unchanged), page 5 Reset clears it.  The lock flag lives in module memory.
  * - EPOCH 4 `AUTO-80`: gain += 20·log10(80 / gated peak %) when a gated peak exists (clamped 0…110 dB).
  * - Half-wave / full-wave EPOCH 4 label follows `instrument.rectify`; `DAMPING` shows 50 when damping is on, else 150.
  * - drawAscan theme: string ('epoch600' | 'epoch4' | 'usk7' | 'aut' | 'tofd') or an object merged over the
@@ -38,7 +42,7 @@
   // ------------------------------------------------------------------ module memory
   const mem = {
     container: null, skin: null, canvas: null, iconCanvas: null, refs: {}, mounted: false,
-    secondF: false, subPage: null, gateMode: 'Peak', focused: false, uskWin: null, uskParked: null, drag: null,
+    secondF: false, subPage: null, gateMode: 'Peak', focused: false, refLock: false, uskWin: null, uskParked: null, drag: null,
     lastTexts: {}, ledOn: true,
   };
 
@@ -154,7 +158,15 @@
 
   // ------------------------------------------------------------------ hard-key actions (shared by skins)
   const keys = {
-    dB() { if (mem.secondF) { setInst({ refGain: inst().gain, selectedParam: 'gain' }); setSecondF(false); UT.status({ right: 'Reference gain locked at ' + fmtGain(inst().gain) }); } else selectParam('gain'); revealParam('gain'); },
+    dB() {
+      if (mem.secondF) {
+        // 2ND F + dB: lock the reference gain at the current gain (a second press releases the lock; refGain = gain either way)
+        mem.refLock = !mem.refLock;
+        setInst({ refGain: inst().gain, selectedParam: 'gain' }); setSecondF(false);
+        UT.status({ right: mem.refLock ? 'Reference gain locked at ' + fmtGain(inst().gain) + ' — ▲▼ add scanning dB' : 'Reference gain lock off' });
+      } else selectParam('gain');
+      revealParam('gain');
+    },
     range() { setInst({ range: nextRange(inst().range, mem.secondF), selectedParam: 'range' }); setSecondF(false); revealParam('range'); },
     gates() {
       const g = (inst().activeGate + 1) % 2;
@@ -187,6 +199,7 @@
     measure() { setInst({ readout: inst().readout === 'dp' ? 'sp' : 'dp' }); },
     reset() {
       const d = UT.defaultState().instrument;
+      mem.refLock = false;
       setInst({ gain: d.gain, refGain: d.refGain, range: d.range, delay: d.delay, reject: d.reject, gates: d.gates, cal: d.cal, selectedParam: 'gain', activeGate: 0 });
     },
     auto80() {
@@ -200,7 +213,12 @@
 
   // ------------------------------------------------------------------ EPOCH 600 softkey pages (§14.4)
   /** Formatted value of a parameter; `ins` (default `state.instrument`) lets tests evaluate a local copy. */
-  function valueOf(name, ins) { const p = PARAMS[name]; return p ? p.fmt(p.get(ins)) : ''; }
+  /** `instrument.refGain` is always numeric (default = gain, the DAC reference), so the on-screen lock is a skin flag
+   *  (`mem.refLock`) raised by 2ND F + dB and dropped by a second 2ND F + dB or page 5 Reset. */
+  function refLocked(ins) { const r = (ins || inst()).refGain; return !!mem.refLock && r !== null && r !== undefined && Number.isFinite(r); }
+  /** Gain cell text while a reference gain is locked (2ND F + dB): `Ref 30.2 + 2.0 dB` (§7.1 / §1.1 #22). */
+  function fmtRefGain(ins) { const I = ins || inst(); const d = I.gain - I.refGain; return 'Ref ' + I.refGain.toFixed(1) + ' ' + (d < 0 ? '−' : '+') + ' ' + Math.abs(d).toFixed(1) + ' dB'; }
+  function valueOf(name, ins) { const p = PARAMS[name]; if (!p) return ''; if (name === 'gain' && refLocked(ins)) return fmtRefGain(ins); return p.fmt(p.get(ins)); }
   function calVel() { return PARAMS.velocity.get(); }
   const PAGES = {
     1: function () { return [pk('Gain', 'gain'), pk('Range', 'range'), pk('Delay', 'delay'), sub('Basic'), sub('Pulsar'), sub('Rcvr'), sub('Trig'), act('Auto Cal', keys.autoCal)]; },
@@ -284,8 +302,9 @@
     const R = mem.refs = {};
     mem.canvas = h('canvas', { id: 'cv-ascan', class: 'e6-ascan' });
     R.secondF = key('2ND F', keys.secondF, 'ik-flat ik-2f');
+    R.refCap = h('span', { class: 'ik-cap ik-refcap' }, 'REF dB');
     const leftPad = h('div', { class: 'e6-keys' }, [
-      h('div', { class: 'e6-keyrow' }, [h('div', { class: 'e6-keycol' }, [h('span', { class: 'ik-cap' }, 'REF dB'), key('dB', keys.dB, 'ik-round ik-db')]), h('div', { class: 'e6-keycol' }, [h('span', { class: 'ik-cap' }, ' '), key('SAVE', null, 'ik-flat')])]),
+      h('div', { class: 'e6-keyrow' }, [h('div', { class: 'e6-keycol' }, [R.refCap, key('dB', keys.dB, 'ik-round ik-db')]), h('div', { class: 'e6-keycol' }, [h('span', { class: 'ik-cap' }, ' '), key('SAVE', null, 'ik-flat')])]),
       arrowPad('e6-pad'),
       h('div', { class: 'e6-keyrow' }, [h('div', { class: 'e6-keycol' }, [h('span', { class: 'ik-cap' }, 'AUTO XX%'), key('GATES', keys.gates, 'ik-flat')]), h('div', { class: 'e6-keycol' }, [h('span', { class: 'ik-cap' }, 'DELAY'), key('RANGE', keys.range, 'ik-flat')])]),
       h('div', { class: 'e6-keyrow' }, [h('div', { class: 'e6-keycol' }, [h('span', { class: 'ik-cap' }, ' '), R.secondF]), h('div', { class: 'e6-keycol' }, [h('span', { class: 'ik-cap' }, 'PEAK HOLD'), key('PEAK MEM', keys.peakMem, 'ik-flat ik-pm')])]),
@@ -348,7 +367,7 @@
     items.forEach(function (it, idx) {
       const cell = h('div', { class: 'e6-sk' + (it.kind === 'param' && it.param === sel ? ' sel' : '') + (it.kind === 'hdr' || it.kind === 'back' ? ' hdr' : '') + (it.kind === 'sub' ? ' sub' : ''), dataset: { sk: it.label } });
       cell.appendChild(h('span', { class: 'e6-skl' }, it.label));
-      if (it.kind === 'param') cell.appendChild(h('span', { class: 'e6-skv', dataset: { param: it.param } }, valueOf(it.param)));
+      if (it.kind === 'param') cell.appendChild(h('span', { class: 'e6-skv' + (it.param === 'gain' && refLocked() ? ' ref' : ''), dataset: { param: it.param } }, valueOf(it.param)));
       else if (it.kind === 'act' && it.value !== undefined) cell.appendChild(h('span', { class: 'e6-skv' }, it.value));
       cell.addEventListener('click', function () { softkeyAction(it); });
       if (it.kind === 'param') attachValueDrag(cell, it.param);
@@ -390,8 +409,9 @@
     const sel = inst().selectedParam;
     Array.prototype.forEach.call(col.querySelectorAll('.e6-sk'), function (cell) {
       const v = cell.querySelector('.e6-skv[data-param]');
-      if (v) { setText(v, valueOf(v.dataset.param)); cell.classList.toggle('sel', v.dataset.param === sel); }
+      if (v) { setText(v, valueOf(v.dataset.param)); cell.classList.toggle('sel', v.dataset.param === sel); if (v.dataset.param === 'gain') v.classList.toggle('ref', refLocked()); }
     });
+    if (R.refCap) R.refCap.classList.toggle('lit', refLocked());
     R.leds[1].classList.toggle('on', !!inst().freeze); R.leds[2].classList.toggle('on', !!inst().peakMem);
     drawMiniIcon(frame);
   }
@@ -405,8 +425,8 @@
     R.vel = h('span'); R.zero = h('span'); R.angle = h('span'); R.thick = h('span'); R.wave = h('span'); R.damp = h('span'); R.method = h('span'); R.freq = h('span');
     R.gateCells = [];
     const gateRows = [0, 1].map(function (gi) {
-      const cells = ['start', 'width', 'level'].map(function (f) { const c = h('td', { class: 'e4-gc', dataset: { param: 'g' + (gi + 1) + f }, onclick: function () { selectParam('g' + (gi + 1) + f); } }, '--'); R.gateCells.push(c); return c; });
-      const alarm = h('td', { class: 'e4-gc', onclick: function () { keys.alarm(gi); } }, 'OFF');
+      const cells = ['start', 'width', 'level'].map(function (f) { const c = h('td', { class: 'e4-gc', dataset: { param: 'g' + (gi + 1) + f }, onclick: function () { mem.focused = true; selectParam('g' + (gi + 1) + f); } }, '--'); R.gateCells.push(c); return c; });
+      const alarm = h('td', { class: 'e4-gc', onclick: function () { mem.focused = true; keys.alarm(gi); } }, 'OFF');
       R.gateCells.push(alarm);
       return h('tr', {}, [h('td', {}, String(gi + 1))].concat(cells, [alarm]));
     });
@@ -425,11 +445,11 @@
       ]),
       h('table', { class: 'e4-gates' }, [h('tr', {}, ['Gate', 'Start', 'Width', 'Level', 'Alarm'].map(function (t) { return h('th', {}, t); }))].concat(gateRows)),
       h('div', { class: 'e4-soft' }, [
-        h('span', { class: 'e4-sk', dataset: { sk: 'START' }, onclick: function () { selectParam('g' + (inst().activeGate + 1) + 'start'); } }, '1-START'),
-        h('span', { class: 'e4-sk', dataset: { sk: 'WIDTH' }, onclick: function () { selectParam('g' + (inst().activeGate + 1) + 'width'); } }, '1-WIDTH'),
-        h('span', { class: 'e4-sk', dataset: { sk: 'LEVEL' }, onclick: function () { selectParam('g' + (inst().activeGate + 1) + 'level'); } }, '1-LEVEL'),
+        h('span', { class: 'e4-sk', dataset: { sk: 'START' }, onclick: function () { mem.focused = true; selectParam('g' + (inst().activeGate + 1) + 'start'); } }, '1-START'),
+        h('span', { class: 'e4-sk', dataset: { sk: 'WIDTH' }, onclick: function () { mem.focused = true; selectParam('g' + (inst().activeGate + 1) + 'width'); } }, '1-WIDTH'),
+        h('span', { class: 'e4-sk', dataset: { sk: 'LEVEL' }, onclick: function () { mem.focused = true; selectParam('g' + (inst().activeGate + 1) + 'level'); } }, '1-LEVEL'),
         h('span', { class: 'e4-sk' }, ''),
-        h('span', { class: 'e4-sk', dataset: { sk: 'AUTO-80' }, onclick: keys.auto80 }, 'AUTO-80'),
+        h('span', { class: 'e4-sk', dataset: { sk: 'AUTO-80' }, onclick: function () { mem.focused = true; keys.auto80(); } }, 'AUTO-80'),
       ]),
     ]);
     R.softLabels = Array.prototype.slice.call(screen.querySelectorAll('.e4-sk'));
@@ -500,11 +520,25 @@
     });
     return mem.uskWin;
   }
+  /**
+   * Default USK7 placement (reference EGQxpCOD_xA.jpg): lower-left over the plan view, overlapping its bottom
+   * and the X ruler, so the plan-view probe symbol (always ≈ 30 mm below the z-window top, i.e. in the upper
+   * third of the plan) stays visible to the right of the window. Measured on the next frame because the
+   * instrument column only shrinks to the USK7 launcher after the skin switch has been laid out.
+   */
   function positionUsk(api) {
     if (mem.uskPositioned) return;
-    const plan = document.getElementById('cv-plan');
-    if (plan) { const r = plan.getBoundingClientRect(); if (r.width > 0) { api.el.style.left = Math.round(r.left + 4) + 'px'; api.el.style.top = Math.round(r.top + 4) + 'px'; } }
     mem.uskPositioned = true;
+    const place = function () {
+      const plan = document.getElementById('cv-plan');
+      const r = plan ? plan.getBoundingClientRect() : null;
+      if (!r || !(r.width > 0)) return;
+      const hWin = api.el.offsetHeight || 230;
+      const top = Math.max(r.top + 4, Math.round(r.bottom - Math.min(0.4 * r.height, hWin - 60)));
+      api.el.style.left = Math.round(r.left + 4) + 'px'; api.el.style.top = top + 'px';
+    };
+    place();
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(function () { if (mem.uskWin === api && api.isOpen()) place(); });
   }
   function knob(label, opts) {
     const dial = h('div', { class: 'usk-dial' }, [h('div', { class: 'usk-ptr' })]);
@@ -787,10 +821,12 @@
       UT.bus.on('render', onRender);
       container.addEventListener('mousedown', function () { mem.focused = true; });
       container.addEventListener('wheel', function (e) { e.preventDefault(); adjust(null, e.deltaY < 0 ? 1 : -1, e.shiftKey); }, { passive: false });
-      document.addEventListener('mousedown', function (e) {
+      const releaseFocus = function (e) {
         const inside = container.contains(e.target) || (mem.uskWin && mem.uskWin.el.contains(e.target));
         if (!inside) mem.focused = false;
-      });
+      };
+      document.addEventListener('mousedown', releaseFocus);
+      document.addEventListener('click', releaseFocus);   // synthetic clicks (canvas .click()) carry no mousedown
       document.addEventListener('mousemove', function (e) {
         const d = mem.drag; if (!d) return;
         d.acc += d.y - e.clientY; d.y = e.clientY;
@@ -809,7 +845,7 @@
         } else if (mem.uskParked) {
           const prev = mem.uskParked; mem.uskParked = null;
           if (prev.left && prev.top) { el.style.left = prev.left; el.style.top = prev.top; }
-          else { mem.uskPositioned = false; positionUsk(mem.uskWin); }   // default: top-left of the plan view (§14.4)
+          else { mem.uskPositioned = false; positionUsk(mem.uskWin); }   // default: lower-left of the plan view (reference EGQxpCOD_xA.jpg)
         }
       });
     }
@@ -899,6 +935,8 @@
     '.e6-sk.sub{background:#343634;}',
     '.e6-skl{font-size:9px;font-weight:bold;white-space:nowrap;}',
     '.e6-skv{font-size:8px;white-space:nowrap;}',
+    '.e6-skv.ref{font-size:6.5px;letter-spacing:-0.2px;}',
+    '.ik-cap.ik-refcap.lit{background:#f0c020;color:#000;border-radius:2px;padding:0 2px;}',
     '.e6-icon{height:34px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;background:#1a1c1a;}',
     '.e6-icon .mini-ascan{width:22px;height:26px;position:absolute;left:8px;top:2px;}',
     '.e6-icon1{position:absolute;left:32px;top:3px;font-size:8px;color:#f0c020;}',

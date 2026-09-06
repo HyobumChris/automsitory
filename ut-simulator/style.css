@@ -148,22 +148,23 @@ canvas { display: block; }
 #main.tall #plan-area { min-height: 300px; }
 #main.no-ruler:not(.block) #ruler-area { display: none; }
 /* EPOCH 4 (486 px, ASME keypad) is 90 px taller than the EPOCH 600 column the grid was sized for: on
- * viewports shorter than 770 px (806 px when the status bar wraps to two lines, i.e. ≤ ~1100 px wide)
+ * viewports shorter than 770 px (775 px when the status bar wraps to two rows, i.e. ≤ ~1150 px wide)
  * scale the skin to the EPOCH 600 height (486 × 0.815 ≈ 396 px) so the 1024 × 700 minimum still fits —
  * `zoom` scales layout too (unlike transform), and the A-scan canvas keeps its CSS box so the renderer
  * needs no change. */
-@media (max-height: 769px), (max-height: 805px) and (max-width: 1149px) { #instrument .skin-epoch4 { zoom: 0.815; } }
+@media (max-height: 769px), (max-height: 774px) and (max-width: 1150px) { #instrument .skin-epoch4 { zoom: 0.815; } }
 /* USK7: the instrument column shrinks to the small launcher panel */
 #main.usk7 { grid-template-columns: max-content minmax(0, 1fr); }
 #main.usk7 #instrument { min-width: 24px; }
 
 /* ------------------------------------------------------------------ status bar */
-/* One 28 px row (1 border + 1 pad + 2 × 11 px lines + 2 panel borders + 2 pad) in the original's small
- * 10 px font: the physics line takes the free space and wraps onto a second line inside its panel when
- * the viewport is narrower than the whole line (< ~1300 px); its 430 px minimum is just above the
- * two-line wrap width, so it never needs a third line while sharing the row. The Pos/Range/AMP panels
- * and the hint are never shrunk or cut: only when even those do not fit on one row (TOFD/IOW hints at
- * 1024 px) does the hint drop to a second row, right-aligned. */
+/* Like the original (RcSqNFlOF4E.jpg, 5UovycItbKU.jpg) the physics line is ONE 10 px line (§14.10 formats
+ * are single-line): it is never wrapped or squeezed (nowrap, no shrink; ≈ 810 px, so it always fits the
+ * 1024 px minimum). The Pos/Range/AMP/… readouts form one group that is never shrunk or cut either; the
+ * hint is the flexible member: it fills the free space and is clipped with an ellipsis (its full text
+ * stays in the DOM) when the row is tight. Only when physics + readouts do not fit one row (TOFD/V1/V2
+ * < ~1500 px, plain weld mode < ~1150 px) does the whole readout group drop to a second row (two 13 px
+ * rows, 33 px bar) — one 28 px row (1 border + 1 pad + 24 px panels + 2 pad) otherwise. */
 #statusbar {
   display: flex; flex-wrap: wrap; align-items: stretch; gap: 3px; flex: none;
   min-height: 28px; padding: 1px 4px 2px;
@@ -175,8 +176,13 @@ canvas { display: block; }
   border: 1px solid; border-color: #808080 #fff #fff #808080;
   background: #ececec; overflow: hidden; flex: none;
 }
-.sb-left { flex: 1 1 430px; min-width: 430px; white-space: normal; }
-.sb-right { flex: 0 0 auto; min-width: max-content; margin-left: auto; }
+.sb-left { flex: 0 0 auto; white-space: nowrap; }
+/* the readout group wraps as a whole */
+.sb-mid { display: flex; flex: 0 0 auto; gap: 3px; align-items: stretch; }
+.sb-right { flex: 1 1 100px; min-width: 100px; margin-left: auto; display: block; text-overflow: ellipsis; }
+/* block (not flex) so the ellipsis applies; a full-height inline-block ghost keeps the text centred at any
+ * panel height (24 px stretched single row, 13 px wrapped rows) */
+.sb-right::before { content: ''; display: inline-block; height: 100%; vertical-align: middle; }
 .sb-panel.empty { min-width: 40px; }
 
 /* ------------------------------------------------------------------ windows (Win-classic chrome) */

@@ -12,6 +12,9 @@
 //   trade uses the seeded truth. Returning to a weld-kind mode restores the stash.
 // - step and lamination modes force a 0° probe (comp mode); tofd sets probe.x = 0 and rectify 'rf'
 //   (restored to 'full' on exit); leaving step restores cal {vel: null, zero: 0}.
+//   The angle the mode forced away (savedAngle) is restored on exit ONLY while the probe is still at that
+//   forced 0°: choosing 45/60/70 inside step/lamination (enabled there, §14.7), or setting an angle through
+//   the lesson setProbe just before enter(), drops the saved angle so the user's choice survives exit().
 //   Entering step also stashes instrument.gates and sets gate 1 to {start 6, width 40, level 20} so the first
 //   backwall of the 10 mm step (8.4 mm under the wrong cal) is gated for Auto Cal; the gates are restored on exit.
 //   Auto Cal captures the earliest 'backwall' echo above the gate level (gated max only when it IS that echo).
@@ -25,7 +28,19 @@
 // - Trade test: 3–6 defects from UT.specimens.defectPresets placed in sequential z windows; truth rows
 //   are rounded to 0.1 mm; the timer is 60 min (informational only, no auto-submit).
 // - DAC: dac.on becomes true once ≥ 2 points are recorded; Record replaces a point within 1 mm of an
-//   existing path; the first recorded point fixes refDb (= gain at that moment).
+//   existing path; the first recorded point fixes refDb (= gain at that moment). The −6/−14 dB companion
+//   curves start OFF when the first point is recorded (and after Erase) so that 'Draw Curves' really draws
+//   them (§1.1 #20 / §8.3); the panel button then reads 'Hide Curves' while they are shown.
+// - Lessons 7 / 20 (§14.12 says gain 34): with the §5.3 reference (3 mm SDH at 50 mm = 80 % at 34 dB) the
+//   near-field SDHs of the 20 mm DAC bar read 120–130 % at 34 dB, which Record refuses (> 120 % rule) and
+//   which clips the '+6 dB doubles' story. Lesson 20 therefore starts at 30 dB (70°: T/4 81 %, T/2 78 %,
+//   3T/4 62 %) and lesson 7 at 24 dB (60° T/2 hole 40 % → 30 dB softkey 80 % → 40 dB softkey 252 %, clipped).
+// - TKY joint kind row (§14.9): UT.specimens.tky() (frozen) models only the T-joint (plate chord + angled
+//   brace); the Plate / Pipe buttons are shown disabled with a tooltip instead of pretending to switch geometry.
+// - Defect z ranges: setDefects normalises zFrom <= zTo on plates (inverted ranges are swapped; on pipes an
+//   inverted range wraps through 0, see UT.specimens.defectLength) so defectLength is never negative.
+// - __selftest exercises enter()/trade on the live store but snapshots the top-level state (+ the module
+//   variables) first and restores everything in a finally block without opening any window.
 // - Plot markEdge picks the IOW hole whose depth is nearest the gated depth readout (fallback: 13 mm).
 // - Auto-cal wizard window is 'autocal' (owned here); ✓ = autoCal.step(), Cancel = autoCal.cancel().
 (function (UT) {
@@ -90,6 +105,7 @@
   let savedProbeMode = null;   // {angle, mode} before tofd forced the compression mode (§6.6), restored on exit
   const STEP_GATE1 = { on: true, start: 6, width: 40, level: 20, alarm: false };   // covers the 1st backwall of the 10 mm step under the wrong cal (8.4 mm)
   let tradeTimer = null;
+  let quietUI = false;         // true while __selftest runs: trade.start must not open the Trade Test window
   let autoCalState = null;     // {step: 1|2, t1, d1, d2}
   let dacWin = null, tkyWin = null, tradeWin = null, lessonsWin = null, editorWin = null, autoCalWin = null;
   const ui = {};               // live DOM refs of the windows (rebuilt lazily)
@@ -227,7 +243,10 @@
       if (probe.angle !== 0 && savedAngle === null) savedAngle = probe.angle;
       probe.angle = 0; probe.mode = 'comp';
     } else if (savedAngle !== null) {
-      probe.angle = savedAngle; probe.mode = presetMode(savedAngle); savedAngle = null;
+      // Restore only the angle the mode itself forced away: a probe that is no longer at 0° was chosen by the
+      // user / a lesson inside step or lamination (angles are enabled there, §14.7) and must survive exit().
+      if (probe.angle === 0 && (prev === 'step' || prev === 'lamination')) { probe.angle = savedAngle; probe.mode = presetMode(savedAngle); }
+      savedAngle = null;
     }
     if (name !== 'tky') probe.surface = 'chord';
     else if (!o.keepProbe) { probe.angle = 60; probe.mode = presetMode(60); }   // §14.9: default probe 60° on the chord
@@ -347,6 +366,8 @@
     if (!s.specimen) return;
     if (keys.indexOf('probe') >= 0) {
       const a = s.probe.angle;
+      // an angle picked inside step / lamination replaces the one the mode forced to 0°: nothing to restore on exit
+      if ((s.mode === 'step' || s.mode === 'lamination') && a !== 0) savedAngle = null;
       if (s.mode === 'tofd' && a !== 0 && s.probe.mode !== 'comp') { lastAngle = a; UT.setIn('probe', { mode: 'comp' }); return; }
       if ((s.mode === 'v1' || s.mode === 'v2') && lastAngle !== null && (a === 0) !== (lastAngle === 0)) {
         lastAngle = a;
@@ -463,21 +484,25 @@
       if (ampPct > 120) { UT.status({ right: 'DAC: point refused (' + Math.round(ampPct) + '% at ref gain) — reduce the amplitude' }); return null; }
       const pt = { path: +r.path.toFixed(2), ampPct: +ampPct.toFixed(1), gainAtRecord: s.instrument.gain };
       const points = cur.points.filter(function (p) { return Math.abs(p.path - pt.path) > 1; }).concat([pt]).sort(function (a, b) { return a.path - b.path; });
-      UT.setIn('instrument', { dac: Object.assign({}, cur, { points, refDb, on: points.length >= 2 }) });
+      // a fresh curve starts without the −6/−14 dB companions: 'Draw Curves' draws them (§8.3)
+      const curves = cur.points.length ? cur.curves : false;
+      UT.setIn('instrument', { dac: Object.assign({}, cur, { points, refDb, curves, on: points.length >= 2 }) });
       UT.status({ right: 'DAC point ' + points.length + ' recorded at ' + pt.path + ' mm, ' + pt.ampPct + '%' + (points.length < 2 ? ' — record another point' : '') });
       return pt;
     },
     /** Erase all DAC points. */
     erase() {
       const cur = st().instrument.dac;
-      UT.setIn('instrument', { dac: Object.assign({}, cur, { points: [], on: false, refDb: null }) });
+      UT.setIn('instrument', { dac: Object.assign({}, cur, { points: [], on: false, refDb: null, curves: false }) });
       UT.status({ right: HINTS[st().mode] || '' });
     },
-    /** Toggle the −6 / −14 dB companion curves (or set explicitly). */
+    /** Toggle the −6 / −14 dB companion curves (or set explicitly). Returns the new state. */
     curves(on) {
       const cur = st().instrument.dac;
       const v = on === undefined ? !cur.curves : !!on;
       UT.setIn('instrument', { dac: Object.assign({}, cur, { curves: v, on: cur.points.length >= 2 }) });
+      if (cur.points.length < 2) UT.status({ right: 'DAC: record at least 2 points, then Draw Curves' });
+      else UT.status({ right: v ? 'DAC −6 dB (50 %) / −14 dB (20 %) curves drawn' : 'DAC companion curves hidden' });
       return v;
     },
   };
@@ -490,6 +515,7 @@
     });
     if (!d.points.length) ui.dacList.appendChild(UT.dom.h('div', { class: 'dac-pt dim' }, 'no points'));
     ui.dacRef.textContent = 'Ref gain: ' + (d.refDb === null || d.refDb === undefined ? '--' : d.refDb + ' dB') + '   Curves: ' + (d.curves ? 'ON (−6 / −14 dB)' : 'off');
+    if (ui.dacDraw) ui.dacDraw.textContent = d.curves ? 'Hide Curves' : 'Draw Curves';
   }
   const dacPanel = {
     open() {
@@ -503,7 +529,7 @@
           UT.dom.h('div', { class: 'btn-row' }, [
             UT.dom.button('Record', function () { dac.record(); }, { class: 'btn primary', title: 'Record the gated peak (R)' }),
             UT.dom.button('Erase', function () { dac.erase(); }, { title: 'Erase all DAC points' }),
-            UT.dom.button('Draw Curves', function () { dac.curves(); }, { title: 'Toggle the −6 dB / −14 dB curves' }),
+            (ui.dacDraw = UT.dom.button('Draw Curves', function () { dac.curves(); }, { title: 'Draw / hide the −6 dB (50 %) and −14 dB (20 %) curves' })),
           ]),
           ui.dacRef, ui.dacList,
         ]);
@@ -590,7 +616,23 @@
     }
     return out;
   }
-  function setDefects(arr) { UT.set({ defects: limitSlots(coerceTypes(S.normaliseDefects(arr))) }); return st().defects; }
+  /**
+   * Normalise the z extent of every defect: on plates zFrom <= zTo (an inverted range is swapped), on pipes
+   * an inverted range means a wrap through 0 (kept, see UT.specimens.defectLength) but both ends are reduced
+   * to 0 <= z < circumference. Pure (returns copies for the records it changes).
+   */
+  function normaliseZ(list, spec) {
+    const pipe = !!(spec && spec.pipe);
+    const C = spec && spec.L > 0 ? spec.L : null;
+    return list.map(function (d) {
+      if (!Number.isFinite(d.zFrom) || !Number.isFinite(d.zTo)) return d;
+      let zFrom = d.zFrom, zTo = d.zTo;
+      if (pipe && C) { zFrom = ((zFrom % C) + C) % C; zTo = ((zTo % C) + C) % C; }
+      else if (zFrom > zTo) { const t = zFrom; zFrom = zTo; zTo = t; }
+      return zFrom === d.zFrom && zTo === d.zTo ? d : Object.assign({}, d, { zFrom, zTo });
+    });
+  }
+  function setDefects(arr) { UT.set({ defects: limitSlots(coerceTypes(normaliseZ(S.normaliseDefects(arr), st().specimen))) }); return st().defects; }
   function scaleHeight(d, height) {
     const b = S.bbox(d.pts);
     const h = Math.max(1e-6, b.h);
@@ -994,7 +1036,7 @@
     start(seed) {
       const sd = seed === undefined || seed === null ? Math.floor(Math.random() * 1e9) : (seed >>> 0);
       if (defectEditor.isOpen()) defectEditor.close();
-      if (st().mode !== 'trade') enter('trade', { keepProbe: true, silentUI: typeof document === 'undefined' });
+      if (st().mode !== 'trade') enter('trade', { keepProbe: true, silentUI: quietUI || typeof document === 'undefined' });
       const s = st();
       const g = generateTruth(sd, s.specimen);
       UT.set({
@@ -1147,7 +1189,9 @@
 
   // ------------------------------------------------------------------ TKY panel (§14.9)
   function tkyApply(patch) {
-    Object.assign(tkyOpts, patch || {});
+    const p = Object.assign({}, patch || {});
+    if (p.kind !== undefined && p.kind !== 'T-joint') delete p.kind;   // only the T-joint geometry is modelled
+    Object.assign(tkyOpts, p);
     if (st().mode !== 'tky') enter('tky', { specimenOpts: Object.assign({}, tkyOpts) });
     else rebuild(Object.assign({}, tkyOpts));
     tkyRefresh();
@@ -1171,8 +1215,14 @@
         ui.tkyLabel = dom.h('div', { class: 'tky-label' }, 'Brace angle = 60°');
         ui.tkySlider = dom.h('input', { type: 'range', min: 30, max: 90, step: 1, value: 60, class: 'tky-slider' });
         ui.tkySlider.addEventListener('input', function () { tkyApply({ braceAngle: +(+ui.tkySlider.value).toFixed(1) }); });
+        // Only the T-joint (plate chord + angled brace) exists in UT.specimens.tky(): Plate / Pipe stay visible
+        // for fidelity (§14.9) but disabled, so the row never pretends to change the modelled geometry.
         ui.tkyKind = ['Plate', 'T-joint', 'Pipe'].map(function (k) {
-          return dom.button(k, function () { tkyApply({ kind: k }); }, { class: 'btn tky-kind', dataset: { kind: k } });
+          const modelled = k === 'T-joint';
+          return dom.button(k, function () { if (modelled) tkyApply({ kind: k }); }, {
+            class: 'btn tky-kind', dataset: { kind: k }, disabled: !modelled,
+            title: modelled ? 'T-joint: plate chord with an angled brace (modelled)' : k + ' joint is not modelled in this version — only the T-joint geometry is available',
+          });
         });
         ui.tkyPrec = dom.button('Precision 1°', function () { tkyApply({ precision: tkyOpts.precision === 1 ? 0.1 : 1 }); }, { class: 'btn tky-btn' });
         ui.fBraceT = dom.field('Brace T (mm)', { type: 'number', value: 12, min: 4, max: 60, step: 1, onchange: function (v) { if (v > 0) tkyApply({ braceT: v }); } });
@@ -1213,7 +1263,7 @@
   function setProbe(p) {
     const s = st();
     const np = Object.assign({}, s.probe, p);
-    if (p.angle !== undefined) np.mode = presetMode(p.angle);
+    if (p.angle !== undefined) { np.mode = presetMode(p.angle); savedAngle = null; }   // explicit angle (0° included): nothing to restore later
     UT.set({ probe: s.specimen ? clampProbe(np, s.specimen) : np });
   }
   function setInstr(p) { UT.setIn('instrument', p); }
@@ -1242,12 +1292,13 @@
       steps: ['Facing R25: 25 / 100 / 175 mm', 'Turn the probe (side −1): 50 / 125 / 200 mm', 'Index check at the maximum; angle check on the 5 mm hole (front face)'] },
     { n: 7, title: 'Making Sense of Amplitude', ko: '진폭과 dB: +6 dB = 2배, 퀵 게인 키', en: 'dB arithmetic: +6 dB doubles, quick gain keys, % readout',
       setup() {
-        enter('dac'); setProbe({ angle: 60 }); setInstr({ gain: 34, range: 100 });
+        // 24 dB: the T/2 hole reads ≈ 40 % so that the 30 dB softkey doubles it (80 %) and 40 dB clips (see SPEC NOTES)
+        enter('dac'); setProbe({ angle: 60 }); setInstr({ gain: 24, range: 100 });
         // §14.12: park the 60° probe at the T/2 hole maximum (hole x + depth·tan 60°)
         const spec = st().specimen, h = spec && spec.holes ? spec.holes.find(function (o) { return Math.abs(o.y - spec.T / 2) < 1e-6; }) : null;
         if (h) setProbe({ x: +(h.x + h.y * Math.tan(M.deg2rad(60))).toFixed(1) });
       },
-      steps: ['Maximise the T/2 hole echo', 'Press the 40.0dB softkey: the echo doubles', '+6 dB again: clipped — read the unclipped % box', 'Note 20·log10(ratio)'] },
+      steps: ['Maximise the T/2 hole echo (≈ 40 % at 24 dB)', 'Press the 30.0dB softkey (+6 dB): the echo doubles to ≈ 80 %', 'Press the 40.0dB softkey (+10 dB more): clipped — read the unclipped % box (≈ 250 %)', 'Note 20·log10(ratio): ×2 = 6 dB, ×3.16 = 10 dB'] },
     { n: 8, title: 'TKY Variable configuration Welds', ko: 'T/K/Y 이음: 브레이스 각도 조절, 토우 융합불량', en: 'T/K/Y joints: adjustable brace angle, toe LOF',
       setup() { enter('tky', { specimenOpts: { braceAngle: 60 } }); setProbe({ angle: 60, x: 35 }); },
       steps: ['Change the brace angle with the ADJUST MODE slider', 'Load Def: find the toe LOF', 'Switch to 45° and compare'] },
@@ -1283,8 +1334,9 @@
     { n: 19, title: 'Angle Probe using the V2 calibration block', ko: 'V2 블록 (반복)', en: 'V2 block (repeat of lesson 6)',
       setup() { lessons[5].setup(); }, steps: ['Same as lesson 6'] },
     { n: 20, title: 'Angleprobe Calibration', ko: 'DAC 기록: T/4, T/2, 3T/4 구멍 → Record → Draw Curves', en: 'DAC recording on the reference block and the −6/−14 dB curves',
-      setup() { enter('dac'); setProbe({ angle: 70 }); setInstr({ gain: 34, range: 100 }); },
-      steps: ['Maximise the T/4 hole → Record', 'T/2 → Record', '3T/4 → Record', 'Draw Curves (−6 / −14 dB), then scan a defect and read DAC %'] },
+      // 30 dB: the three 70° SDH echoes read ≈ 81 / 78 / 62 % (recordable; 34 dB would put the near-field holes > 120 %)
+      setup() { enter('dac'); setProbe({ angle: 70 }); setInstr({ gain: 30, range: 100 }); },
+      steps: ['Maximise the T/4 hole → Record (≈ 80 % at 30 dB)', 'T/2 → Record', '3T/4 → Record', 'Draw Curves (−6 / −14 dB), then scan a defect and read DAC %'] },
     { n: 21, title: 'Trade Test with UTman software', ko: '실기 시험: 숨은 결함 찾기, 보고서, 채점', en: 'Exam mode: hidden defects, report, score',
       setup() { weld({ T: 25, pipe: true, od: 219.1, wt: 25 }); setProbe({ angle: 60 }); enter('trade', { keepProbe: true }); trade.start(); },
       steps: ['Scan with 45° / 60° / 70°', 'Fill the report rows, Submit', 'Reveal, read the score (60 min timer)'] },
@@ -1428,6 +1480,7 @@
     '.tky-row{display:flex;gap:4px}',
     '.tky-kind,.tky-btn{flex:1;font-size:11px;background:#d8d8d8}',
     '.tky-kind.active{background:#00e000;color:#000;font-weight:bold}',
+    '.tky-kind[disabled]{opacity:.5;cursor:not-allowed}',
     '.tky-btn.active{background:#00e000}',
     '.tt{display:flex;flex-direction:column;gap:6px;max-height:70vh;overflow:auto}',
     '.tt-head{display:flex;gap:6px;align-items:center}',
@@ -1473,9 +1526,18 @@
   // ------------------------------------------------------------------ self test (headless)
   function __selftest() {
     const f = [];
+    // Snapshot the live store (top-level references: UT.set only ever REPLACES top-level objects) and the
+    // module variables, so the checks below leave the app, the toolbar and the persisted record untouched.
+    const saved = Object.assign({}, UT.state);
+    const savedVars = { stash, lastAngle, savedAngle, savedGates, savedProbeMode, autoCalState };
+    quietUI = true;
     try {
-      const save = UT.clone(UT.test.state());
-      void save;
+      // pure helpers first
+      const nz = normaliseZ([{ n: 1, type: 'crack', pts: [{ x: 0, y: 17 }, { x: 0, y: 20 }], zFrom: 200, zTo: 100 }], { L: 300 });
+      if (nz[0].zFrom !== 100 || nz[0].zTo !== 200) f.push('normaliseZ swap ' + JSON.stringify(nz[0]));
+      if (S.defectLength(nz[0], { L: 300 }) < 0) f.push('defectLength negative after normaliseZ');
+      const nzp = normaliseZ([{ n: 1, type: 'crack', pts: [], zFrom: 500, zTo: -500 }], { L: 400, pipe: { od: 168.3 } });
+      if (nzp[0].zFrom !== 100 || nzp[0].zTo !== 300) f.push('normaliseZ pipe wrap ' + JSON.stringify(nzp[0]));
       const before = st().mode;
       UT.setIn('probe', { angle: 60, mode: 'shear' }, { noRender: true });
       enter('v1', { silentUI: true });
@@ -1486,8 +1548,23 @@
       if (st().instrument.trig.thick !== 25) f.push('autoTrig thick ' + st().instrument.trig.thick);
       enter('step', { silentUI: true });
       if (st().instrument.cal.vel !== 5.6) f.push('step wrong cal');
+      if (st().probe.angle !== 0) f.push('step forces 0°');
       enter('weld', { silentUI: true });
       if (st().instrument.cal.vel !== null) f.push('cal restore');
+      // savedAngle: 60° forced to 0° by step is restored on exit, but an angle chosen inside step survives
+      UT.setIn('probe', { angle: 60, mode: 'shear' }, { noRender: true });
+      enter('step', { silentUI: true });
+      enter('weld', { silentUI: true });
+      if (st().probe.angle !== 60) f.push('forced angle restored on exit: ' + st().probe.angle);
+      enter('lamination', { silentUI: true });
+      UT.setIn('probe', { angle: 70, mode: 'shear' }, { noRender: true });
+      enter('weld', { silentUI: true });
+      if (st().probe.angle !== 70) f.push('angle chosen inside lamination must survive exit: ' + st().probe.angle);
+      enter('lamination', { silentUI: true });
+      setProbe({ angle: 0 });
+      enter('v1', { silentUI: true });
+      if (st().probe.angle !== 0 || st().specimen.face !== 'narrow') f.push('explicit 0° before v1 must give the narrow face: ' + st().probe.angle + '/' + st().specimen.face);
+      enter('weld', { silentUI: true });
       const g1 = generateTruth(42, st().specimen), g2 = generateTruth(42, st().specimen);
       if (JSON.stringify(g1.truth) !== JSON.stringify(g2.truth)) f.push('trade seed not deterministic');
       if (g1.truth.length < 3 || g1.truth.length > 6) f.push('trade count ' + g1.truth.length);
@@ -1504,8 +1581,22 @@
       if (z === null || Math.abs(z) > 0.01) f.push('circle z at 12 o\'clock ' + z);
       const zl = circleZFromPoint(15, 165, { cx: 165, cy: 165, R: 150, r: 120, C: 480 });
       if (zl === null || Math.abs(zl - 120) > 0.5) f.push('circle z at 9 o\'clock (anticlockwise 90°) ' + zl);
-      enter(before === 'weld' ? 'weld' : before, { silentUI: true, keepProbe: true });
+      void before;
     } catch (e) { f.push('exception ' + (e && e.message)); }
+    finally {
+      quietUI = false;
+      stopTradeTimer();
+      stash = savedVars.stash; lastAngle = savedVars.lastAngle; savedAngle = savedVars.savedAngle;
+      savedGates = savedVars.savedGates; savedProbeMode = savedVars.savedProbeMode; autoCalState = savedVars.autoCalState;
+      // put back exactly the top-level objects that changed (one 'state' event so the toolbar / layout resync)
+      const modeBefore = st().mode;
+      const patch = {};
+      Object.keys(saved).forEach(function (k) { if (k !== 'status' && k !== 'cursor' && UT.state[k] !== saved[k]) patch[k] = saved[k]; });
+      Object.keys(UT.state).forEach(function (k) { if (!(k in saved)) delete UT.state[k]; });
+      if (Object.keys(patch).length) UT.set(patch);
+      if (modeBefore !== saved.mode) UT.bus.emit('mode', { mode: saved.mode, prev: modeBefore });
+      UT.status(Object.assign({}, saved.status || {}, { right: saved.status && saved.status.right ? saved.status.right : UT.i18n.t(HINTS[saved.mode] || '') }));
+    }
     return f;
   }
 

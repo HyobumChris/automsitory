@@ -187,7 +187,10 @@
     spec.id = 'pipe-weld';
     spec.name = `Pipe OD ${o.od} mm WT ${o.wt} mm`;
     spec.pipe = { od: o.od, wt: o.wt, circumference: circ, odInch: nominalInch(o.od) };
-    spec.defaultProbe.z = 0;
+    // Quarter circumference (3 o'clock, the near side of the 3-D cylinder; the reference shows Pos 124 mm on a
+    // 6 inch pipe). z = 0 put the probe symbol on the top edge of the plan-view z-window (half clipped, hidden
+    // under the USK7 window) and z = L/2 (6 o'clock) faces away from the 3-D camera — QA round 4.
+    spec.defaultProbe.z = Math.round(circ / 4);
     return spec;
   }
 
