@@ -48,11 +48,15 @@
   //   inside the near field; path = mean of the marks' gated SP, else the current readout, else 30 mm);
   //   'max' L = zR − zL (marks = last positions ≥ 80 % of the running maximum, shown as the threshold);
   //   'eval' L = zR − zL with the threshold refPct·10^(evaluationDb/20), refPct = 80·10^((gain − refGain)/20)
-  //   (an echo at the reference/DAC level reads 80 % at refGain); 'tip' h = |Δpath|·cosθ from the two
-  //   strongest 'tip' echoes of the same defect inside the active gate — a surface-breaking crack has one
-  //   tip and a 'corner' echo, so a single tip is paired with the nearest 'corner' echo (warning text says so).
-  //   Switching the method recomputes the result from the existing marks. Length results are never
-  //   negative (clamped to 0 with a warning).
+  //   (an echo at the reference/DAC level reads 80 % at refGain — the V2-17 'eval ≥ L6 − 2' relation holds
+  //   once the reference gain has been stored at the indication maximum); 'tip' h = |Δpath|·cosθ from two
+  //   tip-like echoes inside the active gate: anchors are tried in amplitude order and a SAME-LEG partner wins
+  //   (tip of the same defect, else the same-leg 'corner' echo — a surface-breaking crack has one tip and a
+  //   corner, warning text says so); only then two tips from different legs (warning), else 'one tip'.
+  //   The two echoes are read at ONE probe position (spec wording); `autoTips()` / `sizing({method:'tip',
+  //   auto:true})` scans probe.x ± 15 mm and maximises each echo separately (the real technique: root crack
+  //   height 3 → 3.0 from tip 34.0 at x 29.5 + corner 40.0). Switching the method recomputes the result
+  //   from the existing marks. Length results are never negative (clamped to 0 with a warning).
   // - evaluationDb / recommended method come from UT.standards.rules (rulesOverride first) when 45 is
   //   loaded, else from a small local fallback table (iso11666 AL2 −10 / AL3 −6, iso17640 −10, asme8 −6
   //   ('50pct' → 'eval'), awsd11 '6dB'). Pre-selection happens on open() until the user/test chose a
@@ -69,7 +73,9 @@
   // - B-scan column = 160 depth bins (max of the A-scan samples covering each bin), depth = path·cosθ,
   //   depthMax = min((delay + range)·cosθ, max(2.2·T, 40)); cap 600 columns; window `bscan` (axis x|z,
   //   Record checkbox = bscan.on, Clear). open() sets bscan.on = true (outside any render), closing sets
-  //   it false. UT.test.bscan() adds positions[], depthMax, nBins, firstDepth[] to {n, axis, columns}.
+  //   it false. UT.test.bscan() adds positions[], depthMax, nBins, firstDepth[] to {n, axis, columns};
+  //   firstDepth = first bin ≥ 20 % after skipping the initial-pulse zone (leading contiguous bins ≥ 20 %
+  //   from depth 0), so the lamination-plate step reads ≈ 9 (lamination at 10) vs ≈ 24 (backwall 25).
   // - Echo-dynamic: samples {x, z, pct, path, kind}, cap 200; the plot axis is the dominant movement axis;
   //   ISO 23279 pattern: 1 when width6 ≤ 2·w6 (point-like), else 2 (smooth plateau) or 3 (≥ 1 dip ≥ 3 dB inside the −6 dB
   //   region, or coefficient of variation of the plateau core (≥ −3 dB) > 0.12 → rough); pattern 0 = insufficient data (< 5 samples or max < 5 %).

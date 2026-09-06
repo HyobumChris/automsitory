@@ -43,6 +43,37 @@
 //   variables) first and restores everything in a finally block without opening any window.
 // - Plot markEdge picks the IOW hole whose depth is nearest the gated depth readout (fallback: 13 mm).
 // - Auto-cal wizard window is 'autocal' (owned here); ✓ = autoCal.step(), Cancel = autoCal.cancel().
+// ---- v2 (SPEC-v2 §1, §2, §7, §8) ----
+// - Late binding to 82/84: the v1 lesson array is UT.modes.lessonSetups; UT.modes.lessons is a getter returning
+//   UT.lessons.list when 82 is loaded (else lessonSetups). modes.lessonsWindow / modes.tradeTest delegate to
+//   UT.lessons.window / UT.trade.window when those modules exist and NEVER create dom.win 'lessons' / 'trade' then;
+//   the legacy v1 windows are created only in their absence. UT.test.trade = {start, truth, submit, practice} is
+//   created here with late-binding methods ((UT.trade || legacy).start …); 84 extends it with Object.assign.
+//   modes.trade stays the legacy (v1) engine; modes.practice.start(seed) → UT.trade.practice.start when present,
+//   else the legacy generator with trade.practice = true and no timer (reveal allowed any time).
+// - Mode 'fbh' (UT.specimens.fbhBlock, T from specimenOpts, default 60): forces the 0° probe like step/lamination
+//   (DGS applies to the 0° probe only) with the same savedAngle restore rule; MODE_OF.fbh = 'fbh'; DISABLED.fbh and
+//   'tools' in ALL_MENUS exactly per SPEC-v2 §8 (tools is enabled in every mode except with the editor open).
+// - Every builder receives material: state.material; weld builders receive the whole weldOpts (prep, backing, webT,
+//   branchOd, weldMaterial, transferLossDb). sameWeld() also compares the material key so tofd/aut/trade rebuild on
+//   a material change. A 'state' event carrying material or weldOpts schedules a deferred (setTimeout 0) check: when
+//   the current specimen no longer matches the state (material key, weld options) the current mode is re-entered
+//   with {keepProbe, silentUI, keepDefects}; an explicit enter() in the same tick makes the check a no-op.
+// - enter(name, {keepDefects}) (new option): when re-entering the SAME mode the defects are kept instead of the v1
+//   per-mode policy (used by the rebuild path, setMaterial and setPrep); explicit mode changes are unchanged.
+// - setPrep(prep) / setWeldOpts(patch) mirror `prep` into the legacy `type` ('double-v' | 'none' | 'fillet' | 'single-v')
+//   and set backing = (prep === 'single-v-backing') so a stale type/backing flag can never override the chosen prep
+//   (10-specimens' prepOf lets a non-default type win over the default prep). loadSpecimen(opts) does the same.
+// - UT.test.setMaterial(key) = UT.set({material}, {noRender}) + enter(current, {keepProbe, silentUI}); returns the
+//   specimen's material record (false for an unknown key). loadSpecimen(id, {material}) sets state.material first.
+// - autocal.stage is written to state (0 idle | 1 after Start | 2 after the first ✓) together with t1/d1/d2.
+// - Procedure lock: while trade.active and UT.standards.allowedProbes(state) returns a list, isToolbarEnabled()
+//   disables the angle buttons (tb-0/45/60/70) whose angle no allowed library probe has. Exam lock (trade.exam.locked
+//   && !trade.revealed): tb-defect / tb-hide / tb-beam disabled and defectEditor.open() refuses.
+// - Lesson setProbe({angle}) also follows the probe library (UT.probe.libForAngle in the current family / frequency,
+//   falling back to the generic probe) so libId / crystalDims stay consistent; explicit fields in the patch win.
+// - Finger damping tool: when damping.tool turns on the status hint explains the click-to-place rule; off restores
+//   the mode hint. Random practice: modes.practice.start / Defects ▸ Random practice… (90) → UT.trade.practice.start.
 (function (UT) {
   'use strict';
   const M = UT.math;
@@ -63,16 +94,22 @@
     trade: 'Trade Test: find the hidden defects, fill in the report table and press Submit',
     lamination: 'Raster the 0° probe along the plate: note the lamination echo and the lost backwall',
     editor: 'LEFT mouse button/drag to draw defect.',
+    fbh: 'FBH reference block: 0° probe — record the backwall reference, then gate a flat-bottom hole (Tools ▸ DGS diagram)',
+    dampingTool: 'Finger damping tool: click on the scanning surface to add a damper (max 3; click within 4 mm removes)',
+    practice: 'Random practice: find the hidden defects — Hint, Reveal one and Check row are allowed',
   };
-  const MODES = ['weld', 'v1', 'v2', 'step', 'iow', 'dac', 'tky', 'tofd', 'aut', 'trade', 'lamination'];
+  const MODES = ['weld', 'v1', 'v2', 'step', 'iow', 'dac', 'tky', 'tofd', 'aut', 'trade', 'lamination', 'fbh'];
   const WELD_KIND = { weld: 1, tofd: 1, aut: 1, trade: 1 };
-  const BLOCK_KIND = { v1: 1, v2: 1, step: 1, iow: 1, dac: 1, tky: 1 };
-  const MODE_OF = { 'plate-weld': 'weld', 'pipe-weld': 'weld', v1: 'v1', v2: 'v2', step: 'step', iow: 'iow', dac: 'dac', tky: 'tky', 'lamination-plate': 'lamination' };
+  const BLOCK_KIND = { v1: 1, v2: 1, step: 1, iow: 1, dac: 1, tky: 1, fbh: 1 };
+  const MODE_OF = { 'plate-weld': 'weld', 'pipe-weld': 'weld', v1: 'v1', v2: 'v2', step: 'step', iow: 'iow', dac: 'dac', tky: 'tky', 'lamination-plate': 'lamination', fbh: 'fbh' };
   const DEFECT_TYPES = ['planar', 'volumetric', 'crack', 'lof', 'porosity', 'slag', 'lamination', 'root'];
   const ALL_TB = ['0', '45', '60', '70', 'v2', 'v1', 'dac', 'plot', 'damp', 'size', 'defect', 'hide', 'clear', 'beam', 'rad', 'pipe', 'tky', 'tofd', 'aut'];
-  const ALL_MENUS = ['file', 'probes', 'stepwedge', 'weld', 'defects', 'options', 'help'];
+  const ALL_MENUS = ['file', 'probes', 'stepwedge', 'weld', 'defects', 'tools', 'options', 'help'];   // v2: 'tools' between defects and options (§8)
+  const ANGLE_TB = { 'tb-0': 0, 'tb-45': 45, 'tb-60': 60, 'tb-70': 70 };
+  const PREPS = (S.preps && S.preps.length) ? S.preps.slice() : ['single-v', 'double-v', 'single-bevel', 'j', 'single-v-backing', 'fillet-t', 'nozzle', 'none'];
   const DISABLED = {
     weld: { toolbar: [], menus: [], hidden: [] },
+    fbh: { toolbar: ['v2', 'v1', 'dac', 'plot', 'tky', 'tofd', 'aut', 'pipe'], menus: ['weld', 'defects'], hidden: ['compass'] },
     dac: { toolbar: ['damp', 'defect', 'hide', 'rad', 'pipe', 'tky', 'tofd', 'aut'], menus: [], hidden: ['compass'] },
     v1: { toolbar: ['0', '45', '60', '70', 'v2', 'dac', 'plot', 'damp', 'size', 'defect', 'hide', 'pipe', 'tky', 'tofd', 'aut'], menus: ['file', 'probes', 'weld', 'defects', 'options'], hidden: ['plan', 'ruler'] },
     v2: { toolbar: ['0', '45', '60', '70', 'v1', 'dac', 'plot', 'damp', 'size', 'defect', 'hide', 'pipe', 'tky', 'tofd', 'aut'], menus: ['file', 'probes', 'weld', 'defects', 'options'], hidden: ['plan', 'ruler'] },
@@ -107,17 +144,29 @@
   let tradeTimer = null;
   let quietUI = false;         // true while __selftest runs: trade.start must not open the Trade Test window
   let autoCalState = null;     // {step: 1|2, t1, d1, d2}
+  let rebuildTimer = null;     // deferred specimen-vs-state check after a material / weldOpts change (v2)
+  let dampingToolWas = false;  // last seen damping.tool (status hint edge, v2 P3)
   let dacWin = null, tkyWin = null, tradeWin = null, lessonsWin = null, editorWin = null, autoCalWin = null;
   const ui = {};               // live DOM refs of the windows (rebuilt lazily)
   const tkyOpts = { braceAngle: 60, braceT: 12, chordT: 20, braceOffset: 0, precision: 1, kind: 'T-joint' };   // §14.9 Default
 
   function st() { return UT.state; }
+  function t(key, params) { return UT.i18n.t(key, params); }
   function has(path) {
     let o = UT;
     for (const k of path.split('.')) { if (!o || o[k] === undefined || o[k] === null) return null; o = o[k]; }
     return o;
   }
-  function presetMode(angle) { const p = UT.probe && UT.probe.presets[angle]; return p ? p.mode : (angle === 0 ? 'comp' : 'shear'); }
+  /** Wave mode of a probe angle (custom angles resolve through UT.probe.presetFor, §1 frozen probe patch). */
+  function presetMode(angle) {
+    const P = UT.probe;
+    const p = P ? (typeof P.presetFor === 'function' ? P.presetFor(angle) : P.presets[angle]) : null;
+    return angle === 0 ? 'comp' : (p ? p.mode : 'shear');
+  }
+  /** Legacy weldOpts.type mirrored from a preparation key (SPEC-v2 §2). */
+  function typeOfPrep(prep) { return prep === 'double-v' ? 'double-v' : prep === 'none' ? 'none' : (prep === 'fillet-t' || prep === 'nozzle') ? 'fillet' : 'single-v'; }
+  /** Valid material key or null. */
+  function materialKey(k) { return typeof k === 'string' && S.materials && S.materials[k] ? k : null; }
 
   // ------------------------------------------------------------------ external windows (other owners)
   const OWNERS = { plotter: 'views.plotter', rad: 'views.radiograph', size: 'views.sizing', tofd: 'tofd', 'tofd-ascan': 'tofd', aut: 'aut', pipe3d: 'views.pipe3d', usk7: 'instruments' };
@@ -139,14 +188,17 @@
   }
 
   // ------------------------------------------------------------------ specimen per mode
+  /** Options for a block builder: the sanitised specimenOpts plus material: state.material (SPEC-v2 §3.4). */
+  function withMat(so) { return Object.assign({ material: st().material || 'carbon' }, so || {}); }
   function weldSpecimen(extra) {
-    const o = Object.assign({}, st().weldOpts, extra || {});
+    const o = Object.assign({ material: st().material || 'carbon' }, st().weldOpts, extra || {});
     if (o.pipe) return S.pipeWeld(Object.assign({}, o, { wt: o.wt === undefined ? o.T : o.wt }));
     return S.plateWeld(o);
   }
   function sameWeld(a, b) {
     if (!a || !b || a.id !== b.id || a.T !== b.T || Math.abs(a.L - b.L) > 1e-6 || !!a.pipe !== !!b.pipe) return false;
     if (a.pipe && (a.pipe.od !== b.pipe.od || a.pipe.wt !== b.pipe.wt)) return false;
+    if ((a.material && a.material.key) !== (b.material && b.material.key)) return false;
     return JSON.stringify(a.weld || null) === JSON.stringify(b.weld || null);
   }
   function buildSpecimen(mode, opts, probe) {
@@ -160,18 +212,36 @@
         const fresh = weldSpecimen(so);
         return (cur && cur.kind === 'weld' && !so && sameWeld(cur, fresh)) ? cur : fresh;
       }
-      case 'v1': return S.v1(Object.assign({ face: probe.angle === 0 ? 'narrow' : 'wide' }, so || {}));
-      case 'v2': return S.v2(Object.assign({ face: probe.angle === 0 ? 'narrow' : 'wide' }, so || {}));
-      case 'step': return S.stepWedge(so);
-      case 'iow': return S.iow(so);
-      case 'dac': return S.dacBlock(Object.assign({ T: st().weldOpts.T || 20 }, so || {}));
+      case 'v1': return S.v1(Object.assign({ face: probe.angle === 0 ? 'narrow' : 'wide' }, withMat(so)));
+      case 'v2': return S.v2(Object.assign({ face: probe.angle === 0 ? 'narrow' : 'wide' }, withMat(so)));
+      case 'step': return S.stepWedge(withMat(so));
+      case 'iow': return S.iow(withMat(so));
+      case 'dac': return S.dacBlock(Object.assign({ T: st().weldOpts.T || 20 }, withMat(so)));
+      case 'fbh': return S.fbhBlock(Object.assign({ T: 60 }, withMat(so)));
       case 'tky': {
         Object.assign(tkyOpts, so || {});
-        return S.tky({ braceAngle: tkyOpts.braceAngle, braceT: tkyOpts.braceT, chordT: tkyOpts.chordT, braceOffset: tkyOpts.braceOffset });
+        return S.tky(withMat({ braceAngle: tkyOpts.braceAngle, braceT: tkyOpts.braceT, chordT: tkyOpts.chordT, braceOffset: tkyOpts.braceOffset }));
       }
-      case 'lamination': return S.laminationPlate(so);
+      case 'lamination': return S.laminationPlate(withMat(so));
       default: throw new Error('Unknown mode: ' + mode);
     }
+  }
+  /** True when the current specimen still reflects state.material / state.weldOpts (deferred rebuild check). */
+  function specimenMatchesState() {
+    const s = st(), spec = s.specimen;
+    if (!spec) return true;
+    const mk = spec.material && spec.material.key;
+    if (mk && s.material && mk !== s.material) return false;
+    if (spec.kind === 'weld') { try { return sameWeld(spec, weldSpecimen()); } catch (e) { return true; } }
+    return true;
+  }
+  function scheduleRebuildCheck() {
+    if (rebuildTimer !== null || typeof setTimeout !== 'function') return;
+    rebuildTimer = setTimeout(function () {
+      rebuildTimer = null;
+      if (specimenMatchesState()) return;
+      try { enter(st().mode, { keepProbe: true, silentUI: true, keepDefects: true }); } catch (e) { console.error('[UT.modes] rebuild', e); }
+    }, 0);
   }
   function clampProbe(p, spec) {
     const ss = spec.scanSurface || spec.extents;
@@ -194,8 +264,8 @@
     if (mode === 'tky' && tkyWin) tkyWin.hide();
     if (mode === 'tofd') { extWin('tofd', false); extWin('tofd-ascan', false); }
     if (mode === 'aut') extWin('aut', false);
-    if (mode === 'trade' && tradeWin) tradeWin.hide();
-    if (mode === 'step' && autoCalWin) { autoCalWin.hide(); autoCalState = null; }
+    if (mode === 'trade') { try { modes.tradeTest.close(); } catch (e) { /* ignore */ } }
+    if (mode === 'step') { if (autoCalWin) autoCalWin.hide(); if (autoCalState) setAcState(null); }
   }
   function openModeWindows(mode) {
     if (mode === 'iow') extWin('plotter', true);
@@ -208,8 +278,9 @@
 
   /**
    * Enter a mode: swaps the specimen, resets the probe, opens the mode's windows, sets the hint.
-   * @param {string} name  'weld'|'v1'|'v2'|'step'|'iow'|'dac'|'tky'|'tofd'|'aut'|'trade'|'lamination'
-   * @param {{specimenOpts?:object, keepProbe?:boolean, silentUI?:boolean}} [opts]
+   * @param {string} name  'weld'|'v1'|'v2'|'step'|'iow'|'dac'|'tky'|'tofd'|'aut'|'trade'|'lamination'|'fbh'
+   * @param {{specimenOpts?:object, keepProbe?:boolean, silentUI?:boolean, keepDefects?:boolean}} [opts]
+   *   keepDefects (v2): when re-entering the SAME mode keep state.defects (rebuild semantics).
    */
   function enter(name, opts) {
     const o = opts || {};
@@ -233,19 +304,20 @@
       if (prev === 'trade') {
         stopTradeTimer();
         // The exam is over: the hidden truth must not survive into another mode (§15.8), so submit() cannot score it
-        patch.trade = Object.assign({}, s.trade, { active: false, truth: [], seed: null, score: null, result: null, report: [], startedAt: null, revealed: false });
+        patch.trade = Object.assign({}, s.trade, { active: false, truth: [], seed: null, score: null, result: null, report: [], startedAt: null, revealed: false, practice: false });
         patch.display = Object.assign({}, s.display, { hide: false });
       }
     }
-    // probe adjustments per mode
-    const forcesZero = name === 'step' || name === 'lamination';
+    // probe adjustments per mode (v2: the FBH block is a 0° / DGS block and forces 0° like step / lamination)
+    const forcesZero = name === 'step' || name === 'lamination' || name === 'fbh';
+    const forcedPrev = prev === 'step' || prev === 'lamination' || prev === 'fbh';
     if (forcesZero) {
       if (probe.angle !== 0 && savedAngle === null) savedAngle = probe.angle;
       probe.angle = 0; probe.mode = 'comp';
     } else if (savedAngle !== null) {
       // Restore only the angle the mode itself forced away: a probe that is no longer at 0° was chosen by the
       // user / a lesson inside step or lamination (angles are enabled there, §14.7) and must survive exit().
-      if (probe.angle === 0 && (prev === 'step' || prev === 'lamination')) { probe.angle = savedAngle; probe.mode = presetMode(savedAngle); }
+      if (probe.angle === 0 && forcedPrev) { probe.angle = savedAngle; probe.mode = presetMode(savedAngle); }
       savedAngle = null;
     }
     if (name !== 'tky') probe.surface = 'chord';
@@ -263,7 +335,9 @@
     if (name === 'tofd') probe.x = 0;
     // defects policy
     let defects = s.defects;
-    if (BLOCK_KIND[name] || name === 'lamination' || name === 'trade') {
+    if (o.keepDefects && prev === name) {
+      defects = s.defects;                        // v2 rebuild semantics (material / prep change, setMaterial)
+    } else if (BLOCK_KIND[name] || name === 'lamination' || name === 'trade') {
       if (WELD_KIND[prev] && !(prev === 'trade')) stash = s.defects;
       defects = name === 'lamination' ? laminationDefects(spec) : (name === 'trade' ? (s.trade.active && prev === 'trade' ? s.defects : []) : []);
     } else if (prev === 'trade') {
@@ -298,9 +372,16 @@
     lastAngle = probe.angle;
     UT.set(patch);
     if (!o.silentUI) openModeWindows(name);
-    UT.status({ right: UT.i18n.t(HINTS[name] || '') });
+    UT.status({ right: t(hintFor(name)) });
     UT.bus.emit('mode', { mode: name, prev });
     return spec;
+  }
+  /** Status hint key for a mode (practice / damping tool variants). */
+  function hintFor(name) {
+    const s = st();
+    if (s.damping && s.damping.tool) return HINTS.dampingTool;
+    if (name === 'trade' && s.trade && s.trade.practice) return HINTS.practice;
+    return HINTS[name] || '';
   }
   /** Return to the default weld mode. */
   function exit() { return enter('weld', { keepProbe: false }); }
@@ -331,7 +412,7 @@
     const probe = clampProbe(s.probe, spec);
     if (!s.specimen || s.specimen.face !== face) Object.assign(probe, { x: spec.defaultProbe.x, z: spec.defaultProbe.z });
     UT.set({ specimen: spec, probe });
-    UT.status({ right: HINTS[s.mode] });
+    UT.status({ right: t(hintFor(s.mode)) });
     return spec;
   }
 
@@ -354,7 +435,9 @@
       const g = s.aut.gates[s.aut.activeGate] || s.aut.gates[0];
       if (g) parts.push('Transit Gate Length=' + g.width + 'mm');
     } else if (s.mode === 'tky' && spec.tky) parts.push('Brace angle = ' + spec.tky.braceAngle + '°');
-    else if (s.mode === 'trade') parts.push('TRADE TEST ' + tradeClock());
+    else if (s.mode === 'fbh') parts.push(t('FBH block {T} mm: ⌀2/3/4/6 at 30 mm, ⌀3 at 50 mm', { T: spec.T }));
+    else if (s.mode === 'trade' && !(UT.trade && s.trade.practice)) parts.push('TRADE TEST ' + tradeClock());
+    if (spec.material && spec.material.key && spec.material.key !== 'carbon') parts.push(spec.material.name);
     if (spec.pipe && (s.mode === 'weld' || s.mode === 'aut' || s.mode === 'trade')) parts.push('WT ' + spec.pipe.wt + 'mm  Dia ' + spec.pipe.odInch + 'inch');
     return parts.join('   ');
   }
@@ -390,6 +473,14 @@
     }
     if (keys.indexOf('defects') >= 0 || keys.indexOf('selectedDefect') >= 0 || keys.indexOf('specimen') >= 0) editorRefresh();
     if (keys.indexOf('instrument') >= 0) dacRefresh();
+    // v2: material / weld-preparation changes rebuild the current specimen (deferred; no-op after an explicit enter())
+    if (keys.indexOf('material') >= 0 || keys.indexOf('weldOpts') >= 0) scheduleRebuildCheck();
+    // v2: finger damping tool status hint (P3)
+    if (keys.indexOf('damping') >= 0) {
+      const wasTool = !!dampingToolWas, isTool = !!(s.damping && s.damping.tool);
+      dampingToolWas = isTool;
+      if (isTool !== wasTool) UT.status({ right: t(isTool ? HINTS.dampingTool : hintFor(s.mode)) });
+    }
   });
 
   // ------------------------------------------------------------------ auto-cal wizard (§8.2 / §15.5)
@@ -425,49 +516,58 @@
           UT.dom.button('Cancel', function () { modes.autoCal.cancel(); }),
         ]),
       ]),
-      onClose: function () { autoCalState = null; },
+      onClose: function () { setAcState(null); },
     });
     return autoCalWin;
   }
   function acShow(msg) {
-    if (typeof document === 'undefined') return;
+    if (typeof document === 'undefined') { UT.status({ right: msg }); return; }
     const w = autoCalWindow();
     UT.dom.injectCss('modes', modes.css);
     ui.acMsg.textContent = msg;
     w.show();
     UT.status({ right: msg });
   }
+  /** Set the wizard state (module variable) and mirror it into state.autocal {stage, t1, d1, d2} (SPEC-v2 §2). */
+  function setAcState(next) {
+    autoCalState = next;
+    const cur = st().autocal || {};
+    const stage = next ? next.step : 0;
+    const t1 = next ? next.t1 : null, d1 = next ? next.d1 : (cur.d1 === undefined ? 10 : cur.d1), d2 = next ? next.d2 : (cur.d2 === undefined ? 25 : cur.d2);
+    if (cur.stage !== stage || cur.t1 !== t1 || cur.d1 !== d1 || cur.d2 !== d2) UT.setIn('autocal', { stage, t1, d1, d2 }, { noRender: true });
+  }
   const autoCal = {
-    /** Start the two-point wizard (10 mm then 25 mm step). Enters step mode when not already there. */
+    /** Start the two-point wizard (10 mm then 25 mm step). Enters step mode when not already there. Sets autocal.stage = 1. */
     start() {
       if (st().mode !== 'step' && !(st().mode === 'v1' && st().specimen && st().specimen.face === 'narrow')) enter('step');
-      autoCalState = { step: 1, d1: 10, d2: 25, t1: null };
-      acShow('Auto Cal 1/2: Place the probe on the 10 mm step (gate 1 start below the first backwall echo), then press ✓');
+      const ac = st().autocal || {};
+      setAcState({ step: 1, d1: Number.isFinite(ac.d1) ? ac.d1 : 10, d2: Number.isFinite(ac.d2) ? ac.d2 : 25, t1: null });
+      acShow(t('Auto Cal 1/2: Place the probe on the {d} mm step (gate 1 start below the first backwall echo), then press ✓', { d: autoCalState.d1 }));
       return autoCalState;
     },
-    /** Capture the current gated peak time for the current wizard step. Returns the new cal when finished; null when the wizard is not running (✓ / Enter is then a no-op — only the 'Auto Cal' softkey starts it). */
+    /** Capture the current gated peak time for the current wizard step (stage 1 → 2, stage 2 → done). Returns the new cal when finished; null when the wizard is not running (✓ / Enter is then a no-op — only the 'Auto Cal' softkey starts it). */
     step() {
       if (!autoCalState) return null;
       const cap = trueTimeOfGatedPeak();
       if (!cap) return null;
       if (autoCalState.step === 1) {
-        autoCalState.t1 = cap.t;
-        autoCalState.step = 2;
-        acShow('Auto Cal 2/2: Place the probe on the 25 mm step, then press ✓');
+        setAcState({ step: 2, d1: autoCalState.d1, d2: autoCalState.d2, t1: cap.t });
+        acShow(t('Auto Cal 2/2: Place the probe on the {d} mm step, then press ✓', { d: autoCalState.d2 }));
         return autoCalState;
       }
       const t1 = autoCalState.t1, t2 = cap.t, d1 = autoCalState.d1, d2 = autoCalState.d2;
-      if (!(t2 > t1 + 1e-6)) { acShow('Auto Cal: the second echo must be later than the first — move to the 25 mm step and press ✓'); return null; }
+      if (!(t2 > t1 + 1e-6)) { acShow(t('Auto Cal: the second echo must be later than the first — move to the {d} mm step and press ✓', { d: d2 })); return null; }
       const vel = 2 * (d2 - d1) / (t2 - t1);
       const zero = t1 - cap.d.wedgeDelayUs - 2 * d1 / vel;
       const cal = { vel: +vel.toFixed(4), zero: +zero.toFixed(4) };
       UT.setIn('instrument', { cal });
-      autoCalState = null;
+      setAcState(null);
       if (autoCalWin) autoCalWin.hide();
-      UT.status({ right: 'Auto Cal done: Velocity ' + Math.round(vel * 1000) + ' m/s, Zero ' + zero.toFixed(2) + ' µs' });
+      UT.status({ right: t('Auto Cal done: Velocity {v} m/s, Zero {z} µs', { v: Math.round(vel * 1000), z: zero.toFixed(2) }) });
       return cal;
     },
-    cancel() { autoCalState = null; if (autoCalWin) autoCalWin.hide(); UT.status({ right: HINTS[st().mode] || '' }); },
+    /** Abort the wizard (autocal.stage = 0). */
+    cancel() { setAcState(null); if (autoCalWin) autoCalWin.hide(); UT.status({ right: t(hintFor(st().mode)) }); },
     state() { return autoCalState; },
   };
 
@@ -477,32 +577,32 @@
     record() {
       const s = st();
       const r = UT.frame && UT.frame.readouts && UT.frame.readouts.primary;
-      if (!r || !(r.path > 0)) { UT.status({ right: 'DAC: no echo above the gate level — maximise the echo first' }); return null; }
+      if (!r || !(r.path > 0)) { UT.status({ right: t('DAC: no echo above the gate level — maximise the echo first') }); return null; }
       const cur = s.instrument.dac;
       const refDb = cur.refDb === null || cur.refDb === undefined ? s.instrument.gain : cur.refDb;
       const ampPct = r.peakPct * Math.pow(10, (refDb - s.instrument.gain) / 20);
-      if (ampPct > 120) { UT.status({ right: 'DAC: point refused (' + Math.round(ampPct) + '% at ref gain) — reduce the amplitude' }); return null; }
+      if (ampPct > 120) { UT.status({ right: t('DAC: point refused ({pct}% at ref gain) — reduce the amplitude', { pct: Math.round(ampPct) }) }); return null; }
       const pt = { path: +r.path.toFixed(2), ampPct: +ampPct.toFixed(1), gainAtRecord: s.instrument.gain };
       const points = cur.points.filter(function (p) { return Math.abs(p.path - pt.path) > 1; }).concat([pt]).sort(function (a, b) { return a.path - b.path; });
       // a fresh curve starts without the −6/−14 dB companions: 'Draw Curves' draws them (§8.3)
       const curves = cur.points.length ? cur.curves : false;
       UT.setIn('instrument', { dac: Object.assign({}, cur, { points, refDb, curves, on: points.length >= 2 }) });
-      UT.status({ right: 'DAC point ' + points.length + ' recorded at ' + pt.path + ' mm, ' + pt.ampPct + '%' + (points.length < 2 ? ' — record another point' : '') });
+      UT.status({ right: t(points.length < 2 ? 'DAC point {n} recorded at {path} mm, {amp}% — record another point' : 'DAC point {n} recorded at {path} mm, {amp}%', { n: points.length, path: pt.path, amp: pt.ampPct }) });
       return pt;
     },
     /** Erase all DAC points. */
     erase() {
       const cur = st().instrument.dac;
       UT.setIn('instrument', { dac: Object.assign({}, cur, { points: [], on: false, refDb: null, curves: false }) });
-      UT.status({ right: HINTS[st().mode] || '' });
+      UT.status({ right: t(hintFor(st().mode)) });
     },
     /** Toggle the −6 / −14 dB companion curves (or set explicitly). Returns the new state. */
     curves(on) {
       const cur = st().instrument.dac;
       const v = on === undefined ? !cur.curves : !!on;
       UT.setIn('instrument', { dac: Object.assign({}, cur, { curves: v, on: cur.points.length >= 2 }) });
-      if (cur.points.length < 2) UT.status({ right: 'DAC: record at least 2 points, then Draw Curves' });
-      else UT.status({ right: v ? 'DAC −6 dB (50 %) / −14 dB (20 %) curves drawn' : 'DAC companion curves hidden' });
+      if (cur.points.length < 2) UT.status({ right: t('DAC: record at least 2 points, then Draw Curves') });
+      else UT.status({ right: t(v ? 'DAC −6 dB (50 %) / −14 dB (20 %) curves drawn' : 'DAC companion curves hidden') });
       return v;
     },
   };
@@ -513,9 +613,9 @@
     d.points.forEach(function (p, i) {
       ui.dacList.appendChild(UT.dom.h('div', { class: 'dac-pt' }, (i + 1) + ':  ' + p.path.toFixed(1) + ' mm   ' + p.ampPct.toFixed(0) + ' %'));
     });
-    if (!d.points.length) ui.dacList.appendChild(UT.dom.h('div', { class: 'dac-pt dim' }, 'no points'));
-    ui.dacRef.textContent = 'Ref gain: ' + (d.refDb === null || d.refDb === undefined ? '--' : d.refDb + ' dB') + '   Curves: ' + (d.curves ? 'ON (−6 / −14 dB)' : 'off');
-    if (ui.dacDraw) ui.dacDraw.textContent = d.curves ? 'Hide Curves' : 'Draw Curves';
+    if (!d.points.length) ui.dacList.appendChild(UT.dom.h('div', { class: 'dac-pt dim', i18n: 'no points' }));
+    ui.dacRef.textContent = t('Ref gain: {g}   Curves: {c}', { g: d.refDb === null || d.refDb === undefined ? '--' : d.refDb + ' dB', c: d.curves ? t('ON (−6 / −14 dB)') : t('off') });
+    if (ui.dacDraw) ui.dacDraw.textContent = t(d.curves ? 'Hide Curves' : 'Draw Curves');
   }
   const dacPanel = {
     open() {
@@ -558,7 +658,7 @@
       }
       const mark = { x: s.probe.x, z: s.probe.z, standOff: +Math.abs(s.probe.x - hole.x).toFixed(1), depth: hole.y, hole: hole.label, side: s.probe.side, gain: s.instrument.gain, ampPct: r ? +r.peakPct.toFixed(1) : null };
       UT.setIn('plot', { edgeMarks: s.plot.edgeMarks.concat([mark]) });
-      UT.status({ right: 'Edge mark ' + (s.plot.edgeMarks.length + 1) + ': stand-off ' + mark.standOff + ' mm at ' + hole.label + ' SDH' });
+      UT.status({ right: t('Edge mark {n}: stand-off {so} mm at {hole} SDH', { n: s.plot.edgeMarks.length + 1, so: mark.standOff, hole: hole.label }) });
       return mark;
     },
     /** Erase all plotted points and edge marks. */
@@ -580,7 +680,7 @@
     const marks = s.sizing.marks.filter(function (m) { return m.side !== side; }).concat([mark]);
     const result = sizingResult(marks);
     UT.setIn('sizing', { marks, result });
-    UT.status({ right: result ? 'Sizing (' + result.method + ' drop): length ' + result.length + ' mm' : 'Mark ' + side + ' at z = ' + mark.z + ' mm — now mark the other end' });
+    UT.status({ right: result ? t('Sizing ({method} drop): length {len} mm', { method: result.method, len: result.length }) : t('Mark {side} at z = {z} mm — now mark the other end', { side, z: mark.z }) });
     return mark;
   }
   const sizing = {
@@ -644,10 +744,10 @@
   function addPreset(name, opts) {
     const s = st();
     const fn = S.defectPresets[name];
-    if (!fn) { UT.status({ right: 'Unknown preset ' + name }); return null; }
+    if (!fn) { UT.status({ right: t('Unknown preset {name}', { name }) }); return null; }
     const spec = s.specimen || S.plateWeld(s.weldOpts);
     const n = freeSlot(s.defects);
-    if (!n) { UT.status({ right: 'Maximum 8 defects' }); return null; }
+    if (!n) { UT.status({ right: t('Maximum 8 defects') }); return null; }
     const d = fn(spec, Object.assign({ n }, opts || {}));
     d.n = n;
     UT.set({ defects: s.defects.concat([d]) });
@@ -661,7 +761,7 @@
 
   function editorStatusLine() {
     const d = selectedDefect();
-    if (!d) return 'Defect ' + selectedN() + ' — draw it in the cross section with the LEFT mouse button';
+    if (!d) return t('Defect {n} — draw it in the cross section with the LEFT mouse button', { n: selectedN() });
     const spec = st().specimen;
     const len = S.defectLength(d, spec);
     return (S.isPlanar(d.type) ? 'PLANAR' : 'VOL') + ' Defect ' + d.n + '  Height=' + M.fmt(d.height, 1) + 'mm Length=' + M.fmt(len, 0) + 'mm. From ' + Math.round(d.zFrom) + 'mm  To ' + Math.round(d.zTo) + 'mm';
@@ -802,7 +902,7 @@
     const s = st();
     const n = selectedN();
     ui.radios.forEach(function (r, i) { r.checked = i === s.selectedDefect; });
-    ui.delN.textContent = 'Delete Defect ' + n;
+    ui.delN.textContent = t('Delete Defect {n}', { n });
     const d = selectedDefect();
     if (d) {
       ed.length = +S.defectLength(d, s.specimen).toFixed(1);
@@ -894,15 +994,15 @@
       dom.button('Load Def', function () {
         let txt = ui.jsonArea.value.trim();
         if (!txt) { try { txt = localStorage.getItem('utsim.defects') || ''; } catch (e) { txt = ''; } }
-        if (!txt) { UT.status({ right: 'No saved defects (utsim.defects)' }); return; }
-        try { setDefects(JSON.parse(txt)); ui.jsonArea.value = txt; ui.jsonArea.style.display = 'block'; UT.status({ right: 'Defects loaded' }); }
-        catch (e) { UT.status({ right: 'Load Def: invalid JSON' }); }
+        if (!txt) { UT.status({ right: t('No saved defects (utsim.defects)') }); return; }
+        try { setDefects(JSON.parse(txt)); ui.jsonArea.value = txt; ui.jsonArea.style.display = 'block'; UT.status({ right: t('Defects loaded') }); }
+        catch (e) { UT.status({ right: t('Load Def: invalid JSON') }); }
       }, { class: 'btn dfe-btn' }),
       dom.button('Save Def', function () {
         const txt = JSON.stringify(st().defects);
         try { localStorage.setItem('utsim.defects', txt); } catch (e) { /* ignore */ }
         ui.jsonArea.value = txt; ui.jsonArea.style.display = 'block';
-        UT.status({ right: 'Defects saved (utsim.defects) — JSON shown for copy/paste' });
+        UT.status({ right: t('Defects saved (utsim.defects) — JSON shown for copy/paste') });
       }, { class: 'btn dfe-btn' }),
       presetSel,
       dom.button('Add preset', function () {
@@ -915,10 +1015,14 @@
     ui.edStatus = dom.h('div', { class: 'dfe-status' }, '');
     // Own drag handlers only when 62-view-plan's helpers (which bind their own) are unavailable.
     if (!has('views.plan.drawCircleView')) {
+      // Pointer Events (mouse / touch / pen) with capture, touch-action none on the canvas (SPEC-v2 §5.4)
+      ui.circle.style.touchAction = 'none';
       const startDrag = function (e) {
+        if (e.button !== undefined && e.button !== 0) return;
         const z = editorZAt(e);
         if (z === null) return;
         ed.drag = { z0: z, n: selectedN() };
+        try { ui.circle.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
         e.preventDefault();
       };
       const moveDrag = function (e) {
@@ -927,14 +1031,15 @@
         if (z === null) return;
         const spec = st().specimen;
         let zFrom = Math.round(ed.drag.z0), zTo = Math.round(z);
-        if (!spec.pipe && zTo < zFrom) { const t = zFrom; zFrom = zTo; zTo = t; }
+        if (!spec.pipe && zTo < zFrom) { const tmp = zFrom; zFrom = zTo; zTo = tmp; }
         if (Math.abs(zTo - zFrom) < 1) zTo = zFrom + 1;
         editorDragSpan(zFrom, zTo);
       };
-      ui.circle.addEventListener('mousedown', startDrag);
-      ui.circle.addEventListener('mousemove', moveDrag);
-      ui.circle.addEventListener('mouseup', function () { ed.drag = null; });
-      ui.circle.addEventListener('mouseleave', function () { ed.drag = null; });
+      const endDrag = function (e) { ed.drag = null; try { ui.circle.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ } };
+      ui.circle.addEventListener('pointerdown', startDrag);
+      ui.circle.addEventListener('pointermove', moveDrag);
+      ui.circle.addEventListener('pointerup', endDrag);
+      ui.circle.addEventListener('pointercancel', endDrag);
     }
     const mid = dom.h('div', { class: 'dfe-mid' }, [ui.circle, ui.edStatus]);
     // right: select defect panel
@@ -969,18 +1074,18 @@
       if (typeof document === 'undefined') return null;
       UT.dom.injectCss('modes', modes.css);
       if (!editorWin) buildEditor();
-      if (st().mode === 'trade' && st().trade.active) { UT.status({ right: 'Defect editor is locked during the Trade Test' }); return null; }
+      if ((st().mode === 'trade' && st().trade.active) || examLocked()) { UT.status({ right: t('Defect editor is locked during the Trade Test') }); return null; }
       UT.setIn('editing', { defect: true, brush: st().editing.brush || 'planar', brushPx: st().editing.brushPx || 26 });
       editorWin.show();
       editorRefresh();
-      UT.status({ right: UT.i18n.t(HINTS.editor) });
+      UT.status({ right: t(HINTS.editor) });
       return editorWin;
     },
     close() { if (editorWin && editorWin.isOpen()) editorWin.close(); else defectEditor._closed(); },
     toggle() { return editorWin && editorWin.isOpen() ? defectEditor.close() : defectEditor.open(); },
     _closed() {
       if (st().editing.defect) UT.setIn('editing', { defect: false });
-      UT.status({ right: UT.i18n.t(HINTS[st().mode] || '') });
+      UT.status({ right: t(hintFor(st().mode)) });
     },
     isOpen() { return !!(editorWin && editorWin.isOpen()); },
     get window() { return editorWin; },
@@ -1015,10 +1120,12 @@
     return { defects, truth };
   }
   function tradeClock() {
-    const t = st().trade;
-    if (!t.active || !t.startedAt) return '';
-    const el = Math.max(0, Math.floor((Date.now() - t.startedAt) / 1000));
-    const rem = Math.max(0, 60 * 60 - el);
+    const tr = st().trade;
+    if (!tr.active || !tr.startedAt || tr.practice) return '';
+    const now = UT.trade && typeof UT.trade._now === 'function' ? UT.trade._now() : Date.now();
+    const el = Math.max(0, Math.floor((now - tr.startedAt) / 1000));
+    const limit = Number.isFinite(tr.timeLimitMin) && tr.timeLimitMin > 0 ? tr.timeLimitMin : 60;
+    const rem = Math.max(0, Math.round(limit * 60) - el);
     const mm = Math.floor(rem / 60), ss = rem % 60;
     return (mm < 10 ? '0' : '') + mm + ':' + (ss < 10 ? '0' : '') + ss;
   }
@@ -1026,7 +1133,12 @@
   function startTradeTimer() {
     stopTradeTimer();
     if (typeof setInterval !== 'function' || typeof document === 'undefined') return;
-    tradeTimer = setInterval(function () { if (ui.tClock) ui.tClock.textContent = 'Time left ' + tradeClock(); }, 1000);
+    tradeTimer = setInterval(function () { if (ui.tClock) ui.tClock.textContent = t('Time left {t}', { t: tradeClock() }); }, 1000);
+  }
+  /** True while a shared exam is locked (truth hidden, editor / HIDE / BEAM disabled) — SPEC-v2 §4.2.3. */
+  function examLocked(state) {
+    const tr = (state || st()).trade;
+    return !!(tr && tr.exam && tr.exam.locked && !tr.revealed);
   }
   const trade = {
     /**
@@ -1041,18 +1153,18 @@
       const g = generateTruth(sd, s.specimen);
       UT.set({
         defects: g.defects,
-        trade: Object.assign({}, s.trade, { active: true, revealed: false, report: [], score: null, seed: sd, startedAt: Date.now(), truth: g.truth, result: null }),
+        trade: Object.assign({}, s.trade, { active: true, revealed: false, report: [], score: null, seed: sd, startedAt: Date.now(), truth: g.truth, result: null, practice: false }),
         display: Object.assign({}, s.display, { hide: true }),
         selectedDefect: 0,
       });
       startTradeTimer();
       if (ui.tRows) { ui.tRows.textContent = ''; tradeAddRow(); }     // fresh report table with one empty row
       tradeRefresh();
-      UT.status({ right: 'Trade Test started (' + g.truth.length + ' hidden defects). Fill in the report, then Submit' });
-      return g.truth.map(function (t) { return Object.assign({}, t); });
+      UT.status({ right: t('Trade Test started ({n} hidden defects). Fill in the report, then Submit', { n: g.truth.length }) });
+      return g.truth.map(function (q) { return Object.assign({}, q); });
     },
-    /** Hidden truth rows [{n, zFrom, zTo, depth, height, type}]. */
-    truth() { return (st().trade.truth || []).map(function (t) { return Object.assign({}, t); }); },
+    /** Hidden truth rows [{n, zFrom, zTo, depth, height, type}] ([] while a shared exam is locked). */
+    truth() { if (examLocked()) return []; return (st().trade.truth || []).map(function (q) { return Object.assign({}, q); }); },
     /**
      * Score a report: rows [{n, z, length, depth, type}] → 0..100. Reveals the defects.
      */
@@ -1091,7 +1203,7 @@
       });
       stopTradeTimer();
       tradeRefresh();
-      UT.status({ right: 'Trade Test score ' + score + '% — ' + matched + '/' + truth.length + ' found, ' + falseCalls + ' false call' + (falseCalls === 1 ? '' : 's') });
+      UT.status({ right: t('Trade Test score {score}% — {m}/{n} found, {f} false calls', { score, m: matched, n: truth.length, f: falseCalls }) });
       return score;
     },
     /** Reveal the hidden defects without scoring. */
@@ -1100,6 +1212,48 @@
       UT.set({ trade: Object.assign({}, s.trade, { revealed: true }), display: Object.assign({}, s.display, { hide: false }) });
       tradeRefresh();
     },
+  };
+  /** Legacy random practice (T5 fallback when 84-trade is absent): the v1 generator without a timer, reveal any time. */
+  const legacyPractice = {
+    start(seed) {
+      const truth = trade.start(seed);
+      stopTradeTimer();
+      UT.setIn('trade', { practice: true, hintsUsed: 0, revealedOne: [] });
+      UT.status({ right: t(HINTS.practice) });
+      return truth;
+    },
+    hint() {
+      const s = st(), tr = s.trade;
+      if (!tr.active || !tr.truth.length) return null;
+      const z = s.probe.z;
+      let best = null;
+      tr.truth.forEach(function (q) {
+        const zc = (q.zFrom + q.zTo) / 2;
+        const d = Math.abs(zc - z);
+        if (!best || d < best.d) best = { d, q, zc };
+      });
+      UT.setIn('trade', { hintsUsed: (tr.hintsUsed || 0) + 1 });
+      const msg = t('nearest hidden indication: {d} mm further along z, side {side}', { d: Math.round(best.d), side: best.zc >= z ? 'B' : 'A' });
+      UT.status({ right: msg });
+      return { dz: +(best.zc - z).toFixed(1), n: best.q.n };
+    },
+    revealOne() { trade.reveal(); return st().trade.truth[0] || null; },
+    checkRow(i) {
+      const tr = st().trade, r = (tr.report || [])[i];
+      if (!r) return null;
+      return tr.truth.some(function (q) { return Math.abs(r.z - q.zFrom) <= 10 && Math.abs(r.depth - q.depth) <= 3; });
+    },
+  };
+  /** Random practice entry (T5): UT.trade.practice when 84 is loaded, else the legacy fallback. */
+  const practice = {
+    /** Start a practice run (no timer, no lock). Returns the truth rows. */
+    start(seed) { const p = has('trade.practice.start'); return p ? UT.trade.practice.start(seed) : legacyPractice.start(seed); },
+    hint() { const p = has('trade.practice.hint'); return p ? UT.trade.practice.hint() : legacyPractice.hint(); },
+    revealOne() { const p = has('trade.practice.revealOne'); return p ? UT.trade.practice.revealOne() : legacyPractice.revealOne(); },
+    checkRow(i) { const p = has('trade.practice.checkRow'); return p ? UT.trade.practice.checkRow(i) : legacyPractice.checkRow(i); },
+    /** Open the practice window (84) or start a legacy practice run. */
+    open() { const w = has('trade.practiceWindow'); if (w && typeof (w.open || w.show) === 'function') return (w.open || w.show).call(w); return practice.start(); },
+    toggle() { const w = has('trade.practiceWindow'); if (w && typeof w.toggle === 'function') return w.toggle(); return practice.open(); },
   };
   function tradeRows() {
     if (!ui.tRows) return [];
@@ -1125,26 +1279,28 @@
   }
   function tradeRefresh() {
     if (!tradeWin || !tradeWin.isOpen() || !ui.tResult) return;
-    const t = st().trade;
-    ui.tClock.textContent = t.active && t.startedAt ? 'Time left ' + tradeClock() : 'Press Start';
-    ui.tSeed.textContent = t.seed === null || t.seed === undefined ? '' : 'Test #' + t.seed;
+    const tr = st().trade;
+    ui.tClock.textContent = tr.active && tr.startedAt ? t('Time left {t}', { t: tradeClock() }) : t('Press Start');
+    ui.tSeed.textContent = tr.seed === null || tr.seed === undefined ? '' : t('Test #{seed}', { seed: tr.seed });
     ui.tResult.textContent = '';
-    if (t.score !== null && t.score !== undefined && t.result) {
-      const res = t.result;
-      ui.tResult.appendChild(UT.dom.h('div', { class: 'tt-score' }, 'SCORE ' + t.score + '%   (' + res.matched + ' of ' + t.truth.length + ' found, ' + res.typeMatches + ' type correct, ' + res.falseCalls + ' false calls)'));
+    if (tr.score !== null && tr.score !== undefined && tr.result) {
+      const res = tr.result;
+      ui.tResult.appendChild(UT.dom.h('div', { class: 'tt-score' }, t('SCORE {score}%   ({m} of {n} found, {tm} type correct, {f} false calls)', { score: tr.score, m: res.matched, n: tr.truth.length, tm: res.typeMatches, f: res.falseCalls })));
     }
-    if (t.revealed && t.truth && t.truth.length) {
+    if (tr.revealed && tr.truth && tr.truth.length) {
       const tbl = UT.dom.h('table', { class: 'tt-truth' }, [
-        UT.dom.h('tr', {}, ['#', 'From z', 'Length', 'Depth', 'Height', 'Type'].map(function (h) { return UT.dom.h('th', {}, h); })),
-      ].concat(t.truth.map(function (d) {
+        UT.dom.h('tr', {}, ['#', 'From z', 'Length', 'Depth', 'Height', 'Type'].map(function (h) { return UT.dom.h('th', { i18n: h }); })),
+      ].concat(tr.truth.map(function (d) {
         return UT.dom.h('tr', {}, [d.n, d.zFrom, +(d.zTo - d.zFrom).toFixed(1), d.depth, d.height, d.type].map(function (v) { return UT.dom.h('td', {}, String(v)); }));
       })));
-      ui.tResult.appendChild(UT.dom.h('div', { class: 'tt-sub' }, 'True defects'));
+      ui.tResult.appendChild(UT.dom.h('div', { class: 'tt-sub', i18n: 'True defects' }));
       ui.tResult.appendChild(tbl);
-      if (t.result && t.result.misses && t.result.misses.length) ui.tResult.appendChild(UT.dom.h('div', { class: 'tt-miss' }, 'Missed: ' + t.result.misses.map(function (m) { return '#' + m.n + ' (' + m.type + ' at z ' + m.zFrom + ')'; }).join(', ')));
+      if (tr.result && tr.result.misses && tr.result.misses.length) ui.tResult.appendChild(UT.dom.h('div', { class: 'tt-miss' }, t('Missed: {list}', { list: tr.result.misses.map(function (m) { return '#' + m.n + ' (' + m.type + ' at z ' + m.zFrom + ')'; }).join(', ') })));
     }
   }
-  const tradeTest = {
+  /** Owner window of the v2 trade test (84) when loaded: {open/show, close/hide, toggle, isOpen, win}. */
+  function tradeOwnerWin() { const w = has('trade.window'); return w && typeof w === 'object' ? w : null; }
+  const legacyTradeTest = {
     open() {
       if (typeof document === 'undefined') return null;
       UT.dom.injectCss('modes', modes.css);
@@ -1170,7 +1326,7 @@
           table,
           dom.h('div', { class: 'btn-row' }, [
             dom.button('Add row', function () { tradeAddRow(); }),
-            dom.button('Submit', function () { if (!st().trade.truth.length) { UT.status({ right: 'Press Start first' }); return; } trade.submit(tradeRows()); }, { class: 'btn primary' }),
+            dom.button('Submit', function () { if (!st().trade.truth.length) { UT.status({ right: t('Press Start first') }); return; } trade.submit(tradeRows()); }, { class: 'btn primary' }),
             dom.button('Reveal', function () { trade.reveal(); }),
           ]),
           ui.tResult,
@@ -1183,8 +1339,21 @@
       return tradeWin;
     },
     close() { if (tradeWin) tradeWin.hide(); },
-    toggle() { return tradeWin && tradeWin.isOpen() ? tradeTest.close() : tradeTest.open(); },
+    toggle() { return tradeWin && tradeWin.isOpen() ? legacyTradeTest.close() : legacyTradeTest.open(); },
+    isOpen() { return !!(tradeWin && tradeWin.isOpen()); },
     get window() { return tradeWin; },
+  };
+  /**
+   * Late-bound Trade Test window (SPEC-v2 §1): delegates to UT.trade.window (84) when loaded and NEVER creates the
+   * v1 dom.win 'trade' in that case; the legacy window is used only without 84.
+   */
+  const tradeTest = {
+    open() { const w = tradeOwnerWin(); if (w) return (w.open || w.show).call(w); return legacyTradeTest.open(); },
+    close() { const w = tradeOwnerWin(); if (w) return (w.close || w.hide).call(w); return legacyTradeTest.close(); },
+    toggle() { const w = tradeOwnerWin(); if (w) return w.toggle ? w.toggle() : (w.isOpen && w.isOpen() ? tradeTest.close() : tradeTest.open()); return legacyTradeTest.toggle(); },
+    isOpen() { const w = tradeOwnerWin(); if (w) return !!(w.isOpen && w.isOpen()); return legacyTradeTest.isOpen(); },
+    get window() { const w = tradeOwnerWin(); return w ? (w.win || w) : tradeWin; },
+    legacy: legacyTradeTest,
   };
 
   // ------------------------------------------------------------------ TKY panel (§14.9)
@@ -1200,10 +1369,10 @@
     if (!tkyWin || !ui.tkySlider) return;
     ui.tkySlider.value = tkyOpts.braceAngle;
     ui.tkySlider.step = tkyOpts.precision;
-    ui.tkyLabel.textContent = 'Brace angle = ' + tkyOpts.braceAngle + '°';
+    ui.tkyLabel.textContent = t('Brace angle = {a}°', { a: tkyOpts.braceAngle });
     ui.tkyKind.forEach(function (b) { b.classList.toggle('active', b.dataset.kind === tkyOpts.kind); });
     ui.tkyPrec.classList.toggle('active', tkyOpts.precision !== 1);
-    ui.tkyPrec.textContent = 'Precision ' + (tkyOpts.precision === 1 ? '1°' : '0.1°');
+    ui.tkyPrec.textContent = t('Precision {p}', { p: tkyOpts.precision === 1 ? '1°' : '0.1°' });
     ui.fBraceT.input.value = tkyOpts.braceT; ui.fChordT.input.value = tkyOpts.chordT; ui.fOffset.input.value = tkyOpts.braceOffset;
   }
   const tkyPanel = {
@@ -1241,7 +1410,7 @@
               const y = 0.6;
               const d = S.makeDefect({ n: 1, type: 'lof', label: 'Toe LOF', pts: [{ x: toe - 20, y }, { x: toe, y }], height: 0.6, zFrom: spec.L / 2 - 10, zTo: spec.L / 2 + 10 });
               UT.set({ defects: [d] });
-              UT.status({ right: 'Default toe LOF loaded (20 mm long under the toe weld)' });
+              UT.status({ right: t('Default toe LOF loaded (20 mm long under the toe weld)') });
             }, { class: 'btn tky-btn' }),
           ]),
           ui.fBraceT, ui.fChordT, ui.fOffset,
@@ -1260,18 +1429,43 @@
   };
 
   // ------------------------------------------------------------------ lessons (§14.12)
+  /** Library patch for an angle in the probe's current family / frequency (v2 §3.5); null for custom angles / no library. */
+  function libPatchFor(angle, probe) {
+    const P = UT.probe;
+    if (!P || !Array.isArray(P.library) || typeof P.select !== 'function') return null;
+    const cur = (P.libEntry && P.libEntry(probe.libId)) || null;
+    const wantFamily = angle === 0 ? 'straight' : 'angle';
+    const maker = cur ? cur.maker : 'generic';
+    const freq = probe.freq || 5;
+    // Preference: same maker + same frequency → same maker → generic + same frequency → generic (v1 defaults are generic,
+    // so a v1 lesson setup keeps the generic 5 MHz ⌀10 probe; a user's Krautkrämer set follows its own family).
+    let best = null, bestScore = Infinity;
+    P.library.forEach(function (p) {
+      if (p.family !== wantFamily || Math.abs((p.angle || 0) - angle) > 0.5) return;
+      const score = (p.maker === maker ? 0 : (p.maker === 'generic' ? 10 : 20)) + Math.abs((p.freq || 5) - freq);
+      if (score < bestScore) { bestScore = score; best = p; }
+    });
+    return best ? P.select(best.id) : null;
+  }
   function setProbe(p) {
     const s = st();
-    const np = Object.assign({}, s.probe, p);
-    if (p.angle !== undefined) { np.mode = presetMode(p.angle); savedAngle = null; }   // explicit angle (0° included): nothing to restore later
+    let np = Object.assign({}, s.probe, p);
+    if (p.angle !== undefined) {
+      const lp = libPatchFor(p.angle, s.probe);
+      np = Object.assign({}, s.probe, lp || {}, p);                       // explicit fields win over the library entry
+      np.mode = presetMode(p.angle); savedAngle = null;                    // explicit angle (0° included): nothing to restore later
+    }
     UT.set({ probe: s.specimen ? clampProbe(np, s.specimen) : np });
   }
   function setInstr(p) { UT.setIn('instrument', p); }
   function weld(opts, extra) {
-    UT.set({ weldOpts: Object.assign({}, UT.defaultState().weldOpts, opts || {}) }, { noRender: true });
+    const o = Object.assign({}, UT.defaultState().weldOpts, opts || {});
+    if (opts && opts.type && !opts.prep && PREPS.indexOf(opts.type) >= 0) o.prep = opts.type;   // legacy type → prep
+    if (o.prep) o.type = typeOfPrep(o.prep);
+    UT.set({ weldOpts: o }, { noRender: true });
     enter('weld', Object.assign({ keepProbe: false }, extra || {}));
   }
-  const lessons = [
+  const lessonSetups = [
     { n: 1, title: 'UTman Functions', ko: '메뉴·툴바 기능 전체 둘러보기', en: 'Tour of the menu bar and toolbar',
       setup() { weld({ T: 20 }); setProbe({ angle: 60, x: 40 }); setInstr({ gain: 30, range: 100 }); },
       steps: ['Hover every toolbar button (0°…AUT) and read the tooltip', 'Open each menu: File, Probes, Step Wedge, Weld, Defects, Options, Help', 'Drag the probe in the cross section', 'Turn the mouse wheel over the cross section: gain ±1 dB'] },
@@ -1327,12 +1521,12 @@
       setup() { weld({ T: 20, pipe: true, od: 152.4, wt: 20 }); defectEditor.open(); },
       steps: ['Drag on the ring: Defect 1 From 76 To 143', 'Delete Defect 1', 'Save Def / Load Def'] },
     { n: 17, title: 'Lamination Check.mpg', ko: '라미네이션 검사 (반복)', en: 'Lamination check (repeat of lesson 5)',
-      setup() { lessons[4].setup(); }, steps: ['Same as lesson 5'] },
+      setup() { lessonSetups[4].setup(); }, steps: ['Same as lesson 5'] },
     { n: 18, title: 'AUT', ko: '자동 스캔: 스트립 차트, 게이트 패널', en: 'Automated scan: strip charts and the gate panel',
       setup() { weld({ T: 20, pipe: true }); setProbe({ angle: 60, x: 40 }); UT.setIn('aut', { gates: st().aut.gates.map(function (g, i) { return Object.assign({}, g, i === 0 ? { start: 30, width: 11, level: 21 } : {}); }) }); enter('aut', { keepProbe: true }); },
       steps: ['Gates Same', 'Run Scan / Stop', 'Rev Map'] },
     { n: 19, title: 'Angle Probe using the V2 calibration block', ko: 'V2 블록 (반복)', en: 'V2 block (repeat of lesson 6)',
-      setup() { lessons[5].setup(); }, steps: ['Same as lesson 6'] },
+      setup() { lessonSetups[5].setup(); }, steps: ['Same as lesson 6'] },
     { n: 20, title: 'Angleprobe Calibration', ko: 'DAC 기록: T/4, T/2, 3T/4 구멍 → Record → Draw Curves', en: 'DAC recording on the reference block and the −6/−14 dB curves',
       // 30 dB: the three 70° SDH echoes read ≈ 81 / 78 / 62 % (recordable; 34 dB would put the near-field holes > 120 %)
       setup() { enter('dac'); setProbe({ angle: 70 }); setInstr({ gain: 30, range: 100 }); },
@@ -1341,11 +1535,11 @@
       setup() { weld({ T: 25, pipe: true, od: 219.1, wt: 25 }); setProbe({ angle: 60 }); enter('trade', { keepProbe: true }); trade.start(); },
       steps: ['Scan with 45° / 60° / 70°', 'Fill the report rows, Submit', 'Reveal, read the score (60 min timer)'] },
     { n: 22, title: 'UTman600', ko: 'EPOCH 600 상세: 게이트 페이지, 2ND F + dB, Auto Cal', en: 'EPOCH 600 details: page 2 gates, 2ND F + dB, Auto Cal',
-      setup() { lessons[10].setup(); setInstr({ page: 2 }); },
+      setup() { lessonSetups[10].setup(); setInstr({ page: 2 }); },
       steps: ['Page 2: Gate 1 / Gate 2 softkeys', '2ND F + dB = reference gain', 'Auto Cal softkey'] },
   ];
   function loadLesson(i) {
-    const l = lessons[i];
+    const l = lessonSetups[i];
     if (!l) return null;
     if (defectEditor.isOpen()) defectEditor.close();     // clean UI; lessons 10 / 16 reopen it in setup()
     if (autoCalWin) autoCal.cancel();
@@ -1358,20 +1552,20 @@
     if (!lessonsWin || !ui.lSteps) return;
     const i = st().lesson;
     ui.lSteps.textContent = '';
-    if (i === null || i === undefined || !lessons[i]) { ui.lSteps.appendChild(UT.dom.h('div', { class: 'ls-dim' }, 'Select a lesson and press Load')); return; }
-    const l = lessons[i];
+    if (i === null || i === undefined || !lessonSetups[i]) { ui.lSteps.appendChild(UT.dom.h('div', { class: 'ls-dim', i18n: 'Select a lesson and press Load' })); return; }
+    const l = lessonSetups[i];
     ui.lSteps.appendChild(UT.dom.h('div', { class: 'ls-title' }, l.n + '. ' + l.title));
     ui.lSteps.appendChild(UT.dom.h('div', { class: 'ls-ko' }, l.ko));
     ui.lSteps.appendChild(UT.dom.h('ol', {}, l.steps.map(function (s) { return UT.dom.h('li', {}, s); })));
     Array.from(ui.lList.children).forEach(function (row, k) { row.classList.toggle('active', k === i); });
   }
-  const lessonsWindow = {
+  const legacyLessonsWindow = {
     open() {
       if (typeof document === 'undefined') return null;
       UT.dom.injectCss('modes', modes.css);
       const dom = UT.dom;
       if (!lessonsWin) {
-        ui.lList = dom.h('div', { class: 'ls-list' }, lessons.map(function (l, i) {
+        ui.lList = dom.h('div', { class: 'ls-list' }, lessonSetups.map(function (l, i) {
           return dom.h('div', { class: 'ls-row' }, [
             dom.h('div', { class: 'ls-n' }, String(l.n)),
             dom.h('div', { class: 'ls-txt' }, [dom.h('div', { class: 'ls-t' }, l.title), dom.h('div', { class: 'ls-d' }, l.ko + ' — ' + l.en)]),
@@ -1386,9 +1580,26 @@
       return lessonsWin;
     },
     close() { if (lessonsWin) lessonsWin.hide(); },
-    toggle() { return lessonsWin && lessonsWin.isOpen() ? lessonsWindow.close() : lessonsWindow.open(); },
+    toggle() { return lessonsWin && lessonsWin.isOpen() ? legacyLessonsWindow.close() : legacyLessonsWindow.open(); },
+    isOpen() { return !!(lessonsWin && lessonsWin.isOpen()); },
     load: loadLesson,
     get window() { return lessonsWin; },
+  };
+  /** Owner window of the v2 lessons (82) when loaded. */
+  function lessonsOwnerWin() { const w = has('lessons.window'); return w && typeof w === 'object' ? w : null; }
+  /**
+   * Late-bound Lessons window (SPEC-v2 §1): UT.lessons.window.show() when 82 is loaded (the v1 dom.win 'lessons'
+   * is then never created); the legacy v1 list window otherwise. load(i) → UT.lessons.start(i + 1) | v1 loadLesson.
+   */
+  const lessonsWindow = {
+    open() { const w = lessonsOwnerWin(); if (w) return (w.show || w.open).call(w); return legacyLessonsWindow.open(); },
+    close() { const w = lessonsOwnerWin(); if (w) return (w.hide || w.close).call(w); return legacyLessonsWindow.close(); },
+    toggle() { const w = lessonsOwnerWin(); if (w) return w.toggle ? w.toggle() : (w.isOpen && w.isOpen() ? lessonsWindow.close() : lessonsWindow.open()); return legacyLessonsWindow.toggle(); },
+    isOpen() { const w = lessonsOwnerWin(); if (w) return !!(w.isOpen && w.isOpen()); return legacyLessonsWindow.isOpen(); },
+    /** Load lesson i (0-based): v2 UT.lessons.start(n) when present, else the v1 setup. Returns the lesson record. */
+    load(i) { if (has('lessons.start')) { UT.lessons.start(i + 1); return modes.lessons[i] || null; } return loadLesson(i); },
+    get window() { const w = lessonsOwnerWin(); return w ? (w.win || w) : lessonsWin; },
+    legacy: legacyLessonsWindow,
   };
 
   // ------------------------------------------------------------------ test API (§15.10)
@@ -1398,8 +1609,14 @@
     T: [3, 100], L: [50, 2000], bevel: [0, 60], rootGap: [0, 10], rootFace: [0, 10], capWidth: [0, 60], capHeight: [0, 10],
     rootHeight: [0, 10], od: [25, 2000], wt: [3, 100],
     braceAngle: [20, 90], braceT: [3, 100], chordT: [3, 100], braceOffset: [-100, 100], braceLen: [20, 300], weldLeg: [2, 30],
+    // v2 weld preparations (§5.1) / transfer loss (§3.4) / step wedge
+    webT: [3, 60], branchOd: [20, 2000], branchWt: [2, 60], transferLossDb: [0, 8], stepLen: [10, 100],
   };
-  const OPT_ENUMS = { type: ['single-v', 'double-v', 'none'], face: ['wide', 'narrow'] };
+  const OPT_ENUMS = {
+    type: ['single-v', 'double-v', 'none', 'fillet'], face: ['wide', 'narrow'],
+    prep: PREPS, weldMaterial: ['same', 'austenitic'],
+    material: Object.keys(S.materials || { carbon: 1 }),
+  };
   /** Sanitised copy of a specimen-options object (unknown keys pass through only when finite/boolean/short string). */
   function clampOpts(opts) {
     const out = {};
@@ -1416,28 +1633,83 @@
     if (out.pipe && Number.isFinite(out.od) && Number.isFinite(out.wt)) out.wt = Math.min(out.wt, Math.max(OPT_RANGES.wt[0], out.od / 2 - 1));
     return out;
   }
+  /**
+   * Weld-option patch normalisation (v2 §2 / §5.1): `prep` is mirrored into the legacy `type`, a legacy `type`
+   * without `prep` becomes the prep, and `backing` follows the prep ('single-v-backing' ⇔ true).
+   */
+  function normaliseWeldPatch(o) {
+    const out = Object.assign({}, o);
+    if (out.prep === undefined && out.type !== undefined && PREPS.indexOf(out.type) >= 0) out.prep = out.type;
+    if (out.backing === true && (out.prep === undefined || out.prep === 'single-v')) out.prep = 'single-v-backing';
+    if (out.prep !== undefined) { out.type = typeOfPrep(out.prep); out.backing = out.prep === 'single-v-backing'; }
+    return out;
+  }
   function loadSpecimen(id, opts) {
     const mode = MODE_OF[id];
     if (!mode) throw new Error('Unknown specimen id: ' + id);
     const o = clampOpts(opts);
+    if (o.material) { UT.set({ material: o.material }, { silent: true, noRender: true }); delete o.material; }   // v2: state.material is authoritative
     if (id === 'plate-weld' || id === 'pipe-weld') {
       if (id === 'pipe-weld') {
         // wall/radius rule against the MERGED options (existing od when opts carries only wt, and vice versa)
-        const merged = Object.assign({}, st().weldOpts, o, { pipe: true });
+        const merged = normaliseWeldPatch(Object.assign({}, st().weldOpts, o, { pipe: true }));
         if (Number.isFinite(merged.od) && Number.isFinite(merged.wt)) { merged.wt = Math.min(merged.wt, Math.max(OPT_RANGES.wt[0], merged.od / 2 - 1)); merged.T = merged.wt; }
         UT.setIn('weldOpts', merged, { silent: true, noRender: true });
-      } else UT.setIn('weldOpts', Object.assign(o, { pipe: false }), { silent: true, noRender: true });
+      } else UT.setIn('weldOpts', normaliseWeldPatch(Object.assign(o, { pipe: false })), { silent: true, noRender: true });
       enter('weld', { silentUI: true });
     } else enter(mode, { specimenOpts: opts ? o : undefined, silentUI: true });
     return st().specimen;
+  }
+  /**
+   * v2 §7: select the specimen material (key of UT.specimens.materials) and rebuild the current mode's specimen
+   * keeping the probe. Returns the specimen's material record, or false for an unknown key.
+   * @param {string} key
+   */
+  function setMaterial(key) {
+    const k = materialKey(key);
+    if (!k) { UT.status({ right: t('Unknown material {key}', { key: String(key) }) }); return false; }
+    UT.set({ material: k }, { noRender: true });
+    enter(current(), { keepProbe: true, silentUI: true, keepDefects: true });
+    return st().specimen && st().specimen.material ? Object.assign({}, st().specimen.material) : { key: k };
+  }
+  /**
+   * Merge a weld-option patch (Weld dialog / prep dropdown / PIPE toggle) into state.weldOpts with the v2 mirrors and
+   * rebuild the weld when a weld-kind mode is active (keepProbe). Returns the new weldOpts.
+   * @param {object} patch  partial weldOpts (prep, type, backing, T, pipe, od, wt, webT, branchOd, weldMaterial, transferLossDb, …)
+   */
+  function setWeldOpts(patch) {
+    const o = normaliseWeldPatch(clampOpts(patch));
+    const merged = Object.assign({}, st().weldOpts, o);
+    if (merged.pipe && Number.isFinite(merged.od) && Number.isFinite(merged.wt)) { merged.wt = Math.min(merged.wt, Math.max(OPT_RANGES.wt[0], merged.od / 2 - 1)); merged.T = merged.wt; }
+    UT.set({ weldOpts: merged }, { noRender: true });
+    if (WELD_KIND[current()]) enter(current(), { keepProbe: true, silentUI: true, keepDefects: true });
+    else UT.requestRender();
+    return st().weldOpts;
+  }
+  /**
+   * Select a weld preparation (SPEC-v2 §5.1 enum) — mirrors `type`/`backing` and rebuilds the weld (keepProbe).
+   * @param {string} prep  'single-v'|'double-v'|'single-bevel'|'j'|'single-v-backing'|'fillet-t'|'nozzle'|'none'
+   * @returns {boolean}
+   */
+  function setPrep(prep) {
+    if (PREPS.indexOf(prep) < 0) return false;
+    setWeldOpts({ prep });
+    return true;
   }
   Object.assign(UT.test, {
     loadSpecimen,
     setDefects,
     addPreset,
     enterMode: enter,
-    lessons() { return lessons.map(function (l) { return l.title; }); },
-    trade: { start: trade.start, truth: trade.truth, submit: trade.submit },
+    lessons() { return modes.lessons.map(function (l) { return l.title; }); },
+    setMaterial,
+    // §1 (3): late-binding shell — 84-trade extends it with Object.assign(UT.test.trade, {...})
+    trade: {
+      start(seed) { return (UT.trade || trade).start(seed); },
+      truth() { return (UT.trade || trade).truth(); },
+      submit(rows) { return (UT.trade || trade).submit(rows); },
+      practice: { start(seed) { return practice.start(seed); } },
+    },
   });
 
   // ------------------------------------------------------------------ CSS
@@ -1508,16 +1780,44 @@
   ].join('\n');
 
   // ------------------------------------------------------------------ enable helpers
+  /**
+   * Angles (deg) allowed by the active procedure while a trade test runs (SPEC-v2 §4.3 T4), or null = unrestricted.
+   * Derived from UT.standards.allowedProbes(state) → library ids → UT.probe.libEntry(id).angle.
+   */
+  function allowedAngles(state) {
+    const s = state || st();
+    if (!s.trade || !s.trade.active) return null;
+    const fn = has('standards.allowedProbes');
+    if (typeof fn !== 'function') return null;
+    let ids = null;
+    try { ids = fn(s); } catch (e) { ids = null; }
+    if (!Array.isArray(ids)) return null;
+    const out = [];
+    ids.forEach(function (id) {
+      const lib = has('probe.libEntry') ? UT.probe.libEntry(id) : null;
+      if (lib && Number.isFinite(lib.angle) && out.indexOf(lib.angle) < 0) out.push(lib.angle);
+    });
+    return out;
+  }
   function isToolbarEnabled(id) {
     const key = id.indexOf('tb-') === 0 ? id : 'tb-' + id;
+    const s = st();
     if (defectEditor.isOpen() && enabled.editor.disabledToolbar.indexOf(key) >= 0) return false;
-    if (st().mode === 'trade' && key === 'tb-hide' && st().trade.revealed) return true;   // §14.7: locked only until Submit / Reveal
-    const e = enabled[st().mode] || enabled.weld;
+    // v2 exam lock (§4.2.3): the editor, HIDE and BEAM stay locked while a shared exam's truth is hidden
+    if (examLocked(s) && (key === 'tb-defect' || key === 'tb-hide' || key === 'tb-beam')) return false;
+    // v2 procedure lock (T4): angle buttons outside the procedure's probe list are disabled while the test runs
+    if (ANGLE_TB[key] !== undefined) {
+      const ang = allowedAngles(s);
+      if (ang && ang.indexOf(ANGLE_TB[key]) < 0) return false;
+    }
+    if (s.mode === 'trade' && key === 'tb-hide' && s.trade.revealed) return true;   // §14.7: locked only until Submit / Reveal
+    const e = enabled[s.mode] || enabled.weld;
     return e.disabledToolbar.indexOf(key) < 0;
   }
   function isMenuEnabled(id) {
     const key = id.indexOf('menu-') === 0 ? id : 'menu-' + id;
     if (defectEditor.isOpen() && enabled.editor.disabledMenus.indexOf(key) >= 0) return false;
+    if (examLocked() && key === 'menu-defects') return false;
     const e = enabled[st().mode] || enabled.weld;
     return e.disabledMenus.indexOf(key) < 0;
   }
@@ -1574,18 +1874,101 @@
       if (trade.submit([]) !== 0) f.push('empty report should score 0');
       enter('weld', { silentUI: true });
       if (st().trade.active) f.push('trade inactive after exit');
-      if (lessons.length !== 22) f.push('lessons ' + lessons.length);
-      lessons.forEach(function (l) { if (!l.title || !l.ko || !l.en || typeof l.setup !== 'function' || !l.steps.length) f.push('lesson ' + l.n + ' incomplete'); });
+      if (lessonSetups.length !== 22) f.push('lessons ' + lessonSetups.length);
+      lessonSetups.forEach(function (l) { if (!l.title || !l.ko || !l.en || typeof l.setup !== 'function' || !l.steps.length) f.push('lesson ' + l.n + ' incomplete'); });
+      if (!Array.isArray(modes.lessons) || modes.lessons.length < 22 || (UT.lessons && UT.lessons.list && modes.lessons !== UT.lessons.list)) f.push('lessons getter');
       if (!enabled.v1.disabledToolbar.length || enabled.v1.toolbar.indexOf('tb-v1') < 0) f.push('enabled matrix');
       const z = circleZFromPoint(165, 15, { cx: 165, cy: 165, R: 150, r: 120, C: 480 });
       if (z === null || Math.abs(z) > 0.01) f.push('circle z at 12 o\'clock ' + z);
       const zl = circleZFromPoint(15, 165, { cx: 165, cy: 165, R: 150, r: 120, C: 480 });
       if (zl === null || Math.abs(zl - 120) > 0.5) f.push('circle z at 9 o\'clock (anticlockwise 90°) ' + zl);
       void before;
-    } catch (e) { f.push('exception ' + (e && e.message)); }
+      // ---- v2 invariants (SPEC-v2 §1, §2, §7, §8)
+      if (ALL_MENUS.indexOf('tools') !== 5 || enabled.weld.menus.indexOf('menu-tools') < 0 || enabled.editor.menus.indexOf('menu-tools') >= 0) f.push('tools menu in the enable matrix');
+      if (!enabled.fbh || enabled.fbh.disabledToolbar.join() !== 'tb-v2,tb-v1,tb-dac,tb-plot,tb-tky,tb-tofd,tb-aut,tb-pipe' || enabled.fbh.disabledMenus.join() !== 'menu-weld,menu-defects' || enabled.fbh.hidden.join() !== 'compass') f.push('DISABLED.fbh');
+      if (MODE_OF.fbh !== 'fbh') f.push('MODE_OF.fbh');
+      if (typeof UT.test.setMaterial !== 'function' || !UT.test.trade || typeof UT.test.trade.start !== 'function' || typeof UT.test.trade.practice.start !== 'function') f.push('test api v2');
+      UT.setIn('probe', { angle: 60, mode: 'shear' }, { noRender: true });
+      enter('fbh', { silentUI: true });
+      if (st().mode !== 'fbh' || !st().specimen || st().specimen.id !== 'fbh' || !st().specimen.fbhs || st().specimen.fbhs.length !== 5) f.push('enter fbh');
+      if (st().probe.angle !== 0 || st().probe.mode !== 'comp') f.push('fbh forces 0°');
+      if (!st().specimen.material || st().specimen.material.key !== (st().material || 'carbon')) f.push('fbh material');
+      if (!isToolbarEnabled('tb-0') || isToolbarEnabled('tb-dac') || isMenuEnabled('menu-weld') || !isMenuEnabled('menu-tools') || hiddenViews().indexOf('compass') < 0) f.push('fbh enable matrix');
+      enter('weld', { silentUI: true });
+      if (st().probe.angle !== 60) f.push('angle restored after fbh: ' + st().probe.angle);
+      // materials: every builder takes state.material; setMaterial re-enters keeping the probe and the defects
+      const px = st().probe.x;
+      addPreset('rootCrack');
+      const nDef = st().defects.length;
+      const mat = setMaterial('austenitic');
+      if (!mat || mat.key !== 'austenitic' || st().material !== 'austenitic' || st().specimen.material.key !== 'austenitic' || Math.abs(st().specimen.material.vComp - 5.66) > 1e-9) f.push('setMaterial austenitic');
+      if (st().probe.x !== px || st().defects.length !== nDef) f.push('setMaterial must keep probe/defects');
+      if (setMaterial('unobtainium') !== false || st().material !== 'austenitic') f.push('setMaterial unknown key');
+      enter('dac', { silentUI: true });
+      if (!st().specimen.material || st().specimen.material.key !== 'austenitic') f.push('block builder material');
+      enter('weld', { silentUI: true });
+      setMaterial('carbon');
+      if (st().specimen.material.key !== 'carbon') f.push('setMaterial carbon');
+      // weld preparations through setPrep / setWeldOpts / loadSpecimen (type mirror, backing flag)
+      const expectType = { 'single-v': 'single-v', 'double-v': 'double-v', 'single-bevel': 'single-v', j: 'single-v', 'single-v-backing': 'single-v', 'fillet-t': 'fillet', nozzle: 'fillet', none: 'none' };
+      PREPS.forEach(function (prep) {
+        if (!setPrep(prep)) { f.push('setPrep ' + prep); return; }
+        const s = st();
+        if (s.mode !== 'weld' || !s.specimen || s.specimen.prep !== prep || s.weldOpts.prep !== prep) f.push('prep ' + prep + ' → specimen ' + (s.specimen && s.specimen.prep));
+        if (s.weldOpts.type !== expectType[prep] || s.weldOpts.backing !== (prep === 'single-v-backing')) f.push('prep ' + prep + ' type/backing mirror ' + s.weldOpts.type + '/' + s.weldOpts.backing);
+        if (prep !== 'none' && (!s.specimen.weld || !s.specimen.weld.fusionFaces || !s.specimen.weld.fusionFaces.length)) f.push('prep ' + prep + ' fusion faces');
+      });
+      if (setPrep('bogus') !== false) f.push('setPrep bogus');
+      setPrep('single-v-backing'); setPrep('single-v');
+      if (st().weldOpts.backing !== false || st().specimen.prep !== 'single-v') f.push('backing flag cleared when returning to single-v');
+      loadSpecimen('plate-weld', { T: 20, prep: 'j', material: 'aluminium' });
+      if (st().specimen.prep !== 'j' || st().weldOpts.type !== 'single-v' || st().material !== 'aluminium' || st().specimen.material.key !== 'aluminium') f.push('loadSpecimen prep/material');
+      loadSpecimen('pipe-weld', { od: 168.3, wt: 20, prep: 'single-bevel' });
+      if (!st().specimen.pipe || st().specimen.prep !== 'single-bevel') f.push('loadSpecimen pipe prep');
+      loadSpecimen('fbh', { T: 60 });
+      if (st().mode !== 'fbh' || st().specimen.id !== 'fbh' || st().specimen.T !== 60) f.push('loadSpecimen fbh');
+      loadSpecimen('plate-weld', { T: 20, prep: 'single-v', material: 'carbon' });
+      if (st().specimen.prep !== 'single-v' || st().material !== 'carbon') f.push('loadSpecimen back to single-v');
+      const nw = normaliseWeldPatch({ type: 'double-v' });
+      if (nw.prep !== 'double-v' || nw.type !== 'double-v' || nw.backing !== false) f.push('normaliseWeldPatch legacy type');
+      if (normaliseWeldPatch({ backing: true }).prep !== 'single-v-backing') f.push('normaliseWeldPatch backing');
+      // specimen-vs-state check (deferred rebuild path)
+      if (!specimenMatchesState()) f.push('specimenMatchesState after enter');
+      UT.set({ material: 'copper' }, { silent: true, noRender: true });
+      if (specimenMatchesState()) f.push('specimenMatchesState must detect a material change');
+      UT.set({ material: 'carbon' }, { silent: true, noRender: true });
+      // autocal.stage mirror
+      enter('step', { silentUI: true });
+      autoCal.start();
+      if (st().autocal.stage !== 1 || autoCalState.step !== 1) f.push('autocal.stage 1');
+      autoCal.cancel();
+      if (st().autocal.stage !== 0 || autoCalState !== null) f.push('autocal.stage 0 after cancel');
+      enter('weld', { silentUI: true });
+      // procedure lock (only checkable with 45-standards) and exam lock
+      UT.set({ trade: Object.assign({}, st().trade, { active: true, exam: null, revealed: false }), standards: Object.assign({}, st().standards, { procedure: 'aws-d11-70' }) }, { silent: true, noRender: true });
+      if (has('standards.allowedProbes') && Array.isArray(UT.standards.allowedProbes(st()))) {
+        if (!isToolbarEnabled('tb-70') || isToolbarEnabled('tb-45') || isToolbarEnabled('tb-60') || isToolbarEnabled('tb-0')) f.push('procedure lock (aws-d11-70 → 70° only)');
+        UT.set({ standards: Object.assign({}, st().standards, { procedure: 'iso-B-plate20' }) }, { silent: true, noRender: true });
+        if (!isToolbarEnabled('tb-45') || !isToolbarEnabled('tb-0')) f.push('procedure lock (iso-B-plate20 allows 45/60/70/0)');
+      }
+      UT.set({ standards: Object.assign({}, st().standards, { procedure: null }) }, { silent: true, noRender: true });
+      if (!isToolbarEnabled('tb-45')) f.push('no procedure → angle buttons enabled');
+      UT.setIn('trade', { exam: { v: 2, seed: 1, locked: true }, revealed: false }, { silent: true, noRender: true });
+      if (!examLocked() || isToolbarEnabled('tb-hide') || isToolbarEnabled('tb-beam') || isToolbarEnabled('tb-defect') || isMenuEnabled('menu-defects')) f.push('exam lock');
+      if (trade.truth().length !== 0) f.push('legacy truth must be [] while exam-locked');
+      UT.setIn('trade', { exam: null, active: false }, { silent: true, noRender: true });
+      if (!isToolbarEnabled('tb-beam')) f.push('beam enabled without exam lock');
+      // library-aware lesson setProbe
+      setProbe({ angle: 45 });
+      if (st().probe.angle !== 45 || st().probe.mode !== 'shear' || (has('probe.libForAngle') && st().probe.libId !== 'gen-45-5-10')) f.push('setProbe libId ' + st().probe.libId);
+      setProbe({ angle: 0 });
+      if (st().probe.mode !== 'comp' || (has('probe.libForAngle') && st().probe.libId !== 'gen-0-5-10')) f.push('setProbe 0° libId ' + st().probe.libId);
+      if (typeOfPrep('nozzle') !== 'fillet' || typeOfPrep('none') !== 'none' || typeOfPrep('j') !== 'single-v') f.push('typeOfPrep');
+    } catch (e) { f.push('exception ' + (e && e.message) + (e && e.stack ? ' @ ' + String(e.stack).split('\n')[1] : '')); }
     finally {
       quietUI = false;
       stopTradeTimer();
+      if (rebuildTimer !== null && typeof clearTimeout === 'function') { clearTimeout(rebuildTimer); rebuildTimer = null; }
       stash = savedVars.stash; lastAngle = savedVars.lastAngle; savedAngle = savedVars.savedAngle;
       savedGates = savedVars.savedGates; savedProbeMode = savedVars.savedProbeMode; autoCalState = savedVars.autoCalState;
       // put back exactly the top-level objects that changed (one 'state' event so the toolbar / layout resync)
@@ -1602,10 +1985,13 @@
 
   Object.assign(modes, {
     enter, exit, toggle, current, setFace, statusMid, rebuild,
-    enabled, isToolbarEnabled, isMenuEnabled, hiddenViews, hints: HINTS,
-    lessons, lessonsWindow, defectEditor, tradeTest, tkyPanel, dacPanel,
-    autoCal, dac, plot, sizing, trade, setDefects, clampOpts,
+    enabled, isToolbarEnabled, isMenuEnabled, hiddenViews, allowedAngles, examLocked, hints: HINTS,
+    lessonSetups, lessonsWindow, defectEditor, tradeTest, tkyPanel, dacPanel,
+    autoCal, dac, plot, sizing, trade, practice, setDefects, clampOpts,
+    setMaterial, setPrep, setWeldOpts, normaliseWeldPatch, typeOfPrep, preps: PREPS.slice(), modeList: MODES.slice(),
     rng: M.rng, css, __selftest,
   });
+  // §1 (1): late-bound lessons — 82's v2 list when loaded, else the v1 setups (same {n, title, ko, en, setup, steps} shape)
+  Object.defineProperty(modes, 'lessons', { get: function () { return (UT.lessons && UT.lessons.list) || lessonSetups; }, enumerable: true, configurable: true });
   UT.modes = modes;
 })(window.UT = window.UT || {});

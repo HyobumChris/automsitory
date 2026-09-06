@@ -204,6 +204,29 @@
     }
     return poly[poly.length - 1].pct;
   }
+  /** Flat TCG reference polyline: 80·10^((gain − refDb)/20) % across the recorded DAC span (§3.7). */
+  function tcgFlatPolyline(instrument) {
+    const dac = instrument.dac;
+    if (!dac || !dac.points || dac.points.length < 2) return [];
+    const pts = dac.points.slice().sort(function (a, b) { return a.path - b.path; });
+    const ref = dac.refDb === null || dac.refDb === undefined ? instrument.gain : dac.refDb;
+    const pct = 80 * Math.pow(10, (instrument.gain - ref) / 20);
+    return [{ path: pts[0].path, pct }, { path: pts[pts.length - 1].path, pct }];
+  }
+  /** The compare snapshot to draw for an instrument object: its own `compare`, else the module mirror when the key is absent. */
+  function compareOf(instrument) {
+    const c = instrument.compare;
+    if (c && typeof c.length === 'number' && c.length) return c;
+    if (c === undefined && mem.compare && instrument === (UT.state && UT.state.instrument)) return mem.compare;
+    return null;
+  }
+  /** True when any gate with `on && alarm` currently holds a readout (visual alarm flag; the beep is edge-triggered in onRender). */
+  function alarmActive(instrument, frame) {
+    const ro = frame && frame.readouts; const gates = instrument && instrument.gates;
+    if (!ro || !ro.gate || !gates) return false;
+    for (let i = 0; i < gates.length; i++) { const g = gates[i]; if (g && g.on && g.alarm && ro.gate[i]) return true; }
+    return false;
+  }
 
   // ------------------------------------------------------------------ parameter model
   const PARAMS = {
@@ -842,22 +865,24 @@
       h('div', { class: 'usk-col' }, [R.knobShift, R.knobSupp]),
       h('div', { class: 'usk-col usk-offcol' }, [key('OFF', function () { win.close(); }, 'usk-off'), h('span', { class: 'usk-brand' }, 'KRAUTKRÄMER USK 7')]),
     ]);
-    const body = h('div', { class: 'skin skin-usk7' }, [h('div', { class: 'usk-crtwrap' }, [mem.canvas, R.crtText]), panel]);
+    const body = h('div', { class: 'skin skin-usk7' + (mem.touch ? ' touch' : '') }, [h('div', { class: 'usk-crtwrap' }, [mem.canvas, R.crtText, R.crtPulser]), panel]);
     win.setContent(body);
-    win.el.addEventListener('mousedown', function () { mem.focused = true; });
-    win.el.addEventListener('wheel', function (e) { if (e.target === mem.canvas) { e.preventDefault(); adjust(null, e.deltaY < 0 ? 1 : -1, e.shiftKey); } });
+    win.el.addEventListener('pointerdown', function () { mem.focused = true; });
+    win.el.addEventListener('wheel', function (e) { if (e.target === mem.canvas) { e.preventDefault(); wheel(e.deltaY < 0 ? 1 : -1, { coarse: e.shiftKey }); } }, { passive: false });
     win.show();
     // placeholder in the instrument column
     container.appendChild(h('div', { class: 'skin skin-uskdock' }, [
-      h('div', { class: 'uskdock-title' }, 'UT SET: KRAUTKRÄMER USK 7 (analogue)'),
-      h('div', { class: 'uskdock-hint' }, 'The USK 7 floats over the plan view. Read the screen — this set has no digital readouts.'),
-      key('Show USK 7', function () { win.show(); }, 'uskdock-btn'),
+      h('div', { class: 'uskdock-title no-i18n' }, 'UT SET: KRAUTKRÄMER USK 7 (analogue)'),
+      tx('div', 'uskdock-hint', 'The USK 7 floats over the plan view. Read the screen — this set has no digital readouts.'),
+      UT.dom.button('Show USK 7', function () { mem.focused = true; emitUi('softkey', 'Show USK 7'); win.show(); }, { class: 'ik uskdock-btn' }),
     ]));
   }
   function updateUsk7() {
     const R = mem.refs; if (!R.crtText) return;
     const I = inst();
     setText(R.crtText, 'AMP ' + Math.round(I.gain) + ' dB  Suppr ' + (I.reject > 0 ? I.reject + '%' : 'OFF') + '  ANGLE ' + Math.round(I.trig.angle) + '°');
+    const flt = filterOf(I);
+    if (R.crtPulser) setText(R.crtPulser, 'P ' + energyV(I) + 'V ' + dampingOhms(I) + 'Ω  F ' + (flt === 'broadband' ? 'BB' : flt));
     if (document.activeElement !== R.amp && Math.abs(parseFloat(R.amp.value) - I.gain) > 1e-6) R.amp.value = I.gain;
     setText(R.ampLab, 'AMP=' + Math.round(I.gain));
     const rot = function (el, frac) { el.dial.firstChild.style.transform = 'rotate(' + Math.round(-135 + 270 * M.clamp(frac, 0, 1)) + 'deg)'; };
@@ -921,6 +946,12 @@
       ctx.beginPath();
       for (let i = 0; i < n; i++) { const x = px + pw * i / (n - 1); const y = transform(arr[i]); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
     };
+    // v2 compare overlay (grey, behind everything else): instrument.compare or the module mirror when the key was lost by a clone
+    const cmp = compareOf(I);
+    if (cmp && cmp.length && th.compare !== false) {
+      ctx.strokeStyle = th.compareColour || 'rgba(190,190,190,0.75)'; ctx.lineWidth = 1; ctx.setLineDash([]);
+      polyline(cmp, yOf); ctx.stroke();
+    }
     // peak memory (dim)
     if (asc && asc.peak && asc.peak.length && I.peakMem && th.peak) {
       ctx.strokeStyle = th.peak; ctx.lineWidth = 1; polyline(asc.peak, yOf); ctx.stroke();
@@ -958,10 +989,11 @@
         ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0 + 0.5, y - 4); ctx.lineTo(x0 + 0.5, y + 4); ctx.moveTo(x1 - 0.5, y - 4); ctx.lineTo(x1 - 0.5, y + 4); ctx.stroke();
       });
     }
-    // DAC curves
+    // DAC curves (v2: drawn FLAT at 80·10^((gain−refDb)/20) % while TCG is active — §3.7)
     const dac = I.dac;
-    if (dac && dac.on && dac.points && dac.points.length >= 2) {
-      const poly = dacPolyline(I);
+    const tcgOn = tcgActive(I);
+    if (dac && (dac.on || tcgOn) && dac.points && dac.points.length >= 2) {
+      const poly = tcgOn ? tcgFlatPolyline(I) : dacPolyline(I);
       const curve = function (scale, colour, dash) {
         ctx.strokeStyle = colour; ctx.lineWidth = 1.2; ctx.setLineDash(dash || []);
         ctx.beginPath();
@@ -971,17 +1003,25 @@
       };
       curve(1, th.dac, []);
       if (dac.curves !== false) { curve(0.5, th.dacSub, [4, 3]); curve(0.2, th.dacSub, [2, 3]); }
-      if (th.dacPoints) {
+      if (th.dacPoints && !tcgOn) {
         ctx.strokeStyle = th.dac; ctx.lineWidth = 1.2;
         poly.forEach(function (p) { const x = xOf(p.path), y = yOf(p.pct); ctx.beginPath(); ctx.moveTo(x - 4, y); ctx.lineTo(x + 4, y); ctx.moveTo(x, y - 4); ctx.lineTo(x, y + 4); ctx.stroke(); });
       }
-      if (th.dacLabel) { ctx.fillStyle = th.dac; ctx.font = 'italic bold 15px Segoe UI, Arial, sans-serif'; const lp = poly[Math.min(1, poly.length - 1)]; ctx.fillText('DAC', M.clamp(xOf(lp.path) + 8, px + 4, px + pw - 40), M.clamp(yOf(lp.pct) + 18, py + 30, py + ph - 4)); }
+      if (th.dacLabel) { ctx.fillStyle = th.dac; ctx.font = 'italic bold 15px Segoe UI, Arial, sans-serif'; const lp = poly[Math.min(1, poly.length - 1)]; ctx.fillText(tcgOn ? 'TCG' : 'DAC', M.clamp(xOf(lp.path) + 8, px + 4, px + pw - 40), M.clamp(yOf(lp.pct) + 18, py + 30, py + ph - 4)); }
     }
     // badges
     ctx.font = 'bold 11px Segoe UI, Arial, sans-serif'; ctx.textBaseline = 'top';
     if (I.freeze) { ctx.fillStyle = '#ffd21e'; ctx.fillRect(px + pw - 52, py + 3, 48, 14); ctx.fillStyle = '#000'; ctx.fillText('FREEZE', px + pw - 48, py + 4); }
     if (I.peakMem && th.gates) { ctx.fillStyle = th.text; ctx.fillText('PEAK', px + 4, py + 3); }
     if (I.rectify === 'rf' && !rf && th.gates) { ctx.fillStyle = th.text; ctx.fillText('RF', px + 4, py + 16); }
+    if (th.gates) {
+      let by = py + 3;
+      const badge = function (text, colour) { ctx.fillStyle = colour; ctx.fillText(text, px + pw - 48, by); by += 12; };
+      if (I.freeze) by += 14;
+      if (tcgOn) badge('TCG', th.dac);
+      if (cmp && cmp.length) badge('CMP', th.compareColour || '#bdbdbd');
+      if (alarmActive(I, frame)) { ctx.fillStyle = '#ff2020'; ctx.fillRect(px + pw - 52, by - 1, 48, 13); ctx.fillStyle = '#fff'; ctx.fillText('ALARM', px + pw - 48, by); }
+    }
     ctx.restore();
     // axes labels (outside the clip)
     if (th.axes) {
@@ -1042,6 +1082,12 @@
         ctx.beginPath(); ctx.moveTo(toX(lat), toY(d) - len / 2); ctx.lineTo(toX(lat), toY(d) + len / 2); ctx.stroke();
       });
     });
+    // v2: selected angle (frame.paSelected from 40/56) as a thin dashed radial line
+    const selA = frame && frame.paSelected && Number.isFinite(frame.paSelected.angle) ? frame.paSelected.angle : null;
+    if (selA !== null && selA >= aMin - 1e-9 && selA <= aMax + 1e-9) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(toX(maxPath * Math.sin(M.deg2rad(selA))), toY(maxPath * Math.cos(M.deg2rad(selA)))); ctx.stroke(); ctx.setLineDash([]);
+    }
     // frame texts
     ctx.fillStyle = '#e0e0e0'; ctx.font = '9px Segoe UI, Arial, sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     for (let d = 0; d <= depthMax + 1e-9; d += 10) { ctx.fillText(String(d), mL - 2, toY(d)); }
@@ -1054,13 +1100,41 @@
   }
 
   // ------------------------------------------------------------------ mount / render / skins
+  /** Theme name / override for the live canvas (high-contrast: white 2 px trace, brighter grid — §5.7). */
+  function liveTheme() {
+    const base = mem.skin === 'epoch4' ? 'epoch4' : mem.skin === 'usk7' ? 'usk7' : 'epoch600';
+    const d = st().display;
+    if (!(d && d.highContrast)) return base;
+    if (base === 'epoch4') return { base, lineWidth: 2, gateWidth: 4 };
+    return { base, trace: '#ffffff', traceFill: null, grid: '#5a5a5a', lineWidth: 2, text: '#ffffff', compareColour: '#9a9a9a' };
+  }
   function drawCanvas(frame) {
     const cv = mem.canvas; if (!cv || !cv.isConnected) return;
     const ctx = UT.dom.fitCanvas(cv);
     const s = st();
     if (frame && frame.sscan && s.probe.method === 'pa') drawSscan(ctx, frame, s);
-    else drawAscan(ctx, frame, s, mem.skin === 'epoch4' ? 'epoch4' : mem.skin === 'usk7' ? 'usk7' : 'epoch600');
+    else drawAscan(ctx, frame, s, liveTheme());
   }
+  /**
+   * Gate alarm (F3, §5.2): edge-triggered beep per gate — `now = !!frame.readouts.gate[i]` for every gate with
+   * `on && alarm`; a rising edge calls UT.audio.beep() (a no-op while display.sound is off). Module-level `alarmWas[]`.
+   */
+  function checkAlarms(frame) {
+    const gates = inst().gates || [];
+    const ro = frame && frame.readouts;
+    let any = false;
+    for (let i = 0; i < gates.length; i++) {
+      const g = gates[i];
+      const armed = !!(g && g.on && g.alarm);
+      const now = armed && !!(ro && ro.gate && ro.gate[i]);
+      if (now) any = true;
+      if (now && !mem.alarmWas[i]) { try { if (UT.audio && typeof UT.audio.beep === 'function') UT.audio.beep(); } catch (e) { /* ignore */ } }
+      mem.alarmWas[i] = now;
+    }
+    mem.alarmNow = any;
+  }
+  // The alarm edge detector runs on EVERY 'render' (headless too): bus-only, no DOM, registered at load (§5.2 F3).
+  UT.bus.on('render', function (frame) { try { checkAlarms(frame); } catch (e) { /* ignore */ } });
   function onRender(frame) {
     if (!mem.mounted) return;
     try {
@@ -1068,12 +1142,33 @@
       else if (mem.skin === 'epoch4') updateEpoch4(frame);
       else if (mem.skin === 'usk7') updateUsk7(frame);
       drawCanvas(frame);
+      refreshDatalogWindow(false);
     } catch (e) { console.error('[UT.instruments]', e); }
+  }
+  /** True when touch-sized controls are wanted (display.touchBar 'on', or 'auto' with a coarse pointer — §5.4). */
+  function wantTouch() {
+    const tb = st().display && st().display.touchBar;
+    if (tb === 'on') return true;
+    if (tb === 'off') return false;
+    try {
+      if (!mem.mq && typeof matchMedia === 'function') mem.mq = matchMedia('(pointer: coarse)');
+      return !!(mem.mq && mem.mq.matches);
+    } catch (e) { return false; }
+  }
+  /** Apply / remove the `touch` class on the mounted skin root(s). */
+  function applyTouch() {
+    const on = wantTouch();
+    mem.touch = on;
+    const roots = [];
+    if (mem.container) Array.prototype.push.apply(roots, mem.container.querySelectorAll('.skin'));
+    if (mem.uskWin && mem.uskWin.el) Array.prototype.push.apply(roots, mem.uskWin.el.querySelectorAll('.skin'));
+    roots.forEach(function (el) { el.classList.toggle('touch', on); });
   }
   function buildSkin(name) {
     const c = mem.container; if (!c) return;
     c.textContent = '';
     mem.refs = {}; mem.canvas = null; mem.iconCanvas = null; mem.subPage = null; setSecondF(false);
+    mem.touch = wantTouch();
     if (mem.uskWin && name !== 'usk7') { mem.uskWin.setContent(null); mem.uskWin.hide(); mem.uskParked = null; }
     mem.skin = name;
     if (name === 'epoch4') buildEpoch4(c);
@@ -1092,21 +1187,24 @@
     if (!mem.mounted) {
       mem.mounted = true;
       UT.bus.on('render', onRender);
+      container.addEventListener('pointerdown', function () { mem.focused = true; });
       container.addEventListener('mousedown', function () { mem.focused = true; });
-      container.addEventListener('wheel', function (e) { e.preventDefault(); adjust(null, e.deltaY < 0 ? 1 : -1, e.shiftKey); }, { passive: false });
+      container.addEventListener('wheel', function (e) { e.preventDefault(); wheel(e.deltaY < 0 ? 1 : -1, { coarse: e.shiftKey }); }, { passive: false });
       const releaseFocus = function (e) {
-        const inside = container.contains(e.target) || (mem.uskWin && mem.uskWin.el.contains(e.target));
+        const inside = container.contains(e.target) || (mem.uskWin && mem.uskWin.el.contains(e.target)) || (mem.datalogWin && mem.datalogWin.el.contains(e.target));
         if (!inside) mem.focused = false;
       };
+      document.addEventListener('pointerdown', releaseFocus);
       document.addEventListener('mousedown', releaseFocus);
-      document.addEventListener('click', releaseFocus);   // synthetic clicks (canvas .click()) carry no mousedown
-      document.addEventListener('mousemove', function (e) {
-        const d = mem.drag; if (!d) return;
-        d.acc += d.y - e.clientY; d.y = e.clientY;
-        while (d.acc >= 4) { adjust(d.param, +1, false); d.acc -= 4; }
-        while (d.acc <= -4) { adjust(d.param, -1, false); d.acc += 4; }
+      document.addEventListener('click', releaseFocus);   // synthetic clicks (canvas .click()) carry no pointerdown
+      // v2: touch sizing follows display.touchBar (and the coarse-pointer media query in 'auto'); datalog window refresh
+      UT.bus.on('state', function (ev) {
+        const keys = (ev && ev.keys) || [];
+        if (keys.indexOf('display') >= 0) applyTouch();
+        if (keys.indexOf('instrument') >= 0) { const c = inst().compare; if (c === null || (c && typeof c.length === 'number')) mem.compare = c || null; }
       });
-      document.addEventListener('mouseup', function () { mem.drag = null; });
+      try { if (!mem.mq && typeof matchMedia === 'function') mem.mq = matchMedia('(pointer: coarse)'); if (mem.mq && mem.mq.addEventListener) mem.mq.addEventListener('change', applyTouch); } catch (e) { /* ignore */ }
+      UT.bus.on('lang', function () { rebuildSoftkeys(); refreshDatalogWindow(true); if (mem.skin) onRender(UT.frame); });
       UT.bus.on('mode', function (p) {
         if (mem.skin !== 'usk7' || !mem.uskWin || !p) return;
         const el = mem.uskWin.el;
@@ -1154,6 +1252,95 @@
     if (ev.preventDefault) ev.preventDefault();
     return true;
   }
+
+  // ------------------------------------------------------------------ datalogger window (F2, window 'datalog')
+  function datalogEntries() { const l = inst().datalog; return Array.isArray(l) ? l : []; }
+  function fmtTime(ms) {
+    const d = new Date(ms);
+    const p2 = function (n) { return (n < 10 ? '0' : '') + n; };
+    return p2(d.getHours()) + ':' + p2(d.getMinutes()) + ':' + p2(d.getSeconds());
+  }
+  /** Remove one datalog entry by id. */
+  function datalogRemove(id) { const list = datalogEntries().filter(function (e) { return e.id !== id; }); setInst({ datalog: list }); return list.length; }
+  /** Clear the datalogger. */
+  function datalogClear() { setInst({ datalog: [] }); return 0; }
+  /** JSON text of the datalogger (pretty, 2 spaces). */
+  function datalogJson() { return JSON.stringify(datalogEntries(), null, 2); }
+  /** Copy the datalog JSON to the clipboard (Clipboard API, textarea fallback); returns a Promise<boolean>. */
+  function datalogCopy() {
+    const text = datalogJson();
+    const fallback = function () {
+      try {
+        const ta = h('textarea', { style: { position: 'fixed', left: '-1000px', top: '0' } }); ta.value = text;
+        document.body.appendChild(ta); ta.select();
+        const ok = !!document.execCommand && document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+      } catch (e) { return false; }
+    };
+    const done = function (ok) { UT.status({ right: ok ? t('Datalog JSON copied to the clipboard') : t('Copy failed — select the text in the window and copy it manually') }); return ok; };
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text).then(function () { return done(true); }, function () { return done(fallback()); });
+    } catch (e) { /* fall through */ }
+    return Promise.resolve(done(fallback()));
+  }
+  function buildDatalogContent() {
+    const list = datalogEntries();
+    const rows = list.map(function (e, i) {
+      const r = e.readouts || {};
+      const v = function (x, dp) { return x === null || x === undefined || !Number.isFinite(x) ? '--' : Number(x).toFixed(dp); };
+      return h('tr', { dataset: { id: e.id } }, [
+        h('td', { class: 'no-i18n' }, String(i + 1)),
+        h('td', { class: 'no-i18n' }, fmtTime(e.t)),
+        h('td', { class: 'no-i18n' }, v(r.sp, 2)), h('td', { class: 'no-i18n' }, v(r.sd, 2)), h('td', { class: 'no-i18n' }, v(r.dp, 2)),
+        h('td', { class: 'no-i18n' }, r.amp === null || r.amp === undefined ? '--' : Math.round(r.amp) + '%'),
+        h('td', { class: 'no-i18n' }, fmtGain(e.gain)), h('td', { class: 'no-i18n' }, Number(e.range).toFixed(0)),
+        h('td', { class: 'no-i18n' }, (e.probe ? e.probe.angle + '° x' + e.probe.x + ' z' + e.probe.z : '')),
+        h('td', {}, [h('input', { class: 'dl-note fld-input', type: 'text', value: e.note || '', placeholder: t('note'), 'aria-label': t('Note'), onchange: function (ev) { const l = datalogEntries().map(function (x) { return x.id === e.id ? Object.assign({}, x, { note: ev.target.value }) : x; }); setInst({ datalog: l }); } })]),
+        h('td', {}, [UT.dom.button('Delete', function () { datalogRemove(e.id); refreshDatalogWindow(true); }, { class: 'btn dl-del' })]),
+      ]);
+    });
+    const table = h('table', { class: 'dl-table' }, [
+      h('thead', {}, [h('tr', {}, [tx('th', null, '#'), tx('th', null, 'Time'), tx('th', null, 'SP'), tx('th', null, 'SD'), tx('th', null, 'DP'), tx('th', null, 'AMP'), tx('th', null, 'Gain'), tx('th', null, 'Range'), tx('th', null, 'Probe'), tx('th', null, 'Note'), h('th')])]),
+      h('tbody', {}, rows),
+    ]);
+    const empty = list.length ? null : tx('div', 'dl-empty', 'No entries yet — press SAVE on the instrument to log the current readouts.');
+    const json = h('textarea', { class: 'dl-json no-i18n', readonly: true, rows: 4, 'aria-label': t('Datalog JSON') });
+    json.value = datalogJson();
+    return h('div', { class: 'dl-body' }, [
+      h('div', { class: 'btn-row dl-tools' }, [
+        UT.dom.button('Save now', function () { save(); refreshDatalogWindow(true); }, { class: 'btn primary' }),
+        UT.dom.button('Copy JSON', function () { datalogCopy(); }),
+        UT.dom.button('Clear all', function () { datalogClear(); refreshDatalogWindow(true); }),
+        tx('span', 'dl-count', '{n} / 100 entries', { n: list.length }),
+      ]),
+      h('div', { class: 'dl-scroll' }, [table, empty]),
+      json,
+    ]);
+  }
+  function ensureDatalogWindow() {
+    if (mem.datalogWin) return mem.datalogWin;
+    if (typeof document === 'undefined') return null;
+    UT.dom.injectCss('instruments', UT.instruments.css);
+    mem.datalogWin = UT.dom.win({ name: 'datalog', title: 'Datalogger', x: 470, y: 140, w: 640, class: 'win-datalog', onShow: function () { refreshDatalogWindow(true); } });
+    return mem.datalogWin;
+  }
+  /** Re-render the datalog window when open and (force or) the entry list changed. */
+  function refreshDatalogWindow(force) {
+    const w = mem.datalogWin; if (!w || !w.isOpen()) return;
+    const list = datalogEntries();
+    const key = list.length + ':' + (list.length ? list[list.length - 1].id : 0) + ':' + list.map(function (e) { return e.id; }).join(',');
+    if (!force && key === mem.datalogKey) return;
+    mem.datalogKey = key;
+    w.setContent(buildDatalogContent());
+  }
+  const datalog = {
+    open() { const w = ensureDatalogWindow(); if (w) w.show(); return w; },
+    close() { if (mem.datalogWin) mem.datalogWin.close(); },
+    toggle() { const w = ensureDatalogWindow(); if (w) w.toggle(); return w; },
+    get window() { return ensureDatalogWindow(); },
+    entries: datalogEntries, remove: datalogRemove, clear: datalogClear, copyJson: datalogCopy, json: datalogJson, save,
+  };
 
   // ------------------------------------------------------------------ CSS (scoped under the skin classes)
   const css = [
@@ -1279,17 +1466,106 @@
     '.uskdock-title{font-weight:bold;color:#3cff3c;}',
     '.uskdock-hint{font-size:11px;color:#bbb;}',
     '.uskdock-btn{padding:6px 12px;}',
+    '.usk-pr{position:absolute;left:14px;top:25px;font:bold 9px Segoe UI,Arial,sans-serif;color:#ff40ff;white-space:nowrap;pointer-events:none;opacity:0.85;}',
+    /* v2: AUTO caption, focus rings, softkey cells as buttons */
+    '.ik-cap.ik-autocap.lit{background:#f0c020;color:#000;border-radius:2px;padding:0 2px;}',
+    '.e6-sk{touch-action:none;}',
+    '.e6-sk:focus-visible,.ik:focus-visible,.e6-bcell:focus-visible,.usk-dial:focus-visible{outline:2px solid #7fd0ff;outline-offset:-2px;}',
+    '.e4-cell{cursor:pointer;}.e4-cell:hover{text-decoration:underline;}',
+    /* v2: touch-sized controls (display.touchBar on / auto + coarse pointer) */
+    '.skin.touch .ik{min-height:28px;font-size:10px;}',
+    '.skin.touch .ik-flat{height:30px;font-size:9px;}',
+    '.skin.touch .ik-round{width:36px;height:36px;border-radius:18px;}',
+    '.skin.touch .ik-pad{grid-template-columns:26px 28px 26px;grid-template-rows:26px 28px 26px;gap:2px;}',
+    '.skin.touch .ik-p{width:32px;height:30px;}',
+    '.skin.touch .ik-f{width:34px;height:30px;}',
+    '.skin.touch .ik-next{height:36px;}',
+    '.skin-epoch600.touch .e6-screen{height:300px;}',
+    '.skin-epoch600.touch .e6-soft{width:64px;flex-basis:64px;}',
+    '.skin-epoch600.touch .e6-sk{min-height:26px;}',
+    '.skin-epoch600.touch .e6-icon{height:30px;}',
+    '.skin-epoch600.touch .e6-skl{font-size:10px;}.skin-epoch600.touch .e6-skv{font-size:9px;}',
+    '.skin-epoch600.touch .e6-bottom{height:26px;}',
+    '.skin-epoch600.touch .e6-bcell{font-size:10px;}',
+    '.skin-epoch4.touch .e4k{height:28px;font-size:8px;}',
+    '.skin-epoch4.touch .e4-sk{line-height:22px;font-size:10px;}',
+    '.skin-epoch4.touch .e4-gates td{padding:2px 4px;}',
+    '.skin-usk7.touch .usk-arr{width:24px;height:20px;font-size:10px;}',
+    '.skin-usk7.touch .usk-dial{width:44px;height:44px;}.skin-usk7.touch .usk-ptr{left:20px;}',
+    /* v2: high contrast (.hc on #app, set by 90-app) */
+    '.hc .skin-epoch600{border-color:#fff;background:#202020;}',
+    '.hc .ik{border-color:#fff;color:#fff;background:#111;}',
+    '.hc .e6-sk{background:#000;color:#fff;border-bottom-color:#888;}',
+    '.hc .e6-sk.sel{background:#fff;color:#000;outline:2px solid #fff;}',
+    '.hc .e6-sk.hdr{color:#ffe000;}',
+    '.hc .e6-rbox{border-color:#aaa;}.hc .e6-rbox.sel{border-color:#fff;border-width:2px;}',
+    '.hc .e6-big{color:#fff;}.hc .e6-unit{color:#fff;}.hc .e6-rv{color:#fff;}',
+    '.hc .e6-bcell{color:#fff;background:#000;border-right-color:#888;}',
+    '.hc .e6-leg.on{color:#fff;}',
+    '.hc .e4-screen{background:#fff;color:#000;}.hc .e4-gc.sel,.hc .e4-sk.sel{background:#000;color:#fff;}',
+    '.hc .skin-usk7{border-color:#fff;}.hc .usk-klab,.hc .usk-amplab{color:#fff;}',
+    /* v2: datalogger window */
+    '.win-datalog .win-body{padding:6px;}',
+    '.dl-body{display:flex;flex-direction:column;gap:6px;font-size:12px;}',
+    '.dl-tools{align-items:center;gap:6px;}',
+    '.dl-count{margin-left:auto;color:#555;font-size:11px;}',
+    '.dl-scroll{max-height:260px;overflow:auto;border:1px solid #bbb;background:#fff;}',
+    '.dl-table{border-collapse:collapse;width:100%;font-size:11px;}',
+    '.dl-table th{position:sticky;top:0;background:#e4e4e4;text-align:left;padding:2px 4px;border-bottom:1px solid #999;font-weight:bold;}',
+    '.dl-table td{padding:1px 4px;border-bottom:1px solid #e0e0e0;white-space:nowrap;}',
+    '.dl-table .dl-note{width:110px;font-size:11px;padding:1px 3px;}',
+    '.dl-table .dl-del{padding:0 6px;font-size:11px;}',
+    '.dl-empty{padding:12px;color:#666;text-align:center;}',
+    '.dl-json{width:100%;font:10px Consolas,"Courier New",monospace;resize:vertical;box-sizing:border-box;}',
   ].join('\n');
 
   // ------------------------------------------------------------------ public API
   UT.instruments = {
     mount, setSkin, drawAscan, drawSscan, handleKey, css,
+    // v2 (SPEC-v2 §3.7 / §5.2 / §11.4)
+    auto, storeRef, wheel, compare, save, datalog,
     fmtLen: function (mm, dp) { return UT.fmtLen(mm, dp); },
     /** Internals exposed for tests / other modules (read-only use). */
-    _: { PARAMS, LEGAL_PARAMS, THEMES, keys, adjust, selectParam, softkeyItems, nextRange, foldDepth, ampColour, dacPolyline, dacAt, mem },
+    _: { PARAMS, LEGAL_PARAMS, THEMES, keys, adjust, selectParam, softkeyItems, nextRange, foldDepth, ampColour, dacPolyline, dacAt, tcgFlatPolyline, compareOf, alarmActive, checkAlarms, energyV, dampingOhms, filterOf, prfOf, tcgActive, wantTouch, mem },
     get window() { return ensureUskWindow(); },
     __selftest() {
       const f = [];
+      // ---- v2 invariants (pure: local instrument copies only; UT.state / mem untouched)
+      const v2 = Object.assign({}, UT.defaultState().instrument);
+      if (LEGAL_PARAMS.indexOf('autoPct') < 0 || !PARAMS.autoPct || PARAMS.autoPct.get(v2) !== 80 || PARAMS.autoPct.fmt(80) !== '80%') f.push('autoPct param');
+      if (energyV(v2) !== 200 || dampingOhms(v2) !== 150 || filterOf(v2) !== 'broadband' || prfOf(v2) !== 60) f.push('pulser/receiver defaults ' + energyV(v2) + '/' + dampingOhms(v2) + '/' + filterOf(v2));
+      if (energyV(Object.assign({}, v2, { pulser: { energy: 'high' } })) !== 400 || energyV(Object.assign({}, v2, { pulser: { energy: 'low' } })) !== 100) f.push('energy labels');
+      if (dampingOhms(Object.assign({}, v2, { damping: true })) !== 50) f.push('damping boolean → 50 Ω');
+      if (dampingOhms(Object.assign({}, v2, { damping: false, pulser: { damping: 400 } })) !== 400) f.push('pulser.damping 400');
+      if (nextIn(ENERGIES, 400) !== 100 || nextIn(DAMPING_OHMS, 150) !== 200 || nextIn(FILTERS, '5-15') !== 'broadband') f.push('option cycling');
+      if (ENERGIES.join() !== '100,200,300,400' || DAMPING_OHMS.join() !== '50,100,150,200,400' || FILTERS.join() !== 'broadband,0.2-10,1.5-8.5,5-15') f.push('option lists');
+      if (UT.ascan && UT.ascan.FILTERS && UT.ascan.FILTERS.join() !== FILTERS.join()) f.push('FILTERS differ from 40-ascan');
+      if (UT.ascan && UT.ascan.DAMPING_OHMS && UT.ascan.DAMPING_OHMS.join() !== DAMPING_OHMS.join()) f.push('DAMPING_OHMS differ from 40-ascan');
+      const tcgI = Object.assign({}, v2, { gain: 40, tcg: { on: true }, dac: { points: [{ path: 20, ampPct: 100 }, { path: 50, ampPct: 40 }], refDb: 34, on: true, curves: true } });
+      if (!tcgActive(tcgI) || tcgActive(Object.assign({}, tcgI, { tcg: { on: false } })) || tcgActive(Object.assign({}, tcgI, { dac: { points: [{ path: 20, ampPct: 100 }], refDb: 34 } }))) f.push('tcgActive');
+      const flat = tcgFlatPolyline(tcgI);
+      if (flat.length !== 2 || Math.abs(flat[0].pct - 80 * Math.pow(10, 6 / 20)) > 1e-6 || flat[0].path !== 20 || flat[1].path !== 50 || flat[1].pct !== flat[0].pct) f.push('tcgFlatPolyline ' + JSON.stringify(flat));
+      if (tcgLabel(tcgI) !== 'On' || tcgLabel(Object.assign({}, tcgI, { dac: { points: [] } })) !== 'On*' || tcgLabel(v2) !== 'Off') f.push('tcgLabel');
+      const cmpArr = new Float32Array([1, 2, 3]);
+      if (compareOf(Object.assign({}, v2, { compare: cmpArr })) !== cmpArr || compareOf(Object.assign({}, v2, { compare: null })) !== null || compareOf(Object.assign({}, v2, { compare: new Float32Array(0) })) !== null) f.push('compareOf');
+      const alarmI = Object.assign({}, v2, { gates: [{ on: true, alarm: true, start: 10, width: 60, level: 20 }, { on: true, alarm: false, start: 70, width: 20, level: 40 }] });
+      if (!alarmActive(alarmI, { readouts: { gate: [{ peakPct: 50 }, null] } }) || alarmActive(alarmI, { readouts: { gate: [null, { peakPct: 50 }] } }) || alarmActive(alarmI, null)) f.push('alarmActive');
+      // softkey pages v2: Pulsar / Rcvr / TCG / AUTO %
+      const lab = function (p, sp) { return softkeyItems(Object.assign({}, v2, { page: p }), sp === undefined ? null : sp).map(function (i) { return i.label; }).join('|'); };
+      if (lab(3) !== 'Gain|DAC Setup|Record|Erase|Curve|Draw|TCG') f.push('page 3 v2: ' + lab(3));
+      if (lab(1, 'Pulsar') !== 'Pulsar|Freq|Energy|Damping|PRF') f.push('Pulsar sub-page: ' + lab(1, 'Pulsar'));
+      if (lab(1, 'Rcvr') !== 'Rcvr|Filter|Rectify|Reject') f.push('Rcvr sub-page: ' + lab(1, 'Rcvr'));
+      if (lab(2, 'Gate Setup') !== 'Gate Setup|Mode|Measure|AUTO %') f.push('Gate Setup sub-page: ' + lab(2, 'Gate Setup'));
+      if (lab(3, 'DAC Setup').indexOf('|TCG') < 0) f.push('DAC Setup TCG');
+      const pul = softkeyItems(Object.assign({}, v2, { page: 1 }), 'Pulsar');
+      if (pul[2].value !== '200V' || pul[3].value !== '150Ω' || pul[4].value !== '60Hz') f.push('Pulsar values ' + pul.map(function (i) { return i.value; }).join(','));
+      if (softkeyItems(Object.assign({}, v2, { page: 1 }), 'Rcvr')[1].value !== 'Broadband') f.push('Rcvr filter value');
+      if (typeof auto !== 'function' || typeof storeRef !== 'function' || typeof wheel !== 'function' || typeof save !== 'function' || typeof compare !== 'function') f.push('v2 API');
+      if (!datalog || typeof datalog.open !== 'function' || typeof datalog.toggle !== 'function' || typeof datalog.close !== 'function') f.push('datalog window API');
+      if (!/\.hc /.test(css) || !/\.skin\.touch /.test(css) || !/win-datalog/.test(css)) f.push('v2 css blocks');
+      if (fmtTime(0).length !== 8) f.push('fmtTime');
+      if (ENERGY_E4[300] !== 'MED+' || filterLabel('broadband') !== 'Broadband' || filterLabel('5-15') !== '5-15 MHz') f.push('labels');
+      // ---- v1 invariants
       // legal parameter list ↔ PARAMS
       LEGAL_PARAMS.forEach(function (k) { if (!PARAMS[k]) f.push('missing PARAMS.' + k); });
       Object.keys(PARAMS).forEach(function (k) { if (LEGAL_PARAMS.indexOf(k) < 0) f.push('illegal param ' + k); });
@@ -1318,7 +1594,7 @@
       const labels = function (p, sp) { return softkeyItems(Object.assign({}, tmp, { page: p }), sp === undefined ? null : sp).map(function (i) { return i.label; }).join('|'); };
       if (labels(1) !== 'Gain|Range|Delay|Basic|Pulsar|Rcvr|Trig|Auto Cal') f.push('page 1: ' + labels(1));
       if (labels(2) !== 'Gain|Range|G1Level|Gate1|Gate2|Gate Setup') f.push('page 2: ' + labels(2));
-      if (labels(3) !== 'Gain|DAC Setup|Record|Erase|Curve|Draw') f.push('page 3: ' + labels(3));
+      if (labels(3) !== 'Gain|DAC Setup|Record|Erase|Curve|Draw|TCG') f.push('page 3: ' + labels(3));
       if (labels(4) !== 'Display|Rectify|Grid|Peak Mem|Freeze') f.push('page 4: ' + labels(4));
       if (labels(5) !== 'Units|Trig|Angle|Thick|X Value|Reset') f.push('page 5: ' + labels(5));
       if (labels(1, 'Basic') !== 'Basic|Range|Velocity|Zero|Delay') f.push('Basic sub-page');
@@ -1328,4 +1604,18 @@
       return f;
     },
   };
+
+  // ------------------------------------------------------------------ test API (SPEC-v2 §7: owner 70)
+  Object.assign(UT.test, {
+    /** Clone of the datalogger entries. */
+    datalog: function () { return UT.clone(datalogEntries()); },
+    /** AUTO XX % target: autoPct() reads it, autoPct(v) sets it (10…100) and returns the stored value. */
+    autoPct: function (v) { if (v !== undefined) { PARAMS.autoPct.set(+v); UT.renderNow(); } return PARAMS.autoPct.get(); },
+    /** UT.instruments.auto(pct) + synchronous render; returns the new gain (null without a gated echo). */
+    auto: function (pct) { const g = auto(pct); UT.renderNow(); return g; },
+    /** 2ND F + dB; returns instrument.refGain. */
+    storeRef: function () { const r = storeRef(); UT.renderNow(); return r; },
+    /** n knob clicks on the selected parameter; returns its new value. */
+    wheel: function (n) { const v = wheel(n); UT.renderNow(); return v; },
+  });
 })(window.UT = window.UT || {});
