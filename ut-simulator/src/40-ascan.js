@@ -25,8 +25,14 @@
 //   is within max(2·sigma, 1 mm) of the peak sample (the strongest such echo) so peakPct is the
 //   UNCLIPPED echo amplitude and `path` its TRUE path. Grass/initial-pulse peaks report echoKind 'noise'
 //   / 'initial' with the sample value and the inverse-cal true path.
-// - SD = path·sin(trig.angle) − trig.xValue (X Value = wedge front offset, default 0); DP/leg fold
-//   d = path·cos(trig.angle) into 0..trig.thick: leg = floor(d/T) + 1, dp = leg odd ? d mod T : T − d mod T.
+// - GateReadout.pathDisp is the DISPLAYED path of the same peak (the cal mapping of §15.5, i.e. where the
+//   echo is drawn: xDiv = (pathDisp − delay)/range·10). The instrument only knows time and its cal, so the
+//   EPOCH readouts SP/SD/DP (textSP/textSD/textDP, sd/dp/leg) are derived from pathDisp — with the wrong
+//   step-wedge cal {vel 5.60, zero 0.4} the 10 mm step reads ≈ 8.37 until Auto Cal is run (lesson 12,
+//   §8.2). `path` stays TRUE (test API, 80-modes auto-cal time capture, DAC record, AUT tof); with the
+//   default cal pathDisp === path.
+// - SD = pathDisp·sin(trig.angle) − trig.xValue (X Value = wedge front offset, default 0); DP/leg fold
+//   d = pathDisp·cos(trig.angle) into 0..trig.thick: leg = floor(d/T) + 1, dp = leg odd ? d mod T : T − d mod T.
 // - dacCurve() returns the recorded points sorted by path, each CLIPPED to 100 % at the reference gain
 //   (§6.2: a point may be recorded up to 120 % but the drawn curve never exceeds the screen top at
 //   refGain) and then scaled to the CURRENT gain, each with xDiv; dacCurves() adds the −6 / −14 dB
@@ -41,7 +47,9 @@
 //   In 'aut' mode the live A-scan is at probe.z and frame.aut.readouts evaluates aut.gates.
 // - Trace failures are caught (logged once) so the UI keeps rendering with an empty frame.
 // - setInstrument() clamps gain 0…110, range 10…1000, delay −50…1000, reject 0…80; gates given as an
-//   array are merged per index into clones of the existing gates. It returns a clone of the instrument.
+//   array are merged per index into clones of the existing gates, capped at GATE_SLOTS = 2 (G1/G2: the
+//   instrument model, selectedParam g1*/g2* and the EPOCH skins know exactly two gates, so entries beyond
+//   the slots are ignored and the gate count never grows). It returns a clone of the instrument.
 //   Test API validation (setProbe / setInstrument): numeric fields are applied only when they coerce to
 //   a finite number (then clamped), otherwise the previous value is kept; side → ±1, skew → 0..360,
 //   crystal / method / surface / mode / rectify are checked against their enum lists; gate entries that
@@ -62,6 +70,7 @@
   const GRASS_PCT = 2;
   const DAMP_DB = -2;
   const PROVISIONAL_K = 2.64;
+  const GATE_SLOTS = 2;   // G1 / G2 — the instrument model never carries more gates than the skins show
 
   // ------------------------------------------------------------------ K_REF (lazy calibration)
   let _kRef = null;
@@ -394,25 +403,27 @@
       for (const es of ascan.echoesOnScreen) {
         if (Math.abs(es.pDisp - pPeak) <= win && es.pDisp >= s0 - win && es.pDisp <= s1 + win && (!best || es.ampPct > best.ampPct)) best = es;
       }
-      let peakPct, path, xDiv, echoKind;
-      if (best) { peakPct = best.ampPct; path = best.echo.path; xDiv = best.xDiv; echoKind = best.echo.kind || 'echo'; }
+      let peakPct, path, pathDisp, xDiv, echoKind;
+      if (best) { peakPct = best.ampPct; path = best.echo.path; pathDisp = best.pDisp; xDiv = best.xDiv; echoKind = best.echo.kind || 'echo'; }
       else {
-        peakPct = peak; xDiv = (pPeak - delay) / range * 10; path = derived ? truePath(pPeak, inst, derived) : pPeak;
+        peakPct = peak; xDiv = (pPeak - delay) / range * 10; pathDisp = pPeak; path = derived ? truePath(pPeak, inst, derived) : pPeak;
         echoKind = ascan.initialZone && pPeak >= ascan.initialZone.from && pPeak <= ascan.initialZone.to ? 'initial' : 'noise';
       }
-      const geo = geometry(path, angle, thick, xValue);
+      if (!Number.isFinite(pathDisp)) pathDisp = path;
+      // SD/DP/leg are what the instrument computes from ITS displayed sound path (cal-mapped, §5.3/§15.5)
+      const geo = geometry(pathDisp, angle, thick, xValue);
       let dacPct = null, dBToDac = null;
       if (inst.dac && inst.dac.on) {
         const curve = dacAt(inst, path);
         if (curve !== null && curve > 0) { dacPct = peakPct / curve * 100; dBToDac = M.lin2dB(peakPct / curve); }
       }
-      out.push({ peakPct, path, xDiv, sd: geo.sd, dp: geo.dp, leg: geo.leg, dacPct, dBToDac, echoKind });
+      out.push({ peakPct, path, pathDisp, xDiv, sd: geo.sd, dp: geo.dp, leg: geo.leg, dacPct, dBToDac, echoKind });
     }
     const ai = Number.isFinite(inst.activeGate) ? inst.activeGate : 0;
     const primary = out[ai] || null;
     return {
       gate: out, primary,
-      textSP: primary ? M.fmt2(primary.path) : '--.--',
+      textSP: primary ? M.fmt2(primary.pathDisp) : '--.--',
       textSD: primary ? M.fmt2(primary.sd) : '--.--',
       textDP: primary ? M.fmt2(primary.dp) : '--.--',
       textAmp: primary ? Math.round(Math.min(999, primary.peakPct)) + '%' : '0%',
@@ -597,8 +608,9 @@
     if (q.freeze !== undefined) patch.freeze = !!q.freeze;
     if (q.activeGate !== undefined) patch.activeGate = Math.round(num(q.activeGate, cur.activeGate || 0, 0, 7));
     if (Array.isArray(q.gates)) {
-      const gates = cur.gates.map(function (g) { return Object.assign({}, g); });
-      q.gates.forEach(function (g, i) {
+      // exactly GATE_SLOTS gates (G1/G2): entries beyond the slots and non-object entries are ignored
+      const gates = cur.gates.slice(0, GATE_SLOTS).map(function (g) { return Object.assign({}, g); });
+      q.gates.slice(0, GATE_SLOTS).forEach(function (g, i) {
         if (!isObj(g)) return;
         gates[i] = coerceGate(g, gates[i] || { on: true, start: 10, width: 60, level: 20, alarm: false });
       });
@@ -680,6 +692,23 @@
       if (Math.abs(r.primary.peakPct - 60) > 0.5) f.push('readout peakPct ' + r.primary.peakPct);
       if (Math.abs(r.primary.sd - 22.5) > 0.1 || Math.abs(r.primary.dp - 13) > 0.1) f.push('readout sd/dp ' + r.primary.sd + '/' + r.primary.dp);
       if (r.textDP !== '13.00' || r.textAmp !== '60%') f.push('readout text ' + r.textDP + ' ' + r.textAmp);
+      if (Math.abs(r.primary.pathDisp - 26) > 1e-6) f.push('readout pathDisp default cal ' + r.primary.pathDisp);
+    }
+    // wrong cal (lesson 12): path stays TRUE, pathDisp / SP / SD / DP follow the cal mapping and the trace
+    {
+      const badInst = Object.assign({}, inst, { cal: { vel: 5.6, zero: 0.4 }, trig: { angle: 0, thick: 10, xValue: 0 }, gates: [{ on: true, start: 5, width: 40, level: 10 }] });
+      const d0c = UT.probe.derive({ angle: 0, freq: 5, diameter: 10 }, null);
+      const amp0 = 60 / (k * M.dB2lin(30));
+      const a8 = synth({ echoes: [{ path: 10, amp: amp0, kind: 'backwall' }], probe: { angle: 0, crystal: 'twin', method: 'pe', x: 0, z: 0 }, derived: d0c, instrument: badInst });
+      const r8 = evalGates(a8, badInst, d0c, { T: 10 }, { angle: 0 });
+      const pd = dispPath(10, badInst, d0c);
+      if (!r8.primary) f.push('no primary readout (wrong cal)');
+      else {
+        if (Math.abs(r8.primary.path - 10) > 1e-6) f.push('wrong-cal path not true ' + r8.primary.path);
+        if (Math.abs(r8.primary.pathDisp - pd) > 1e-6 || Math.abs(pd - 8.37) > 0.02) f.push('wrong-cal pathDisp ' + r8.primary.pathDisp + ' vs ' + pd);
+        if (Math.abs(r8.primary.xDiv - xDivOfDisp(pd, badInst)) > 1e-6) f.push('wrong-cal xDiv/pathDisp disagree');
+        if (r8.textSP !== M.fmt2(pd) || Math.abs(r8.primary.dp - pd) > 1e-6) f.push('wrong-cal textSP/dp ' + r8.textSP + ' ' + r8.primary.dp);
+      }
     }
     const sMax = Math.max.apply(null, Array.from(a3.samples));
     if (Math.abs(sMax - 60) > 1) f.push('sample peak ' + sMax);

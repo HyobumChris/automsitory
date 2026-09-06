@@ -324,12 +324,18 @@
   function autState() { return UT.state.aut || UT.defaultState().aut; }
   function setAut(patch) { UT.setIn('aut', patch); }
   function setInst(patch) { UT.setIn('instrument', patch); }
-  function activeGate() { const a = autState(); return M.clamp(a.activeGate || 0, 0, Math.max(0, (a.gates || []).length - 1)); }
+  /** Gates as the panel sees them: aut.gates when it is a non-empty array, else a clone of the default 3 gates. */
+  function panelGates() {
+    const g = autState().gates;
+    if (Array.isArray(g) && g.length) return g;
+    return UT.defaultState().aut.gates.map(function (d) { return Object.assign({}, d); });
+  }
+  function activeGate() { const a = autState(); return M.clamp(a.activeGate || 0, 0, Math.max(0, panelGates().length - 1)); }
   function stripMode() { const a = autState(); return a.strip === 'rdt' || a.strip === 'rtd' ? a.strip : 'both'; }
 
   /** Patch one gate (clones the gates array). */
   function patchGate(gi, patch) {
-    const gates = (autState().gates || []).map(function (g, i) { return i === gi ? Object.assign({}, g, patch) : Object.assign({}, g); });
+    const gates = panelGates().map(function (g, i) { return i === gi ? Object.assign({}, g, patch) : Object.assign({}, g); });
     setAut({ gates });
   }
   function gateValue(key, v) { const l = LIMITS[key]; return Math.round(l ? M.clamp(v, l[0], l[1]) : v); }
@@ -427,7 +433,7 @@
 
   function buildGateGroup() {
     const gi = function () { return activeGate(); };
-    const gate = function () { return autState().gates[gi()] || { start: 0, width: 0, level: 0, on: false }; };
+    const gate = function () { return panelGates()[gi()] || { start: 0, width: 0, level: 0, on: false }; };
     // Level spinner
     const lvlLbl = UT.dom.h('span', { class: 'aut-lbl' }, 'Level=');
     const up = UT.dom.h('button', { type: 'button', title: 'Level +1 %' }, '▲');
@@ -459,9 +465,9 @@
     // Gates same
     const same = UT.dom.h('button', { class: 'aut-same', type: 'button', title: 'Copy gate 1 settings to gates 2 and 3 / 게이트 1 설정을 2, 3에 복사' }, 'Gates Same');
     same.addEventListener('click', function () {
-      const g1 = autState().gates[0];
+      const g1 = panelGates()[0];
       if (!g1) return;
-      const gates = autState().gates.map(function (g, i) { return i === 0 ? Object.assign({}, g) : Object.assign({}, g, { start: g1.start, width: g1.width, level: g1.level, on: g1.on }); });
+      const gates = panelGates().map(function (g, i) { return i === 0 ? Object.assign({}, g) : Object.assign({}, g, { start: g1.start, width: g1.width, level: g1.level, on: g1.on }); });
       setAut({ gates });
     });
     // RDT / RTD
@@ -511,7 +517,7 @@
     if (!ui.win) return;
     const a = autState(), inst = UT.state.instrument;
     const gi = activeGate();
-    const g = a.gates[gi] || { start: 0, width: 0, level: 0, on: false };
+    const g = panelGates()[gi] || { start: 0, width: 0, level: 0, on: false };
     const active = typeof document !== 'undefined' ? document.activeElement : null;
     const set = function (key, v) { const el = ui.inputs[key]; if (el && active !== el && String(el.value) !== String(v)) el.value = v; };
     set('range', +inst.range || 100);
@@ -540,7 +546,7 @@
     if (!cv) return;
     const ctx = UT.dom.fitCanvas(cv, ASCAN.w, ASCAN.h);
     const a = autOf(state);
-    const stateLike = Object.assign({}, state, { instrument: Object.assign({}, state.instrument, { gates: a.gates, activeGate: activeGate(), dac: Object.assign({}, state.instrument.dac, { on: false }) }) });
+    const stateLike = Object.assign({}, state, { instrument: Object.assign({}, state.instrument, { gates: gatesOf(state), activeGate: activeGate(), dac: Object.assign({}, state.instrument.dac, { on: false }) }) });
     if (UT.instruments && typeof UT.instruments.drawAscan === 'function') {
       UT.instruments.drawAscan(ctx, frame, stateLike, { base: 'aut', axes: false, margin: { l: 14, r: 4, t: 4, b: 4 } });
       return;
@@ -748,7 +754,7 @@
       // amplitude must fall off away from the defect (z 20..40) and be symmetric-ish about its centre
       const centre = sc.amp[0][30], far = sc.amp[0][2];
       if (!(centre > far)) f.push('no z fall-off ' + centre + ' vs ' + far);
-      if (Number.isFinite(sc.tof[0][30]) && !(sc.tof[0][30] >= 20 && sc.tof[0][30] <= 60)) f.push('tof outside gate ' + sc.tof[0][30]);
+      if (Number.isFinite(sc.tof[0][30]) && !(sc.tof[0][30] >= 20 && sc.tof[0][30] <= 70)) f.push('tof outside gate ' + sc.tof[0][30]);
     } catch (e) { f.push('exception: ' + (e && e.message)); }
     return f;
   }

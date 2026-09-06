@@ -37,6 +37,13 @@
 //   (g = tofd.gainDb; Pos/Range/instrument AMP are in the mid segment owned by 90-app).
 // - OFF / ✕ on either window leaves the mode through UT.modes.exit() when available (re-entrancy
 //   guarded); without 80-modes they simply hide the panel.
+// - Angle: in TOFD mode the toolbar 45/60/70 radio (probe.angle, §15.9) and tofd.txAngle (panel select)
+//   are ONE value (the reference shows the toolbar radio as the TOFD angle). A 'state' listener mirrors
+//   probe.angle → txAngle on probe/mode changes (the toolbar wins when it is 45/60/70, else the probe
+//   follows txAngle) and txAngle → probe.angle (+ preset mode) on tofd changes; the select writes both.
+// - Docking: while the 'tofd' window is shown, #instrument gets the class `tofd-docked`
+//   (visibility: hidden — the grid keeps its size) so the D-scan panel REPLACES the flaw detector in
+//   the instrument column as in UTman instead of half-covering the EPOCH keys; removed on hide/close.
 (function (UT) {
   'use strict';
   const M = UT.math;
@@ -53,6 +60,7 @@
   const DSCAN_CONTRAST = 2;          // D-scan grey = 0.5 + rf·DSCAN_CONTRAST (clipped): lateral/backwall saturate as in UTman
   const ASCAN = { w: 236, h: 140, plotW: 198, plotH: 118, legendX: 204, legendW: 30 };
   const LIMITS = { pcs: [20, 200], rangeUs: [2, 40], delayUs: [0, 40], gainDb: [0, 80] };
+  const TOFD_ANGLES = [45, 60, 70];  // the only angles enabled in TOFD mode (§14.7) = the panel select options
 
   // ================================================================== physics
   /**
@@ -369,6 +377,7 @@
   const css = [
     '.win[data-win=tofd] .win-body{padding:0;background:#000;overflow:hidden}',
     '.win[data-win=tofd] .tofd-top{display:flex;align-items:stretch;height:36px;background:#000}',
+    '.tofd-docked{visibility:hidden}',
     '.win[data-win=tofd] .tofd-run{width:140px;margin:0;padding:0;font:bold 17px "Segoe UI",Arial,sans-serif;color:#000;background:#ececec;border:2px outset #fff;cursor:pointer}',
     '.win[data-win=tofd] .tofd-run.running{background:#ffe08a}',
     '.win[data-win=tofd] .tofd-clear{width:60px;margin:0 0 0 4px;padding:0;font:12px "Segoe UI",Arial,sans-serif;color:#000;background:#d8d8d8;border:2px outset #eee;cursor:pointer}',
@@ -394,12 +403,43 @@
 
   const ui = {
     win: null, ascanWin: null, dscan: null, ascan: null, runBtn: null,
-    inputs: {}, hover: null /* {tUs wedge-zeroed, z} */, subscribed: false, leaving: false,
+    inputs: {}, hover: null /* {tUs wedge-zeroed, z} */, subscribed: false, leaving: false, syncing: false,
   };
 
   function tofdState() { return UT.state.tofd || {}; }
   function setTofd(patch) { UT.setIn('tofd', patch); }
   function clampField(key, v) { const l = LIMITS[key]; return l ? M.clamp(v, l[0], l[1]) : v; }
+  function validAngle(a) { return TOFD_ANGLES.indexOf(+a) >= 0; }
+  function presetMode(a) { const p = UT.probe && UT.probe.presets ? UT.probe.presets[a] : null; return p ? p.mode : 'shear'; }
+  function setProbeAngle(a) { UT.setIn('probe', { angle: +a, mode: presetMode(+a) }); }
+
+  /**
+   * Keep probe.angle (toolbar 45/60/70 radio, status physics line) and tofd.txAngle (panel select,
+   * TOFD physics/drawing) equal while in TOFD mode. probe/mode keys: the toolbar wins when it holds a
+   * TOFD angle, otherwise the probe follows txAngle; tofd key alone: the probe follows txAngle.
+   * @param {string[]} keys  the 'state' event keys
+   */
+  function syncAngle(keys) {
+    if (ui.syncing || !UT.state || UT.state.mode !== 'tofd') return;
+    const s = UT.state, t = s.tofd || {}, p = s.probe || {};
+    ui.syncing = true;
+    try {
+      if (keys.indexOf('probe') >= 0 || keys.indexOf('mode') >= 0) {
+        if (validAngle(p.angle)) { if (+t.txAngle !== +p.angle) setTofd({ txAngle: +p.angle }); }
+        else if (validAngle(t.txAngle) && +p.angle !== +t.txAngle) setProbeAngle(t.txAngle);
+      } else if (keys.indexOf('tofd') >= 0 && validAngle(t.txAngle) && +p.angle !== +t.txAngle) setProbeAngle(t.txAngle);
+    } finally { ui.syncing = false; }
+  }
+  UT.bus.on('state', function (ev) { syncAngle((ev && ev.keys) || []); });
+
+  /** Hide/restore the flaw detector while the D-scan panel is docked in its column (§14.6 look). */
+  function dockInstrument(docked) {
+    const el = typeof document !== 'undefined' ? document.getElementById('instrument') : null;
+    if (el) el.classList.toggle('tofd-docked', !!docked);
+  }
+  UT.bus.on('win:show', function (w) { if (w && w.name === 'tofd') dockInstrument(true); });
+  UT.bus.on('win:hide', function (w) { if (w && w.name === 'tofd') dockInstrument(false); });
+  UT.bus.on('win:close', function (w) { if (w && w.name === 'tofd') dockInstrument(false); });
 
   /** Leave the TOFD mode (OFF / ✕): via UT.modes.exit when present, else just hide the panel. */
   function leave() {
@@ -493,7 +533,12 @@
     const pcs = UT.dom.field('PCS', { type: 'number', value: tofdState().pcs || 60, min: LIMITS.pcs[0], max: LIMITS.pcs[1], step: 1, title: 'Probe centre separation (mm)',
       onchange: function (v) { if (Number.isFinite(v)) setTofd({ pcs: clampField('pcs', v) }); } });
     const ang = UT.dom.field('Angle', { tag: 'select', type: 'number', value: tofdState().txAngle || 60, options: [45, 60, 70], title: 'Probe angle (compression)',
-      onchange: function (v) { const a = parseFloat(v); if (Number.isFinite(a)) setTofd({ txAngle: a }); } });
+      onchange: function (v) {
+        const a = parseFloat(v);
+        if (!validAngle(a)) return;
+        setTofd({ txAngle: a });
+        if (UT.state.mode === 'tofd' && +UT.state.probe.angle !== a) setProbeAngle(a);   // toolbar radio + status follow
+      } });
     ui.inputs.pcs = pcs.input;
     ui.inputs.txAngle = ang.input;
     const content = UT.dom.h('div', { class: 'tofd-ascan-panel' }, [

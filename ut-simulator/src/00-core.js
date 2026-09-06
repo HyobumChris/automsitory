@@ -311,7 +311,8 @@
             dom.h('p', {}, message),
             dom.h('div', { class: 'btn-row' }, [dom.button(o.ok || 'OK', function () { done(true); }, { class: 'btn primary' }), dom.button(o.cancel || 'Cancel', function () { done(false); })]),
           ]),
-          onClose: function () { settle(false); },
+          // one-shot dialog: destroy on every close path (button, ✕, Esc) so no hidden window/backdrop/registry entry is left behind
+          onClose: function (w) { settle(false); w.destroy(); },
         });
         win.show();
       });
@@ -319,7 +320,8 @@
     /** Simple message dialog. */
     alert(message, title) {
       const win = dom.win({ name: 'alert-' + UT.uid(), title: title || 'UTsim', modal: true, w: 360,
-        content: dom.h('div', { class: 'confirm-body' }, [dom.h('div', { class: 'alert-msg' }, message), dom.h('div', { class: 'btn-row' }, [dom.button('OK', function () { win.close(); }, { class: 'btn primary' })])]) });
+        content: dom.h('div', { class: 'confirm-body' }, [dom.h('div', { class: 'alert-msg' }, message), dom.h('div', { class: 'btn-row' }, [dom.button('OK', function () { win.close(); }, { class: 'btn primary' })])]),
+        onClose: function (w) { w.destroy(); } });
       win.show();
       return win;
     },
@@ -363,7 +365,7 @@
         hide() { el.style.display = 'none'; if (backdrop) backdrop.style.display = 'none'; UT.bus.emit('win:hide', api); return api; },
         toggle() { return api.isOpen() ? api.hide() : api.show(); },
         close() { api.hide(); if (o.onClose) o.onClose(api); UT.bus.emit('win:close', api); return api; },
-        destroy() { api.hide(); if (el.parentNode) el.parentNode.removeChild(el); if (backdrop && backdrop.parentNode) backdrop.parentNode.removeChild(backdrop); delete dom.wins[name]; },
+        destroy() { if (api.isOpen()) api.hide(); if (el.parentNode) el.parentNode.removeChild(el); if (backdrop && backdrop.parentNode) backdrop.parentNode.removeChild(backdrop); delete dom.wins[name]; },
       };
       closeBtn.addEventListener('click', function (e) { e.stopPropagation(); api.close(); });
       el.addEventListener('mousedown', function () { api.raise(); });

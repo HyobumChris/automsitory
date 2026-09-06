@@ -57,13 +57,23 @@
     return M.clamp((probeZ || 0) - 30, 0, maxTop);
   }
 
-  /** Snap a skew angle: 1° normally, 5° with Shift; normalised to (−180, 180]. */
+  /**
+   * Snap a skew angle: 1° normally, 5° with Shift; normalised to 0..359 — the same range the
+   * §11 validation contract (UT.test.setProbe / 40-ascan) stores, so every writer of probe.skew agrees.
+   * Use skewLabel() for the ±180 display form.
+   */
   function snapSkew(deg, shift) {
     const step = shift ? 5 : 1;
-    let s = Math.round(deg / step) * step;
-    while (s > 180) s -= 360;
-    while (s <= -180) s += 360;
-    return s === 0 ? 0 : s;   // avoid -0
+    const s = Math.round(deg / step) * step;
+    const n = ((s % 360) + 360) % 360;
+    return n === 0 ? 0 : n;   // avoid -0
+  }
+
+  /** Display form of a stored 0..359 skew: folded to (−180, 180] (e.g. 338 → −22). */
+  function skewLabel(skew) {
+    let s = ((skew % 360) + 360) % 360;
+    if (s > 180) s -= 360;
+    return s === 0 ? 0 : s;
   }
 
   /** Wrap z into [0, L). */
@@ -463,7 +473,7 @@
       ctx.font = '10px Segoe UI, Arial, sans-serif';
       ctx.fillStyle = '#000';
       ctx.textAlign = 'center';
-      ctx.fillText(skew + '°', dialC.x, dialC.y + DIAL_R + 10);
+      ctx.fillText(skewLabel(skew) + '°', dialC.x, dialC.y + DIAL_R + 10);
     }
     ctx.restore();
   }
@@ -877,7 +887,9 @@
     if (zWindowTop(290, 300, 65) !== 235) f.push('zWindowTop clamp high ' + zWindowTop(290, 300, 65));
     if (zWindowTop(20, 50, 65) !== 0) f.push('zWindowTop short specimen');
     if (snapSkew(12.4, false) !== 12 || snapSkew(12.4, true) !== 10 || snapSkew(-181, false) !== 179) f.push('snapSkew');
-    if (Object.is(snapSkew(-0.2, false), -0)) f.push('snapSkew -0');
+    if (snapSkew(-22, false) !== 338 || snapSkew(-170, true) !== 190 || snapSkew(360, false) !== 0 || snapSkew(725, false) !== 5) f.push('snapSkew 0..360');
+    if (Object.is(snapSkew(-0.2, false), -0) || Object.is(snapSkew(-360, false), -0)) f.push('snapSkew -0');
+    if (skewLabel(338) !== -22 || skewLabel(190) !== -170 || skewLabel(180) !== 180 || skewLabel(45) !== 45 || Object.is(skewLabel(360), -0)) f.push('skewLabel');
     const sp = zSpans(500, 20, 528.7, true);
     if (sp.length !== 2 || sp[0][0] !== 500 || Math.abs(sp[0][1] - 528.7) > 1e-9 || sp[1][0] !== 0 || sp[1][1] !== 20) f.push('zSpans wrap ' + JSON.stringify(sp));
     if (JSON.stringify(zSpans(120, 150, 300, false)) !== '[[120,150]]') f.push('zSpans plate');
@@ -915,7 +927,7 @@
   const plan = {
     init, draw, toPx, toMm, fit, drawCircleView, drawLinearBar, clearTrail, __selftest,
     /** Pure helpers (exposed for tests). */
-    helpers: { zWindowTop, snapSkew, wrapZ, zSpans, circleAngle, zAtAngle, ringDragSpan, zInDefect, planDir, lighten, isCompassHidden },
+    helpers: { zWindowTop, snapSkew, skewLabel, wrapZ, zSpans, circleAngle, zAtAngle, ringDragSpan, zInDefect, planDir, lighten, isCompassHidden },
     /** Current transform (read-only snapshot). */
     get transform() { return Object.assign({}, tf); },
     css: [

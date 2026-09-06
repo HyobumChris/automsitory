@@ -764,8 +764,8 @@ Validation contract (`setProbe` / `setInstrument`, implemented in 40-ascan): num
 only when they coerce to a finite number (then clamped: gain 0…110, range 10…1000, delay −50…1000,
 reject 0…80, gates 1 mm / 1 %), otherwise the previous value is kept; `side` → ±1; `skew` → 0..360;
 `crystal` / `method` / `surface` / `mode` / `rectify` are checked against their enum lists (unknown values
-keep the previous one); gate entries that are not objects are ignored. State never receives NaN or
-strings for numeric fields.
+keep the previous one); gate entries that are not objects are ignored; `setInstrument({gates})` is capped at the
+two instrument gate slots (G1/G2). State never receives NaN or strings for numeric fields.
 Toolbar button ids: `tb-0, tb-45, tb-60, tb-70, tb-v2, tb-v1, tb-dac, tb-plot, tb-damp, tb-size,
 tb-defect, tb-hide, tb-clear, tb-beam, tb-rad, tb-pipe, tb-tky, tb-tofd, tb-aut`. Menu bar items have
 ids `menu-file, menu-probes, menu-stepwedge, menu-weld, menu-defects, menu-options, menu-help`.
@@ -1174,7 +1174,9 @@ UT.frame = {
   Peak memory: 40-ascan keeps a module-level `peakBuf`; when `instrument.peakMem`, `peakBuf[i] = max(peakBuf[i], samples[i])`,
   `ascan.peak = peakBuf`; cleared when `peakMem` toggles, on `tb-clear` (`UT.ascan.clearPeak()`), and when range/delay change.
 - `Readouts = { gate: (GateReadout|null)[] /* one per gates entry, any length; null when off or nothing above level */, primary: GateReadout|null /* gate[activeGate] */, textSP, textSD, textDP, textAmp }`,
-  `GateReadout = { peakPct /* unclipped */, path, xDiv, sd, dp, leg, dacPct|null, dBToDac|null, echoKind }`;
+  `GateReadout = { peakPct /* unclipped */, path /* TRUE */, pathDisp /* cal-mapped, = the drawn position */, xDiv, sd, dp, leg /* from pathDisp */, dacPct|null, dBToDac|null, echoKind }`;
+  `text*` are formatted from `pathDisp`/`sd`/`dp`; `Echo.path` and `Readouts.path` remain TRUE paths (auto-cal captures
+  `t = 2·primary.path/vTrue + wedgeDelayUs` as before);
   `text*` use `UT.math.fmt2` (`'05.51'`), `textAmp = Math.round(peakPct) + '%'`. SD/DP/leg use
   `instrument.trig.angle/thick` (§14.4). `UT.ascan.evalGates(ascan, instrumentLike, derived, specimen, probe)`
   accepts any number of gates (AUT passes `{...instrument, gates: aut.gates, activeGate: aut.activeGate}`).

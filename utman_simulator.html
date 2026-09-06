@@ -104,17 +104,19 @@ canvas { display: block; }
 #main {
   flex: 1 1 auto;
   display: grid;
-  /* Row sizing is intrinsic, so it holds for every UT set (EPOCH 600 396 px, EPOCH 4 486 px, USK7 dock
-   * 200 px) and for a wrapped two-line status bar without hard-coded heights:
-   * - plan/instrument row `minmax(auto, 1fr)`: never smaller than the instrument column (or the plan
-   *   view's min-height), and it takes whatever is left once the cross-section row is sized;
-   * - cross-section row `minmax(--cross-min, --cross-max)`: the grid fills fixed-max tracks before the
-   *   fr track, so it grows to its cap (236 px ≈ 26vh; 340 px / 36vh for block specimens) when the
-   *   viewport allows and shrinks towards its minimum on small screens (1024 × 700, §7). */
+  /* Row sizing mirrors the original (RcSqNFlOF4E.jpg): the plan view is the height of the instrument
+   * and the ruler + cross-section take whatever height is left, so there is never a blank cream band
+   * under the instrument and the cross-section grows with the viewport. It stays intrinsic, so it holds
+   * for every UT set (EPOCH 600 396 px, EPOCH 4 486 px, USK7 dock 200 px) and for a wrapped two-line
+   * status bar without hard-coded heights:
+   * - plan/instrument row `auto`: sized by its content, i.e. the instrument column (or the plan view's
+   *   min-height when the instrument is shorter, e.g. the USK7 dock). The `1fr` cross-section track
+   *   absorbs all free space before auto tracks are stretched, so this row never grows past that;
+   * - cross-section row `minmax(--cross-min, 1fr)`: takes the remaining height and shrinks towards its
+   *   minimum on small screens (1024 × 700, §7: ≈146 px with the EPOCH 600 column). */
   --cross-min: 120px;
-  --cross-max: 236px;
   grid-template-columns: 470px minmax(0, 1fr);
-  grid-template-rows: minmax(auto, 1fr) 30px minmax(var(--cross-min), var(--cross-max));
+  grid-template-rows: auto 30px minmax(var(--cross-min), 1fr);
   gap: 0;
   min-height: 0;
   /* below the supported envelope the rows (instrument + ruler + minimum cross-section) can exceed the
@@ -146,9 +148,11 @@ canvas { display: block; }
 #main.block.no-ruler #ruler-area { display: none; }
 #main.block.no-ruler #instrument { grid-area: 1 / 1 / 2 / 2; }
 #main.block.no-ruler #cross-area { grid-area: 1 / 2 / 2 / 3; }
-#main.no-ruler:not(.block) { grid-template-rows: minmax(auto, 1fr) 0 minmax(var(--cross-min), var(--cross-max)); }
-/* block specimens (IOW 45 mm, DAC, step wedge, lamination plate): taller cross-section so the whole block fits */
-#main.tall { --cross-min: 140px; --cross-max: min(36vh, 340px); }
+#main.no-ruler:not(.block) { grid-template-rows: auto 0 minmax(var(--cross-min), 1fr); }
+/* block specimens (IOW 45 mm, DAC, step wedge, lamination plate): taller cross-section floor so the whole block fits */
+#main.tall { --cross-min: 140px; }
+/* through transmission: room for the plate plus both 14 mm shoes at the fixed §14.1 scale (≈154 px at 1024 wide) */
+#main.tt { --cross-min: max(140px, calc(48 * 100vw / 320)); }
 #main.tall #plan-area { min-height: 300px; }
 #main.no-ruler:not(.block) #ruler-area { display: none; }
 /* EPOCH 4 (486 px, ASME keypad) is 90 px taller than the EPOCH 600 column the grid was sized for: on
@@ -583,7 +587,8 @@ canvas { display: block; }
             dom.h('p', {}, message),
             dom.h('div', { class: 'btn-row' }, [dom.button(o.ok || 'OK', function () { done(true); }, { class: 'btn primary' }), dom.button(o.cancel || 'Cancel', function () { done(false); })]),
           ]),
-          onClose: function () { settle(false); },
+          // one-shot dialog: destroy on every close path (button, ✕, Esc) so no hidden window/backdrop/registry entry is left behind
+          onClose: function (w) { settle(false); w.destroy(); },
         });
         win.show();
       });
@@ -591,7 +596,8 @@ canvas { display: block; }
     /** Simple message dialog. */
     alert(message, title) {
       const win = dom.win({ name: 'alert-' + UT.uid(), title: title || 'UTsim', modal: true, w: 360,
-        content: dom.h('div', { class: 'confirm-body' }, [dom.h('div', { class: 'alert-msg' }, message), dom.h('div', { class: 'btn-row' }, [dom.button('OK', function () { win.close(); }, { class: 'btn primary' })])]) });
+        content: dom.h('div', { class: 'confirm-body' }, [dom.h('div', { class: 'alert-msg' }, message), dom.h('div', { class: 'btn-row' }, [dom.button('OK', function () { win.close(); }, { class: 'btn primary' })])]),
+        onClose: function (w) { w.destroy(); } });
       win.show();
       return win;
     },
@@ -635,7 +641,7 @@ canvas { display: block; }
         hide() { el.style.display = 'none'; if (backdrop) backdrop.style.display = 'none'; UT.bus.emit('win:hide', api); return api; },
         toggle() { return api.isOpen() ? api.hide() : api.show(); },
         close() { api.hide(); if (o.onClose) o.onClose(api); UT.bus.emit('win:close', api); return api; },
-        destroy() { api.hide(); if (el.parentNode) el.parentNode.removeChild(el); if (backdrop && backdrop.parentNode) backdrop.parentNode.removeChild(backdrop); delete dom.wins[name]; },
+        destroy() { if (api.isOpen()) api.hide(); if (el.parentNode) el.parentNode.removeChild(el); if (backdrop && backdrop.parentNode) backdrop.parentNode.removeChild(backdrop); delete dom.wins[name]; },
       };
       closeBtn.addEventListener('click', function (e) { e.stopPropagation(); api.close(); });
       el.addEventListener('mousedown', function () { api.raise(); });
@@ -1448,7 +1454,8 @@ canvas { display: block; }
   //    reflector for a 0° beam (§6.3 "strong echo at its depth").
   // 4. Corner echoes (outline + planar defect in either order) use the defect's S and D = q^1.5.
   // 5. Skew weight (§6.7) multiplies kinds defect/corner/geometry/lamination only when the refracted
-  //    angle is > 0 (a 0° beam is unaffected by probe rotation). ampNoZ = amp with Z = 1 (skew
+  //    angle is > 0 (a 0° beam is unaffected by probe rotation); volumetric scatterers (their echoes
+  //    carry kind 'defect' too, §15.4) and SDHs stay ×1. ampNoZ = amp with Z = 1 (skew
   //    included); zFactor() returns the pure §6.7 overlap factor Z, so amp === ampNoZ·zFactor(...).
   // 6. centre.legs[i] = {a, b, leg, surfaceTag, hitTag}: surfaceTag = tag of the surface the segment
   //    was last reflected from ('top' for the first leg, 'defect' after a defect), hitTag = what it
@@ -1514,6 +1521,32 @@ canvas { display: block; }
   //     (half-width D/2 + len·tanθ20 about the ray), the ray's energy beyond it is scaled by the uncovered
   //     fraction 1 − overlap(hole chord, band)/band width, i.e. (1 − 2r/W) for a hole centred on the axis.
   //     Applies in every method (pulse-echo, TT, tandem); holes span all z.
+  // 21. Bead specular loss: a convex weld bead (outline tags 'cap'/'root', only present when the bead is
+  //     higher than FLAT_BEAD — 10-specimens tags flat beads 'top'/'bottom') is a curved, rough surface
+  //     (R ≈ 4–17 mm), so a specular reflection off it diverges: the ray's running energy is multiplied
+  //     by BEAD_SPECULAR (0.25, ≈ −12 dB) per bead reflection, in addition to the 0.95 of §6.1 2c. This
+  //     kills the cavity retro-path probe → root flank → cap crown → root flank → probe (a 50 % phantom
+  //     at 2/3 skip on a clean weld, 20 dB above the real half-skip root echo) while the diffuse bead
+  //     scatter of NOTE 2 (which uses the pre-bounce energy) still provides the half/full-skip root/cap
+  //     geometry echoes. Machined surfaces are unaffected.
+  // 22. Merge representative (§6.1 rule 5/6): the amplitude of a group is still the max over its members,
+  //     but the reported path/x/y/angleDev come from the member closest to the beam axis (smallest
+  //     |angleDev|) among those within 1 dB of the max — the beam-centre path is what a real probe reads.
+  //     With the literal max-path rule a 70° corner reflector read 57.4 instead of T/cos70 = 58.5 because
+  //     D(path) rewards the −0.4° fan ray's shorter path more than w(δ) penalises it. Volumetric groups
+  //     keep their loudest scatterer point.
+  // 23. Coverage symmetry of specular planar returns (kinds 'defect' with a planar type, 'lamination'):
+  //     the merged amplitude is multiplied by Σ_members w(δ)² / Σ_window w(δ)², where the window is the
+  //     fan interval of the same angular width centred on the strongest member's δ (clamped ≤ 1). A face
+  //     insonised symmetrically about the strongest ray keeps its amplitude; a fan only half on the face
+  //     (beam axis at the face end) is ≈ −3 dB, so the response of a face shorter than the beam peaks
+  //     with the beam axis at the face midpoint (§11.1 #9) instead of at the first position where the
+  //     centre ray reaches it. A small reflector at the fan edge stays at w(δ)² (no double penalty).
+  //     Corner, SDH, volumetric, tip and surface echoes are not affected.
+  // 24. Hole path: holes of radius > SDH_CENTRE_MAX_R (1.5 mm, i.e. larger than the 3 mm calibration SDH
+  //     class: IOW 1.5 mm, DAC 3 mm) report the near-surface path (foot point − r, ≥ 0) — a 0° probe over
+  //     the V2 5 mm hole reads 3.75, not the 6.25 of the centre. Calibration SDHs keep the §6.1 2b centre
+  //     convention that §5.3 / §11.1 #4 and the 40-ascan K_REF calibration rely on.
 
   const M = UT.math;
   const DEG = Math.PI / 180;
@@ -1525,6 +1558,9 @@ canvas { display: block; }
   const CORNER_MIN_INC = 12;  // deg from the normal at the defect for the corner rule (SPEC NOTE 13)
   const AMP_FLOOR = 1e-6;     // echoes below this (−120 dB) are dropped (SPEC NOTE 14)
   const BEAD_SCATTER = 0.08;  // rough weld-bead diffuse coefficient (SPEC NOTE 2)
+  const BEAD_SPECULAR = 0.25; // energy kept by a specular reflection off a convex bead (SPEC NOTE 21)
+  const REP_DB = 1;           // merge representative: within this many dB of the group max (SPEC NOTE 22)
+  const SDH_CENTRE_MAX_R = 1.5; // holes up to this radius are read at their centre (SPEC NOTE 24)
   const TT_SUB = 7;           // through-transmission sub-apertures across the crystal (SPEC NOTE 16)
   const TT_EXTINCTION = 1.5;  // dB per mm of TT ray chord through a volumetric defect (SPEC NOTE 16)
   const AP_TAIL = 2;          // return-aperture taper zone beyond ra, in crystal diameters (SPEC NOTE 18)
@@ -1661,7 +1697,8 @@ canvas { display: block; }
     for (const h of specimen.holes || []) {
       if (!h || !(h.r > 0)) continue;
       const dia = 2 * h.r;
-      points.push({ x: h.x, y: h.y, kind: 'sdh', S: Math.min(1, Math.sqrt(dia / 3)), dExp: 1.5, cap: h.r + 0.5, tag: h.tag || 'sdh', label: h.label || (dia + 'mm'), hole: h });
+      points.push({ x: h.x, y: h.y, kind: 'sdh', S: Math.min(1, Math.sqrt(dia / 3)), dExp: 1.5, cap: h.r + 0.5, tag: h.tag || 'sdh', label: h.label || (dia + 'mm'), hole: h,
+        back: h.r > SDH_CENTRE_MAX_R ? h.r : 0 });   // SPEC NOTE 24: large holes echo from their near surface
       holes.push({ x: h.x, y: h.y, r: h.r });
     }
     for (let i = 0; i < points.length; i++) points[i].idx = i;
@@ -1783,7 +1820,7 @@ canvas { display: block; }
             const c = 0.5 + 0.03 * (len + u);
             const cap = Math.max(c, P.cap);
             if (d > cap) continue;
-            const path = len + u;
+            const path = Math.max(0, len + u - (P.back || 0));
             const taper = Math.cos(Math.PI / 2 * d / cap);
             const ec = makeEcho(C, { path, kind: P.kind, leg, x: P.x, y: P.y, w, wReturn: w, e, S: P.S, dExp: P.dExp,
               defect: P.defect, tag: P.tag, label: P.label, angleDev: delta, extra: taper, zs, tw });
@@ -1893,6 +1930,7 @@ canvas { display: block; }
               const slope = Math.min(1, Math.abs(best.nx) / 0.5);   // 0 for a flat bead (SPEC NOTE 2)
               if (slope > 1e-6) echoes.push(makeEcho(C, { path: len, kind: 'geometry', leg: leg - 1, x: hp.x, y: hp.y, w, wReturn: w, e: e / OTHER_LOSS, S: BEAD_SCATTER * inc * slope, dExp: 1.5, tag: best.tag, angleDev: delta, zs, tw }));
             }
+            if (best.tag === 'cap' || best.tag === 'root') e *= BEAD_SPECULAR;   // convex bead diverges the specular reflection (SPEC NOTE 21)
           } else if (best.type === 'perspex') {
             e *= OTHER_LOSS;
             fromTag = 'perspex';
@@ -1976,7 +2014,8 @@ canvas { display: block; }
     const Mf = Math.pow(10, -C.alpha * 2 * o.path / 20);
     const base = o.w * o.wReturn * o.e * o.S * D * Mf * (o.extra === undefined ? 1 : o.extra);
     const hz = o.path * Math.tan(C.th20 * DEG) + C.diameter / 2;
-    const skewed = (o.kind === 'defect' || o.kind === 'corner' || o.kind === 'geometry' || o.kind === 'lamination') && C.theta > 0;
+    const vol = !!o.defect && !UT.specimens.isPlanar(o.defect.type);   // volumetric scatterers: ×1 (§6.7)
+    const skewed = !vol && (o.kind === 'defect' || o.kind === 'corner' || o.kind === 'geometry' || o.kind === 'lamination') && C.theta > 0;
     const sw = skewed ? M.skewWeight(C.skew) : 1;
     // z-overlap factors (§6.7, SPEC NOTE 19): the branch's reflection/transmission factors, plus the
     // echo's own defect (reflection Z) unless the branch already carries that defect
@@ -1992,6 +2031,7 @@ canvas { display: block; }
       defectId: o.defect ? o.defect.id : undefined, tag: o.tag, label: o.label || (o.defect ? o.defect.label : undefined),
       angleDev: o.angleDev, defectType: o.defect ? o.defect.type : undefined,
     };
+    if (o.w !== undefined) ec.w = o.w;   // one-way fan weight of the ray (merge coverage, SPEC NOTE 23; stripped by mergeEchoes)
     if (zs.length) ec.zs = zs.map(function (f) { return { defectId: f.defect.id, hz: f.hz, trans: !!f.trans }; });
     return ec;
   }
@@ -2013,7 +2053,16 @@ canvas { display: block; }
     return ec.kind === 'defect' && ec.defectType !== undefined && !UT.specimens.isPlanar(ec.defectType);
   }
 
-  function mergeEchoes(raw) {
+  /** True for groups whose amplitude gets the coverage-symmetry factor (SPEC NOTE 23). */
+  function isCoverageEcho(ec) {
+    return ec.kind === 'lamination' || (ec.kind === 'defect' && ec.defectType !== undefined && UT.specimens.isPlanar(ec.defectType));
+  }
+
+  /**
+   * §6.1 rule 5 merging. `fan` = {deltas: number[], th20} describes the fan the raw echoes came from
+   * (optional; without it the coverage factor of SPEC NOTE 23 is skipped).
+   */
+  function mergeEchoes(raw, fan) {
     const list = raw.filter(function (ec) { return Math.max(ec.amp, ec.ampNoZ || 0) >= AMP_FLOOR || ec.kind === 'transmitted'; });
     list.sort(function (a, b) { return a.path - b.path; });
     const groups = [];
@@ -2028,16 +2077,70 @@ canvas { display: block; }
         if (Math.abs(ec.path - cand.best.path) <= 1.5 || Math.abs(ec.path - cand.last) <= 0.75) { g = cand; break; }
         if (cand.last < ec.path - 3) break;
       }
-      if (!g) { g = { best: ec, sum2: ec.amp * ec.amp, sumNoZ2: ec.ampNoZ * ec.ampNoZ, last: ec.path }; arr.push(g); groups.push(g); }
+      if (!g) { g = { key, best: ec, sum2: ec.amp * ec.amp, sumNoZ2: ec.ampNoZ * ec.ampNoZ, last: ec.path, members: [ec] }; arr.push(g); groups.push(g); }
       else {
         g.sum2 += ec.amp * ec.amp; g.sumNoZ2 += ec.ampNoZ * ec.ampNoZ; g.last = ec.path;
+        g.members.push(ec);
         if (ec.amp > g.best.amp || (ec.amp === g.best.amp && ec.ampNoZ > g.best.ampNoZ)) g.best = ec;
       }
     }
+    const repFloor = Math.pow(10, -REP_DB / 20);
+    const fanDeltas = fan && Array.isArray(fan.deltas) && fan.deltas.length > 1 ? fan.deltas : null;
+    const th20 = fan && fan.th20 > 0 ? fan.th20 : 4;
+    // SPEC NOTE 23: coverage symmetry per key (all groups of one face/leg share the fan interval)
+    const covByKey = new Map();
+    if (fanDeltas) {
+      byKey.forEach(function (arr, key) {
+        if (!isCoverageEcho(arr[0].best)) return;
+        let dLo = Infinity, dHi = -Infinity, sumW2 = 0, top = null;
+        const seen = new Set();
+        for (const g of arr) for (const m of g.members) {
+          if (!Number.isFinite(m.angleDev)) continue;
+          if (!top || m.amp > top.amp || (m.amp === top.amp && m.ampNoZ > top.ampNoZ)) top = m;
+          if (m.angleDev < dLo) dLo = m.angleDev;
+          if (m.angleDev > dHi) dHi = m.angleDev;
+          const k = Math.round(m.angleDev * 1e6);
+          if (seen.has(k)) continue;
+          seen.add(k);
+          const wi = m.w !== undefined ? m.w : M.beamWeight20(m.angleDev, th20);
+          sumW2 += wi * wi;
+        }
+        if (!top) return;
+        const half = (dHi - dLo) / 2 + 1e-9;
+        let ref = 0;
+        for (const d of fanDeltas) {
+          if (Math.abs(d - top.angleDev) > half) continue;
+          const wi = M.beamWeight20(d, th20);
+          ref += wi * wi;
+        }
+        if (ref > 0) covByKey.set(key, Math.min(1, sumW2 / ref));
+      });
+    }
     const out = [];
     for (const g of groups) {
-      const ec = Object.assign({}, g.best);
-      if (isVolumetricEcho(ec)) { ec.amp = Math.sqrt(g.sum2); ec.ampNoZ = Math.sqrt(g.sumNoZ2); }
+      const best = g.best;
+      let rep = best;
+      const vol = isVolumetricEcho(best);
+      if (!vol && g.members.length > 1) {
+        // SPEC NOTE 22: report the path of the member nearest the beam axis among those within REP_DB of the max
+        const floorAmp = best.amp * repFloor;
+        for (const m of g.members) {
+          if (m === rep) continue;
+          if (m.amp >= floorAmp && Math.abs(m.angleDev) < Math.abs(rep.angleDev) - 1e-9) rep = m;
+        }
+      }
+      const ec = Object.assign({}, rep);
+      if (rep !== best) {
+        // keep the group's max amplitude; amp = ampNoZ · Z of the representative's own branch (AUT re-weighting)
+        ec.ampNoZ = best.ampNoZ;
+        ec.amp = rep.ampNoZ > 0 ? best.ampNoZ * (rep.amp / rep.ampNoZ) : best.amp;
+      }
+      if (vol) { ec.amp = Math.sqrt(g.sum2); ec.ampNoZ = Math.sqrt(g.sumNoZ2); }
+      else {
+        const cov = covByKey.get(g.key);
+        if (cov !== undefined && cov < 1) { ec.amp *= cov; ec.ampNoZ *= cov; }
+      }
+      delete ec.w;
       out.push(ec);
     }
     out.sort(function (a, b) { return a.path - b.path; });
@@ -2070,7 +2173,7 @@ canvas { display: block; }
       nearField: derived.nearField || 20, diameter: derived.diameter || probe.diameter || 10,
       alpha: derived.mode === 'comp' ? 0.005 : 0.01,
       maxLegs, maxLen: Math.max(2 * maxPath + 100, 700), retroSlot: !!specimen.retroSlot,
-      probeZ: probe.z || 0, skew: probe.skew || 0, L: specimen.L || 0, wrap: !!specimen.pipe,
+      probeZ: probe.z || 0, skew: fold180(probe.skew || 0), L: specimen.L || 0, wrap: !!specimen.pipe,
       scene: buildScene(specimen, a.defects, probe),
       tt: probe.method === 'tt', tandem: probe.method === 'tandem',
       rx: null, rxDir: null, volBest: new Map(),
@@ -2095,10 +2198,12 @@ canvas { display: block; }
     const fan = [];
     const raw = [];
     const hits = [];
+    const deltas = [];
     let centre = null;
     let sumW = 0, sumT = 0;
     for (let i = 0; i < n; i++) {
       const delta = n === 1 ? 0 : -C.th20 + 2 * C.th20 * i / (n - 1);
+      deltas.push(delta);
       const r = marchRay(C, delta);
       sumW += r.w; sumT += r.transmitted;
       const drawPts = r.pts.filter(function (p) { return p.leg <= skips; });
@@ -2130,7 +2235,7 @@ canvas { display: block; }
       const path = p0 ? M.dist(C.E.x, C.E.y, p0.x, p0.y) : (specimen.T || 0);
       echoes = [{ path, amp, ampNoZ: amp, hz: path * Math.tan(C.th20 * DEG) + C.diameter / 2, kind: 'transmitted', leg: 1, x: C.rx.x, y: C.rx.y, tag: 'transmitted', angleDev: 0 }];
     } else {
-      echoes = mergeEchoes(raw);
+      echoes = mergeEchoes(raw, { deltas, th20: C.th20 });
     }
     for (const ec of echoes) {
       if (ec.kind === 'transmitted' || !(ec.amp >= AMP_FLOOR)) continue;
@@ -2138,6 +2243,7 @@ canvas { display: block; }
     }
     const res = { centre, fan, edge20: [fan.length ? fan[0].pts : [], fan.length ? fan[fan.length - 1].pts : []], echoes, hits, E: C.E, u0: C.u0 };
     if (receiver) res.receiver = receiver;
+    if (opts.debugRaw) res.raw = raw;   // unmerged echoes (QA/diagnostics only)
     if (C.tt) res.transmitted = echoes[0].amp;
     return res;
   }
@@ -2156,6 +2262,9 @@ canvas { display: block; }
     }
     return best;
   }
+
+  /** Fold a stored 0..360 skew into (−180, 180] so ±10° weight the same (UT.math.skewWeight is one-sided). */
+  function fold180(d) { let s = ((d % 360) + 360) % 360; if (s > 180) s -= 360; return s; }
 
   /**
    * Recompute the §6.7 z-overlap factor of an echo for another probe z (AUT). Holes/surfaces → 1.
@@ -2343,6 +2452,36 @@ canvas { display: block; }
     if (!ttv || dB(1, ttv.amp) < 3) f.push('tt volumetric shadow ' + (ttv && ttv.amp));
     const ttp = run(pl, { angle: 0, x: 60, method: 'tt' }, { skips: 3 }, [{ id: 'p', type: 'planar', pts: [{ x: 57, y: 10 }, { x: 63, y: 10 }], height: 0.5, zFrom: 120, zTo: 180 }], 100).echoes[0];
     if (!ttp || !(ttp.amp > 0.05 && ttp.amp < 0.9)) f.push('tt partial shadow ' + (ttp && ttp.amp));
+    // (m) skew does not touch volumetric echoes (§6.7: volumetric and SDH ×1)
+    const skewAmp = function (skew) {
+      const p = Object.assign({ mode: 'shear', freq: 5, diameter: 10, wedgeVel: 2.74, method: 'pe', z: (por.zFrom + por.zTo) / 2, side: 1, skew, angle: 60, x: 20 }, {});
+      const r = trace({ specimen: pv, probe: p, derived: UT.probe.derive(p, pv), display: { skips: 3 }, defects: [por], opts: { maxPath: 100, fanCount: 21 } });
+      let m = 0;
+      for (const e of r.echoes) if (e.defectId === por.id && e.kind === 'defect' && e.amp > m) m = e.amp;
+      return m;
+    };
+    const sk0 = skewAmp(0), sk10 = skewAmp(10);
+    if (!(sk0 > 0) || sk0 !== sk10) f.push('volumetric echo skewed: ' + sk0 + ' vs ' + sk10);
+    // (n) clean default weld: no strong bead cavity echo between half and full skip (SPEC NOTE 21)
+    const pw2 = S.plateWeld({ T: 20, rootHeight: 1.5, capHeight: 2, bevel: 30, rootGap: 2, rootFace: 2, capWidth: 16 });
+    let cavity = 0, cornerRef = 0;
+    for (let x = 26; x <= 44; x += 2) {
+      for (const e of run(pw2, { angle: 60, x }, { skips: 3 }, [], 150).echoes) if (e.kind === 'geometry' && e.path > 50 && e.amp > cavity) cavity = e.amp;
+      for (const e of run(pw2, { angle: 60, x }, { skips: 3 }, [S.defectPresets.rootCrack(pw2)], 150).echoes) if (e.kind === 'corner' && e.amp > cornerRef) cornerRef = e.amp;
+    }
+    if (!(cornerRef > 0) || dB(cornerRef, Math.max(cavity, 1e-12)) < 14) f.push('bead cavity echo ' + cavity + ' vs corner ' + cornerRef);
+    // (o) 70° corner reflector reads T/cos70 (SPEC NOTE 22)
+    const c70 = near(run(pw, { angle: 70, x: 55, z: 150 }, { skips: 3 }, [Object.assign({}, crack, { zFrom: 100, zTo: 200 })], 100).echoes, 'corner', 20 / Math.cos(70 * DEG), 0.3);
+    if (!c70) f.push('70 deg corner path != T/cos70');
+    // (p) LOF response peaks with the beam axis at the face midpoint (SPEC NOTE 23, §11.1 #9)
+    let lofBestX = 0, lofBest = 0;
+    for (let x = 48; x <= 70; x += 1) {
+      for (const e of run(pl, { angle: 60, x }, { skips: 3 }, [lof], 150).echoes) if (e.defectId === lof.id && e.kind === 'defect' && e.amp > lofBest) { lofBest = e.amp; lofBestX = x; }
+    }
+    if (!(lofBestX >= 57 && lofBestX <= 63)) f.push('LOF peak at x ' + lofBestX);
+    // (q) V2 5 mm hole, 0°: echo at the near surface (SPEC NOTE 24); IOW SDH stays at its centre
+    const v2h = run(S.v2({ face: 'narrow' }), { angle: 0, x: 60 }, { skips: 3 }, [], 50);
+    if (!near(v2h.echoes, 'sdh', 3.75, 0.1)) f.push('V2 hole echo not at 3.75');
     // describe
     if (typeof describe({ kind: 'backwall', path: 25, leg: 1 }) !== 'string') f.push('describe');
     return f;
@@ -2381,8 +2520,14 @@ canvas { display: block; }
 //   is within max(2·sigma, 1 mm) of the peak sample (the strongest such echo) so peakPct is the
 //   UNCLIPPED echo amplitude and `path` its TRUE path. Grass/initial-pulse peaks report echoKind 'noise'
 //   / 'initial' with the sample value and the inverse-cal true path.
-// - SD = path·sin(trig.angle) − trig.xValue (X Value = wedge front offset, default 0); DP/leg fold
-//   d = path·cos(trig.angle) into 0..trig.thick: leg = floor(d/T) + 1, dp = leg odd ? d mod T : T − d mod T.
+// - GateReadout.pathDisp is the DISPLAYED path of the same peak (the cal mapping of §15.5, i.e. where the
+//   echo is drawn: xDiv = (pathDisp − delay)/range·10). The instrument only knows time and its cal, so the
+//   EPOCH readouts SP/SD/DP (textSP/textSD/textDP, sd/dp/leg) are derived from pathDisp — with the wrong
+//   step-wedge cal {vel 5.60, zero 0.4} the 10 mm step reads ≈ 8.37 until Auto Cal is run (lesson 12,
+//   §8.2). `path` stays TRUE (test API, 80-modes auto-cal time capture, DAC record, AUT tof); with the
+//   default cal pathDisp === path.
+// - SD = pathDisp·sin(trig.angle) − trig.xValue (X Value = wedge front offset, default 0); DP/leg fold
+//   d = pathDisp·cos(trig.angle) into 0..trig.thick: leg = floor(d/T) + 1, dp = leg odd ? d mod T : T − d mod T.
 // - dacCurve() returns the recorded points sorted by path, each CLIPPED to 100 % at the reference gain
 //   (§6.2: a point may be recorded up to 120 % but the drawn curve never exceeds the screen top at
 //   refGain) and then scaled to the CURRENT gain, each with xDiv; dacCurves() adds the −6 / −14 dB
@@ -2397,7 +2542,9 @@ canvas { display: block; }
 //   In 'aut' mode the live A-scan is at probe.z and frame.aut.readouts evaluates aut.gates.
 // - Trace failures are caught (logged once) so the UI keeps rendering with an empty frame.
 // - setInstrument() clamps gain 0…110, range 10…1000, delay −50…1000, reject 0…80; gates given as an
-//   array are merged per index into clones of the existing gates. It returns a clone of the instrument.
+//   array are merged per index into clones of the existing gates, capped at GATE_SLOTS = 2 (G1/G2: the
+//   instrument model, selectedParam g1*/g2* and the EPOCH skins know exactly two gates, so entries beyond
+//   the slots are ignored and the gate count never grows). It returns a clone of the instrument.
 //   Test API validation (setProbe / setInstrument): numeric fields are applied only when they coerce to
 //   a finite number (then clamped), otherwise the previous value is kept; side → ±1, skew → 0..360,
 //   crystal / method / surface / mode / rectify are checked against their enum lists; gate entries that
@@ -2418,6 +2565,7 @@ canvas { display: block; }
   const GRASS_PCT = 2;
   const DAMP_DB = -2;
   const PROVISIONAL_K = 2.64;
+  const GATE_SLOTS = 2;   // G1 / G2 — the instrument model never carries more gates than the skins show
 
   // ------------------------------------------------------------------ K_REF (lazy calibration)
   let _kRef = null;
@@ -2750,25 +2898,27 @@ canvas { display: block; }
       for (const es of ascan.echoesOnScreen) {
         if (Math.abs(es.pDisp - pPeak) <= win && es.pDisp >= s0 - win && es.pDisp <= s1 + win && (!best || es.ampPct > best.ampPct)) best = es;
       }
-      let peakPct, path, xDiv, echoKind;
-      if (best) { peakPct = best.ampPct; path = best.echo.path; xDiv = best.xDiv; echoKind = best.echo.kind || 'echo'; }
+      let peakPct, path, pathDisp, xDiv, echoKind;
+      if (best) { peakPct = best.ampPct; path = best.echo.path; pathDisp = best.pDisp; xDiv = best.xDiv; echoKind = best.echo.kind || 'echo'; }
       else {
-        peakPct = peak; xDiv = (pPeak - delay) / range * 10; path = derived ? truePath(pPeak, inst, derived) : pPeak;
+        peakPct = peak; xDiv = (pPeak - delay) / range * 10; pathDisp = pPeak; path = derived ? truePath(pPeak, inst, derived) : pPeak;
         echoKind = ascan.initialZone && pPeak >= ascan.initialZone.from && pPeak <= ascan.initialZone.to ? 'initial' : 'noise';
       }
-      const geo = geometry(path, angle, thick, xValue);
+      if (!Number.isFinite(pathDisp)) pathDisp = path;
+      // SD/DP/leg are what the instrument computes from ITS displayed sound path (cal-mapped, §5.3/§15.5)
+      const geo = geometry(pathDisp, angle, thick, xValue);
       let dacPct = null, dBToDac = null;
       if (inst.dac && inst.dac.on) {
         const curve = dacAt(inst, path);
         if (curve !== null && curve > 0) { dacPct = peakPct / curve * 100; dBToDac = M.lin2dB(peakPct / curve); }
       }
-      out.push({ peakPct, path, xDiv, sd: geo.sd, dp: geo.dp, leg: geo.leg, dacPct, dBToDac, echoKind });
+      out.push({ peakPct, path, pathDisp, xDiv, sd: geo.sd, dp: geo.dp, leg: geo.leg, dacPct, dBToDac, echoKind });
     }
     const ai = Number.isFinite(inst.activeGate) ? inst.activeGate : 0;
     const primary = out[ai] || null;
     return {
       gate: out, primary,
-      textSP: primary ? M.fmt2(primary.path) : '--.--',
+      textSP: primary ? M.fmt2(primary.pathDisp) : '--.--',
       textSD: primary ? M.fmt2(primary.sd) : '--.--',
       textDP: primary ? M.fmt2(primary.dp) : '--.--',
       textAmp: primary ? Math.round(Math.min(999, primary.peakPct)) + '%' : '0%',
@@ -2953,8 +3103,9 @@ canvas { display: block; }
     if (q.freeze !== undefined) patch.freeze = !!q.freeze;
     if (q.activeGate !== undefined) patch.activeGate = Math.round(num(q.activeGate, cur.activeGate || 0, 0, 7));
     if (Array.isArray(q.gates)) {
-      const gates = cur.gates.map(function (g) { return Object.assign({}, g); });
-      q.gates.forEach(function (g, i) {
+      // exactly GATE_SLOTS gates (G1/G2): entries beyond the slots and non-object entries are ignored
+      const gates = cur.gates.slice(0, GATE_SLOTS).map(function (g) { return Object.assign({}, g); });
+      q.gates.slice(0, GATE_SLOTS).forEach(function (g, i) {
         if (!isObj(g)) return;
         gates[i] = coerceGate(g, gates[i] || { on: true, start: 10, width: 60, level: 20, alarm: false });
       });
@@ -3036,6 +3187,23 @@ canvas { display: block; }
       if (Math.abs(r.primary.peakPct - 60) > 0.5) f.push('readout peakPct ' + r.primary.peakPct);
       if (Math.abs(r.primary.sd - 22.5) > 0.1 || Math.abs(r.primary.dp - 13) > 0.1) f.push('readout sd/dp ' + r.primary.sd + '/' + r.primary.dp);
       if (r.textDP !== '13.00' || r.textAmp !== '60%') f.push('readout text ' + r.textDP + ' ' + r.textAmp);
+      if (Math.abs(r.primary.pathDisp - 26) > 1e-6) f.push('readout pathDisp default cal ' + r.primary.pathDisp);
+    }
+    // wrong cal (lesson 12): path stays TRUE, pathDisp / SP / SD / DP follow the cal mapping and the trace
+    {
+      const badInst = Object.assign({}, inst, { cal: { vel: 5.6, zero: 0.4 }, trig: { angle: 0, thick: 10, xValue: 0 }, gates: [{ on: true, start: 5, width: 40, level: 10 }] });
+      const d0c = UT.probe.derive({ angle: 0, freq: 5, diameter: 10 }, null);
+      const amp0 = 60 / (k * M.dB2lin(30));
+      const a8 = synth({ echoes: [{ path: 10, amp: amp0, kind: 'backwall' }], probe: { angle: 0, crystal: 'twin', method: 'pe', x: 0, z: 0 }, derived: d0c, instrument: badInst });
+      const r8 = evalGates(a8, badInst, d0c, { T: 10 }, { angle: 0 });
+      const pd = dispPath(10, badInst, d0c);
+      if (!r8.primary) f.push('no primary readout (wrong cal)');
+      else {
+        if (Math.abs(r8.primary.path - 10) > 1e-6) f.push('wrong-cal path not true ' + r8.primary.path);
+        if (Math.abs(r8.primary.pathDisp - pd) > 1e-6 || Math.abs(pd - 8.37) > 0.02) f.push('wrong-cal pathDisp ' + r8.primary.pathDisp + ' vs ' + pd);
+        if (Math.abs(r8.primary.xDiv - xDivOfDisp(pd, badInst)) > 1e-6) f.push('wrong-cal xDiv/pathDisp disagree');
+        if (r8.textSP !== M.fmt2(pd) || Math.abs(r8.primary.dp - pd) > 1e-6) f.push('wrong-cal textSP/dp ' + r8.textSP + ' ' + r8.primary.dp);
+      }
     }
     const sMax = Math.max.apply(null, Array.from(a3.samples));
     if (Math.abs(sMax - 60) > 1) f.push('sample peak ' + sMax);
@@ -3160,6 +3328,13 @@ canvas { display: block; }
 //   (g = tofd.gainDb; Pos/Range/instrument AMP are in the mid segment owned by 90-app).
 // - OFF / ✕ on either window leaves the mode through UT.modes.exit() when available (re-entrancy
 //   guarded); without 80-modes they simply hide the panel.
+// - Angle: in TOFD mode the toolbar 45/60/70 radio (probe.angle, §15.9) and tofd.txAngle (panel select)
+//   are ONE value (the reference shows the toolbar radio as the TOFD angle). A 'state' listener mirrors
+//   probe.angle → txAngle on probe/mode changes (the toolbar wins when it is 45/60/70, else the probe
+//   follows txAngle) and txAngle → probe.angle (+ preset mode) on tofd changes; the select writes both.
+// - Docking: while the 'tofd' window is shown, #instrument gets the class `tofd-docked`
+//   (visibility: hidden — the grid keeps its size) so the D-scan panel REPLACES the flaw detector in
+//   the instrument column as in UTman instead of half-covering the EPOCH keys; removed on hide/close.
 (function (UT) {
   'use strict';
   const M = UT.math;
@@ -3176,6 +3351,7 @@ canvas { display: block; }
   const DSCAN_CONTRAST = 2;          // D-scan grey = 0.5 + rf·DSCAN_CONTRAST (clipped): lateral/backwall saturate as in UTman
   const ASCAN = { w: 236, h: 140, plotW: 198, plotH: 118, legendX: 204, legendW: 30 };
   const LIMITS = { pcs: [20, 200], rangeUs: [2, 40], delayUs: [0, 40], gainDb: [0, 80] };
+  const TOFD_ANGLES = [45, 60, 70];  // the only angles enabled in TOFD mode (§14.7) = the panel select options
 
   // ================================================================== physics
   /**
@@ -3492,6 +3668,7 @@ canvas { display: block; }
   const css = [
     '.win[data-win=tofd] .win-body{padding:0;background:#000;overflow:hidden}',
     '.win[data-win=tofd] .tofd-top{display:flex;align-items:stretch;height:36px;background:#000}',
+    '.tofd-docked{visibility:hidden}',
     '.win[data-win=tofd] .tofd-run{width:140px;margin:0;padding:0;font:bold 17px "Segoe UI",Arial,sans-serif;color:#000;background:#ececec;border:2px outset #fff;cursor:pointer}',
     '.win[data-win=tofd] .tofd-run.running{background:#ffe08a}',
     '.win[data-win=tofd] .tofd-clear{width:60px;margin:0 0 0 4px;padding:0;font:12px "Segoe UI",Arial,sans-serif;color:#000;background:#d8d8d8;border:2px outset #eee;cursor:pointer}',
@@ -3517,12 +3694,43 @@ canvas { display: block; }
 
   const ui = {
     win: null, ascanWin: null, dscan: null, ascan: null, runBtn: null,
-    inputs: {}, hover: null /* {tUs wedge-zeroed, z} */, subscribed: false, leaving: false,
+    inputs: {}, hover: null /* {tUs wedge-zeroed, z} */, subscribed: false, leaving: false, syncing: false,
   };
 
   function tofdState() { return UT.state.tofd || {}; }
   function setTofd(patch) { UT.setIn('tofd', patch); }
   function clampField(key, v) { const l = LIMITS[key]; return l ? M.clamp(v, l[0], l[1]) : v; }
+  function validAngle(a) { return TOFD_ANGLES.indexOf(+a) >= 0; }
+  function presetMode(a) { const p = UT.probe && UT.probe.presets ? UT.probe.presets[a] : null; return p ? p.mode : 'shear'; }
+  function setProbeAngle(a) { UT.setIn('probe', { angle: +a, mode: presetMode(+a) }); }
+
+  /**
+   * Keep probe.angle (toolbar 45/60/70 radio, status physics line) and tofd.txAngle (panel select,
+   * TOFD physics/drawing) equal while in TOFD mode. probe/mode keys: the toolbar wins when it holds a
+   * TOFD angle, otherwise the probe follows txAngle; tofd key alone: the probe follows txAngle.
+   * @param {string[]} keys  the 'state' event keys
+   */
+  function syncAngle(keys) {
+    if (ui.syncing || !UT.state || UT.state.mode !== 'tofd') return;
+    const s = UT.state, t = s.tofd || {}, p = s.probe || {};
+    ui.syncing = true;
+    try {
+      if (keys.indexOf('probe') >= 0 || keys.indexOf('mode') >= 0) {
+        if (validAngle(p.angle)) { if (+t.txAngle !== +p.angle) setTofd({ txAngle: +p.angle }); }
+        else if (validAngle(t.txAngle) && +p.angle !== +t.txAngle) setProbeAngle(t.txAngle);
+      } else if (keys.indexOf('tofd') >= 0 && validAngle(t.txAngle) && +p.angle !== +t.txAngle) setProbeAngle(t.txAngle);
+    } finally { ui.syncing = false; }
+  }
+  UT.bus.on('state', function (ev) { syncAngle((ev && ev.keys) || []); });
+
+  /** Hide/restore the flaw detector while the D-scan panel is docked in its column (§14.6 look). */
+  function dockInstrument(docked) {
+    const el = typeof document !== 'undefined' ? document.getElementById('instrument') : null;
+    if (el) el.classList.toggle('tofd-docked', !!docked);
+  }
+  UT.bus.on('win:show', function (w) { if (w && w.name === 'tofd') dockInstrument(true); });
+  UT.bus.on('win:hide', function (w) { if (w && w.name === 'tofd') dockInstrument(false); });
+  UT.bus.on('win:close', function (w) { if (w && w.name === 'tofd') dockInstrument(false); });
 
   /** Leave the TOFD mode (OFF / ✕): via UT.modes.exit when present, else just hide the panel. */
   function leave() {
@@ -3616,7 +3824,12 @@ canvas { display: block; }
     const pcs = UT.dom.field('PCS', { type: 'number', value: tofdState().pcs || 60, min: LIMITS.pcs[0], max: LIMITS.pcs[1], step: 1, title: 'Probe centre separation (mm)',
       onchange: function (v) { if (Number.isFinite(v)) setTofd({ pcs: clampField('pcs', v) }); } });
     const ang = UT.dom.field('Angle', { tag: 'select', type: 'number', value: tofdState().txAngle || 60, options: [45, 60, 70], title: 'Probe angle (compression)',
-      onchange: function (v) { const a = parseFloat(v); if (Number.isFinite(a)) setTofd({ txAngle: a }); } });
+      onchange: function (v) {
+        const a = parseFloat(v);
+        if (!validAngle(a)) return;
+        setTofd({ txAngle: a });
+        if (UT.state.mode === 'tofd' && +UT.state.probe.angle !== a) setProbeAngle(a);   // toolbar radio + status follow
+      } });
     ui.inputs.pcs = pcs.input;
     ui.inputs.txAngle = ang.input;
     const content = UT.dom.h('div', { class: 'tofd-ascan-panel' }, [
@@ -4285,12 +4498,18 @@ canvas { display: block; }
   function autState() { return UT.state.aut || UT.defaultState().aut; }
   function setAut(patch) { UT.setIn('aut', patch); }
   function setInst(patch) { UT.setIn('instrument', patch); }
-  function activeGate() { const a = autState(); return M.clamp(a.activeGate || 0, 0, Math.max(0, (a.gates || []).length - 1)); }
+  /** Gates as the panel sees them: aut.gates when it is a non-empty array, else a clone of the default 3 gates. */
+  function panelGates() {
+    const g = autState().gates;
+    if (Array.isArray(g) && g.length) return g;
+    return UT.defaultState().aut.gates.map(function (d) { return Object.assign({}, d); });
+  }
+  function activeGate() { const a = autState(); return M.clamp(a.activeGate || 0, 0, Math.max(0, panelGates().length - 1)); }
   function stripMode() { const a = autState(); return a.strip === 'rdt' || a.strip === 'rtd' ? a.strip : 'both'; }
 
   /** Patch one gate (clones the gates array). */
   function patchGate(gi, patch) {
-    const gates = (autState().gates || []).map(function (g, i) { return i === gi ? Object.assign({}, g, patch) : Object.assign({}, g); });
+    const gates = panelGates().map(function (g, i) { return i === gi ? Object.assign({}, g, patch) : Object.assign({}, g); });
     setAut({ gates });
   }
   function gateValue(key, v) { const l = LIMITS[key]; return Math.round(l ? M.clamp(v, l[0], l[1]) : v); }
@@ -4388,7 +4607,7 @@ canvas { display: block; }
 
   function buildGateGroup() {
     const gi = function () { return activeGate(); };
-    const gate = function () { return autState().gates[gi()] || { start: 0, width: 0, level: 0, on: false }; };
+    const gate = function () { return panelGates()[gi()] || { start: 0, width: 0, level: 0, on: false }; };
     // Level spinner
     const lvlLbl = UT.dom.h('span', { class: 'aut-lbl' }, 'Level=');
     const up = UT.dom.h('button', { type: 'button', title: 'Level +1 %' }, '▲');
@@ -4420,9 +4639,9 @@ canvas { display: block; }
     // Gates same
     const same = UT.dom.h('button', { class: 'aut-same', type: 'button', title: 'Copy gate 1 settings to gates 2 and 3 / 게이트 1 설정을 2, 3에 복사' }, 'Gates Same');
     same.addEventListener('click', function () {
-      const g1 = autState().gates[0];
+      const g1 = panelGates()[0];
       if (!g1) return;
-      const gates = autState().gates.map(function (g, i) { return i === 0 ? Object.assign({}, g) : Object.assign({}, g, { start: g1.start, width: g1.width, level: g1.level, on: g1.on }); });
+      const gates = panelGates().map(function (g, i) { return i === 0 ? Object.assign({}, g) : Object.assign({}, g, { start: g1.start, width: g1.width, level: g1.level, on: g1.on }); });
       setAut({ gates });
     });
     // RDT / RTD
@@ -4472,7 +4691,7 @@ canvas { display: block; }
     if (!ui.win) return;
     const a = autState(), inst = UT.state.instrument;
     const gi = activeGate();
-    const g = a.gates[gi] || { start: 0, width: 0, level: 0, on: false };
+    const g = panelGates()[gi] || { start: 0, width: 0, level: 0, on: false };
     const active = typeof document !== 'undefined' ? document.activeElement : null;
     const set = function (key, v) { const el = ui.inputs[key]; if (el && active !== el && String(el.value) !== String(v)) el.value = v; };
     set('range', +inst.range || 100);
@@ -4501,7 +4720,7 @@ canvas { display: block; }
     if (!cv) return;
     const ctx = UT.dom.fitCanvas(cv, ASCAN.w, ASCAN.h);
     const a = autOf(state);
-    const stateLike = Object.assign({}, state, { instrument: Object.assign({}, state.instrument, { gates: a.gates, activeGate: activeGate(), dac: Object.assign({}, state.instrument.dac, { on: false }) }) });
+    const stateLike = Object.assign({}, state, { instrument: Object.assign({}, state.instrument, { gates: gatesOf(state), activeGate: activeGate(), dac: Object.assign({}, state.instrument.dac, { on: false }) }) });
     if (UT.instruments && typeof UT.instruments.drawAscan === 'function') {
       UT.instruments.drawAscan(ctx, frame, stateLike, { base: 'aut', axes: false, margin: { l: 14, r: 4, t: 4, b: 4 } });
       return;
@@ -4709,7 +4928,7 @@ canvas { display: block; }
       // amplitude must fall off away from the defect (z 20..40) and be symmetric-ish about its centre
       const centre = sc.amp[0][30], far = sc.amp[0][2];
       if (!(centre > far)) f.push('no z fall-off ' + centre + ' vs ' + far);
-      if (Number.isFinite(sc.tof[0][30]) && !(sc.tof[0][30] >= 20 && sc.tof[0][30] <= 60)) f.push('tof outside gate ' + sc.tof[0][30]);
+      if (Number.isFinite(sc.tof[0][30]) && !(sc.tof[0][30] >= 20 && sc.tof[0][30] <= 70)) f.push('tof outside gate ' + sc.tof[0][30]);
     } catch (e) { f.push('exception: ' + (e && e.message)); }
     return f;
   }
@@ -4802,19 +5021,19 @@ canvas { display: block; }
   function cssW(cv) { return cv.clientWidth || cv.width || 300; }
   function cssH(cv) { return cv.clientHeight || cv.height || 150; }
 
-  /** Pure transform for the normal cross-section: fixed W/320 px per mm (§14.1). */
-  function computeTransform(sp, W, H) {
+  /**
+   * Pure transform for the normal cross-section: fixed W/320 px per mm (§14.1).
+   * `bottomMm` (optional) = room to keep below the specimen (through-transmission receiver shoe).
+   */
+  function computeTransform(sp, W, H, bottomMm) {
     if (sp && sp.tky && sp.extents) {
-      // TKY screen (§14.9): scale so the brace reaches the top of the canvas (up to 2.2× the width-fit
-      // scale, the long chord may be clipped at both ends); centred on the joint so the brace and the
-      // probe on the chord right of the toe stay visible.
-      const ex = sp.extents, tk = sp.tky;
-      const spanY = (ex.yMax - ex.yMin) + 8;
-      const wFit = W / ((ex.xMax - ex.xMin) + 8);
-      const sc = M.clamp(H / spanY, wFit, 2.2 * wFit);
-      const a = M.deg2rad(tk.braceAngle || 45);
-      const bx0 = Math.min(tk.toe.x, tk.heel.x) - (tk.braceLen || 90) * Math.cos(a);
-      const c = sc > wFit * 1.05 ? (bx0 + tk.toe.x + 60) / 2 : (ex.xMin + ex.xMax) / 2;
+      // TKY screen (§14.9): refit per angle from the outline bbox so the whole joint fits — the chord
+      // spans the width, the brace end stays inside the canvas and the probe on the chord right of the
+      // toe is never pushed off the right edge.
+      const ex = sp.extents;
+      const spanX = (ex.xMax - ex.xMin) + 8, spanY = (ex.yMax - ex.yMin) + 8;
+      const sc = Math.min(W / spanX, H / spanY);
+      const c = (ex.xMin + ex.xMax) / 2;
       return { scale: sc, ox: W / 2 - c * sc, oy: (-ex.yMin + 4) * sc, W, H, cx: c };
     }
     const scale = W / MM_SPAN;
@@ -4823,7 +5042,11 @@ canvas { display: block; }
       cx = sp.extents.xMin < 0 ? 0 : (sp.extents.xMin + sp.extents.xMax) / 2;
       yMin = sp.extents.yMin; yMax = sp.extents.yMax;
     }
-    const roomAbove = M.clamp(H / scale - yMax - 4, 20, 24);       // mm above the scan surface for the shoe
+    // mm above the scan surface for the shoe; in TT mode the receiver hangs below the backwall, so
+    // reserve `bottomMm` there and let the specimen sit higher (the transmitter keeps priority).
+    const bottom = bottomMm > 4 ? bottomMm : 4;
+    const minAbove = bottomMm > 4 ? Math.min(20, bottomMm - 2) : 20;
+    const roomAbove = M.clamp(H / scale - yMax - bottom, minAbove, 24);
     const above = Math.max(roomAbove, -yMin + 6);
     const oy = above * scale;
     return { scale, ox: W / 2 - cx * scale, oy, W, H, cx };
@@ -4833,8 +5056,14 @@ canvas { display: block; }
     const cv = S.canvas;
     const W = cv ? cssW(cv) : (S.ruler ? cssW(S.ruler) : 1280);
     const H = cv ? cssH(cv) : 200;
-    S.xf = computeTransform(st && st.specimen, W, H);
+    S.xf = computeTransform(st && st.specimen, W, H, ttBottomMm(st));
     return S.xf;
+  }
+  /** Room (mm) needed under the backwall for the hollow TT receiver shoe (+ index line), else 0. */
+  function ttBottomMm(st) {
+    if (!st || !st.probe || st.probe.method !== 'tt' || st.mode === 'tofd') return 0;
+    const pre = UT.probe && UT.probe.presets ? UT.probe.presets[st.probe.angle] : null;
+    return ((pre && pre.shoeHeight) || 14) + 4;
   }
 
   /** mm → CSS px in the cross-section canvas. */
@@ -5216,7 +5445,8 @@ canvas { display: block; }
 
   /**
    * Draw a probe shoe at emission point E (mm) with local frame (tangent t, normal n into the metal).
-   * Angle probes: "house" pentagon 24×14 mm sloped at the wedge angle; 0°: square 20×18 mm.
+   * Angle probes: "house" pentagon 24×14 mm (vertical front face, front-top corner sloped at the
+   * wedge angle); 0°: square 20×18 mm.
    */
   function drawShoe(ctx, E, t, n, side, der, colour, hollow, opts) {
     const o = opts || {};
@@ -5242,9 +5472,14 @@ canvas { display: block; }
     } else {
       const w = der.shoeWidth || 24, h = der.shoeHeight || 14;
       const half = w / 2;
-      const run = M.clamp(h * Math.tan(M.deg2rad(der.wedgeAngle || 45)), 4, w * 0.75);
+      // "house" pentagon (§14.1): rectangular body with a vertical front face; only the front-TOP
+      // corner is cut by a roof sloped at the wedge angle (the crystal sits on that face). The roof
+      // drops at most h/2 so the front face stays ≥ half the height, and runs at most w/2 back.
+      const tw = Math.tan(M.deg2rad(M.clamp(der.wedgeAngle || 45, 10, 80)));
+      const rise = Math.min(h / 2, half * tw);
+      const run = M.clamp(rise / tw, 3, half);
       const front = -side * half, back = side * half;
-      const pts = [map(front, 0), map(back, 0), map(back, -h), map(front + side * run, -h)];
+      const pts = [map(front, 0), map(back, 0), map(back, -h), map(front + side * run, -h), map(front, -h + rise)];
       ctx.beginPath(); pts.forEach(function (p, i) { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }); ctx.closePath();
       if (!hollow) { ctx.fillStyle = colour; ctx.fill(); }
       ctx.strokeStyle = hollow ? colour : '#202020'; ctx.lineWidth = hollow ? 2 : 1; ctx.stroke();
@@ -5614,7 +5849,7 @@ canvas { display: block; }
     ctx.fillStyle = COL.cream; ctx.fillRect(0, 0, W, H);
     const sp = st && st.specimen;
     if (!sp || isOblique(st)) { ctx.restore(); return; }
-    const xf = S.canvas ? (S.xf || ensureTransform(st)) : computeTransform(sp, W, H);
+    const xf = S.canvas ? (S.xf || ensureTransform(st)) : computeTransform(sp, W, H, ttBottomMm(st));
     const unsigned = sp.extents.xMin < 0;
     const mmAt = function (px) { return (px - xf.ox) / xf.scale; };
     // Tick every 2 mm / label every 10 mm at the normal scale; coarser steps when the mm are tiny
@@ -5978,13 +6213,23 @@ canvas { display: block; }
     return M.clamp((probeZ || 0) - 30, 0, maxTop);
   }
 
-  /** Snap a skew angle: 1° normally, 5° with Shift; normalised to (−180, 180]. */
+  /**
+   * Snap a skew angle: 1° normally, 5° with Shift; normalised to 0..359 — the same range the
+   * §11 validation contract (UT.test.setProbe / 40-ascan) stores, so every writer of probe.skew agrees.
+   * Use skewLabel() for the ±180 display form.
+   */
   function snapSkew(deg, shift) {
     const step = shift ? 5 : 1;
-    let s = Math.round(deg / step) * step;
-    while (s > 180) s -= 360;
-    while (s <= -180) s += 360;
-    return s === 0 ? 0 : s;   // avoid -0
+    const s = Math.round(deg / step) * step;
+    const n = ((s % 360) + 360) % 360;
+    return n === 0 ? 0 : n;   // avoid -0
+  }
+
+  /** Display form of a stored 0..359 skew: folded to (−180, 180] (e.g. 338 → −22). */
+  function skewLabel(skew) {
+    let s = ((skew % 360) + 360) % 360;
+    if (s > 180) s -= 360;
+    return s === 0 ? 0 : s;
   }
 
   /** Wrap z into [0, L). */
@@ -6384,7 +6629,7 @@ canvas { display: block; }
       ctx.font = '10px Segoe UI, Arial, sans-serif';
       ctx.fillStyle = '#000';
       ctx.textAlign = 'center';
-      ctx.fillText(skew + '°', dialC.x, dialC.y + DIAL_R + 10);
+      ctx.fillText(skewLabel(skew) + '°', dialC.x, dialC.y + DIAL_R + 10);
     }
     ctx.restore();
   }
@@ -6798,7 +7043,9 @@ canvas { display: block; }
     if (zWindowTop(290, 300, 65) !== 235) f.push('zWindowTop clamp high ' + zWindowTop(290, 300, 65));
     if (zWindowTop(20, 50, 65) !== 0) f.push('zWindowTop short specimen');
     if (snapSkew(12.4, false) !== 12 || snapSkew(12.4, true) !== 10 || snapSkew(-181, false) !== 179) f.push('snapSkew');
-    if (Object.is(snapSkew(-0.2, false), -0)) f.push('snapSkew -0');
+    if (snapSkew(-22, false) !== 338 || snapSkew(-170, true) !== 190 || snapSkew(360, false) !== 0 || snapSkew(725, false) !== 5) f.push('snapSkew 0..360');
+    if (Object.is(snapSkew(-0.2, false), -0) || Object.is(snapSkew(-360, false), -0)) f.push('snapSkew -0');
+    if (skewLabel(338) !== -22 || skewLabel(190) !== -170 || skewLabel(180) !== 180 || skewLabel(45) !== 45 || Object.is(skewLabel(360), -0)) f.push('skewLabel');
     const sp = zSpans(500, 20, 528.7, true);
     if (sp.length !== 2 || sp[0][0] !== 500 || Math.abs(sp[0][1] - 528.7) > 1e-9 || sp[1][0] !== 0 || sp[1][1] !== 20) f.push('zSpans wrap ' + JSON.stringify(sp));
     if (JSON.stringify(zSpans(120, 150, 300, false)) !== '[[120,150]]') f.push('zSpans plate');
@@ -6836,7 +7083,7 @@ canvas { display: block; }
   const plan = {
     init, draw, toPx, toMm, fit, drawCircleView, drawLinearBar, clearTrail, __selftest,
     /** Pure helpers (exposed for tests). */
-    helpers: { zWindowTop, snapSkew, wrapZ, zSpans, circleAngle, zAtAngle, ringDragSpan, zInDefect, planDir, lighten, isCompassHidden },
+    helpers: { zWindowTop, snapSkew, skewLabel, wrapZ, zSpans, circleAngle, zAtAngle, ringDragSpan, zInDefect, planDir, lighten, isCompassHidden },
     /** Current transform (read-only snapshot). */
     get transform() { return Object.assign({}, tf); },
     css: [
@@ -8578,7 +8825,7 @@ canvas { display: block; }
   // ------------------------------------------------------------------ parameter model
   const PARAMS = {
     gain: { label: 'Gain', get(ins) { return (ins || inst()).gain; }, set(v) { setInst({ gain: M.clamp(v, 0, 110) }); }, step: 0.5, coarse: 6, fmt(v) { return fmtGain(v); } },
-    range: { label: 'Range', get(ins) { return (ins || inst()).range; }, set(v) { setInst({ range: M.clamp(v, 10, 1000) }); }, mul: true, step: 0.01, coarse: 0.1, fmt(v) { return v.toFixed(1); } },
+    range: { label: 'Range', get(ins) { return (ins || inst()).range; }, set(v) { setInst({ range: M.clamp(Math.round(v * 10) / 10, 10, 1000) }); }, stepOf: rangeStep, fmt(v) { return v.toFixed(1); } },
     delay: { label: 'Delay', get(ins) { return (ins || inst()).delay; }, set(v) { setInst({ delay: M.clamp(v, 0, 1000) }); }, step: 1, coarse: 10, fmt(v) { return (v < 10 ? '0' : '') + v.toFixed(1); } },
     reject: { label: 'Reject', get(ins) { return (ins || inst()).reject; }, set(v) { setInst({ reject: M.clamp(Math.round(v), 0, 80) }); }, step: 1, coarse: 10, fmt(v) { return v + '%'; } },
     velocity: { label: 'Velocity', get(ins) { const c = (ins || inst()).cal; return (c && c.vel !== null && c.vel !== undefined) ? c.vel : derived().vel; }, set(v) { setInst({ cal: Object.assign({}, inst().cal, { vel: M.clamp(v, 1, 10) }) }); }, step: 0.01, coarse: 0.1, fmt(v) { return Math.round(v * 1000) + 'm/s'; } },
@@ -8613,9 +8860,18 @@ canvas { display: block; }
       p.set(cur + dir * step);
       return true;
     }
-    if (p.mul) p.set(cur * (1 + dir * (coarse ? p.coarse : p.step)));
-    else p.set(cur + dir * (coarse ? p.coarse : p.step));
+    p.set(cur + dir * (p.stepOf ? p.stepOf(cur, dir, coarse) : (coarse ? p.coarse : p.step)));
     return true;
+  }
+  /** Range step (§15.7: 1 %, coarse 10 %) taken additively so ▲ then ▼ returns to the start: the step is
+   *  1 % / 10 % of the value rounded to 0.1 mm (min 0.1); a downward step uses the step size of the value it
+   *  lands on (fixed point of s = stepAt(cur − s)), which keeps the pair symmetric across step-size boundaries. */
+  function rangeStep(cur, dir, coarse) {
+    const pct = coarse ? 0.1 : 0.01;
+    const stepAt = function (v) { return Math.max(0.1, Math.round(v * pct * 10) / 10); };
+    let s = stepAt(cur);
+    if (dir < 0) for (let i = 0; i < 8; i++) { const s2 = stepAt(cur - s); if (s2 === s) break; s = s2; }
+    return s;
   }
   function setSecondF(on) { mem.secondF = !!on; if (mem.refs.secondF) mem.refs.secondF.classList.toggle('lit', mem.secondF); }
 
@@ -8634,7 +8890,7 @@ canvas { display: block; }
     freeze() { setInst({ freeze: !inst().freeze }); setSecondF(false); },
     secondF() { setSecondF(!mem.secondF); },
     escape() { if (mem.secondF) { setSecondF(false); return; } if (mem.subPage) { mem.subPage = null; rebuildSoftkeys(); return; } if (UT.modes && UT.modes.autoCal && UT.modes.autoCal.cancel) UT.modes.autoCal.cancel(); },
-    enter() { if (UT.modes && UT.modes.autoCal && UT.modes.autoCal.step) UT.modes.autoCal.step(); setSecondF(false); },
+    enter() { if (UT.modes && UT.modes.autoCal && UT.modes.autoCal.step && UT.modes.autoCal.state && UT.modes.autoCal.state()) UT.modes.autoCal.step(); setSecondF(false); },
     up() { adjust(null, +1, false); },
     down() { adjust(null, -1, false); },
     left() { adjust(null, -1, true); },
@@ -8839,13 +9095,13 @@ canvas { display: block; }
     const ro = frame && frame.readouts; const p = ro && ro.primary;
     const gi = inst().activeGate + 1;
     setText(R.boxSP.firstChild, gi + '▶'); setText(R.boxSD.firstChild, gi + '⇒'); setText(R.boxDP.firstChild, gi + '↓'); setText(R.boxAmp.firstChild, gi + '%');
-    setText(R.readSP, p ? fmtRead(p.path) : '--.--'); setText(R.readSD, p ? fmtRead(p.sd) : '--.--'); setText(R.readDP, p ? fmtRead(p.dp) : '--.--');
+    setText(R.readSP, p ? fmtRead(Number.isFinite(p.pathDisp) ? p.pathDisp : p.path) : '--.--'); setText(R.readSD, p ? fmtRead(p.sd) : '--.--'); setText(R.readDP, p ? fmtRead(p.dp) : '--.--');
     setText(R.readAmp, p ? Math.min(999, Math.round(p.peakPct)) + '%' : '0%');
     const which = inst().readout || 'dp';
     const icons = { sp: '▶', sd: '⇒', dp: '↓', amp: '%' };
     setText(R.bigIcon, gi + (icons[which] || '↓'));
     let big = '--.--', unit = unitLabel();
-    if (p) { if (which === 'amp') { big = Math.min(999, Math.round(p.peakPct)); unit = '%'; } else big = fmtRead(which === 'sp' ? p.path : which === 'sd' ? p.sd : p.dp); }
+    if (p) { if (which === 'amp') { big = Math.min(999, Math.round(p.peakPct)); unit = '%'; } else big = fmtRead(which === 'sp' ? (Number.isFinite(p.pathDisp) ? p.pathDisp : p.path) : which === 'sd' ? p.sd : p.dp); }
     setText(R.big, String(big)); setText(R.bigUnit, unit);
     [R.boxSP, R.boxSD, R.boxDP, R.boxAmp].forEach(function (b) { b.classList.toggle('sel', b.dataset.ro === which); });
     const leg = p && p.leg ? p.leg : 1;
@@ -8931,7 +9187,7 @@ canvas { display: block; }
     setText(R.minDepth, 'MIN DEPTH ' + (p ? fmtRead(p.dp) : '--.--'));
     setText(R.range, 'RANGE ' + I.range.toFixed(1));
     const which = I.readout || 'dp';
-    const bigVal = !p ? '--.--' : which === 'amp' ? Math.min(999, Math.round(p.peakPct)) + ' %' : fmtRead(which === 'sp' ? p.path : which === 'sd' ? p.sd : p.dp) + ' ' + unitLabel();
+    const bigVal = !p ? '--.--' : which === 'amp' ? Math.min(999, Math.round(p.peakPct)) + ' %' : fmtRead(which === 'sp' ? (Number.isFinite(p.pathDisp) ? p.pathDisp : p.path) : which === 'sd' ? p.sd : p.dp) + ' ' + unitLabel();
     setText(R.big, (which === 'sp' ? '▶' : which === 'sd' ? '⇒' : which === 'amp' ? '%' : '↓') + bigVal);
     const cal = I.cal || {};
     const vel = (cal.vel !== null && cal.vel !== undefined) ? cal.vel : d.vel;
@@ -9449,6 +9705,13 @@ canvas { display: block; }
       // legal parameter list ↔ PARAMS
       LEGAL_PARAMS.forEach(function (k) { if (!PARAMS[k]) f.push('missing PARAMS.' + k); });
       Object.keys(PARAMS).forEach(function (k) { if (LEGAL_PARAMS.indexOf(k) < 0) f.push('illegal param ' + k); });
+      [10, 50, 88.5, 100, 104.9, 200, 250, 999.9].forEach(function (r0) {
+        [false, true].forEach(function (coarse) {
+          const up = M.clamp(Math.round((r0 + rangeStep(r0, 1, coarse)) * 10) / 10, 10, 1000), back = Math.round((up - rangeStep(up, -1, coarse)) * 10) / 10;
+          if (up <= r0 && r0 < 1000) f.push('rangeStep up ' + r0); if (r0 < 900 && back !== r0) f.push('rangeStep symmetry ' + (coarse ? 'coarse ' : '') + r0 + ' -> ' + up + ' -> ' + back);
+        });
+      });
+      if (rangeStep(200, 1, false) !== 2 || rangeStep(200, 1, true) !== 20 || rangeStep(10, 1, false) !== 0.1) f.push('rangeStep sizes');
       if (nextRange(100) !== 200 || nextRange(400) !== 50 || nextRange(88.5) !== 100 || nextRange(100, true) !== 50 || nextRange(50, true) !== 400) f.push('nextRange cycle');
       if (Math.abs(foldDepth(25, 20) - 15) > 1e-9 || Math.abs(foldDepth(45, 20) - 5) > 1e-9 || Math.abs(foldDepth(8, 20) - 8) > 1e-9) f.push('foldDepth');
       const poly = dacPolyline({ gain: 40, dac: { points: [{ path: 50, ampPct: 80 }, { path: 20, ampPct: 100 }], refDb: 34, on: true } });
@@ -9571,6 +9834,7 @@ canvas { display: block; }
   let lastAngle = null;        // for the v1/v2 face rebuild on angle change
   let savedAngle = null;       // angle probe in use before step/lamination forced 0°, restored on exit
   let savedGates = null;       // instrument.gates before step mode reset gate 1 for the auto-cal, restored on exit
+  let savedProbeMode = null;   // {angle, mode} before tofd forced the compression mode (§6.6), restored on exit
   const STEP_GATE1 = { on: true, start: 6, width: 40, level: 20, alarm: false };   // covers the 1st backwall of the 10 mm step under the wrong cal (8.4 mm)
   let tradeTimer = null;
   let autoCalState = null;     // {step: 1|2, t1, d1, d2}
@@ -9691,8 +9955,18 @@ canvas { display: block; }
     if (prev !== name) {
       closeModeWindows(prev);
       if (prev === 'step') { instr.cal = { vel: null, zero: 0 }; if (savedGates) { instr.gates = savedGates; savedGates = null; } }
-      if (prev === 'tofd') instr.rectify = 'full';
-      if (prev === 'trade') { stopTradeTimer(); patch.trade = Object.assign({}, s.trade, { active: false }); patch.display = Object.assign({}, s.display, { hide: false }); }
+      if (prev === 'tofd') {
+        instr.rectify = 'full';
+        // TOFD forced the compression mode: back to the wave mode the probe had before (or its preset)
+        probe.mode = savedProbeMode && savedProbeMode.angle === probe.angle ? savedProbeMode.mode : presetMode(probe.angle);
+        savedProbeMode = null;
+      }
+      if (prev === 'trade') {
+        stopTradeTimer();
+        // The exam is over: the hidden truth must not survive into another mode (§15.8), so submit() cannot score it
+        patch.trade = Object.assign({}, s.trade, { active: false, truth: [], seed: null, score: null, result: null, report: [], startedAt: null, revealed: false });
+        patch.display = Object.assign({}, s.display, { hide: false });
+      }
     }
     // probe adjustments per mode
     const forcesZero = name === 'step' || name === 'lamination';
@@ -9707,6 +9981,9 @@ canvas { display: block; }
     if (name === 'tofd') {
       probe.method = probe.method === 'pa' ? 'pe' : probe.method;
       if (probe.angle === 0) { probe.angle = s.tofd.txAngle || 60; probe.mode = presetMode(probe.angle); }
+      // The TOFD pair is a compression-wave pair (§6.6, lesson 13 '60° comp'): the physics status line follows probe.mode
+      if (prev !== 'tofd') savedProbeMode = { angle: probe.angle, mode: probe.mode };
+      probe.mode = 'comp';
     }
     const spec = buildSpecimen(name, o, probe);
     if (o.keepProbe) probe = clampProbe(probe, spec);
@@ -9817,6 +10094,7 @@ canvas { display: block; }
     if (!s.specimen) return;
     if (keys.indexOf('probe') >= 0) {
       const a = s.probe.angle;
+      if (s.mode === 'tofd' && a !== 0 && s.probe.mode !== 'comp') { lastAngle = a; UT.setIn('probe', { mode: 'comp' }); return; }
       if ((s.mode === 'v1' || s.mode === 'v2') && lastAngle !== null && (a === 0) !== (lastAngle === 0)) {
         lastAngle = a;
         setFace(a === 0 ? 'narrow' : 'wide');
@@ -9893,9 +10171,9 @@ canvas { display: block; }
       acShow('Auto Cal 1/2: Place the probe on the 10 mm step (gate 1 start below the first backwall echo), then press ✓');
       return autoCalState;
     },
-    /** Capture the current gated peak time for the current wizard step. Returns the new cal when finished. */
+    /** Capture the current gated peak time for the current wizard step. Returns the new cal when finished; null when the wizard is not running (✓ / Enter is then a no-op — only the 'Auto Cal' softkey starts it). */
     step() {
-      if (!autoCalState) return autoCal.start();
+      if (!autoCalState) return null;
       const cap = trueTimeOfGatedPeak();
       if (!cap) return null;
       if (autoCalState.step === 1) {
@@ -10071,7 +10349,7 @@ canvas { display: block; }
   function addPreset(name, opts) {
     const s = st();
     const fn = S.defectPresets[name];
-    if (!fn) throw new Error('Unknown preset: ' + name);
+    if (!fn) { UT.status({ right: 'Unknown preset ' + name }); return null; }
     const spec = s.specimen || S.plateWeld(s.weldOpts);
     const n = freeSlot(s.defects);
     if (!n) { UT.status({ right: 'Maximum 8 defects' }); return null; }
@@ -10401,7 +10679,6 @@ canvas { display: block; }
       editorWin.show();
       editorRefresh();
       UT.status({ right: UT.i18n.t(HINTS.editor) });
-      UT.bus.emit('mode', { mode: st().mode, prev: st().mode, editor: true });
       return editorWin;
     },
     close() { if (editorWin && editorWin.isOpen()) editorWin.close(); else defectEditor._closed(); },
@@ -10409,7 +10686,6 @@ canvas { display: block; }
     _closed() {
       if (st().editing.defect) UT.setIn('editing', { defect: false });
       UT.status({ right: UT.i18n.t(HINTS[st().mode] || '') });
-      UT.bus.emit('mode', { mode: st().mode, prev: st().mode, editor: false });
     },
     isOpen() { return !!(editorWin && editorWin.isOpen()); },
     get window() { return editorWin; },
@@ -10487,6 +10763,7 @@ canvas { display: block; }
      */
     submit(rows) {
       const s = st();
+      if (!s.trade.active || s.mode !== 'trade') return 0;      // no test running: nothing to score, state untouched
       const truth = s.trade.truth || [];
       const num = function (v) { const x = typeof v === 'string' && v.trim() === '' ? NaN : +v; return Number.isFinite(x) ? x : NaN; };
       const report = (Array.isArray(rows) ? rows : []).filter(function (r) { return r && typeof r === 'object'; }).map(function (r, i) {
@@ -10711,7 +10988,12 @@ canvas { display: block; }
       setup() { setProbe({ angle: 45 }); enter('v2'); setProbe({ x: 60, side: 1 }); setInstr({ range: 100, gain: 30 }); },
       steps: ['Facing R25: 25 / 100 / 175 mm', 'Turn the probe (side −1): 50 / 125 / 200 mm', 'Index check at the maximum; angle check on the 5 mm hole (front face)'] },
     { n: 7, title: 'Making Sense of Amplitude', ko: '진폭과 dB: +6 dB = 2배, 퀵 게인 키', en: 'dB arithmetic: +6 dB doubles, quick gain keys, % readout',
-      setup() { enter('dac'); setProbe({ angle: 60 }); setInstr({ gain: 34, range: 100 }); },
+      setup() {
+        enter('dac'); setProbe({ angle: 60 }); setInstr({ gain: 34, range: 100 });
+        // §14.12: park the 60° probe at the T/2 hole maximum (hole x + depth·tan 60°)
+        const spec = st().specimen, h = spec && spec.holes ? spec.holes.find(function (o) { return Math.abs(o.y - spec.T / 2) < 1e-6; }) : null;
+        if (h) setProbe({ x: +(h.x + h.y * Math.tan(M.deg2rad(60))).toFixed(1) });
+      },
       steps: ['Maximise the T/2 hole echo', 'Press the 40.0dB softkey: the echo doubles', '+6 dB again: clipped — read the unclipped % box', 'Note 20·log10(ratio)'] },
     { n: 8, title: 'TKY Variable configuration Welds', ko: 'T/K/Y 이음: 브레이스 각도 조절, 토우 융합불량', en: 'T/K/Y joints: adjustable brace angle, toe LOF',
       setup() { enter('tky', { specimenOpts: { braceAngle: 60 } }); setProbe({ angle: 60, x: 35 }); },
@@ -10729,7 +11011,7 @@ canvas { display: block; }
       setup() { UT.set({ utSet: 'epoch600' }); enter('step'); setInstr({ range: 50, gain: 30 }); },
       steps: ['Note the wrong readouts (vel 5.60, zero 0.4)', 'Auto Cal softkey → probe on the 10 mm step → ✓', 'Probe on the 25 mm step → ✓', 'Readouts now 10.0 / 25.0 mm'] },
     { n: 13, title: 'TOFD', ko: 'TOFD: 측면파·저면파·팁 회절, D-스캔', en: 'TOFD: lateral wave, backwall, tip diffraction, D-scan',
-      setup() { weld({ T: 20 }); setDefects([{ n: 1, type: 'planar', pts: [{ x: 0, y: 8 }, { x: 0, y: 13 }], zFrom: 120, zTo: 150, label: 'Defect 1' }]); UT.setIn('tofd', { pcs: 60, txAngle: 60 }); enter('tofd', { keepProbe: true }); },
+      setup() { weld({ T: 20 }); setDefects([{ n: 1, type: 'planar', pts: [{ x: 0, y: 8 }, { x: 0, y: 13 }], zFrom: 120, zTo: 150, label: 'Defect 1' }]); UT.setIn('tofd', { pcs: 60, txAngle: 60 }); setProbe({ angle: 60 }); enter('tofd', { keepProbe: true }); },
       steps: ['Read Lateral / BackWall in the status bar', 'Run Scan', 'Click the D-scan on the tip arc and read Depth'] },
     { n: 14, title: 'Shear wave and Compression wave', ko: '횡파/종파, 쐐기각 계산 (Snell), 임계각', en: 'Shear vs compression, wedge angle (Snell), critical angles',
       setup() { weld({ T: 20 }); setProbe({ angle: 60 }); },
@@ -10825,6 +11107,8 @@ canvas { display: block; }
       else if (typeof v === 'number') { if (Number.isFinite(v)) out[k] = M.clamp(v, -1e4, 1e4); }
       else if (typeof v === 'string' && v.length <= 40) out[k] = v;
     });
+    // cross-field pipe rule (same as 90-app WELD_RANGES): the wall cannot exceed the pipe radius
+    if (out.pipe && Number.isFinite(out.od) && Number.isFinite(out.wt)) out.wt = Math.min(out.wt, Math.max(OPT_RANGES.wt[0], out.od / 2 - 1));
     return out;
   }
   function loadSpecimen(id, opts) {
@@ -10832,7 +11116,12 @@ canvas { display: block; }
     if (!mode) throw new Error('Unknown specimen id: ' + id);
     const o = clampOpts(opts);
     if (id === 'plate-weld' || id === 'pipe-weld') {
-      UT.setIn('weldOpts', Object.assign(o, { pipe: id === 'pipe-weld' }), { silent: true, noRender: true });
+      if (id === 'pipe-weld') {
+        // wall/radius rule against the MERGED options (existing od when opts carries only wt, and vice versa)
+        const merged = Object.assign({}, st().weldOpts, o, { pipe: true });
+        if (Number.isFinite(merged.od) && Number.isFinite(merged.wt)) { merged.wt = Math.min(merged.wt, Math.max(OPT_RANGES.wt[0], merged.od / 2 - 1)); merged.T = merged.wt; }
+        UT.setIn('weldOpts', merged, { silent: true, noRender: true });
+      } else UT.setIn('weldOpts', Object.assign(o, { pipe: false }), { silent: true, noRender: true });
       enter('weld', { silentUI: true });
     } else enter(mode, { specimenOpts: opts ? o : undefined, silentUI: true });
     return st().specimen;
@@ -10865,7 +11154,7 @@ canvas { display: block; }
     '.dfe-right .fld-input{flex:0 0 auto;min-width:0}',
     '.dfe-left .btn,.dfe-right .btn{flex:0 0 auto}',
     '.dfe-mid{flex:0 0 auto}',
-    '.dfe-right .fld-input{width:40px;font-size:11px;text-align:center}',
+    '.dfe-right .fld-input{width:56px;font-size:11px;text-align:left;box-sizing:border-box}',
     '.dfe-right input,.dfe-right select{color:#111;background:#fff}',
     '.dfe-right .fld input[type=checkbox]{width:auto}',
     '.dfe-right select.fld-input{width:100px}',
@@ -11145,7 +11434,13 @@ canvas { display: block; }
   }
   function togglePipe() {
     const pipe = !(st().weldOpts && st().weldOpts.pipe);
-    UT.setIn('weldOpts', { pipe }, { noRender: true });
+    const s = st();
+    // §15.9: PIPE on shows the 3-D window (also after it was closed with ✕): re-arm display.pipe3d in the SAME
+    // patch as weldOpts so 64-view-3d treats it as the pipe rule (not as a '3D Plate' request) and shows it on
+    // the specimen change; PIPE off then hides it again.
+    const patch = { weldOpts: Object.assign({}, s.weldOpts, { pipe }) };
+    if (pipe && s.display && !s.display.pipe3d) patch.display = Object.assign({}, s.display, { pipe3d: true });
+    UT.set(patch, { noRender: true });
     reenterWeldLike();
     syncPipe3d();
   }
@@ -11158,6 +11453,18 @@ canvas { display: block; }
     if (has('views.pipe3d.open')) return;
     const s = st();
     if (winApi('pipe3d')) showPipe3d(!!(s.weldOpts && s.weldOpts.pipe) && s.display.pipe3d !== false);
+  }
+  /** Options ▸ Show 3D Window state = the window itself (never a stale display.pipe3d flag). */
+  function pipe3dOpen() { return winOpen('pipe3d'); }
+  /**
+   * Show / hide the 3-D window on the user's explicit request (menu, Options dialog): 64-view-3d's
+   * open()/close() keep display.pipe3d in step with the window (open() also marks a plate as wanted);
+   * without 64-view-3d fall back to the display flag + syncPipe3d().
+   */
+  function setPipe3dShown(show) {
+    if (has('views.pipe3d.open') && has('views.pipe3d.close')) { show ? UT.views.pipe3d.open() : UT.views.pipe3d.close(); return; }
+    setDisplay({ pipe3d: !!show });
+    syncPipe3d();
   }
   function showPipe3d(show) {
     const v = has('views.pipe3d');
@@ -11373,7 +11680,7 @@ canvas { display: block; }
           { key: 'Geometry', action: function () { setDisplay({ colourCode: 'geometry' }); }, check: function () { return st().display.colourCode === 'geometry'; } },
         ] },
         { key: 'Show Plan View', action: function () { setDisplay({ plan: !st().display.plan }); applyLayout(); }, check: function () { return st().display.plan !== false; } },
-        { key: 'Show 3D Window', action: function () { const v = !st().display.pipe3d; setDisplay({ pipe3d: v }); syncPipe3d(); }, check: function () { return st().display.pipe3d !== false; } },
+        { key: 'Show 3D Window', action: function () { setPipe3dShown(!pipe3dOpen()); }, check: pipe3dOpen },
         { key: 'Show Legend', action: function () { setDisplay({ legend: !st().display.legend }); }, check: function () { return st().display.legend !== false; } },
         { key: 'Language', sub: [
           { key: 'English', action: function () { app.setLang('en'); }, check: function () { return mem.lang === 'en'; } },
@@ -11583,6 +11890,7 @@ canvas { display: block; }
     const plot = mode === 'iow';
     main.classList.toggle('plot', plot);
     main.classList.toggle('tall', ['iow', 'dac', 'step', 'lamination'].indexOf(mode) >= 0);
+    main.classList.toggle('tt', st().probe.method === 'tt' && mode !== 'tofd');
     main.classList.toggle('block', !plot && hidden.indexOf('plan') >= 0);
     main.classList.toggle('no-ruler', hidden.indexOf('ruler') >= 0);
     main.classList.toggle('usk7', st().utSet === 'usk7');
@@ -11604,7 +11912,12 @@ canvas { display: block; }
     UT.bus.on('mode', function () { applyLayout(); refreshToolbar(); });
     UT.bus.on('win:show', function (w) { keepBelowToolbar(w); bindWinClamp(w); clampToViewport(w); refreshToolbar(); });
     UT.bus.on('win:hide', refreshToolbar);
-    UT.bus.on('win:close', refreshToolbar);
+    UT.bus.on('win:close', function (w) {
+      // ✕ on the 3-D window = the user no longer wants it: clear display.pipe3d so that Options ▸
+      // Show 3D Window is unchecked and a single click re-opens it (64-view-3d does the same in onClose)
+      if (w && w.name === 'pipe3d' && st().display && st().display.pipe3d) UT.setIn('display', { pipe3d: false }, { noRender: true });
+      refreshToolbar();
+    });
     UT.bus.on('resize', function () { for (const k of Object.keys(UT.dom.wins)) { const w = UT.dom.wins[k]; if (w && w.isOpen()) clampToViewport(w); } });
   }
   /**
@@ -11652,6 +11965,7 @@ canvas { display: block; }
     if (keys.indexOf('status') >= 0 || (keys.length === 1 && keys[0] === 'cursor')) return;
     if (keys.indexOf('utSet') >= 0) { call('instruments.setSkin', [st().utSet]); applyLayout(); }
     if (keys.indexOf('mode') >= 0 || keys.indexOf('display') >= 0) applyLayout();
+    else if (keys.indexOf('probe') >= 0 && mem.els.main && mem.els.main.classList.contains('tt') !== (st().probe.method === 'tt' && currentMode() !== 'tofd')) applyLayout();
     refreshToolbar();
     scheduleSave(keys);
   }
@@ -11822,6 +12136,7 @@ canvas { display: block; }
           else if (raw !== M.clamp(raw, WELD_RANGES[k][0], WELD_RANGES[k][1])) bad.push(fields[k].querySelector('.fld-label').textContent + ' → ' + M.clamp(raw, WELD_RANGES[k][0], WELD_RANGES[k][1]));
         }
         const v = coerceLike(prev, o, WELD_RANGES, { type: WELD_TYPES });
+        if (v.pipe && v.wt > pipeWtMax(v.od)) { clampPipeWall(v); bad.push(fields.wt.querySelector('.fld-label').textContent + ' → ' + v.wt + ' (< OD/2)'); }
         if (!v.pipe) v.wt = v.T; else v.T = v.wt;
         for (const k of Object.keys(fields)) { fields[k].input.value = v[k]; fields[k].input.classList.remove('invalid'); }
         odIn.input.value = inchOf(v.od);
@@ -11950,7 +12265,7 @@ canvas { display: block; }
         sel('Colour code', s.display.colourCode || 'none', [{ value: 'none', label: 'None' }, { value: 'propagation', label: 'Mode propagation (leg colours)' }, { value: 'geometry', label: 'Geometry (last surface)' }], function (v) { setDisplay({ colourCode: v }); }),
         sel('Number of skips', String(s.display.skips || 3), [1, 2, 3, 4].map(function (n) { return { value: String(n), label: String(n) }; }), function (v) { setDisplay({ skips: parseInt(v, 10) }); }),
         chk('Show plan view', s.display.plan !== false, function (v) { setDisplay({ plan: v }); applyLayout(); }),
-        chk('Show 3D window', s.display.pipe3d !== false, function (v) { setDisplay({ pipe3d: v }); syncPipe3d(); }),
+        chk('Show 3D window', pipe3dOpen(), function (v) { setPipe3dShown(v); }),
         chk('Show legend', s.display.legend !== false, function (v) { setDisplay({ legend: v }); }),
         chk('Show beam', s.display.beam !== false, function (v) { setDisplay({ beam: v }); }),
         chk('Auto trig (angle/thickness follow probe)', s.display.autoTrig !== false, function (v) { setDisplay({ autoTrig: v }); }),
@@ -12147,6 +12462,13 @@ canvas { display: block; }
   // Stored-record validation ranges (same limits as the Weld / wedge dialogs and instrument softkeys).
   const WELD_RANGES = { T: [3, 100], L: [50, 2000], bevel: [0, 60], rootGap: [0, 10], rootFace: [0, 10], capWidth: [0, 60], capHeight: [0, 10], rootHeight: [0, 10], od: [25, 2000], wt: [3, 100] };
   const WELD_TYPES = ['single-v', 'double-v', 'none'];
+  /** Largest wall thickness a pipe of outside diameter `od` can have (a wall cannot exceed the radius; ≥ the WT minimum). */
+  function pipeWtMax(od) { return Math.max(WELD_RANGES.wt[0], od / 2 - 1); }
+  /** Cross-field pipe rule on a per-field-clamped weldOpts object: wt < od/2 (mutates and returns `o`). */
+  function clampPipeWall(o) {
+    if (o && o.pipe && Number.isFinite(o.od) && Number.isFinite(o.wt)) o.wt = Math.min(o.wt, pipeWtMax(o.od));
+    return o;
+  }
   const PROBE_RANGES = { angle: [0, 89.9], freq: [0.5, 20], diameter: [1, 50], wedgeVel: [1, 6], x: [-3000, 3000], z: [-5000, 5000], skew: [-360, 360], paFrom: [0, 89.9], paTo: [0, 89.9], paStep: [0.1, 10] };
   const PROBE_ENUMS = { mode: ['shear', 'comp'], crystal: ['single', 'twin'], method: ['pe', 'tt', 'tandem', 'pa'], surface: ['chord', 'brace'] };
   const DISPLAY_RANGES = { skips: [1, 12] };
@@ -12195,7 +12517,8 @@ canvas { display: block; }
       ins.damping = !!ins.damping;
       if (RECTIFY.indexOf(ins.rectify) < 0) ins.rectify = def.instrument.rectify;
       const defGates = def.instrument.gates;
-      ins.gates = (Array.isArray(ins.gates) && ins.gates.length >= 2 ? ins.gates : defGates).map(function (g, i) { return coerceGate(g, defGates[Math.min(i, defGates.length - 1)]); });
+      // exactly defGates.length slots: junk entries fall back to that slot's default, extras are dropped
+      ins.gates = defGates.map(function (d, i) { return coerceGate(Array.isArray(ins.gates) ? ins.gates[i] : undefined, d); });
       const dac = ins.dac && typeof ins.dac === 'object' ? ins.dac : def.instrument.dac;
       ins.dac = {
         points: (Array.isArray(dac.points) ? dac.points : []).filter(function (p) { return p && Number.isFinite(p.path) && Number.isFinite(p.ampPct); }).map(function (p) { return { path: p.path, ampPct: p.ampPct }; }),
@@ -12208,7 +12531,7 @@ canvas { display: block; }
     }
     if (rec.display && typeof rec.display === 'object') patch.display = coerceLike(def.display, rec.display, DISPLAY_RANGES, DISPLAY_ENUMS);
     if (Array.isArray(rec.defects)) patch.defects = limitDefectSlots(rec.defects);
-    if (rec.weldOpts && typeof rec.weldOpts === 'object') patch.weldOpts = coerceLike(def.weldOpts, rec.weldOpts, WELD_RANGES, { type: WELD_TYPES });
+    if (rec.weldOpts && typeof rec.weldOpts === 'object') patch.weldOpts = clampPipeWall(coerceLike(def.weldOpts, rec.weldOpts, WELD_RANGES, { type: WELD_TYPES }));
     if (rec.utSet === 'epoch600' || rec.utSet === 'epoch4' || rec.utSet === 'usk7') patch.utSet = rec.utSet;
     if (rec.lang === 'ko' || rec.lang === 'en') patch.__lang = rec.lang;
     return patch;
@@ -12306,7 +12629,12 @@ canvas { display: block; }
         const bad = patchFromRecord({ v: 1, weldOpts: { T: 1e7, L: 'huge', bevel: -5, type: 'zigzag', pipe: 1, W: 1e9 }, instrument: { range: 0, delay: 'x', reject: -3, rectify: 'odd', gates: [{ start: 'a' }, null, { on: 1, level: 500 }], cal: { vel: 'v', zero: 1e9 } }, probe: { angle: 'x', x: 1e9, side: -2, method: 'bogus' }, display: { skips: 99, units: 'furlong', plan: 0 } });
         const bw = bad.weldOpts, bi = bad.instrument, bp = bad.probe, bd = bad.display;
         if (bw.T !== 100 || bw.L !== 300 || bw.bevel !== 0 || bw.type !== 'single-v' || bw.pipe !== true || bw.W !== undefined) f.push('patchFromRecord weldOpts ' + JSON.stringify(bw));
-        if (bi.range !== 10 || bi.delay !== 0 || bi.reject !== 0 || bi.rectify !== 'full' || bi.gates.length !== 3 || bi.gates[0].start !== 10 || bi.gates[1].on !== false || bi.gates[2].level !== 100 || bi.cal.vel !== null || bi.cal.zero !== 50) f.push('patchFromRecord instrument ' + JSON.stringify(bi));
+        const thin = patchFromRecord({ v: 1, weldOpts: { od: 25, wt: 100, pipe: true } }).weldOpts;
+        if (thin.od !== 25 || thin.wt !== 11.5) f.push('patchFromRecord pipe wall ' + JSON.stringify(thin));
+        const plate = patchFromRecord({ v: 1, weldOpts: { od: 25, wt: 100, pipe: false } }).weldOpts;
+        if (plate.wt !== 100) f.push('patchFromRecord plate wt untouched ' + JSON.stringify(plate));
+        if (patchFromRecord({ v: 1, instrument: { gates: new Array(2000).fill({ start: 5 }) } }).instrument.gates.length !== 2) f.push('patchFromRecord gates truncated');
+        if (bi.range !== 10 || bi.delay !== 0 || bi.reject !== 0 || bi.rectify !== 'full' || bi.gates.length !== 2 || bi.gates[0].start !== 10 || bi.gates[1].on !== false || bi.cal.vel !== null || bi.cal.zero !== 50) f.push('patchFromRecord instrument ' + JSON.stringify(bi));
         if (bp.angle !== 60 || bp.x !== 3000 || bp.side !== -1 || bp.method !== 'pe') f.push('patchFromRecord probe ' + JSON.stringify(bp));
         if (bd.skips !== 12 || bd.units !== 'mm' || bd.plan !== false) f.push('patchFromRecord display ' + JSON.stringify(bd));
         if (parseSteps('25, 5,10 ,15;20 20').join(',') !== '5,10,15,20,25') f.push('parseSteps');

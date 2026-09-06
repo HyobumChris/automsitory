@@ -96,17 +96,19 @@ canvas { display: block; }
 #main {
   flex: 1 1 auto;
   display: grid;
-  /* Row sizing is intrinsic, so it holds for every UT set (EPOCH 600 396 px, EPOCH 4 486 px, USK7 dock
-   * 200 px) and for a wrapped two-line status bar without hard-coded heights:
-   * - plan/instrument row `minmax(auto, 1fr)`: never smaller than the instrument column (or the plan
-   *   view's min-height), and it takes whatever is left once the cross-section row is sized;
-   * - cross-section row `minmax(--cross-min, --cross-max)`: the grid fills fixed-max tracks before the
-   *   fr track, so it grows to its cap (236 px ≈ 26vh; 340 px / 36vh for block specimens) when the
-   *   viewport allows and shrinks towards its minimum on small screens (1024 × 700, §7). */
+  /* Row sizing mirrors the original (RcSqNFlOF4E.jpg): the plan view is the height of the instrument
+   * and the ruler + cross-section take whatever height is left, so there is never a blank cream band
+   * under the instrument and the cross-section grows with the viewport. It stays intrinsic, so it holds
+   * for every UT set (EPOCH 600 396 px, EPOCH 4 486 px, USK7 dock 200 px) and for a wrapped two-line
+   * status bar without hard-coded heights:
+   * - plan/instrument row `auto`: sized by its content, i.e. the instrument column (or the plan view's
+   *   min-height when the instrument is shorter, e.g. the USK7 dock). The `1fr` cross-section track
+   *   absorbs all free space before auto tracks are stretched, so this row never grows past that;
+   * - cross-section row `minmax(--cross-min, 1fr)`: takes the remaining height and shrinks towards its
+   *   minimum on small screens (1024 × 700, §7: ≈146 px with the EPOCH 600 column). */
   --cross-min: 120px;
-  --cross-max: 236px;
   grid-template-columns: 470px minmax(0, 1fr);
-  grid-template-rows: minmax(auto, 1fr) 30px minmax(var(--cross-min), var(--cross-max));
+  grid-template-rows: auto 30px minmax(var(--cross-min), 1fr);
   gap: 0;
   min-height: 0;
   /* below the supported envelope the rows (instrument + ruler + minimum cross-section) can exceed the
@@ -138,9 +140,11 @@ canvas { display: block; }
 #main.block.no-ruler #ruler-area { display: none; }
 #main.block.no-ruler #instrument { grid-area: 1 / 1 / 2 / 2; }
 #main.block.no-ruler #cross-area { grid-area: 1 / 2 / 2 / 3; }
-#main.no-ruler:not(.block) { grid-template-rows: minmax(auto, 1fr) 0 minmax(var(--cross-min), var(--cross-max)); }
-/* block specimens (IOW 45 mm, DAC, step wedge, lamination plate): taller cross-section so the whole block fits */
-#main.tall { --cross-min: 140px; --cross-max: min(36vh, 340px); }
+#main.no-ruler:not(.block) { grid-template-rows: auto 0 minmax(var(--cross-min), 1fr); }
+/* block specimens (IOW 45 mm, DAC, step wedge, lamination plate): taller cross-section floor so the whole block fits */
+#main.tall { --cross-min: 140px; }
+/* through transmission: room for the plate plus both 14 mm shoes at the fixed §14.1 scale (≈154 px at 1024 wide) */
+#main.tt { --cross-min: max(140px, calc(48 * 100vw / 320)); }
 #main.tall #plan-area { min-height: 300px; }
 #main.no-ruler:not(.block) #ruler-area { display: none; }
 /* EPOCH 4 (486 px, ASME keypad) is 90 px taller than the EPOCH 600 column the grid was sized for: on

@@ -102,7 +102,7 @@
   // ------------------------------------------------------------------ parameter model
   const PARAMS = {
     gain: { label: 'Gain', get(ins) { return (ins || inst()).gain; }, set(v) { setInst({ gain: M.clamp(v, 0, 110) }); }, step: 0.5, coarse: 6, fmt(v) { return fmtGain(v); } },
-    range: { label: 'Range', get(ins) { return (ins || inst()).range; }, set(v) { setInst({ range: M.clamp(v, 10, 1000) }); }, mul: true, step: 0.01, coarse: 0.1, fmt(v) { return v.toFixed(1); } },
+    range: { label: 'Range', get(ins) { return (ins || inst()).range; }, set(v) { setInst({ range: M.clamp(Math.round(v * 10) / 10, 10, 1000) }); }, stepOf: rangeStep, fmt(v) { return v.toFixed(1); } },
     delay: { label: 'Delay', get(ins) { return (ins || inst()).delay; }, set(v) { setInst({ delay: M.clamp(v, 0, 1000) }); }, step: 1, coarse: 10, fmt(v) { return (v < 10 ? '0' : '') + v.toFixed(1); } },
     reject: { label: 'Reject', get(ins) { return (ins || inst()).reject; }, set(v) { setInst({ reject: M.clamp(Math.round(v), 0, 80) }); }, step: 1, coarse: 10, fmt(v) { return v + '%'; } },
     velocity: { label: 'Velocity', get(ins) { const c = (ins || inst()).cal; return (c && c.vel !== null && c.vel !== undefined) ? c.vel : derived().vel; }, set(v) { setInst({ cal: Object.assign({}, inst().cal, { vel: M.clamp(v, 1, 10) }) }); }, step: 0.01, coarse: 0.1, fmt(v) { return Math.round(v * 1000) + 'm/s'; } },
@@ -137,9 +137,18 @@
       p.set(cur + dir * step);
       return true;
     }
-    if (p.mul) p.set(cur * (1 + dir * (coarse ? p.coarse : p.step)));
-    else p.set(cur + dir * (coarse ? p.coarse : p.step));
+    p.set(cur + dir * (p.stepOf ? p.stepOf(cur, dir, coarse) : (coarse ? p.coarse : p.step)));
     return true;
+  }
+  /** Range step (§15.7: 1 %, coarse 10 %) taken additively so ▲ then ▼ returns to the start: the step is
+   *  1 % / 10 % of the value rounded to 0.1 mm (min 0.1); a downward step uses the step size of the value it
+   *  lands on (fixed point of s = stepAt(cur − s)), which keeps the pair symmetric across step-size boundaries. */
+  function rangeStep(cur, dir, coarse) {
+    const pct = coarse ? 0.1 : 0.01;
+    const stepAt = function (v) { return Math.max(0.1, Math.round(v * pct * 10) / 10); };
+    let s = stepAt(cur);
+    if (dir < 0) for (let i = 0; i < 8; i++) { const s2 = stepAt(cur - s); if (s2 === s) break; s = s2; }
+    return s;
   }
   function setSecondF(on) { mem.secondF = !!on; if (mem.refs.secondF) mem.refs.secondF.classList.toggle('lit', mem.secondF); }
 
@@ -158,7 +167,7 @@
     freeze() { setInst({ freeze: !inst().freeze }); setSecondF(false); },
     secondF() { setSecondF(!mem.secondF); },
     escape() { if (mem.secondF) { setSecondF(false); return; } if (mem.subPage) { mem.subPage = null; rebuildSoftkeys(); return; } if (UT.modes && UT.modes.autoCal && UT.modes.autoCal.cancel) UT.modes.autoCal.cancel(); },
-    enter() { if (UT.modes && UT.modes.autoCal && UT.modes.autoCal.step) UT.modes.autoCal.step(); setSecondF(false); },
+    enter() { if (UT.modes && UT.modes.autoCal && UT.modes.autoCal.step && UT.modes.autoCal.state && UT.modes.autoCal.state()) UT.modes.autoCal.step(); setSecondF(false); },
     up() { adjust(null, +1, false); },
     down() { adjust(null, -1, false); },
     left() { adjust(null, -1, true); },
@@ -363,13 +372,13 @@
     const ro = frame && frame.readouts; const p = ro && ro.primary;
     const gi = inst().activeGate + 1;
     setText(R.boxSP.firstChild, gi + '▶'); setText(R.boxSD.firstChild, gi + '⇒'); setText(R.boxDP.firstChild, gi + '↓'); setText(R.boxAmp.firstChild, gi + '%');
-    setText(R.readSP, p ? fmtRead(p.path) : '--.--'); setText(R.readSD, p ? fmtRead(p.sd) : '--.--'); setText(R.readDP, p ? fmtRead(p.dp) : '--.--');
+    setText(R.readSP, p ? fmtRead(Number.isFinite(p.pathDisp) ? p.pathDisp : p.path) : '--.--'); setText(R.readSD, p ? fmtRead(p.sd) : '--.--'); setText(R.readDP, p ? fmtRead(p.dp) : '--.--');
     setText(R.readAmp, p ? Math.min(999, Math.round(p.peakPct)) + '%' : '0%');
     const which = inst().readout || 'dp';
     const icons = { sp: '▶', sd: '⇒', dp: '↓', amp: '%' };
     setText(R.bigIcon, gi + (icons[which] || '↓'));
     let big = '--.--', unit = unitLabel();
-    if (p) { if (which === 'amp') { big = Math.min(999, Math.round(p.peakPct)); unit = '%'; } else big = fmtRead(which === 'sp' ? p.path : which === 'sd' ? p.sd : p.dp); }
+    if (p) { if (which === 'amp') { big = Math.min(999, Math.round(p.peakPct)); unit = '%'; } else big = fmtRead(which === 'sp' ? (Number.isFinite(p.pathDisp) ? p.pathDisp : p.path) : which === 'sd' ? p.sd : p.dp); }
     setText(R.big, String(big)); setText(R.bigUnit, unit);
     [R.boxSP, R.boxSD, R.boxDP, R.boxAmp].forEach(function (b) { b.classList.toggle('sel', b.dataset.ro === which); });
     const leg = p && p.leg ? p.leg : 1;
@@ -455,7 +464,7 @@
     setText(R.minDepth, 'MIN DEPTH ' + (p ? fmtRead(p.dp) : '--.--'));
     setText(R.range, 'RANGE ' + I.range.toFixed(1));
     const which = I.readout || 'dp';
-    const bigVal = !p ? '--.--' : which === 'amp' ? Math.min(999, Math.round(p.peakPct)) + ' %' : fmtRead(which === 'sp' ? p.path : which === 'sd' ? p.sd : p.dp) + ' ' + unitLabel();
+    const bigVal = !p ? '--.--' : which === 'amp' ? Math.min(999, Math.round(p.peakPct)) + ' %' : fmtRead(which === 'sp' ? (Number.isFinite(p.pathDisp) ? p.pathDisp : p.path) : which === 'sd' ? p.sd : p.dp) + ' ' + unitLabel();
     setText(R.big, (which === 'sp' ? '▶' : which === 'sd' ? '⇒' : which === 'amp' ? '%' : '↓') + bigVal);
     const cal = I.cal || {};
     const vel = (cal.vel !== null && cal.vel !== undefined) ? cal.vel : d.vel;
@@ -973,6 +982,13 @@
       // legal parameter list ↔ PARAMS
       LEGAL_PARAMS.forEach(function (k) { if (!PARAMS[k]) f.push('missing PARAMS.' + k); });
       Object.keys(PARAMS).forEach(function (k) { if (LEGAL_PARAMS.indexOf(k) < 0) f.push('illegal param ' + k); });
+      [10, 50, 88.5, 100, 104.9, 200, 250, 999.9].forEach(function (r0) {
+        [false, true].forEach(function (coarse) {
+          const up = M.clamp(Math.round((r0 + rangeStep(r0, 1, coarse)) * 10) / 10, 10, 1000), back = Math.round((up - rangeStep(up, -1, coarse)) * 10) / 10;
+          if (up <= r0 && r0 < 1000) f.push('rangeStep up ' + r0); if (r0 < 900 && back !== r0) f.push('rangeStep symmetry ' + (coarse ? 'coarse ' : '') + r0 + ' -> ' + up + ' -> ' + back);
+        });
+      });
+      if (rangeStep(200, 1, false) !== 2 || rangeStep(200, 1, true) !== 20 || rangeStep(10, 1, false) !== 0.1) f.push('rangeStep sizes');
       if (nextRange(100) !== 200 || nextRange(400) !== 50 || nextRange(88.5) !== 100 || nextRange(100, true) !== 50 || nextRange(50, true) !== 400) f.push('nextRange cycle');
       if (Math.abs(foldDepth(25, 20) - 15) > 1e-9 || Math.abs(foldDepth(45, 20) - 5) > 1e-9 || Math.abs(foldDepth(8, 20) - 8) > 1e-9) f.push('foldDepth');
       const poly = dacPolyline({ gain: 40, dac: { points: [{ path: 50, ampPct: 80 }, { path: 20, ampPct: 100 }], refDb: 34, on: true } });

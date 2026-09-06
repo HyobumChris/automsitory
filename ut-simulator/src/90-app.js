@@ -163,7 +163,13 @@
   }
   function togglePipe() {
     const pipe = !(st().weldOpts && st().weldOpts.pipe);
-    UT.setIn('weldOpts', { pipe }, { noRender: true });
+    const s = st();
+    // §15.9: PIPE on shows the 3-D window (also after it was closed with ✕): re-arm display.pipe3d in the SAME
+    // patch as weldOpts so 64-view-3d treats it as the pipe rule (not as a '3D Plate' request) and shows it on
+    // the specimen change; PIPE off then hides it again.
+    const patch = { weldOpts: Object.assign({}, s.weldOpts, { pipe }) };
+    if (pipe && s.display && !s.display.pipe3d) patch.display = Object.assign({}, s.display, { pipe3d: true });
+    UT.set(patch, { noRender: true });
     reenterWeldLike();
     syncPipe3d();
   }
@@ -176,6 +182,18 @@
     if (has('views.pipe3d.open')) return;
     const s = st();
     if (winApi('pipe3d')) showPipe3d(!!(s.weldOpts && s.weldOpts.pipe) && s.display.pipe3d !== false);
+  }
+  /** Options ▸ Show 3D Window state = the window itself (never a stale display.pipe3d flag). */
+  function pipe3dOpen() { return winOpen('pipe3d'); }
+  /**
+   * Show / hide the 3-D window on the user's explicit request (menu, Options dialog): 64-view-3d's
+   * open()/close() keep display.pipe3d in step with the window (open() also marks a plate as wanted);
+   * without 64-view-3d fall back to the display flag + syncPipe3d().
+   */
+  function setPipe3dShown(show) {
+    if (has('views.pipe3d.open') && has('views.pipe3d.close')) { show ? UT.views.pipe3d.open() : UT.views.pipe3d.close(); return; }
+    setDisplay({ pipe3d: !!show });
+    syncPipe3d();
   }
   function showPipe3d(show) {
     const v = has('views.pipe3d');
@@ -391,7 +409,7 @@
           { key: 'Geometry', action: function () { setDisplay({ colourCode: 'geometry' }); }, check: function () { return st().display.colourCode === 'geometry'; } },
         ] },
         { key: 'Show Plan View', action: function () { setDisplay({ plan: !st().display.plan }); applyLayout(); }, check: function () { return st().display.plan !== false; } },
-        { key: 'Show 3D Window', action: function () { const v = !st().display.pipe3d; setDisplay({ pipe3d: v }); syncPipe3d(); }, check: function () { return st().display.pipe3d !== false; } },
+        { key: 'Show 3D Window', action: function () { setPipe3dShown(!pipe3dOpen()); }, check: pipe3dOpen },
         { key: 'Show Legend', action: function () { setDisplay({ legend: !st().display.legend }); }, check: function () { return st().display.legend !== false; } },
         { key: 'Language', sub: [
           { key: 'English', action: function () { app.setLang('en'); }, check: function () { return mem.lang === 'en'; } },
@@ -601,6 +619,7 @@
     const plot = mode === 'iow';
     main.classList.toggle('plot', plot);
     main.classList.toggle('tall', ['iow', 'dac', 'step', 'lamination'].indexOf(mode) >= 0);
+    main.classList.toggle('tt', st().probe.method === 'tt' && mode !== 'tofd');
     main.classList.toggle('block', !plot && hidden.indexOf('plan') >= 0);
     main.classList.toggle('no-ruler', hidden.indexOf('ruler') >= 0);
     main.classList.toggle('usk7', st().utSet === 'usk7');
@@ -622,7 +641,12 @@
     UT.bus.on('mode', function () { applyLayout(); refreshToolbar(); });
     UT.bus.on('win:show', function (w) { keepBelowToolbar(w); bindWinClamp(w); clampToViewport(w); refreshToolbar(); });
     UT.bus.on('win:hide', refreshToolbar);
-    UT.bus.on('win:close', refreshToolbar);
+    UT.bus.on('win:close', function (w) {
+      // ✕ on the 3-D window = the user no longer wants it: clear display.pipe3d so that Options ▸
+      // Show 3D Window is unchecked and a single click re-opens it (64-view-3d does the same in onClose)
+      if (w && w.name === 'pipe3d' && st().display && st().display.pipe3d) UT.setIn('display', { pipe3d: false }, { noRender: true });
+      refreshToolbar();
+    });
     UT.bus.on('resize', function () { for (const k of Object.keys(UT.dom.wins)) { const w = UT.dom.wins[k]; if (w && w.isOpen()) clampToViewport(w); } });
   }
   /**
@@ -670,6 +694,7 @@
     if (keys.indexOf('status') >= 0 || (keys.length === 1 && keys[0] === 'cursor')) return;
     if (keys.indexOf('utSet') >= 0) { call('instruments.setSkin', [st().utSet]); applyLayout(); }
     if (keys.indexOf('mode') >= 0 || keys.indexOf('display') >= 0) applyLayout();
+    else if (keys.indexOf('probe') >= 0 && mem.els.main && mem.els.main.classList.contains('tt') !== (st().probe.method === 'tt' && currentMode() !== 'tofd')) applyLayout();
     refreshToolbar();
     scheduleSave(keys);
   }
@@ -840,6 +865,7 @@
           else if (raw !== M.clamp(raw, WELD_RANGES[k][0], WELD_RANGES[k][1])) bad.push(fields[k].querySelector('.fld-label').textContent + ' → ' + M.clamp(raw, WELD_RANGES[k][0], WELD_RANGES[k][1]));
         }
         const v = coerceLike(prev, o, WELD_RANGES, { type: WELD_TYPES });
+        if (v.pipe && v.wt > pipeWtMax(v.od)) { clampPipeWall(v); bad.push(fields.wt.querySelector('.fld-label').textContent + ' → ' + v.wt + ' (< OD/2)'); }
         if (!v.pipe) v.wt = v.T; else v.T = v.wt;
         for (const k of Object.keys(fields)) { fields[k].input.value = v[k]; fields[k].input.classList.remove('invalid'); }
         odIn.input.value = inchOf(v.od);
@@ -968,7 +994,7 @@
         sel('Colour code', s.display.colourCode || 'none', [{ value: 'none', label: 'None' }, { value: 'propagation', label: 'Mode propagation (leg colours)' }, { value: 'geometry', label: 'Geometry (last surface)' }], function (v) { setDisplay({ colourCode: v }); }),
         sel('Number of skips', String(s.display.skips || 3), [1, 2, 3, 4].map(function (n) { return { value: String(n), label: String(n) }; }), function (v) { setDisplay({ skips: parseInt(v, 10) }); }),
         chk('Show plan view', s.display.plan !== false, function (v) { setDisplay({ plan: v }); applyLayout(); }),
-        chk('Show 3D window', s.display.pipe3d !== false, function (v) { setDisplay({ pipe3d: v }); syncPipe3d(); }),
+        chk('Show 3D window', pipe3dOpen(), function (v) { setPipe3dShown(v); }),
         chk('Show legend', s.display.legend !== false, function (v) { setDisplay({ legend: v }); }),
         chk('Show beam', s.display.beam !== false, function (v) { setDisplay({ beam: v }); }),
         chk('Auto trig (angle/thickness follow probe)', s.display.autoTrig !== false, function (v) { setDisplay({ autoTrig: v }); }),
@@ -1165,6 +1191,13 @@
   // Stored-record validation ranges (same limits as the Weld / wedge dialogs and instrument softkeys).
   const WELD_RANGES = { T: [3, 100], L: [50, 2000], bevel: [0, 60], rootGap: [0, 10], rootFace: [0, 10], capWidth: [0, 60], capHeight: [0, 10], rootHeight: [0, 10], od: [25, 2000], wt: [3, 100] };
   const WELD_TYPES = ['single-v', 'double-v', 'none'];
+  /** Largest wall thickness a pipe of outside diameter `od` can have (a wall cannot exceed the radius; ≥ the WT minimum). */
+  function pipeWtMax(od) { return Math.max(WELD_RANGES.wt[0], od / 2 - 1); }
+  /** Cross-field pipe rule on a per-field-clamped weldOpts object: wt < od/2 (mutates and returns `o`). */
+  function clampPipeWall(o) {
+    if (o && o.pipe && Number.isFinite(o.od) && Number.isFinite(o.wt)) o.wt = Math.min(o.wt, pipeWtMax(o.od));
+    return o;
+  }
   const PROBE_RANGES = { angle: [0, 89.9], freq: [0.5, 20], diameter: [1, 50], wedgeVel: [1, 6], x: [-3000, 3000], z: [-5000, 5000], skew: [-360, 360], paFrom: [0, 89.9], paTo: [0, 89.9], paStep: [0.1, 10] };
   const PROBE_ENUMS = { mode: ['shear', 'comp'], crystal: ['single', 'twin'], method: ['pe', 'tt', 'tandem', 'pa'], surface: ['chord', 'brace'] };
   const DISPLAY_RANGES = { skips: [1, 12] };
@@ -1213,7 +1246,8 @@
       ins.damping = !!ins.damping;
       if (RECTIFY.indexOf(ins.rectify) < 0) ins.rectify = def.instrument.rectify;
       const defGates = def.instrument.gates;
-      ins.gates = (Array.isArray(ins.gates) && ins.gates.length >= 2 ? ins.gates : defGates).map(function (g, i) { return coerceGate(g, defGates[Math.min(i, defGates.length - 1)]); });
+      // exactly defGates.length slots: junk entries fall back to that slot's default, extras are dropped
+      ins.gates = defGates.map(function (d, i) { return coerceGate(Array.isArray(ins.gates) ? ins.gates[i] : undefined, d); });
       const dac = ins.dac && typeof ins.dac === 'object' ? ins.dac : def.instrument.dac;
       ins.dac = {
         points: (Array.isArray(dac.points) ? dac.points : []).filter(function (p) { return p && Number.isFinite(p.path) && Number.isFinite(p.ampPct); }).map(function (p) { return { path: p.path, ampPct: p.ampPct }; }),
@@ -1226,7 +1260,7 @@
     }
     if (rec.display && typeof rec.display === 'object') patch.display = coerceLike(def.display, rec.display, DISPLAY_RANGES, DISPLAY_ENUMS);
     if (Array.isArray(rec.defects)) patch.defects = limitDefectSlots(rec.defects);
-    if (rec.weldOpts && typeof rec.weldOpts === 'object') patch.weldOpts = coerceLike(def.weldOpts, rec.weldOpts, WELD_RANGES, { type: WELD_TYPES });
+    if (rec.weldOpts && typeof rec.weldOpts === 'object') patch.weldOpts = clampPipeWall(coerceLike(def.weldOpts, rec.weldOpts, WELD_RANGES, { type: WELD_TYPES }));
     if (rec.utSet === 'epoch600' || rec.utSet === 'epoch4' || rec.utSet === 'usk7') patch.utSet = rec.utSet;
     if (rec.lang === 'ko' || rec.lang === 'en') patch.__lang = rec.lang;
     return patch;
@@ -1324,7 +1358,12 @@
         const bad = patchFromRecord({ v: 1, weldOpts: { T: 1e7, L: 'huge', bevel: -5, type: 'zigzag', pipe: 1, W: 1e9 }, instrument: { range: 0, delay: 'x', reject: -3, rectify: 'odd', gates: [{ start: 'a' }, null, { on: 1, level: 500 }], cal: { vel: 'v', zero: 1e9 } }, probe: { angle: 'x', x: 1e9, side: -2, method: 'bogus' }, display: { skips: 99, units: 'furlong', plan: 0 } });
         const bw = bad.weldOpts, bi = bad.instrument, bp = bad.probe, bd = bad.display;
         if (bw.T !== 100 || bw.L !== 300 || bw.bevel !== 0 || bw.type !== 'single-v' || bw.pipe !== true || bw.W !== undefined) f.push('patchFromRecord weldOpts ' + JSON.stringify(bw));
-        if (bi.range !== 10 || bi.delay !== 0 || bi.reject !== 0 || bi.rectify !== 'full' || bi.gates.length !== 3 || bi.gates[0].start !== 10 || bi.gates[1].on !== false || bi.gates[2].level !== 100 || bi.cal.vel !== null || bi.cal.zero !== 50) f.push('patchFromRecord instrument ' + JSON.stringify(bi));
+        const thin = patchFromRecord({ v: 1, weldOpts: { od: 25, wt: 100, pipe: true } }).weldOpts;
+        if (thin.od !== 25 || thin.wt !== 11.5) f.push('patchFromRecord pipe wall ' + JSON.stringify(thin));
+        const plate = patchFromRecord({ v: 1, weldOpts: { od: 25, wt: 100, pipe: false } }).weldOpts;
+        if (plate.wt !== 100) f.push('patchFromRecord plate wt untouched ' + JSON.stringify(plate));
+        if (patchFromRecord({ v: 1, instrument: { gates: new Array(2000).fill({ start: 5 }) } }).instrument.gates.length !== 2) f.push('patchFromRecord gates truncated');
+        if (bi.range !== 10 || bi.delay !== 0 || bi.reject !== 0 || bi.rectify !== 'full' || bi.gates.length !== 2 || bi.gates[0].start !== 10 || bi.gates[1].on !== false || bi.cal.vel !== null || bi.cal.zero !== 50) f.push('patchFromRecord instrument ' + JSON.stringify(bi));
         if (bp.angle !== 60 || bp.x !== 3000 || bp.side !== -1 || bp.method !== 'pe') f.push('patchFromRecord probe ' + JSON.stringify(bp));
         if (bd.skips !== 12 || bd.units !== 'mm' || bd.plan !== false) f.push('patchFromRecord display ' + JSON.stringify(bd));
         if (parseSteps('25, 5,10 ,15;20 20').join(',') !== '5,10,15,20,25') f.push('parseSteps');

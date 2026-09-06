@@ -87,6 +87,7 @@
   let lastAngle = null;        // for the v1/v2 face rebuild on angle change
   let savedAngle = null;       // angle probe in use before step/lamination forced 0°, restored on exit
   let savedGates = null;       // instrument.gates before step mode reset gate 1 for the auto-cal, restored on exit
+  let savedProbeMode = null;   // {angle, mode} before tofd forced the compression mode (§6.6), restored on exit
   const STEP_GATE1 = { on: true, start: 6, width: 40, level: 20, alarm: false };   // covers the 1st backwall of the 10 mm step under the wrong cal (8.4 mm)
   let tradeTimer = null;
   let autoCalState = null;     // {step: 1|2, t1, d1, d2}
@@ -207,8 +208,18 @@
     if (prev !== name) {
       closeModeWindows(prev);
       if (prev === 'step') { instr.cal = { vel: null, zero: 0 }; if (savedGates) { instr.gates = savedGates; savedGates = null; } }
-      if (prev === 'tofd') instr.rectify = 'full';
-      if (prev === 'trade') { stopTradeTimer(); patch.trade = Object.assign({}, s.trade, { active: false }); patch.display = Object.assign({}, s.display, { hide: false }); }
+      if (prev === 'tofd') {
+        instr.rectify = 'full';
+        // TOFD forced the compression mode: back to the wave mode the probe had before (or its preset)
+        probe.mode = savedProbeMode && savedProbeMode.angle === probe.angle ? savedProbeMode.mode : presetMode(probe.angle);
+        savedProbeMode = null;
+      }
+      if (prev === 'trade') {
+        stopTradeTimer();
+        // The exam is over: the hidden truth must not survive into another mode (§15.8), so submit() cannot score it
+        patch.trade = Object.assign({}, s.trade, { active: false, truth: [], seed: null, score: null, result: null, report: [], startedAt: null, revealed: false });
+        patch.display = Object.assign({}, s.display, { hide: false });
+      }
     }
     // probe adjustments per mode
     const forcesZero = name === 'step' || name === 'lamination';
@@ -223,6 +234,9 @@
     if (name === 'tofd') {
       probe.method = probe.method === 'pa' ? 'pe' : probe.method;
       if (probe.angle === 0) { probe.angle = s.tofd.txAngle || 60; probe.mode = presetMode(probe.angle); }
+      // The TOFD pair is a compression-wave pair (§6.6, lesson 13 '60° comp'): the physics status line follows probe.mode
+      if (prev !== 'tofd') savedProbeMode = { angle: probe.angle, mode: probe.mode };
+      probe.mode = 'comp';
     }
     const spec = buildSpecimen(name, o, probe);
     if (o.keepProbe) probe = clampProbe(probe, spec);
@@ -333,6 +347,7 @@
     if (!s.specimen) return;
     if (keys.indexOf('probe') >= 0) {
       const a = s.probe.angle;
+      if (s.mode === 'tofd' && a !== 0 && s.probe.mode !== 'comp') { lastAngle = a; UT.setIn('probe', { mode: 'comp' }); return; }
       if ((s.mode === 'v1' || s.mode === 'v2') && lastAngle !== null && (a === 0) !== (lastAngle === 0)) {
         lastAngle = a;
         setFace(a === 0 ? 'narrow' : 'wide');
@@ -409,9 +424,9 @@
       acShow('Auto Cal 1/2: Place the probe on the 10 mm step (gate 1 start below the first backwall echo), then press ✓');
       return autoCalState;
     },
-    /** Capture the current gated peak time for the current wizard step. Returns the new cal when finished. */
+    /** Capture the current gated peak time for the current wizard step. Returns the new cal when finished; null when the wizard is not running (✓ / Enter is then a no-op — only the 'Auto Cal' softkey starts it). */
     step() {
-      if (!autoCalState) return autoCal.start();
+      if (!autoCalState) return null;
       const cap = trueTimeOfGatedPeak();
       if (!cap) return null;
       if (autoCalState.step === 1) {
@@ -587,7 +602,7 @@
   function addPreset(name, opts) {
     const s = st();
     const fn = S.defectPresets[name];
-    if (!fn) throw new Error('Unknown preset: ' + name);
+    if (!fn) { UT.status({ right: 'Unknown preset ' + name }); return null; }
     const spec = s.specimen || S.plateWeld(s.weldOpts);
     const n = freeSlot(s.defects);
     if (!n) { UT.status({ right: 'Maximum 8 defects' }); return null; }
@@ -917,7 +932,6 @@
       editorWin.show();
       editorRefresh();
       UT.status({ right: UT.i18n.t(HINTS.editor) });
-      UT.bus.emit('mode', { mode: st().mode, prev: st().mode, editor: true });
       return editorWin;
     },
     close() { if (editorWin && editorWin.isOpen()) editorWin.close(); else defectEditor._closed(); },
@@ -925,7 +939,6 @@
     _closed() {
       if (st().editing.defect) UT.setIn('editing', { defect: false });
       UT.status({ right: UT.i18n.t(HINTS[st().mode] || '') });
-      UT.bus.emit('mode', { mode: st().mode, prev: st().mode, editor: false });
     },
     isOpen() { return !!(editorWin && editorWin.isOpen()); },
     get window() { return editorWin; },
@@ -1003,6 +1016,7 @@
      */
     submit(rows) {
       const s = st();
+      if (!s.trade.active || s.mode !== 'trade') return 0;      // no test running: nothing to score, state untouched
       const truth = s.trade.truth || [];
       const num = function (v) { const x = typeof v === 'string' && v.trim() === '' ? NaN : +v; return Number.isFinite(x) ? x : NaN; };
       const report = (Array.isArray(rows) ? rows : []).filter(function (r) { return r && typeof r === 'object'; }).map(function (r, i) {
@@ -1227,7 +1241,12 @@
       setup() { setProbe({ angle: 45 }); enter('v2'); setProbe({ x: 60, side: 1 }); setInstr({ range: 100, gain: 30 }); },
       steps: ['Facing R25: 25 / 100 / 175 mm', 'Turn the probe (side −1): 50 / 125 / 200 mm', 'Index check at the maximum; angle check on the 5 mm hole (front face)'] },
     { n: 7, title: 'Making Sense of Amplitude', ko: '진폭과 dB: +6 dB = 2배, 퀵 게인 키', en: 'dB arithmetic: +6 dB doubles, quick gain keys, % readout',
-      setup() { enter('dac'); setProbe({ angle: 60 }); setInstr({ gain: 34, range: 100 }); },
+      setup() {
+        enter('dac'); setProbe({ angle: 60 }); setInstr({ gain: 34, range: 100 });
+        // §14.12: park the 60° probe at the T/2 hole maximum (hole x + depth·tan 60°)
+        const spec = st().specimen, h = spec && spec.holes ? spec.holes.find(function (o) { return Math.abs(o.y - spec.T / 2) < 1e-6; }) : null;
+        if (h) setProbe({ x: +(h.x + h.y * Math.tan(M.deg2rad(60))).toFixed(1) });
+      },
       steps: ['Maximise the T/2 hole echo', 'Press the 40.0dB softkey: the echo doubles', '+6 dB again: clipped — read the unclipped % box', 'Note 20·log10(ratio)'] },
     { n: 8, title: 'TKY Variable configuration Welds', ko: 'T/K/Y 이음: 브레이스 각도 조절, 토우 융합불량', en: 'T/K/Y joints: adjustable brace angle, toe LOF',
       setup() { enter('tky', { specimenOpts: { braceAngle: 60 } }); setProbe({ angle: 60, x: 35 }); },
@@ -1245,7 +1264,7 @@
       setup() { UT.set({ utSet: 'epoch600' }); enter('step'); setInstr({ range: 50, gain: 30 }); },
       steps: ['Note the wrong readouts (vel 5.60, zero 0.4)', 'Auto Cal softkey → probe on the 10 mm step → ✓', 'Probe on the 25 mm step → ✓', 'Readouts now 10.0 / 25.0 mm'] },
     { n: 13, title: 'TOFD', ko: 'TOFD: 측면파·저면파·팁 회절, D-스캔', en: 'TOFD: lateral wave, backwall, tip diffraction, D-scan',
-      setup() { weld({ T: 20 }); setDefects([{ n: 1, type: 'planar', pts: [{ x: 0, y: 8 }, { x: 0, y: 13 }], zFrom: 120, zTo: 150, label: 'Defect 1' }]); UT.setIn('tofd', { pcs: 60, txAngle: 60 }); enter('tofd', { keepProbe: true }); },
+      setup() { weld({ T: 20 }); setDefects([{ n: 1, type: 'planar', pts: [{ x: 0, y: 8 }, { x: 0, y: 13 }], zFrom: 120, zTo: 150, label: 'Defect 1' }]); UT.setIn('tofd', { pcs: 60, txAngle: 60 }); setProbe({ angle: 60 }); enter('tofd', { keepProbe: true }); },
       steps: ['Read Lateral / BackWall in the status bar', 'Run Scan', 'Click the D-scan on the tip arc and read Depth'] },
     { n: 14, title: 'Shear wave and Compression wave', ko: '횡파/종파, 쐐기각 계산 (Snell), 임계각', en: 'Shear vs compression, wedge angle (Snell), critical angles',
       setup() { weld({ T: 20 }); setProbe({ angle: 60 }); },
@@ -1341,6 +1360,8 @@
       else if (typeof v === 'number') { if (Number.isFinite(v)) out[k] = M.clamp(v, -1e4, 1e4); }
       else if (typeof v === 'string' && v.length <= 40) out[k] = v;
     });
+    // cross-field pipe rule (same as 90-app WELD_RANGES): the wall cannot exceed the pipe radius
+    if (out.pipe && Number.isFinite(out.od) && Number.isFinite(out.wt)) out.wt = Math.min(out.wt, Math.max(OPT_RANGES.wt[0], out.od / 2 - 1));
     return out;
   }
   function loadSpecimen(id, opts) {
@@ -1348,7 +1369,12 @@
     if (!mode) throw new Error('Unknown specimen id: ' + id);
     const o = clampOpts(opts);
     if (id === 'plate-weld' || id === 'pipe-weld') {
-      UT.setIn('weldOpts', Object.assign(o, { pipe: id === 'pipe-weld' }), { silent: true, noRender: true });
+      if (id === 'pipe-weld') {
+        // wall/radius rule against the MERGED options (existing od when opts carries only wt, and vice versa)
+        const merged = Object.assign({}, st().weldOpts, o, { pipe: true });
+        if (Number.isFinite(merged.od) && Number.isFinite(merged.wt)) { merged.wt = Math.min(merged.wt, Math.max(OPT_RANGES.wt[0], merged.od / 2 - 1)); merged.T = merged.wt; }
+        UT.setIn('weldOpts', merged, { silent: true, noRender: true });
+      } else UT.setIn('weldOpts', Object.assign(o, { pipe: false }), { silent: true, noRender: true });
       enter('weld', { silentUI: true });
     } else enter(mode, { specimenOpts: opts ? o : undefined, silentUI: true });
     return st().specimen;
@@ -1381,7 +1407,7 @@
     '.dfe-right .fld-input{flex:0 0 auto;min-width:0}',
     '.dfe-left .btn,.dfe-right .btn{flex:0 0 auto}',
     '.dfe-mid{flex:0 0 auto}',
-    '.dfe-right .fld-input{width:40px;font-size:11px;text-align:center}',
+    '.dfe-right .fld-input{width:56px;font-size:11px;text-align:left;box-sizing:border-box}',
     '.dfe-right input,.dfe-right select{color:#111;background:#fff}',
     '.dfe-right .fld input[type=checkbox]{width:auto}',
     '.dfe-right select.fld-input{width:100px}',

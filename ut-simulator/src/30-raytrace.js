@@ -24,7 +24,8 @@
   //    reflector for a 0° beam (§6.3 "strong echo at its depth").
   // 4. Corner echoes (outline + planar defect in either order) use the defect's S and D = q^1.5.
   // 5. Skew weight (§6.7) multiplies kinds defect/corner/geometry/lamination only when the refracted
-  //    angle is > 0 (a 0° beam is unaffected by probe rotation). ampNoZ = amp with Z = 1 (skew
+  //    angle is > 0 (a 0° beam is unaffected by probe rotation); volumetric scatterers (their echoes
+  //    carry kind 'defect' too, §15.4) and SDHs stay ×1. ampNoZ = amp with Z = 1 (skew
   //    included); zFactor() returns the pure §6.7 overlap factor Z, so amp === ampNoZ·zFactor(...).
   // 6. centre.legs[i] = {a, b, leg, surfaceTag, hitTag}: surfaceTag = tag of the surface the segment
   //    was last reflected from ('top' for the first leg, 'defect' after a defect), hitTag = what it
@@ -90,6 +91,32 @@
   //     (half-width D/2 + len·tanθ20 about the ray), the ray's energy beyond it is scaled by the uncovered
   //     fraction 1 − overlap(hole chord, band)/band width, i.e. (1 − 2r/W) for a hole centred on the axis.
   //     Applies in every method (pulse-echo, TT, tandem); holes span all z.
+  // 21. Bead specular loss: a convex weld bead (outline tags 'cap'/'root', only present when the bead is
+  //     higher than FLAT_BEAD — 10-specimens tags flat beads 'top'/'bottom') is a curved, rough surface
+  //     (R ≈ 4–17 mm), so a specular reflection off it diverges: the ray's running energy is multiplied
+  //     by BEAD_SPECULAR (0.25, ≈ −12 dB) per bead reflection, in addition to the 0.95 of §6.1 2c. This
+  //     kills the cavity retro-path probe → root flank → cap crown → root flank → probe (a 50 % phantom
+  //     at 2/3 skip on a clean weld, 20 dB above the real half-skip root echo) while the diffuse bead
+  //     scatter of NOTE 2 (which uses the pre-bounce energy) still provides the half/full-skip root/cap
+  //     geometry echoes. Machined surfaces are unaffected.
+  // 22. Merge representative (§6.1 rule 5/6): the amplitude of a group is still the max over its members,
+  //     but the reported path/x/y/angleDev come from the member closest to the beam axis (smallest
+  //     |angleDev|) among those within 1 dB of the max — the beam-centre path is what a real probe reads.
+  //     With the literal max-path rule a 70° corner reflector read 57.4 instead of T/cos70 = 58.5 because
+  //     D(path) rewards the −0.4° fan ray's shorter path more than w(δ) penalises it. Volumetric groups
+  //     keep their loudest scatterer point.
+  // 23. Coverage symmetry of specular planar returns (kinds 'defect' with a planar type, 'lamination'):
+  //     the merged amplitude is multiplied by Σ_members w(δ)² / Σ_window w(δ)², where the window is the
+  //     fan interval of the same angular width centred on the strongest member's δ (clamped ≤ 1). A face
+  //     insonised symmetrically about the strongest ray keeps its amplitude; a fan only half on the face
+  //     (beam axis at the face end) is ≈ −3 dB, so the response of a face shorter than the beam peaks
+  //     with the beam axis at the face midpoint (§11.1 #9) instead of at the first position where the
+  //     centre ray reaches it. A small reflector at the fan edge stays at w(δ)² (no double penalty).
+  //     Corner, SDH, volumetric, tip and surface echoes are not affected.
+  // 24. Hole path: holes of radius > SDH_CENTRE_MAX_R (1.5 mm, i.e. larger than the 3 mm calibration SDH
+  //     class: IOW 1.5 mm, DAC 3 mm) report the near-surface path (foot point − r, ≥ 0) — a 0° probe over
+  //     the V2 5 mm hole reads 3.75, not the 6.25 of the centre. Calibration SDHs keep the §6.1 2b centre
+  //     convention that §5.3 / §11.1 #4 and the 40-ascan K_REF calibration rely on.
 
   const M = UT.math;
   const DEG = Math.PI / 180;
@@ -101,6 +128,9 @@
   const CORNER_MIN_INC = 12;  // deg from the normal at the defect for the corner rule (SPEC NOTE 13)
   const AMP_FLOOR = 1e-6;     // echoes below this (−120 dB) are dropped (SPEC NOTE 14)
   const BEAD_SCATTER = 0.08;  // rough weld-bead diffuse coefficient (SPEC NOTE 2)
+  const BEAD_SPECULAR = 0.25; // energy kept by a specular reflection off a convex bead (SPEC NOTE 21)
+  const REP_DB = 1;           // merge representative: within this many dB of the group max (SPEC NOTE 22)
+  const SDH_CENTRE_MAX_R = 1.5; // holes up to this radius are read at their centre (SPEC NOTE 24)
   const TT_SUB = 7;           // through-transmission sub-apertures across the crystal (SPEC NOTE 16)
   const TT_EXTINCTION = 1.5;  // dB per mm of TT ray chord through a volumetric defect (SPEC NOTE 16)
   const AP_TAIL = 2;          // return-aperture taper zone beyond ra, in crystal diameters (SPEC NOTE 18)
@@ -237,7 +267,8 @@
     for (const h of specimen.holes || []) {
       if (!h || !(h.r > 0)) continue;
       const dia = 2 * h.r;
-      points.push({ x: h.x, y: h.y, kind: 'sdh', S: Math.min(1, Math.sqrt(dia / 3)), dExp: 1.5, cap: h.r + 0.5, tag: h.tag || 'sdh', label: h.label || (dia + 'mm'), hole: h });
+      points.push({ x: h.x, y: h.y, kind: 'sdh', S: Math.min(1, Math.sqrt(dia / 3)), dExp: 1.5, cap: h.r + 0.5, tag: h.tag || 'sdh', label: h.label || (dia + 'mm'), hole: h,
+        back: h.r > SDH_CENTRE_MAX_R ? h.r : 0 });   // SPEC NOTE 24: large holes echo from their near surface
       holes.push({ x: h.x, y: h.y, r: h.r });
     }
     for (let i = 0; i < points.length; i++) points[i].idx = i;
@@ -359,7 +390,7 @@
             const c = 0.5 + 0.03 * (len + u);
             const cap = Math.max(c, P.cap);
             if (d > cap) continue;
-            const path = len + u;
+            const path = Math.max(0, len + u - (P.back || 0));
             const taper = Math.cos(Math.PI / 2 * d / cap);
             const ec = makeEcho(C, { path, kind: P.kind, leg, x: P.x, y: P.y, w, wReturn: w, e, S: P.S, dExp: P.dExp,
               defect: P.defect, tag: P.tag, label: P.label, angleDev: delta, extra: taper, zs, tw });
@@ -469,6 +500,7 @@
               const slope = Math.min(1, Math.abs(best.nx) / 0.5);   // 0 for a flat bead (SPEC NOTE 2)
               if (slope > 1e-6) echoes.push(makeEcho(C, { path: len, kind: 'geometry', leg: leg - 1, x: hp.x, y: hp.y, w, wReturn: w, e: e / OTHER_LOSS, S: BEAD_SCATTER * inc * slope, dExp: 1.5, tag: best.tag, angleDev: delta, zs, tw }));
             }
+            if (best.tag === 'cap' || best.tag === 'root') e *= BEAD_SPECULAR;   // convex bead diverges the specular reflection (SPEC NOTE 21)
           } else if (best.type === 'perspex') {
             e *= OTHER_LOSS;
             fromTag = 'perspex';
@@ -552,7 +584,8 @@
     const Mf = Math.pow(10, -C.alpha * 2 * o.path / 20);
     const base = o.w * o.wReturn * o.e * o.S * D * Mf * (o.extra === undefined ? 1 : o.extra);
     const hz = o.path * Math.tan(C.th20 * DEG) + C.diameter / 2;
-    const skewed = (o.kind === 'defect' || o.kind === 'corner' || o.kind === 'geometry' || o.kind === 'lamination') && C.theta > 0;
+    const vol = !!o.defect && !UT.specimens.isPlanar(o.defect.type);   // volumetric scatterers: ×1 (§6.7)
+    const skewed = !vol && (o.kind === 'defect' || o.kind === 'corner' || o.kind === 'geometry' || o.kind === 'lamination') && C.theta > 0;
     const sw = skewed ? M.skewWeight(C.skew) : 1;
     // z-overlap factors (§6.7, SPEC NOTE 19): the branch's reflection/transmission factors, plus the
     // echo's own defect (reflection Z) unless the branch already carries that defect
@@ -568,6 +601,7 @@
       defectId: o.defect ? o.defect.id : undefined, tag: o.tag, label: o.label || (o.defect ? o.defect.label : undefined),
       angleDev: o.angleDev, defectType: o.defect ? o.defect.type : undefined,
     };
+    if (o.w !== undefined) ec.w = o.w;   // one-way fan weight of the ray (merge coverage, SPEC NOTE 23; stripped by mergeEchoes)
     if (zs.length) ec.zs = zs.map(function (f) { return { defectId: f.defect.id, hz: f.hz, trans: !!f.trans }; });
     return ec;
   }
@@ -589,7 +623,16 @@
     return ec.kind === 'defect' && ec.defectType !== undefined && !UT.specimens.isPlanar(ec.defectType);
   }
 
-  function mergeEchoes(raw) {
+  /** True for groups whose amplitude gets the coverage-symmetry factor (SPEC NOTE 23). */
+  function isCoverageEcho(ec) {
+    return ec.kind === 'lamination' || (ec.kind === 'defect' && ec.defectType !== undefined && UT.specimens.isPlanar(ec.defectType));
+  }
+
+  /**
+   * §6.1 rule 5 merging. `fan` = {deltas: number[], th20} describes the fan the raw echoes came from
+   * (optional; without it the coverage factor of SPEC NOTE 23 is skipped).
+   */
+  function mergeEchoes(raw, fan) {
     const list = raw.filter(function (ec) { return Math.max(ec.amp, ec.ampNoZ || 0) >= AMP_FLOOR || ec.kind === 'transmitted'; });
     list.sort(function (a, b) { return a.path - b.path; });
     const groups = [];
@@ -604,16 +647,70 @@
         if (Math.abs(ec.path - cand.best.path) <= 1.5 || Math.abs(ec.path - cand.last) <= 0.75) { g = cand; break; }
         if (cand.last < ec.path - 3) break;
       }
-      if (!g) { g = { best: ec, sum2: ec.amp * ec.amp, sumNoZ2: ec.ampNoZ * ec.ampNoZ, last: ec.path }; arr.push(g); groups.push(g); }
+      if (!g) { g = { key, best: ec, sum2: ec.amp * ec.amp, sumNoZ2: ec.ampNoZ * ec.ampNoZ, last: ec.path, members: [ec] }; arr.push(g); groups.push(g); }
       else {
         g.sum2 += ec.amp * ec.amp; g.sumNoZ2 += ec.ampNoZ * ec.ampNoZ; g.last = ec.path;
+        g.members.push(ec);
         if (ec.amp > g.best.amp || (ec.amp === g.best.amp && ec.ampNoZ > g.best.ampNoZ)) g.best = ec;
       }
     }
+    const repFloor = Math.pow(10, -REP_DB / 20);
+    const fanDeltas = fan && Array.isArray(fan.deltas) && fan.deltas.length > 1 ? fan.deltas : null;
+    const th20 = fan && fan.th20 > 0 ? fan.th20 : 4;
+    // SPEC NOTE 23: coverage symmetry per key (all groups of one face/leg share the fan interval)
+    const covByKey = new Map();
+    if (fanDeltas) {
+      byKey.forEach(function (arr, key) {
+        if (!isCoverageEcho(arr[0].best)) return;
+        let dLo = Infinity, dHi = -Infinity, sumW2 = 0, top = null;
+        const seen = new Set();
+        for (const g of arr) for (const m of g.members) {
+          if (!Number.isFinite(m.angleDev)) continue;
+          if (!top || m.amp > top.amp || (m.amp === top.amp && m.ampNoZ > top.ampNoZ)) top = m;
+          if (m.angleDev < dLo) dLo = m.angleDev;
+          if (m.angleDev > dHi) dHi = m.angleDev;
+          const k = Math.round(m.angleDev * 1e6);
+          if (seen.has(k)) continue;
+          seen.add(k);
+          const wi = m.w !== undefined ? m.w : M.beamWeight20(m.angleDev, th20);
+          sumW2 += wi * wi;
+        }
+        if (!top) return;
+        const half = (dHi - dLo) / 2 + 1e-9;
+        let ref = 0;
+        for (const d of fanDeltas) {
+          if (Math.abs(d - top.angleDev) > half) continue;
+          const wi = M.beamWeight20(d, th20);
+          ref += wi * wi;
+        }
+        if (ref > 0) covByKey.set(key, Math.min(1, sumW2 / ref));
+      });
+    }
     const out = [];
     for (const g of groups) {
-      const ec = Object.assign({}, g.best);
-      if (isVolumetricEcho(ec)) { ec.amp = Math.sqrt(g.sum2); ec.ampNoZ = Math.sqrt(g.sumNoZ2); }
+      const best = g.best;
+      let rep = best;
+      const vol = isVolumetricEcho(best);
+      if (!vol && g.members.length > 1) {
+        // SPEC NOTE 22: report the path of the member nearest the beam axis among those within REP_DB of the max
+        const floorAmp = best.amp * repFloor;
+        for (const m of g.members) {
+          if (m === rep) continue;
+          if (m.amp >= floorAmp && Math.abs(m.angleDev) < Math.abs(rep.angleDev) - 1e-9) rep = m;
+        }
+      }
+      const ec = Object.assign({}, rep);
+      if (rep !== best) {
+        // keep the group's max amplitude; amp = ampNoZ · Z of the representative's own branch (AUT re-weighting)
+        ec.ampNoZ = best.ampNoZ;
+        ec.amp = rep.ampNoZ > 0 ? best.ampNoZ * (rep.amp / rep.ampNoZ) : best.amp;
+      }
+      if (vol) { ec.amp = Math.sqrt(g.sum2); ec.ampNoZ = Math.sqrt(g.sumNoZ2); }
+      else {
+        const cov = covByKey.get(g.key);
+        if (cov !== undefined && cov < 1) { ec.amp *= cov; ec.ampNoZ *= cov; }
+      }
+      delete ec.w;
       out.push(ec);
     }
     out.sort(function (a, b) { return a.path - b.path; });
@@ -646,7 +743,7 @@
       nearField: derived.nearField || 20, diameter: derived.diameter || probe.diameter || 10,
       alpha: derived.mode === 'comp' ? 0.005 : 0.01,
       maxLegs, maxLen: Math.max(2 * maxPath + 100, 700), retroSlot: !!specimen.retroSlot,
-      probeZ: probe.z || 0, skew: probe.skew || 0, L: specimen.L || 0, wrap: !!specimen.pipe,
+      probeZ: probe.z || 0, skew: fold180(probe.skew || 0), L: specimen.L || 0, wrap: !!specimen.pipe,
       scene: buildScene(specimen, a.defects, probe),
       tt: probe.method === 'tt', tandem: probe.method === 'tandem',
       rx: null, rxDir: null, volBest: new Map(),
@@ -671,10 +768,12 @@
     const fan = [];
     const raw = [];
     const hits = [];
+    const deltas = [];
     let centre = null;
     let sumW = 0, sumT = 0;
     for (let i = 0; i < n; i++) {
       const delta = n === 1 ? 0 : -C.th20 + 2 * C.th20 * i / (n - 1);
+      deltas.push(delta);
       const r = marchRay(C, delta);
       sumW += r.w; sumT += r.transmitted;
       const drawPts = r.pts.filter(function (p) { return p.leg <= skips; });
@@ -706,7 +805,7 @@
       const path = p0 ? M.dist(C.E.x, C.E.y, p0.x, p0.y) : (specimen.T || 0);
       echoes = [{ path, amp, ampNoZ: amp, hz: path * Math.tan(C.th20 * DEG) + C.diameter / 2, kind: 'transmitted', leg: 1, x: C.rx.x, y: C.rx.y, tag: 'transmitted', angleDev: 0 }];
     } else {
-      echoes = mergeEchoes(raw);
+      echoes = mergeEchoes(raw, { deltas, th20: C.th20 });
     }
     for (const ec of echoes) {
       if (ec.kind === 'transmitted' || !(ec.amp >= AMP_FLOOR)) continue;
@@ -714,6 +813,7 @@
     }
     const res = { centre, fan, edge20: [fan.length ? fan[0].pts : [], fan.length ? fan[fan.length - 1].pts : []], echoes, hits, E: C.E, u0: C.u0 };
     if (receiver) res.receiver = receiver;
+    if (opts.debugRaw) res.raw = raw;   // unmerged echoes (QA/diagnostics only)
     if (C.tt) res.transmitted = echoes[0].amp;
     return res;
   }
@@ -732,6 +832,9 @@
     }
     return best;
   }
+
+  /** Fold a stored 0..360 skew into (−180, 180] so ±10° weight the same (UT.math.skewWeight is one-sided). */
+  function fold180(d) { let s = ((d % 360) + 360) % 360; if (s > 180) s -= 360; return s; }
 
   /**
    * Recompute the §6.7 z-overlap factor of an echo for another probe z (AUT). Holes/surfaces → 1.
@@ -919,6 +1022,36 @@
     if (!ttv || dB(1, ttv.amp) < 3) f.push('tt volumetric shadow ' + (ttv && ttv.amp));
     const ttp = run(pl, { angle: 0, x: 60, method: 'tt' }, { skips: 3 }, [{ id: 'p', type: 'planar', pts: [{ x: 57, y: 10 }, { x: 63, y: 10 }], height: 0.5, zFrom: 120, zTo: 180 }], 100).echoes[0];
     if (!ttp || !(ttp.amp > 0.05 && ttp.amp < 0.9)) f.push('tt partial shadow ' + (ttp && ttp.amp));
+    // (m) skew does not touch volumetric echoes (§6.7: volumetric and SDH ×1)
+    const skewAmp = function (skew) {
+      const p = Object.assign({ mode: 'shear', freq: 5, diameter: 10, wedgeVel: 2.74, method: 'pe', z: (por.zFrom + por.zTo) / 2, side: 1, skew, angle: 60, x: 20 }, {});
+      const r = trace({ specimen: pv, probe: p, derived: UT.probe.derive(p, pv), display: { skips: 3 }, defects: [por], opts: { maxPath: 100, fanCount: 21 } });
+      let m = 0;
+      for (const e of r.echoes) if (e.defectId === por.id && e.kind === 'defect' && e.amp > m) m = e.amp;
+      return m;
+    };
+    const sk0 = skewAmp(0), sk10 = skewAmp(10);
+    if (!(sk0 > 0) || sk0 !== sk10) f.push('volumetric echo skewed: ' + sk0 + ' vs ' + sk10);
+    // (n) clean default weld: no strong bead cavity echo between half and full skip (SPEC NOTE 21)
+    const pw2 = S.plateWeld({ T: 20, rootHeight: 1.5, capHeight: 2, bevel: 30, rootGap: 2, rootFace: 2, capWidth: 16 });
+    let cavity = 0, cornerRef = 0;
+    for (let x = 26; x <= 44; x += 2) {
+      for (const e of run(pw2, { angle: 60, x }, { skips: 3 }, [], 150).echoes) if (e.kind === 'geometry' && e.path > 50 && e.amp > cavity) cavity = e.amp;
+      for (const e of run(pw2, { angle: 60, x }, { skips: 3 }, [S.defectPresets.rootCrack(pw2)], 150).echoes) if (e.kind === 'corner' && e.amp > cornerRef) cornerRef = e.amp;
+    }
+    if (!(cornerRef > 0) || dB(cornerRef, Math.max(cavity, 1e-12)) < 14) f.push('bead cavity echo ' + cavity + ' vs corner ' + cornerRef);
+    // (o) 70° corner reflector reads T/cos70 (SPEC NOTE 22)
+    const c70 = near(run(pw, { angle: 70, x: 55, z: 150 }, { skips: 3 }, [Object.assign({}, crack, { zFrom: 100, zTo: 200 })], 100).echoes, 'corner', 20 / Math.cos(70 * DEG), 0.3);
+    if (!c70) f.push('70 deg corner path != T/cos70');
+    // (p) LOF response peaks with the beam axis at the face midpoint (SPEC NOTE 23, §11.1 #9)
+    let lofBestX = 0, lofBest = 0;
+    for (let x = 48; x <= 70; x += 1) {
+      for (const e of run(pl, { angle: 60, x }, { skips: 3 }, [lof], 150).echoes) if (e.defectId === lof.id && e.kind === 'defect' && e.amp > lofBest) { lofBest = e.amp; lofBestX = x; }
+    }
+    if (!(lofBestX >= 57 && lofBestX <= 63)) f.push('LOF peak at x ' + lofBestX);
+    // (q) V2 5 mm hole, 0°: echo at the near surface (SPEC NOTE 24); IOW SDH stays at its centre
+    const v2h = run(S.v2({ face: 'narrow' }), { angle: 0, x: 60 }, { skips: 3 }, [], 50);
+    if (!near(v2h.echoes, 'sdh', 3.75, 0.1)) f.push('V2 hole echo not at 3.75');
     // describe
     if (typeof describe({ kind: 'backwall', path: 25, leg: 1 }) !== 'string') f.push('describe');
     return f;

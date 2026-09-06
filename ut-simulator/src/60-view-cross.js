@@ -68,19 +68,19 @@
   function cssW(cv) { return cv.clientWidth || cv.width || 300; }
   function cssH(cv) { return cv.clientHeight || cv.height || 150; }
 
-  /** Pure transform for the normal cross-section: fixed W/320 px per mm (§14.1). */
-  function computeTransform(sp, W, H) {
+  /**
+   * Pure transform for the normal cross-section: fixed W/320 px per mm (§14.1).
+   * `bottomMm` (optional) = room to keep below the specimen (through-transmission receiver shoe).
+   */
+  function computeTransform(sp, W, H, bottomMm) {
     if (sp && sp.tky && sp.extents) {
-      // TKY screen (§14.9): scale so the brace reaches the top of the canvas (up to 2.2× the width-fit
-      // scale, the long chord may be clipped at both ends); centred on the joint so the brace and the
-      // probe on the chord right of the toe stay visible.
-      const ex = sp.extents, tk = sp.tky;
-      const spanY = (ex.yMax - ex.yMin) + 8;
-      const wFit = W / ((ex.xMax - ex.xMin) + 8);
-      const sc = M.clamp(H / spanY, wFit, 2.2 * wFit);
-      const a = M.deg2rad(tk.braceAngle || 45);
-      const bx0 = Math.min(tk.toe.x, tk.heel.x) - (tk.braceLen || 90) * Math.cos(a);
-      const c = sc > wFit * 1.05 ? (bx0 + tk.toe.x + 60) / 2 : (ex.xMin + ex.xMax) / 2;
+      // TKY screen (§14.9): refit per angle from the outline bbox so the whole joint fits — the chord
+      // spans the width, the brace end stays inside the canvas and the probe on the chord right of the
+      // toe is never pushed off the right edge.
+      const ex = sp.extents;
+      const spanX = (ex.xMax - ex.xMin) + 8, spanY = (ex.yMax - ex.yMin) + 8;
+      const sc = Math.min(W / spanX, H / spanY);
+      const c = (ex.xMin + ex.xMax) / 2;
       return { scale: sc, ox: W / 2 - c * sc, oy: (-ex.yMin + 4) * sc, W, H, cx: c };
     }
     const scale = W / MM_SPAN;
@@ -89,7 +89,11 @@
       cx = sp.extents.xMin < 0 ? 0 : (sp.extents.xMin + sp.extents.xMax) / 2;
       yMin = sp.extents.yMin; yMax = sp.extents.yMax;
     }
-    const roomAbove = M.clamp(H / scale - yMax - 4, 20, 24);       // mm above the scan surface for the shoe
+    // mm above the scan surface for the shoe; in TT mode the receiver hangs below the backwall, so
+    // reserve `bottomMm` there and let the specimen sit higher (the transmitter keeps priority).
+    const bottom = bottomMm > 4 ? bottomMm : 4;
+    const minAbove = bottomMm > 4 ? Math.min(20, bottomMm - 2) : 20;
+    const roomAbove = M.clamp(H / scale - yMax - bottom, minAbove, 24);
     const above = Math.max(roomAbove, -yMin + 6);
     const oy = above * scale;
     return { scale, ox: W / 2 - cx * scale, oy, W, H, cx };
@@ -99,8 +103,14 @@
     const cv = S.canvas;
     const W = cv ? cssW(cv) : (S.ruler ? cssW(S.ruler) : 1280);
     const H = cv ? cssH(cv) : 200;
-    S.xf = computeTransform(st && st.specimen, W, H);
+    S.xf = computeTransform(st && st.specimen, W, H, ttBottomMm(st));
     return S.xf;
+  }
+  /** Room (mm) needed under the backwall for the hollow TT receiver shoe (+ index line), else 0. */
+  function ttBottomMm(st) {
+    if (!st || !st.probe || st.probe.method !== 'tt' || st.mode === 'tofd') return 0;
+    const pre = UT.probe && UT.probe.presets ? UT.probe.presets[st.probe.angle] : null;
+    return ((pre && pre.shoeHeight) || 14) + 4;
   }
 
   /** mm → CSS px in the cross-section canvas. */
@@ -482,7 +492,8 @@
 
   /**
    * Draw a probe shoe at emission point E (mm) with local frame (tangent t, normal n into the metal).
-   * Angle probes: "house" pentagon 24×14 mm sloped at the wedge angle; 0°: square 20×18 mm.
+   * Angle probes: "house" pentagon 24×14 mm (vertical front face, front-top corner sloped at the
+   * wedge angle); 0°: square 20×18 mm.
    */
   function drawShoe(ctx, E, t, n, side, der, colour, hollow, opts) {
     const o = opts || {};
@@ -508,9 +519,14 @@
     } else {
       const w = der.shoeWidth || 24, h = der.shoeHeight || 14;
       const half = w / 2;
-      const run = M.clamp(h * Math.tan(M.deg2rad(der.wedgeAngle || 45)), 4, w * 0.75);
+      // "house" pentagon (§14.1): rectangular body with a vertical front face; only the front-TOP
+      // corner is cut by a roof sloped at the wedge angle (the crystal sits on that face). The roof
+      // drops at most h/2 so the front face stays ≥ half the height, and runs at most w/2 back.
+      const tw = Math.tan(M.deg2rad(M.clamp(der.wedgeAngle || 45, 10, 80)));
+      const rise = Math.min(h / 2, half * tw);
+      const run = M.clamp(rise / tw, 3, half);
       const front = -side * half, back = side * half;
-      const pts = [map(front, 0), map(back, 0), map(back, -h), map(front + side * run, -h)];
+      const pts = [map(front, 0), map(back, 0), map(back, -h), map(front + side * run, -h), map(front, -h + rise)];
       ctx.beginPath(); pts.forEach(function (p, i) { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }); ctx.closePath();
       if (!hollow) { ctx.fillStyle = colour; ctx.fill(); }
       ctx.strokeStyle = hollow ? colour : '#202020'; ctx.lineWidth = hollow ? 2 : 1; ctx.stroke();
@@ -880,7 +896,7 @@
     ctx.fillStyle = COL.cream; ctx.fillRect(0, 0, W, H);
     const sp = st && st.specimen;
     if (!sp || isOblique(st)) { ctx.restore(); return; }
-    const xf = S.canvas ? (S.xf || ensureTransform(st)) : computeTransform(sp, W, H);
+    const xf = S.canvas ? (S.xf || ensureTransform(st)) : computeTransform(sp, W, H, ttBottomMm(st));
     const unsigned = sp.extents.xMin < 0;
     const mmAt = function (px) { return (px - xf.ox) / xf.scale; };
     // Tick every 2 mm / label every 10 mm at the normal scale; coarser steps when the mm are tiny
