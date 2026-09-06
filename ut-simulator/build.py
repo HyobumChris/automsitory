@@ -31,6 +31,9 @@ def main():
 
     def js_repl(m):
         src = m.group(1)
+        if not os.path.exists(os.path.join(HERE, src)):
+            print('WARNING: %s missing, skipped' % src)
+            return '<!-- %s missing -->' % src
         js = read(src)
         if '</script' in js.lower():
             raise SystemExit('ERROR: %s contains a literal </script> sequence; write it as <\\/script>' % src)
@@ -44,10 +47,15 @@ def main():
     if leftovers:
         raise SystemExit('ERROR: external references remain: %s' % leftovers)
 
-    out = os.path.abspath(OUT)
-    with open(out, 'w', encoding='utf-8') as fh:
-        fh.write(html)
-    print('wrote %s (%d bytes)' % (out, len(html.encode('utf-8'))))
+    outputs = [os.path.abspath(OUT)]
+    if len(sys.argv) <= 1:
+        # GitHub Pages copy (docs/ is deployed as-is by .github/workflows/deploy-pages.yml)
+        outputs.append(os.path.abspath(os.path.join(HERE, '..', 'docs', 'utman_simulator.html')))
+    for out in outputs:
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        with open(out, 'w', encoding='utf-8') as fh:
+            fh.write(html)
+        print('wrote %s (%d bytes)' % (out, len(html.encode('utf-8'))))
 
 
 if __name__ == '__main__':

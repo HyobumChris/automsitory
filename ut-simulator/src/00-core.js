@@ -96,6 +96,27 @@
       }
       return inside;
     },
+    /** Bessel function of the first kind J1(x) (Abramowitz & Stegun 9.4.4 / 9.4.6, |err| < 1e-7). */
+    besselJ1(x) {
+      const ax = Math.abs(x);
+      if (ax < 3) {
+        const y = (x / 3) * (x / 3);
+        return x * (0.5 + y * (-0.56249985 + y * (0.21093573 + y * (-0.03954289 + y * (0.00443319 + y * (-0.00031761 + y * 0.00001109))))));
+      }
+      const y = 3 / ax;
+      const f1 = 0.79788456 + y * (0.00000156 + y * (0.01659667 + y * (0.00017105 + y * (-0.00249511 + y * (0.00113653 + y * -0.00020033)))));
+      const t1 = ax - 2.35619449 + y * (0.12499612 + y * (0.00005650 + y * (-0.00637879 + y * (0.00074348 + y * (0.00079824 + y * -0.00029166)))));
+      const v = f1 * Math.cos(t1) / Math.sqrt(ax);
+      return x < 0 ? -v : v;
+    },
+    /** One-way piston directivity |2 J1(x)/x| with x = (π a/λ) sinθ (a = crystal size in the beam plane, mm). */
+    pistonDirectivity(thetaDeg, aMm, lambdaMm) {
+      const x = Math.PI * aMm / Math.max(lambdaMm, 1e-6) * Math.sin(thetaDeg * DEG);
+      if (Math.abs(x) < 1e-6) return 1;
+      return Math.abs(2 * math.besselJ1(x) / x);
+    },
+    /** FNV-1a 32-bit hash of a string (used for exam codes). */
+    fnv1a(str) { let h = 0x811c9dc5; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h >>> 0; },
     /** Angle (deg, 0..180) between two direction vectors. */
     angleBetween(ax, ay, bx, by) {
       const la = Math.hypot(ax, ay) || 1, lb = Math.hypot(bx, by) || 1;
@@ -133,7 +154,12 @@
         wedgeVel: 2.74, method: 'pe',
         x: 40, z: 150, side: 1, skew: 0, surface: 'chord',
         paFrom: 40, paTo: 70, paStep: 1,
+        // v2
+        libId: 'gen-60-5-10', crystalDims: { a: 10, b: 10, shape: 'round' }, focus: { on: false, F: 30 }, angleCustom: null,
       },
+      material: 'carbon',
+      physics: { modeConv: true, surfaceWave: true, sideLobes: true, fanRays: 41 },
+      damping: { tool: false, points: [] },
       instrument: {
         gain: 30, refGain: 30, range: 100, delay: 0, reject: 0, damping: false,
         rectify: 'full', freeze: false, peakMem: false,
@@ -148,27 +174,45 @@
         page: 1,
         readout: 'dp',                 // which readout is shown big on EPOCH 600: 'sp' | 'sd' | 'dp' | 'amp'
         selectedParam: 'gain',         // softkey parameter being adjusted
+        // v2
+        tcg: { on: false }, pulser: { energy: 'med', damping: 150, prf: 60 }, receiver: { filter: 'broadband' },
+        autoPct: 80, compare: null, datalog: [],
       },
       display: {
         beam: true, skips: 3, colourCode: 'none', singleLine: false, focus: false,
-        hide: false, plan: true, pipe3d: true, mirror: true, units: 'mm', legend: true, grid: true, autoTrig: true,
+        hide: false, plan: true, pipe3d: true, mirror: true, units: 'mm', legend: true, grid: true,
+        // v2
+        sound: false, touchBar: 'auto', highContrast: false, scale: 'auto', convRays: true, deadZones: true, autoTrig: true,
       },
-      weldOpts: { T: 20, L: 300, type: 'single-v', bevel: 30, rootGap: 2, rootFace: 2, capWidth: 16, capHeight: 2, rootHeight: 1.5, pipe: false, od: 168.3, wt: 20 },
+      weldOpts: { T: 20, L: 300, type: 'single-v', bevel: 30, rootGap: 2, rootFace: 2, capWidth: 16, capHeight: 2, rootHeight: 1.5, pipe: false, od: 168.3, wt: 20,
+        prep: 'single-v', weldMaterial: 'same', backing: false, webT: 12, branchOd: 114.3 },   // v2: prep supersedes type
       defects: [],
       selectedDefect: 0,
-      tofd: { pcs: 60, txAngle: 60, rangeUs: 15, delayUs: 0, gainDb: 40, scan: null, running: false },
+      tofd: { pcs: 60, txAngle: 60, rangeUs: 15, delayUs: 0, gainDb: 40, scan: null, running: false,
+        modeConv: true, straighten: false, deadZones: true },
       aut: {
         x: 40,
         gates: [
           { on: true, start: 20, width: 40, level: 20 },
           { on: true, start: 30, width: 30, level: 20 },
           { on: false, start: 40, width: 20, level: 20 },
+          { on: false, start: 50, width: 20, level: 20 },
+          { on: false, start: 60, width: 20, level: 20 },
+          { on: false, start: 70, width: 20, level: 20 },
         ],
         activeGate: 0, scan: null, running: false, rectified: true, revMap: false,
+        channels: 3, map: null, speed: 6,
       },
+      standards: { standard: 'iso11666', level: 'AL2', technique: 1, testingLevel: 'B', transferDb: 0, rulesOverride: null, procedure: null },
+      lessons: { active: null, step: 0, progress: {}, answers: {} },
+      pa: { elements: 16, pitch: 1.0, freq: 5, from: 35, to: 75, step: 1, focusDepth: null, view: 'S', escanAngle: 60, scan: null, tcg: false },
+      bscan: { axis: 'x', on: false, columns: null },
+      echodyn: { on: false, samples: [] },
+      scenario: { slot: null, name: '' },
       plot: { points: [], edgeMarks: [], mirror: true, refPct: 80, cardStyle: 'iow' },
       sizing: { method: '6dB', marks: [], result: null },
-      trade: { active: false, revealed: false, report: [], score: null, seed: null, startedAt: null, truth: [] },
+      trade: { active: false, revealed: false, report: [], score: null, seed: null, startedAt: null, truth: [],
+        difficulty: 'intermediate', timeLimitMin: 60, history: [], exam: null },
       lesson: null,
       status: { left: '', mid: '', right: '' },
       cursor: { x: null, y: null, view: null },
@@ -230,7 +274,14 @@
   };
   UT.i18n = {
     lang: 'en',
-    t(key) { const d = dict[UT.i18n.lang]; return (d && d[key]) || key; },
+    t(key, params) {
+      const d = dict[UT.i18n.lang];
+      let s = (d && d[key]) || key;
+      if (params) s = s.replace(/\{(\w+)\}/g, function (m, k) { return params[k] === undefined ? m : String(params[k]); });
+      return s;
+    },
+    has(key) { const d = dict[UT.i18n.lang]; return !!(d && d[key]); },
+    dict(lang) { return dict[lang || UT.i18n.lang] || {}; },
     add(lang, entries) { dict[lang] = Object.assign(dict[lang] || {}, entries); },
   };
 
@@ -278,7 +329,17 @@
     localPos(ev, el) {
       const r = el.getBoundingClientRect();
       const p = ev.touches && ev.touches[0] ? ev.touches[0] : ev;
-      return { x: p.clientX - r.left, y: p.clientY - r.top };
+      // compensate a CSS transform: scale(k) on an ancestor (responsive layout scaling)
+      const kx = r.width > 0 && el.offsetWidth ? el.offsetWidth / r.width : 1;
+      const ky = r.height > 0 && el.offsetHeight ? el.offsetHeight / r.height : 1;
+      return { x: (p.clientX - r.left) * kx, y: (p.clientY - r.top) * ky };
+    },
+    /** Current layout scale factor k of #app (1 when not scaled). */
+    scale() {
+      const app = typeof document !== 'undefined' && document.getElementById('app');
+      if (!app || !app.offsetWidth) return 1;
+      const r = app.getBoundingClientRect();
+      return r.width > 0 ? r.width / app.offsetWidth : 1;
     },
     button(label, onClick, attrs) {
       return dom.h('button', Object.assign({ class: 'btn', type: 'button', onclick: onClick }, attrs || {}), label);
@@ -354,10 +415,11 @@
           if (backdrop) backdrop.style.display = 'block';
           el.style.display = 'block';
           api.raise();
-          // keep inside viewport
-          const r = el.getBoundingClientRect();
-          if (r.right > window.innerWidth) el.style.left = Math.max(0, window.innerWidth - r.width - 8) + 'px';
-          if (r.bottom > window.innerHeight) el.style.top = Math.max(0, window.innerHeight - r.height - 8) + 'px';
+          // keep inside the (logical, unscaled) app box
+          const box = el.offsetParent || document.body;
+          const bw = box.clientWidth || window.innerWidth, bh = box.clientHeight || window.innerHeight;
+          if (el.offsetLeft + el.offsetWidth > bw) el.style.left = Math.max(0, bw - el.offsetWidth - 8) + 'px';
+          if (el.offsetTop + el.offsetHeight > bh) el.style.top = Math.max(0, bh - el.offsetHeight - 8) + 'px';
           if (o.onShow) o.onShow(api);
           UT.bus.emit('win:show', api);
           return api;
@@ -371,17 +433,21 @@
       el.addEventListener('mousedown', function () { api.raise(); });
       // drag by title bar
       let drag = null;
-      titleBar.addEventListener('mousedown', function (e) {
+      titleBar.addEventListener('pointerdown', function (e) {
         if (e.target === closeBtn) return;
-        drag = { dx: e.clientX - el.offsetLeft, dy: e.clientY - el.offsetTop };
+        const k = dom.scale();
+        drag = { dx: e.clientX / k - el.offsetLeft, dy: e.clientY / k - el.offsetTop, k };
+        try { titleBar.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
         e.preventDefault();
       });
-      window.addEventListener('mousemove', function (e) {
+      titleBar.addEventListener('pointermove', function (e) {
         if (!drag) return;
-        el.style.left = Math.max(0, e.clientX - drag.dx) + 'px';
-        el.style.top = Math.max(0, e.clientY - drag.dy) + 'px';
+        el.style.left = Math.max(0, e.clientX / drag.k - drag.dx) + 'px';
+        el.style.top = Math.max(0, e.clientY / drag.k - drag.dy) + 'px';
       });
-      window.addEventListener('mouseup', function () { drag = null; });
+      const endDrag = function () { drag = null; };
+      titleBar.addEventListener('pointerup', endDrag);
+      titleBar.addEventListener('pointercancel', endDrag);
       if (o.content) api.setContent(o.content);
       dom.wins[name] = api;
       return api;
@@ -405,6 +471,31 @@
   };
   UT.dom = dom;
 
+  // ------------------------------------------------------------------ audio (gate alarm beep, opt-in)
+  UT.audio = {
+    ctx: null, lastBeep: 0, unlocked: false,
+    /** Call from a user gesture after enabling display.sound (creates the AudioContext lazily). */
+    unlock() {
+      if (!UT.state.display.sound || UT.audio.ctx) return;
+      try { UT.audio.ctx = new (window.AudioContext || window.webkitAudioContext)(); UT.audio.unlocked = true; } catch (e) { UT.audio.ctx = null; }
+    },
+    /** Short 880 Hz beep (no-op while display.sound is off). */
+    beep(freq, ms) {
+      if (!UT.state.display.sound) return false;
+      if (!UT.audio.ctx) UT.audio.unlock();
+      const c = UT.audio.ctx;
+      if (!c) return false;
+      try {
+        const o = c.createOscillator(), g = c.createGain();
+        o.frequency.value = freq || 880; g.gain.value = 0.1;
+        o.connect(g); g.connect(c.destination);
+        o.start(); o.stop(c.currentTime + (ms || 60) / 1000);
+        UT.audio.lastBeep = Date.now();
+        return true;
+      } catch (e) { return false; }
+    },
+  };
+
   // ------------------------------------------------------------------ status helper
   UT.status = function (patch) { UT.setIn('status', patch, { noRender: true }); UT.bus.emit('status', UT.state.status); };
 
@@ -413,7 +504,9 @@
   UT.test.state = function () {
     const s = Object.assign({}, UT.state);
     s.tofd = Object.assign({}, s.tofd, { scan: null });
-    s.aut = Object.assign({}, s.aut, { scan: null });
+    s.aut = Object.assign({}, s.aut, { scan: null, map: null });
+    s.pa = Object.assign({}, s.pa, { scan: null }); s.bscan = Object.assign({}, s.bscan, { columns: null });
+    s.instrument = Object.assign({}, s.instrument, { compare: null });
     s.specimen = s.specimen ? { id: s.specimen.id, name: s.specimen.name, T: s.specimen.T, L: s.specimen.L, face: s.specimen.face || null, kind: s.specimen.kind } : null;
     return UT.clone(s);
   };
@@ -439,6 +532,11 @@
       if (!c || Math.abs(c.t - 8) > 1e-9) f.push('rayCircle');
       if (!math.pointInPolygon(1, 1, [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 2, y: 2 }, { x: 0, y: 2 }])) f.push('pointInPolygon');
       if (math.fmt2(5.51) !== '05.51') f.push('fmt2');
+      if (Math.abs(math.besselJ1(1) - 0.44005) > 1e-4) f.push('besselJ1(1) ' + math.besselJ1(1));
+      if (Math.abs(math.besselJ1(5) + 0.32758) > 1e-4) f.push('besselJ1(5) ' + math.besselJ1(5));
+      const d6 = math.pistonDirectivity(math.rad2deg(Math.asin(0.51 * 0.648 / 10)), 10, 0.648);
+      if (Math.abs(20 * Math.log10(d6) + 3) > 0.3) f.push('piston -3 dB at 0.51 λ/a: ' + (20 * Math.log10(d6)).toFixed(2));
+      if (UT.i18n.t('Defect {n}', { n: 3 }) !== 'Defect 3') f.push('i18n params');
       return f;
     },
   };
