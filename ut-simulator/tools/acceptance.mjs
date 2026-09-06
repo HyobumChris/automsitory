@@ -88,7 +88,6 @@ function checker() {
   return A;
 }
 const dB = (a, b) => 20 * Math.log10(a / b);
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 // ---------------------------------------------------------------------------------------------- page helpers
 /** Installed once into the page: pure helpers on window.ACC. */
@@ -997,8 +996,13 @@ check('V2-18 Korean UI: untranslated() ≤ 5 with every window open', 'v2', asyn
     for (const f of appWins) { try { if (UT.app && typeof UT.app[f] === 'function') { UT.app[f](); opened.push(f); } } catch (e) { failed.push(f + ':' + e.message); } }
     UT.renderNow();
     const un = UT.test.untranslated ? UT.test.untranslated() : null;
-    const exempt = (k) => !/[a-z]/.test(k) || /[\u3131-\uD79D]/.test(k) || /\d/.test(k) || k.trim().length <= 3;
-    const same = Array.from(document.querySelectorAll('[data-i18n]')).filter(el => !el.closest('.no-i18n') && el.dataset.i18n && el.textContent.trim() === el.dataset.i18n.trim() && !exempt(el.dataset.i18n)).map(el => el.dataset.i18n).slice(0, 12);
+    // §5.3.4 exemptions: short tokens, numeric strings, product names, .no-i18n subtrees, the physics status line, probe library names
+    const SHORT = /^[\d\s.,:%°+\-/×~()a-zA-Z]{0,3}$/, NUM = /^[\d\s.,%°:+\-/()µ]+$/;
+    const libNames = new Set((UT.probe && UT.probe.library || []).map(p => p.name));
+    const UNIT = /^[A-Za-z⌀]{0,2}\s*\(?(mm|µs|us|dB|%|°|Hz|MHz)\)?$/;   // unit labels ('SP (mm)', '⌀ mm') stay as they are in Korean
+    const exempt = (k, el) => SHORT.test(k) || NUM.test(k) || !/[A-Za-z]/.test(k) || UNIT.test(k) || /[\u3131-\uD79D]/.test(k) || libNames.has(k) || !!(UT.i18nKo && UT.i18nKo.isProductName && UT.i18nKo.isProductName(k)) || !!el.closest('.no-i18n') || !!el.closest('#statusbar .sb-left');
+    const where = (el) => { const w = el.closest('.win'); return w ? 'win:' + w.dataset.win : (el.closest('#menubar') ? 'menubar' : el.closest('#instrument') ? 'instrument' : el.id || el.tagName.toLowerCase()); };
+    const same = Array.from(new Set(Array.from(document.querySelectorAll('[data-i18n]')).filter(el => el.dataset.i18n && el.textContent.trim() === el.dataset.i18n.trim() && !exempt(el.dataset.i18n, el)).map(el => el.dataset.i18n + ' @' + where(el)))).slice(0, 12);
     try { if (UT.modes.autoCal && UT.modes.autoCal.cancel) UT.modes.autoCal.cancel(); } catch (e) {}
     for (const k of Object.keys(UT.dom.wins)) { const w = UT.dom.wins[k]; if (w.isOpen()) w.close(); }
     UT.test.lang('en');
@@ -1329,7 +1333,9 @@ async function main() {
     try {
       if (c.group !== 'v1' || !/V1-14/.test(c.name)) await page.evaluate(() => ACC.reset());
       const timeout = c.timeout || 180000;
-      res = await Promise.race([c.fn(ctx), sleep(timeout).then(() => ({ pass: false, detail: `TIMEOUT after ${timeout} ms` }))]);
+      let timer = null;
+      const guard = new Promise(resolve => { timer = setTimeout(() => resolve({ pass: false, detail: `TIMEOUT after ${timeout} ms` }), timeout); });
+      res = await Promise.race([c.fn(ctx), guard]).finally(() => clearTimeout(timer));
     } catch (e) {
       res = { pass: false, detail: 'EXCEPTION ' + String(e && e.stack || e).split('\n').slice(0, 2).join(' ') };
     }
@@ -1346,6 +1352,7 @@ async function main() {
   if (JSON_OUT) { fs.mkdirSync(path.dirname(path.resolve(JSON_OUT)), { recursive: true }); fs.writeFileSync(JSON_OUT, JSON.stringify(summary, null, 1)); }
   console.log(`\n${passed}/${results.length} checks passed in ${((Date.now() - t0) / 1000).toFixed(1)} s${JSON_OUT ? ' — JSON: ' + JSON_OUT : ''}`);
   if (passed < results.length) { console.log('failed: ' + results.filter(r => !r.pass).map(r => r.name.split(' ')[0]).join(', ')); process.exit(1); }
+  process.exit(0);
 }
 
 main().catch(e => { console.error(e); process.exit(2); });
