@@ -1074,7 +1074,8 @@ to v1 for carbon (L 0.005 / S 0.010 one-way). #13 holds by the invariant of §4.
   and `.backwall` = 1.6 ± 0.2 mm; `tofdCursor({z:135, depth:8})` sets `state.cursor = {view:'dscan', depth ≈ 8}`.
 - **V2-11 PA**: `pa.sscan()` returns 41 angle columns; the DAC-block T/2 SDH appears at the angle whose `path·sinθ` matches its
   position (±3°); E-scan has ≥ 8 columns; `pa.runScan()` map non-empty; with `pa.tcg` the SDH amplitude spread across angles
-  ≤ 3 dB; `pa.focalLaw(60).slope` = 0.070 ± 0.003 µs/mm, `pa.focalLaw(0, {escan:true}).slope` = 0, all delays ≥ 0.
+  ≤ 3 dB (measured ON-AXIS per angle, i.e. the probe placed so that each angle's centre ray hits the SDH — ACG-style angle-gain
+  calibration; a fixed probe reading the SDH in neighbouring columns is NOT the measure); `pa.focalLaw(60).slope` = 0.070 ± 0.003 µs/mm, `pa.focalLaw(0, {escan:true}).slope` = 0, all delays ≥ 0.
 - **V2-12 AUT v2**: `channels 6` yields 6 strips; adaptive step on a 24-inch pipe → n ≤ 500 columns; sync scan ≤ 1.5 s.
 - **V2-13 B-scan**: lamination plate, 0°, drag x from −60 to 60 → `bscan().columns.length ≥ 100` with a thickness step where the
   lamination is (depth 10 vs 25); `state.bscan.columns === null` throughout (no render loop: `'render'` count per drag step ≤ 2).
