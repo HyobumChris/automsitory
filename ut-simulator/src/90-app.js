@@ -739,7 +739,7 @@
 
   /** Weld dialog (thickness, type, bevel, root, cap, plate length, pipe OD/WT). */
   function openWeld() {
-    dialog('weld', 'Weld', 420, function (win) {
+    dialog('weld', 'Weld', 640, function (win) {
       const o = Object.assign({}, UT.defaultState().weldOpts, st().weldOpts || {});
       const set = function (k) { return function (v) { o[k] = v; }; };
       const odMm = numField('OD (mm)', { value: o.od, min: 25, max: 2000, step: 0.1, onchange: function (v) { o.od = v; odIn.input.value = inchOf(v); } });

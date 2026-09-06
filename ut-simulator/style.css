@@ -93,7 +93,7 @@ canvas { display: block; }
   flex: 1 1 auto;
   display: grid;
   grid-template-columns: 440px minmax(0, 1fr);
-  grid-template-rows: minmax(360px, 1fr) 30px 232px;
+  grid-template-rows: minmax(360px, 1fr) 30px clamp(180px, 26vh, 236px);
   gap: 0;
   min-height: 0;
   padding: 4px 6px 2px 6px;
@@ -120,7 +120,7 @@ canvas { display: block; }
 #main.block.no-ruler #ruler-area { display: none; }
 #main.block.no-ruler #instrument { grid-area: 1 / 1 / 2 / 2; }
 #main.block.no-ruler #cross-area { grid-area: 1 / 2 / 2 / 3; }
-#main.no-ruler:not(.block) { grid-template-rows: minmax(360px, 1fr) 0 232px; }
+#main.no-ruler:not(.block) { grid-template-rows: minmax(360px, 1fr) 0 clamp(180px, 26vh, 236px); }
 #main.no-ruler:not(.block) #ruler-area { display: none; }
 /* USK7: the instrument column shrinks to the small launcher panel */
 #main.usk7 { grid-template-columns: max-content minmax(0, 1fr); }
@@ -188,6 +188,7 @@ canvas { display: block; }
 .fld-input[type=range] { padding: 0; border: none; background: transparent; }
 .fld-unit { color: #555; flex: 0 0 auto; }
 .fld-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+.fld-grid .fld-label { flex-basis: 110px; }
 .confirm-body { min-width: 260px; }
 .confirm-body p { margin: 4px 0 6px; }
 .alert-msg { white-space: pre-wrap; margin: 2px 0 4px; }
