@@ -72,28 +72,9 @@
   }
 
   /**
-   * Confirm dialog → Promise<boolean>. Local variant of UT.dom.confirm that resolves BEFORE closing the
-   * window (core's version fires onClose → resolve(false) first, so it never resolves true).
+   * Confirm dialog → Promise<boolean> (UT.dom.confirm resolves true on OK, false on Cancel/close).
    */
-  function confirmDlg(message, opts) {
-    return new Promise(function (resolve) {
-      const o = opts || {};
-      let settled = false;
-      const settle = function (v) { if (settled) return; settled = true; resolve(v); };
-      const win = UT.dom.win({
-        name: 'confirm-' + UT.uid(), title: o.title || 'Confirm', modal: true, w: 320,
-        onClose: function () { settle(false); },
-      });
-      win.setContent(h('div', { class: 'confirm-body' }, [
-        h('p', {}, message),
-        h('div', { class: 'btn-row' }, [
-          UT.dom.button(o.ok || 'OK', function () { settle(true); win.close(); }, { class: 'btn primary' }),
-          UT.dom.button(o.cancel || 'Cancel', function () { settle(false); win.close(); }),
-        ]),
-      ]));
-      win.show();
-    });
-  }
+  function confirmDlg(message, opts) { return UT.dom.confirm(message, opts); }
 
   // ------------------------------------------------------------------ Korean labels
   const KO = {
@@ -584,6 +565,7 @@
     const hidden = hiddenViews();
     const plot = mode === 'iow';
     main.classList.toggle('plot', plot);
+    main.classList.toggle('tall', ['iow', 'dac', 'step', 'lamination'].indexOf(mode) >= 0);
     main.classList.toggle('block', !plot && hidden.indexOf('plan') >= 0);
     main.classList.toggle('no-ruler', hidden.indexOf('ruler') >= 0);
     main.classList.toggle('usk7', st().utSet === 'usk7');
@@ -633,7 +615,7 @@
     const parts = [];
     parts.push(inch ? 'Pos: ' + (p.x / 25.4).toFixed(2) + ' in' : 'Pos: ' + fmtNum(p.x) + ' mm');
     parts.push(inch ? 'Range ' + (ins.range / 25.4).toFixed(2) + 'in' : 'Range ' + (+ins.range).toFixed(1) + 'mm');
-    parts.push('AMP= ' + fmtNum(ins.gain) + 'dB');
+    parts.push('AMP= ' + fmtNum(s.mode === 'tofd' && s.tofd && Number.isFinite(s.tofd.gainDb) ? s.tofd.gainDb : ins.gain) + 'dB');
     let extra = '';
     if (has('modes.statusMid')) { try { extra = UT.modes.statusMid() || ''; } catch (e) { extra = ''; } }
     else if (s.specimen && s.specimen.pipe) extra = 'WT ' + s.specimen.pipe.wt + 'mm  Dia ' + s.specimen.pipe.odInch + 'inch';

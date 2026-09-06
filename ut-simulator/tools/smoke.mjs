@@ -1,29 +1,21 @@
 // Headless smoke test for the built single-file simulator.
 // Usage: NODE_PATH=/opt/node22/lib/node_modules node tools/smoke.mjs [path/to/utman_simulator.html] [--shots dir]
-import { createRequire } from 'node:module';
 import path from 'node:path';
 import fs from 'node:fs';
-const require = createRequire(import.meta.url);
-const { chromium } = require('playwright');
+import { launch, TOOLBAR_IDS } from './qa-helpers.mjs';
 
 const args = process.argv.slice(2);
-const file = path.resolve(args.find(a => !a.startsWith('--')) || path.join(process.cwd(), '..', 'utman_simulator.html'));
+const fileArg = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--shots');
 const shotsIdx = args.indexOf('--shots');
 const shots = shotsIdx >= 0 ? path.resolve(args[shotsIdx + 1]) : null;
 if (shots) fs.mkdirSync(shots, { recursive: true });
 
-const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || undefined });
-const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-const errors = [];
-page.on('console', m => { if (m.type() === 'error') errors.push('[console] ' + m.text()); });
-page.on('pageerror', e => errors.push('[pageerror] ' + e.message));
-await page.goto('file://' + file);
-await page.waitForTimeout(600);
+const { browser, page, errors, file } = await launch({ file: fileArg });
 const hasUT = await page.evaluate(() => !!(window.UT && window.UT.test));
 console.log('loaded', file, 'UT.test present:', hasUT, 'version:', await page.evaluate(() => window.UT && window.UT.VERSION));
 if (shots) await page.screenshot({ path: path.join(shots, '00-boot.png') });
 
-const ids = ['tb-0','tb-45','tb-60','tb-70','tb-v2','tb-v1','tb-dac','tb-plot','tb-damp','tb-size','tb-defect','tb-hide','tb-clear','tb-beam','tb-rad','tb-pipe','tb-tky','tb-tofd','tb-aut'];
+const ids = TOOLBAR_IDS;
 for (const id of ids) {
   const before = errors.length;
   const exists = await page.$('#' + id);

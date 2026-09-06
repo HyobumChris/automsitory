@@ -93,6 +93,7 @@
   }
 
   // ------------------------------------------------------------------ weld profile
+  const FLAT_BEAD = 0.1;   // mm: a cap/root bead lower than this is treated as the flat plate surface
   /**
    * Weld geometry for a butt weld of thickness T. Returns { outlineTop, outlineBottom, region, fusionFaces, ... }.
    * type: 'single-v' | 'double-v' | 'none'
@@ -130,17 +131,21 @@
     const root = [];
     if (type !== 'none') {
       const n = 8;
+      // A bead lower than FLAT_BEAD is geometrically the plate surface: tag it 'top'/'bottom' so the
+      // tracer's rough-bead diffuse rule (30-raytrace, SPEC §6.1 note 2) does not fire on a flat plate.
+      const capTag = capHeight > FLAT_BEAD ? 'cap' : 'top';
       for (let i = 0; i <= n; i++) {
         const t = i / n; // 0..1 from left to right
         const x = -capWidth / 2 + capWidth * t;
-        cap.push({ x, y: -capHeight * Math.sin(Math.PI * t), tag: 'cap' });
+        cap.push({ x, y: -capHeight * Math.sin(Math.PI * t), tag: capTag });
       }
       const bottomCapWidth = type === 'double-v' ? capWidth : rootWidth;
       const bottomCapHeight = type === 'double-v' ? capHeight : rootHeight;
+      const rootTag = bottomCapHeight > FLAT_BEAD ? (type === 'double-v' ? 'cap' : 'root') : 'bottom';
       for (let i = 0; i <= n; i++) {
         const t = i / n; // from right to left along the bottom
         const x = bottomCapWidth / 2 - bottomCapWidth * t;
-        root.push({ x, y: T + bottomCapHeight * Math.sin(Math.PI * t), tag: type === 'double-v' ? 'cap' : 'root' });
+        root.push({ x, y: T + bottomCapHeight * Math.sin(Math.PI * t), tag: rootTag });
       }
     }
     return { type, bevel, rootGap, rootFace, capWidth, capHeight, rootHeight, rootWidth, fusionFaces, region, cap, root, hazHalfWidth: capWidth / 2 + 6 };
@@ -153,7 +158,7 @@
     const wg = weldGeometry(o);
     const outline = [];
     outline.push({ x: -W / 2, y: 0, tag: 'top' });
-    if (wg.cap.length) { for (const p of wg.cap) outline.push({ x: p.x, y: p.y, tag: 'cap' }); outline[outline.length - 1].tag = 'top'; }
+    if (wg.cap.length) { for (const p of wg.cap) outline.push({ x: p.x, y: p.y, tag: p.tag }); outline[outline.length - 1].tag = 'top'; }
     outline.push({ x: W / 2, y: 0, tag: 'end' });
     outline.push({ x: W / 2, y: T, tag: 'bottom' });
     if (wg.root.length) { for (const p of wg.root) outline.push({ x: p.x, y: p.y, tag: p.tag }); outline[outline.length - 1].tag = 'bottom'; }
@@ -359,6 +364,31 @@
   // ------------------------------------------------------------------ defects
   const PLANAR_TYPES = { planar: 1, crack: 1, lof: 1, lamination: 1, root: 1 };
   function isPlanar(type) { return !!PLANAR_TYPES[type]; }
+  const COORD_MAX = 2000;        // mm: |x|,|y| of defect points are clamped to this (specimens are ≤ 300 mm wide)
+  const MAX_DEFECT_PTS = 400;    // polyline vertices kept per defect (brush decimation gives ≤ ~100)
+  const MAX_INTERIOR_SAMPLES = 4000;   // interior grid samples per volumetric defect
+  const MAX_OUTLINE_SAMPLES = 3000;    // outline samples per volumetric defect
+
+  function finiteNum(v, dflt) { const n = typeof v === 'string' ? parseFloat(v) : v; return Number.isFinite(n) ? n : dflt; }
+
+  /** Sanitise a points array: numeric finite {x,y} only, clamped to ±COORD_MAX, at most MAX_DEFECT_PTS vertices. */
+  function sanitisePts(pts) {
+    if (!Array.isArray(pts)) return [];
+    const out = [];
+    for (const p of pts) {
+      if (!p || typeof p !== 'object') continue;
+      const x = finiteNum(p.x, NaN), y = finiteNum(p.y, NaN);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      out.push({ x: M.clamp(x, -COORD_MAX, COORD_MAX), y: M.clamp(y, -COORD_MAX, COORD_MAX) });
+    }
+    if (out.length > MAX_DEFECT_PTS) {
+      const k = Math.ceil(out.length / MAX_DEFECT_PTS), thin = [];
+      for (let i = 0; i < out.length; i += k) thin.push(out[i]);
+      if (thin[thin.length - 1] !== out[out.length - 1]) thin.push(out[out.length - 1]);
+      return thin;
+    }
+    return out;
+  }
 
   function bbox(pts) {
     let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
@@ -377,16 +407,21 @@
   }
 
   function makeDefect(o) {
-    const pts = o.pts && o.pts.length >= 2 ? o.pts.map(function (p) { return { x: p.x, y: p.y }; }) : [{ x: 0, y: 10 }, { x: 0, y: 13 }];
+    o = o || {};
+    const clean = sanitisePts(o.pts);
+    const pts = clean.length >= 2 ? clean : [{ x: 0, y: 10 }, { x: 0, y: 13 }];
     const b = bbox(pts);
-    const zFrom = o.zFrom === undefined ? 135 : o.zFrom;
-    const zTo = o.zTo === undefined ? zFrom + (o.length || 30) : o.zTo;
+    const n = Math.max(1, Math.round(finiteNum(o.n, 1)));
+    const type = typeof o.type === 'string' && o.type ? o.type : 'planar';
+    const zFrom = M.clamp(finiteNum(o.zFrom, 135), -COORD_MAX, COORD_MAX);
+    const zTo = M.clamp(o.zTo === undefined ? zFrom + finiteNum(o.length, 30) : finiteNum(o.zTo, zFrom + 30), -COORD_MAX, COORD_MAX);
+    const autoH = Math.max(0.5, +Math.max(b.h, isPlanar(type) ? 0 : b.w).toFixed(1));
     return {
-      id: o.id || UT.uid(), n: o.n || 1, type: o.type || 'planar', pts,
-      height: o.height === undefined ? Math.max(0.5, +Math.max(b.h, isPlanar(o.type || 'planar') ? 0 : b.w).toFixed(1)) : o.height,
+      id: o.id || UT.uid(), n, type, pts,
+      height: Math.max(0, finiteNum(o.height, autoH)),
       width: +b.w.toFixed(1),
-      zFrom, zTo, reflectivity: o.reflectivity === undefined ? 1 : o.reflectivity,
-      label: o.label || ('Defect ' + (o.n || 1)), visible: o.visible !== false,
+      zFrom, zTo, reflectivity: M.clamp(finiteNum(o.reflectivity, 1), 0, 10),
+      label: typeof o.label === 'string' && o.label ? o.label : ('Defect ' + n), visible: o.visible !== false,
     };
   }
 
@@ -402,19 +437,28 @@
     return len;
   }
 
-  /** Sample points of a volumetric defect (outline every 1 mm + interior 1.5 mm grid). */
+  /**
+   * Sample points of a volumetric defect (outline every 1 mm + interior 1.5 mm grid).
+   * The sample count is bounded (MAX_OUTLINE_SAMPLES / MAX_INTERIOR_SAMPLES): for an absurdly large
+   * polygon the steps grow so a frame never spends more than a few ms here.
+   */
   function defectSamples(d) {
     const out = [];
-    const pts = d.pts;
+    const pts = sanitisePts(d && d.pts);
+    if (!pts.length) return out;
+    let total = 0;
+    for (let i = 0; i < pts.length - 1; i++) total += M.dist(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y);
+    const step = Math.max(1, total / MAX_OUTLINE_SAMPLES);
     for (let i = 0; i < pts.length - 1; i++) {
       const a = pts[i], b = pts[i + 1];
-      const n = Math.max(1, Math.ceil(M.dist(a.x, a.y, b.x, b.y)));
+      const n = Math.max(1, Math.ceil(M.dist(a.x, a.y, b.x, b.y) / step));
       for (let k = 0; k < n; k++) out.push({ x: a.x + (b.x - a.x) * k / n, y: a.y + (b.y - a.y) * k / n });
     }
     out.push(pts[pts.length - 1]);
     if (!isPlanar(d.type) && pts.length >= 3) {
       const b = bbox(pts);
-      for (let x = b.xMin; x <= b.xMax; x += 1.5) for (let y = b.yMin; y <= b.yMax; y += 1.5) if (M.pointInPolygon(x, y, pts)) out.push({ x, y });
+      const g = Math.max(1.5, Math.sqrt(Math.max(0, b.w * b.h) / MAX_INTERIOR_SAMPLES));
+      for (let x = b.xMin; x <= b.xMax; x += g) for (let y = b.yMin; y <= b.yMax; y += g) if (M.pointInPolygon(x, y, pts)) out.push({ x, y });
     }
     return out;
   }
@@ -478,10 +522,13 @@
   /** Validate/normalise a defects array (used by UT.test.setDefects and Load Def). */
   function normaliseDefects(arr) {
     const out = [];
-    (arr || []).forEach(function (d, i) {
-      if (!d || !Array.isArray(d.pts) || d.pts.length < 2) return;
-      const nd = makeDefect(Object.assign({}, d, { n: d.n || (i + 1) }));
-      out.push(nd);
+    if (!Array.isArray(arr)) return out;
+    arr.forEach(function (d, i) {
+      if (!d || typeof d !== 'object') return;
+      const pts = sanitisePts(d.pts);
+      if (pts.length < 2) return;                       // corrupt / non-finite records are dropped
+      const n = Number.isFinite(finiteNum(d.n, NaN)) ? d.n : i + 1;
+      out.push(makeDefect(Object.assign({}, d, { pts, n })));
     });
     return out.slice(0, 16);
   }
@@ -516,6 +563,16 @@
       if (!(sb.y < -10) || Math.abs(Math.hypot(sb.normal.x, sb.normal.y) - 1) > 1e-6) f.push('scanSurfaceAt brace ' + JSON.stringify(sb));
       const lof = defectPresets.lof(p);
       if (lof.pts.length !== 2) f.push('lof preset');
+      // flat beads are plate surface (no 'cap'/'root' tags); a real bead keeps its tag
+      const flat = plateWeld({ T: 20, rootHeight: 0, capHeight: 0 });
+      if (flat.edges.some(function (e) { return e.tag === 'root' || e.tag === 'cap'; })) f.push('flat bead should be tagged top/bottom');
+      if (!pointInside(flat, 0, 19.9) || pointInside(flat, 0, 20.1)) f.push('flat bead outline');
+      // defect sanitising + bounded sampling
+      const nd = normaliseDefects([{ n: 'x', type: 'crack', pts: [{ x: 'a', y: NaN }, { x: null }] }, { n: '2', type: 'porosity', pts: [{ x: 1e6, y: -1e6 }, { x: 2, y: 2 }, { x: 1e6, y: 2 }, { x: 'z' }] }]);
+      if (nd.length !== 1 || nd[0].n !== 2 || nd[0].pts.length !== 3 || nd[0].pts.some(function (q) { return !Number.isFinite(q.x) || !Number.isFinite(q.y) || Math.abs(q.x) > 2000 || Math.abs(q.y) > 2000; })) f.push('normaliseDefects sanitise ' + JSON.stringify(nd));
+      const t0 = Date.now(), ns = defectSamples(nd[0]).length;
+      if (ns > 8000 || Date.now() - t0 > 200) f.push('defectSamples bound ' + ns);
+      if (defectSamples(defectPresets.porosity(p)).length < 12) f.push('porosity samples');
       return f;
     },
   };

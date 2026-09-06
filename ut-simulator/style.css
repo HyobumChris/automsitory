@@ -92,7 +92,7 @@ canvas { display: block; }
 #main {
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: 440px minmax(0, 1fr);
+  grid-template-columns: 470px minmax(0, 1fr);
   grid-template-rows: minmax(360px, 1fr) 30px clamp(180px, 26vh, 236px);
   gap: 0;
   min-height: 0;
@@ -103,7 +103,8 @@ canvas { display: block; }
 #plan-area { grid-area: 1 / 2 / 2 / 3; position: relative; min-height: 300px; min-width: 0; overflow: hidden; }
 #ruler-area { grid-area: 2 / 1 / 3 / 3; position: relative; min-width: 0; overflow: hidden; }
 #cross-area { grid-area: 3 / 1 / 4 / 3; position: relative; min-width: 0; overflow: hidden; }
-#plan-area canvas, #cross-area canvas, #ruler-area canvas { width: 100%; height: 100%; display: block; }
+/* absolutely positioned so the canvas backing-store size never feeds back into the grid row sizes */
+#plan-area canvas, #cross-area canvas, #ruler-area canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
 #cv-plan { border: 1px solid #333; background: #fdfbd8; }
 #cv-plotter { border: 1px solid #333; background: #ffffff; }
 #cv-cross { background: #fdfbd8; }
@@ -121,6 +122,8 @@ canvas { display: block; }
 #main.block.no-ruler #instrument { grid-area: 1 / 1 / 2 / 2; }
 #main.block.no-ruler #cross-area { grid-area: 1 / 2 / 2 / 3; }
 #main.no-ruler:not(.block) { grid-template-rows: minmax(360px, 1fr) 0 clamp(180px, 26vh, 236px); }
+/* block specimens (IOW 45 mm, DAC, step wedge, lamination plate): taller cross-section so the whole block fits */
+#main.tall:not(.block) { grid-template-rows: minmax(300px, 1fr) 30px clamp(200px, min(36vh, calc(100vh - 560px)), 340px); }
 #main.no-ruler:not(.block) #ruler-area { display: none; }
 /* USK7: the instrument column shrinks to the small launcher panel */
 #main.usk7 { grid-template-columns: max-content minmax(0, 1fr); }

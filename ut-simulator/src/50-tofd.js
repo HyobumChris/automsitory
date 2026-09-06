@@ -681,10 +681,15 @@
     const wd = res.wd;
     const cursorAbs = ui.hover ? ui.hover.tUs + 2 * wd : null;
     const depth = cursorAbs === null ? 0 : depthFromTime(cursorAbs, { pcs: g.pcs, wd, vL: g.vL });
-    const gainDb = Number.isFinite(state.tofd.gainDb) ? state.tofd.gainDb : REF_GAIN_DB;
-    const right = 'Depth: ' + depth.toFixed(1) + ' | Lateral Wave: ' + (res.lateralUs - 2 * wd).toFixed(2) + ' micro sec + delay | BackWall: ' +
-      (res.backwallUs - 2 * wd).toFixed(2) + ' micro sec + delay | AMP= ' + Math.round(gainDb) + 'dB';
-    if (state.status && state.status.right !== right) UT.status({ right });
+    // Lateral / BackWall / AMP are rendered by 90-app from UT.modes.statusMid(); this only publishes the
+    // D-scan cursor depth through state.cursor (90-app appends 'Depth: d.d' in TOFD mode).
+    const cur = state.cursor || {};
+    if (cursorAbs === null) {
+      if (cur.view === 'tofd') UT.set({ cursor: { x: null, y: null, view: null } }, { noRender: true });
+      return;
+    }
+    const y = +depth.toFixed(1);
+    if (cur.view !== 'tofd' || cur.y !== y) UT.set({ cursor: { x: null, y, view: 'tofd' } }, { noRender: true });
   }
 
   const panel = {

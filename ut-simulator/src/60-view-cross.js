@@ -70,6 +70,19 @@
 
   /** Pure transform for the normal cross-section: fixed W/320 px per mm (§14.1). */
   function computeTransform(sp, W, H) {
+    if (sp && sp.tky && sp.extents) {
+      // TKY screen (§14.9): scale so the brace reaches the top of the canvas (up to 2.2× the width-fit
+      // scale, the long chord may be clipped at both ends); centred on the joint so the brace and the
+      // probe on the chord right of the toe stay visible.
+      const ex = sp.extents, tk = sp.tky;
+      const spanY = (ex.yMax - ex.yMin) + 8;
+      const wFit = W / ((ex.xMax - ex.xMin) + 8);
+      const sc = M.clamp(H / spanY, wFit, 2.2 * wFit);
+      const a = M.deg2rad(tk.braceAngle || 45);
+      const bx0 = Math.min(tk.toe.x, tk.heel.x) - (tk.braceLen || 90) * Math.cos(a);
+      const c = sc > wFit * 1.05 ? (bx0 + tk.toe.x + 60) / 2 : (ex.xMin + ex.xMax) / 2;
+      return { scale: sc, ox: W / 2 - c * sc, oy: (-ex.yMin + 4) * sc, W, H, cx: c };
+    }
     const scale = W / MM_SPAN;
     let cx = 0, yMin = 0, yMax = 20;
     if (sp && sp.extents) {
@@ -680,7 +693,9 @@
 
   function drawObliqueProbe(ctx, ob, st, pos) {
     const isZero = (st.probe.angle || 0) === 0;
-    const sc = ob.sc;
+    // probe dimensions follow the block scale but are capped so a 24 mm shoe on the small V2 block
+    // (scale up to 8 px/mm) stays a compact box like the original screens
+    const sc = Math.min(ob.sc, 3);
     if (pos.face === 'wide') {
       const B = bandPoint(ob, pos.x, M.clamp(pos.z / ob.depth, 0.05, 0.95));
       if (isZero) {

@@ -918,7 +918,7 @@
     '.usk-offcol{justify-content:flex-start;padding-top:4px;}',
     '.usk-off{width:34px;height:20px;background:#ddd;color:#000;border-radius:3px;font-weight:bold;font-size:9px;}',
     '.usk-brand{writing-mode:vertical-rl;transform:rotate(180deg);font:bold 8px Arial,sans-serif;color:#bbb;letter-spacing:1px;margin-top:auto;}',
-    '.skin-uskdock{padding:14px 10px;color:#ddd;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;min-height:200px;text-align:center;}',
+    '.skin-uskdock{width:220px;padding:14px 10px;color:#ddd;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;min-height:200px;text-align:center;}',
     '.uskdock-title{font-weight:bold;color:#3cff3c;}',
     '.uskdock-hint{font-size:11px;color:#bbb;}',
     '.uskdock-btn{padding:6px 12px;}',

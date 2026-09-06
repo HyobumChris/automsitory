@@ -36,11 +36,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const UT = loadUT({ upto: i >= 0 ? parseInt(args[i + 1], 10) : 999 });
   console.log('loaded UT modules:', Object.keys(UT).join(', '));
   if (args.includes('--selftest')) {
+    let failed = 0;
+    const run = (name, m) => { const r = m.__selftest(); if (r.length) failed++; console.log(name, r.length ? 'FAIL ' + JSON.stringify(r) : 'ok'); };
     for (const k of Object.keys(UT)) {
-      if (UT[k] && typeof UT[k].__selftest === 'function') {
-        const r = UT[k].__selftest();
-        console.log(k, r.length ? 'FAIL ' + JSON.stringify(r) : 'ok');
-      }
+      if (UT[k] && typeof UT[k].__selftest === 'function') run(k, UT[k]);
+      if (k === 'views' && UT.views) for (const v of Object.keys(UT.views)) if (UT.views[v] && typeof UT.views[v].__selftest === 'function') run('views.' + v, UT.views[v]);
     }
+    if (failed) process.exit(1);
   }
 }

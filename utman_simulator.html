@@ -100,7 +100,7 @@ canvas { display: block; }
 #main {
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: 440px minmax(0, 1fr);
+  grid-template-columns: 470px minmax(0, 1fr);
   grid-template-rows: minmax(360px, 1fr) 30px clamp(180px, 26vh, 236px);
   gap: 0;
   min-height: 0;
@@ -111,7 +111,8 @@ canvas { display: block; }
 #plan-area { grid-area: 1 / 2 / 2 / 3; position: relative; min-height: 300px; min-width: 0; overflow: hidden; }
 #ruler-area { grid-area: 2 / 1 / 3 / 3; position: relative; min-width: 0; overflow: hidden; }
 #cross-area { grid-area: 3 / 1 / 4 / 3; position: relative; min-width: 0; overflow: hidden; }
-#plan-area canvas, #cross-area canvas, #ruler-area canvas { width: 100%; height: 100%; display: block; }
+/* absolutely positioned so the canvas backing-store size never feeds back into the grid row sizes */
+#plan-area canvas, #cross-area canvas, #ruler-area canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
 #cv-plan { border: 1px solid #333; background: #fdfbd8; }
 #cv-plotter { border: 1px solid #333; background: #ffffff; }
 #cv-cross { background: #fdfbd8; }
@@ -129,6 +130,8 @@ canvas { display: block; }
 #main.block.no-ruler #instrument { grid-area: 1 / 1 / 2 / 2; }
 #main.block.no-ruler #cross-area { grid-area: 1 / 2 / 2 / 3; }
 #main.no-ruler:not(.block) { grid-template-rows: minmax(360px, 1fr) 0 clamp(180px, 26vh, 236px); }
+/* block specimens (IOW 45 mm, DAC, step wedge, lamination plate): taller cross-section so the whole block fits */
+#main.tall:not(.block) { grid-template-rows: minmax(300px, 1fr) 30px clamp(200px, min(36vh, calc(100vh - 560px)), 340px); }
 #main.no-ruler:not(.block) #ruler-area { display: none; }
 /* USK7: the instrument column shrinks to the small launcher panel */
 #main.usk7 { grid-template-columns: max-content minmax(0, 1fr); }
@@ -779,6 +782,7 @@ canvas { display: block; }
   }
 
   // ------------------------------------------------------------------ weld profile
+  const FLAT_BEAD = 0.1;   // mm: a cap/root bead lower than this is treated as the flat plate surface
   /**
    * Weld geometry for a butt weld of thickness T. Returns { outlineTop, outlineBottom, region, fusionFaces, ... }.
    * type: 'single-v' | 'double-v' | 'none'
@@ -816,17 +820,21 @@ canvas { display: block; }
     const root = [];
     if (type !== 'none') {
       const n = 8;
+      // A bead lower than FLAT_BEAD is geometrically the plate surface: tag it 'top'/'bottom' so the
+      // tracer's rough-bead diffuse rule (30-raytrace, SPEC §6.1 note 2) does not fire on a flat plate.
+      const capTag = capHeight > FLAT_BEAD ? 'cap' : 'top';
       for (let i = 0; i <= n; i++) {
         const t = i / n; // 0..1 from left to right
         const x = -capWidth / 2 + capWidth * t;
-        cap.push({ x, y: -capHeight * Math.sin(Math.PI * t), tag: 'cap' });
+        cap.push({ x, y: -capHeight * Math.sin(Math.PI * t), tag: capTag });
       }
       const bottomCapWidth = type === 'double-v' ? capWidth : rootWidth;
       const bottomCapHeight = type === 'double-v' ? capHeight : rootHeight;
+      const rootTag = bottomCapHeight > FLAT_BEAD ? (type === 'double-v' ? 'cap' : 'root') : 'bottom';
       for (let i = 0; i <= n; i++) {
         const t = i / n; // from right to left along the bottom
         const x = bottomCapWidth / 2 - bottomCapWidth * t;
-        root.push({ x, y: T + bottomCapHeight * Math.sin(Math.PI * t), tag: type === 'double-v' ? 'cap' : 'root' });
+        root.push({ x, y: T + bottomCapHeight * Math.sin(Math.PI * t), tag: rootTag });
       }
     }
     return { type, bevel, rootGap, rootFace, capWidth, capHeight, rootHeight, rootWidth, fusionFaces, region, cap, root, hazHalfWidth: capWidth / 2 + 6 };
@@ -839,7 +847,7 @@ canvas { display: block; }
     const wg = weldGeometry(o);
     const outline = [];
     outline.push({ x: -W / 2, y: 0, tag: 'top' });
-    if (wg.cap.length) { for (const p of wg.cap) outline.push({ x: p.x, y: p.y, tag: 'cap' }); outline[outline.length - 1].tag = 'top'; }
+    if (wg.cap.length) { for (const p of wg.cap) outline.push({ x: p.x, y: p.y, tag: p.tag }); outline[outline.length - 1].tag = 'top'; }
     outline.push({ x: W / 2, y: 0, tag: 'end' });
     outline.push({ x: W / 2, y: T, tag: 'bottom' });
     if (wg.root.length) { for (const p of wg.root) outline.push({ x: p.x, y: p.y, tag: p.tag }); outline[outline.length - 1].tag = 'bottom'; }
@@ -1045,6 +1053,31 @@ canvas { display: block; }
   // ------------------------------------------------------------------ defects
   const PLANAR_TYPES = { planar: 1, crack: 1, lof: 1, lamination: 1, root: 1 };
   function isPlanar(type) { return !!PLANAR_TYPES[type]; }
+  const COORD_MAX = 2000;        // mm: |x|,|y| of defect points are clamped to this (specimens are ≤ 300 mm wide)
+  const MAX_DEFECT_PTS = 400;    // polyline vertices kept per defect (brush decimation gives ≤ ~100)
+  const MAX_INTERIOR_SAMPLES = 4000;   // interior grid samples per volumetric defect
+  const MAX_OUTLINE_SAMPLES = 3000;    // outline samples per volumetric defect
+
+  function finiteNum(v, dflt) { const n = typeof v === 'string' ? parseFloat(v) : v; return Number.isFinite(n) ? n : dflt; }
+
+  /** Sanitise a points array: numeric finite {x,y} only, clamped to ±COORD_MAX, at most MAX_DEFECT_PTS vertices. */
+  function sanitisePts(pts) {
+    if (!Array.isArray(pts)) return [];
+    const out = [];
+    for (const p of pts) {
+      if (!p || typeof p !== 'object') continue;
+      const x = finiteNum(p.x, NaN), y = finiteNum(p.y, NaN);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      out.push({ x: M.clamp(x, -COORD_MAX, COORD_MAX), y: M.clamp(y, -COORD_MAX, COORD_MAX) });
+    }
+    if (out.length > MAX_DEFECT_PTS) {
+      const k = Math.ceil(out.length / MAX_DEFECT_PTS), thin = [];
+      for (let i = 0; i < out.length; i += k) thin.push(out[i]);
+      if (thin[thin.length - 1] !== out[out.length - 1]) thin.push(out[out.length - 1]);
+      return thin;
+    }
+    return out;
+  }
 
   function bbox(pts) {
     let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
@@ -1063,16 +1096,21 @@ canvas { display: block; }
   }
 
   function makeDefect(o) {
-    const pts = o.pts && o.pts.length >= 2 ? o.pts.map(function (p) { return { x: p.x, y: p.y }; }) : [{ x: 0, y: 10 }, { x: 0, y: 13 }];
+    o = o || {};
+    const clean = sanitisePts(o.pts);
+    const pts = clean.length >= 2 ? clean : [{ x: 0, y: 10 }, { x: 0, y: 13 }];
     const b = bbox(pts);
-    const zFrom = o.zFrom === undefined ? 135 : o.zFrom;
-    const zTo = o.zTo === undefined ? zFrom + (o.length || 30) : o.zTo;
+    const n = Math.max(1, Math.round(finiteNum(o.n, 1)));
+    const type = typeof o.type === 'string' && o.type ? o.type : 'planar';
+    const zFrom = M.clamp(finiteNum(o.zFrom, 135), -COORD_MAX, COORD_MAX);
+    const zTo = M.clamp(o.zTo === undefined ? zFrom + finiteNum(o.length, 30) : finiteNum(o.zTo, zFrom + 30), -COORD_MAX, COORD_MAX);
+    const autoH = Math.max(0.5, +Math.max(b.h, isPlanar(type) ? 0 : b.w).toFixed(1));
     return {
-      id: o.id || UT.uid(), n: o.n || 1, type: o.type || 'planar', pts,
-      height: o.height === undefined ? Math.max(0.5, +Math.max(b.h, isPlanar(o.type || 'planar') ? 0 : b.w).toFixed(1)) : o.height,
+      id: o.id || UT.uid(), n, type, pts,
+      height: Math.max(0, finiteNum(o.height, autoH)),
       width: +b.w.toFixed(1),
-      zFrom, zTo, reflectivity: o.reflectivity === undefined ? 1 : o.reflectivity,
-      label: o.label || ('Defect ' + (o.n || 1)), visible: o.visible !== false,
+      zFrom, zTo, reflectivity: M.clamp(finiteNum(o.reflectivity, 1), 0, 10),
+      label: typeof o.label === 'string' && o.label ? o.label : ('Defect ' + n), visible: o.visible !== false,
     };
   }
 
@@ -1088,19 +1126,28 @@ canvas { display: block; }
     return len;
   }
 
-  /** Sample points of a volumetric defect (outline every 1 mm + interior 1.5 mm grid). */
+  /**
+   * Sample points of a volumetric defect (outline every 1 mm + interior 1.5 mm grid).
+   * The sample count is bounded (MAX_OUTLINE_SAMPLES / MAX_INTERIOR_SAMPLES): for an absurdly large
+   * polygon the steps grow so a frame never spends more than a few ms here.
+   */
   function defectSamples(d) {
     const out = [];
-    const pts = d.pts;
+    const pts = sanitisePts(d && d.pts);
+    if (!pts.length) return out;
+    let total = 0;
+    for (let i = 0; i < pts.length - 1; i++) total += M.dist(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y);
+    const step = Math.max(1, total / MAX_OUTLINE_SAMPLES);
     for (let i = 0; i < pts.length - 1; i++) {
       const a = pts[i], b = pts[i + 1];
-      const n = Math.max(1, Math.ceil(M.dist(a.x, a.y, b.x, b.y)));
+      const n = Math.max(1, Math.ceil(M.dist(a.x, a.y, b.x, b.y) / step));
       for (let k = 0; k < n; k++) out.push({ x: a.x + (b.x - a.x) * k / n, y: a.y + (b.y - a.y) * k / n });
     }
     out.push(pts[pts.length - 1]);
     if (!isPlanar(d.type) && pts.length >= 3) {
       const b = bbox(pts);
-      for (let x = b.xMin; x <= b.xMax; x += 1.5) for (let y = b.yMin; y <= b.yMax; y += 1.5) if (M.pointInPolygon(x, y, pts)) out.push({ x, y });
+      const g = Math.max(1.5, Math.sqrt(Math.max(0, b.w * b.h) / MAX_INTERIOR_SAMPLES));
+      for (let x = b.xMin; x <= b.xMax; x += g) for (let y = b.yMin; y <= b.yMax; y += g) if (M.pointInPolygon(x, y, pts)) out.push({ x, y });
     }
     return out;
   }
@@ -1164,10 +1211,13 @@ canvas { display: block; }
   /** Validate/normalise a defects array (used by UT.test.setDefects and Load Def). */
   function normaliseDefects(arr) {
     const out = [];
-    (arr || []).forEach(function (d, i) {
-      if (!d || !Array.isArray(d.pts) || d.pts.length < 2) return;
-      const nd = makeDefect(Object.assign({}, d, { n: d.n || (i + 1) }));
-      out.push(nd);
+    if (!Array.isArray(arr)) return out;
+    arr.forEach(function (d, i) {
+      if (!d || typeof d !== 'object') return;
+      const pts = sanitisePts(d.pts);
+      if (pts.length < 2) return;                       // corrupt / non-finite records are dropped
+      const n = Number.isFinite(finiteNum(d.n, NaN)) ? d.n : i + 1;
+      out.push(makeDefect(Object.assign({}, d, { pts, n })));
     });
     return out.slice(0, 16);
   }
@@ -1202,6 +1252,16 @@ canvas { display: block; }
       if (!(sb.y < -10) || Math.abs(Math.hypot(sb.normal.x, sb.normal.y) - 1) > 1e-6) f.push('scanSurfaceAt brace ' + JSON.stringify(sb));
       const lof = defectPresets.lof(p);
       if (lof.pts.length !== 2) f.push('lof preset');
+      // flat beads are plate surface (no 'cap'/'root' tags); a real bead keeps its tag
+      const flat = plateWeld({ T: 20, rootHeight: 0, capHeight: 0 });
+      if (flat.edges.some(function (e) { return e.tag === 'root' || e.tag === 'cap'; })) f.push('flat bead should be tagged top/bottom');
+      if (!pointInside(flat, 0, 19.9) || pointInside(flat, 0, 20.1)) f.push('flat bead outline');
+      // defect sanitising + bounded sampling
+      const nd = normaliseDefects([{ n: 'x', type: 'crack', pts: [{ x: 'a', y: NaN }, { x: null }] }, { n: '2', type: 'porosity', pts: [{ x: 1e6, y: -1e6 }, { x: 2, y: 2 }, { x: 1e6, y: 2 }, { x: 'z' }] }]);
+      if (nd.length !== 1 || nd[0].n !== 2 || nd[0].pts.length !== 3 || nd[0].pts.some(function (q) { return !Number.isFinite(q.x) || !Number.isFinite(q.y) || Math.abs(q.x) > 2000 || Math.abs(q.y) > 2000; })) f.push('normaliseDefects sanitise ' + JSON.stringify(nd));
+      const t0 = Date.now(), ns = defectSamples(nd[0]).length;
+      if (ns > 8000 || Date.now() - t0 > 200) f.push('defectSamples bound ' + ns);
+      if (defectSamples(defectPresets.porosity(p)).length < 12) f.push('porosity samples');
       return f;
     },
   };
@@ -3381,10 +3441,15 @@ canvas { display: block; }
     const wd = res.wd;
     const cursorAbs = ui.hover ? ui.hover.tUs + 2 * wd : null;
     const depth = cursorAbs === null ? 0 : depthFromTime(cursorAbs, { pcs: g.pcs, wd, vL: g.vL });
-    const gainDb = Number.isFinite(state.tofd.gainDb) ? state.tofd.gainDb : REF_GAIN_DB;
-    const right = 'Depth: ' + depth.toFixed(1) + ' | Lateral Wave: ' + (res.lateralUs - 2 * wd).toFixed(2) + ' micro sec + delay | BackWall: ' +
-      (res.backwallUs - 2 * wd).toFixed(2) + ' micro sec + delay | AMP= ' + Math.round(gainDb) + 'dB';
-    if (state.status && state.status.right !== right) UT.status({ right });
+    // Lateral / BackWall / AMP are rendered by 90-app from UT.modes.statusMid(); this only publishes the
+    // D-scan cursor depth through state.cursor (90-app appends 'Depth: d.d' in TOFD mode).
+    const cur = state.cursor || {};
+    if (cursorAbs === null) {
+      if (cur.view === 'tofd') UT.set({ cursor: { x: null, y: null, view: null } }, { noRender: true });
+      return;
+    }
+    const y = +depth.toFixed(1);
+    if (cur.view !== 'tofd' || cur.y !== y) UT.set({ cursor: { x: null, y, view: 'tofd' } }, { noRender: true });
   }
 
   const panel = {
@@ -4357,6 +4422,19 @@ canvas { display: block; }
 
   /** Pure transform for the normal cross-section: fixed W/320 px per mm (§14.1). */
   function computeTransform(sp, W, H) {
+    if (sp && sp.tky && sp.extents) {
+      // TKY screen (§14.9): scale so the brace reaches the top of the canvas (up to 2.2× the width-fit
+      // scale, the long chord may be clipped at both ends); centred on the joint so the brace and the
+      // probe on the chord right of the toe stay visible.
+      const ex = sp.extents, tk = sp.tky;
+      const spanY = (ex.yMax - ex.yMin) + 8;
+      const wFit = W / ((ex.xMax - ex.xMin) + 8);
+      const sc = M.clamp(H / spanY, wFit, 2.2 * wFit);
+      const a = M.deg2rad(tk.braceAngle || 45);
+      const bx0 = Math.min(tk.toe.x, tk.heel.x) - (tk.braceLen || 90) * Math.cos(a);
+      const c = sc > wFit * 1.05 ? (bx0 + tk.toe.x + 60) / 2 : (ex.xMin + ex.xMax) / 2;
+      return { scale: sc, ox: W / 2 - c * sc, oy: (-ex.yMin + 4) * sc, W, H, cx: c };
+    }
     const scale = W / MM_SPAN;
     let cx = 0, yMin = 0, yMax = 20;
     if (sp && sp.extents) {
@@ -4967,7 +5045,9 @@ canvas { display: block; }
 
   function drawObliqueProbe(ctx, ob, st, pos) {
     const isZero = (st.probe.angle || 0) === 0;
-    const sc = ob.sc;
+    // probe dimensions follow the block scale but are capped so a 24 mm shoe on the small V2 block
+    // (scale up to 8 px/mm) stays a compact box like the original screens
+    const sc = Math.min(ob.sc, 3);
     if (pos.face === 'wide') {
       const B = bandPoint(ob, pos.x, M.clamp(pos.z / ob.depth, 0.05, 0.95));
       if (isZero) {
@@ -8855,7 +8935,7 @@ canvas { display: block; }
     '.usk-offcol{justify-content:flex-start;padding-top:4px;}',
     '.usk-off{width:34px;height:20px;background:#ddd;color:#000;border-radius:3px;font-weight:bold;font-size:9px;}',
     '.usk-brand{writing-mode:vertical-rl;transform:rotate(180deg);font:bold 8px Arial,sans-serif;color:#bbb;letter-spacing:1px;margin-top:auto;}',
-    '.skin-uskdock{padding:14px 10px;color:#ddd;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;min-height:200px;text-align:center;}',
+    '.skin-uskdock{width:220px;padding:14px 10px;color:#ddd;display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;min-height:200px;text-align:center;}',
     '.uskdock-title{font-weight:bold;color:#3cff3c;}',
     '.uskdock-hint{font-size:11px;color:#bbb;}',
     '.uskdock-btn{padding:6px 12px;}',
@@ -8974,7 +9054,7 @@ canvas { display: block; }
     tofd: { toolbar: ['0', 'v2', 'v1', 'damp'], menus: ['probes', 'options'], hidden: ['compass'] },
     aut: { toolbar: ['damp'], menus: ['options'], hidden: ['compass'] },
     tky: { toolbar: ['v2', 'v1', 'dac', 'plot', 'pipe', 'tofd', 'aut'], menus: ['weld'], hidden: ['plan', 'compass', 'ruler'] },
-    trade: { toolbar: ['defect', 'v1', 'v2', 'dac', 'plot', 'tky'], menus: ['defects'], hidden: [] },
+    trade: { toolbar: ['defect', 'hide', 'v1', 'v2', 'dac', 'plot', 'tky'], menus: ['defects'], hidden: [] },
     step: { toolbar: ['v2', 'v1', 'dac', 'plot', 'tky', 'tofd', 'aut'], menus: [], hidden: ['compass'] },
     lamination: { toolbar: ['v2', 'v1', 'dac', 'plot', 'tky', 'tofd', 'aut'], menus: [], hidden: ['compass'] },
   };
@@ -9033,13 +9113,22 @@ canvas { display: block; }
     if (o.pipe) return S.pipeWeld(Object.assign({}, o, { wt: o.wt === undefined ? o.T : o.wt }));
     return S.plateWeld(o);
   }
+  function sameWeld(a, b) {
+    if (!a || !b || a.id !== b.id || a.T !== b.T || Math.abs(a.L - b.L) > 1e-6 || !!a.pipe !== !!b.pipe) return false;
+    if (a.pipe && (a.pipe.od !== b.pipe.od || a.pipe.wt !== b.pipe.wt)) return false;
+    return JSON.stringify(a.weld || null) === JSON.stringify(b.weld || null);
+  }
   function buildSpecimen(mode, opts, probe) {
     const cur = st().specimen;
     const so = opts && opts.specimenOpts;
     switch (mode) {
       case 'weld': return weldSpecimen(so);
-      case 'tofd': case 'aut': case 'trade':
-        return (cur && cur.kind === 'weld' && !so) ? cur : weldSpecimen(so);
+      case 'tofd': case 'aut': case 'trade': {
+        // Keep the current weld specimen (identity) only while it still matches weldOpts (PIPE toggle,
+        // Weld dialog changes must rebuild the geometry, see 90-app togglePipe → enter(mode, {keepProbe}))
+        const fresh = weldSpecimen(so);
+        return (cur && cur.kind === 'weld' && !so && sameWeld(cur, fresh)) ? cur : fresh;
+      }
       case 'v1': return S.v1(Object.assign({ face: probe.angle === 0 ? 'narrow' : 'wide' }, so || {}));
       case 'v2': return S.v2(Object.assign({ face: probe.angle === 0 ? 'narrow' : 'wide' }, so || {}));
       case 'step': return S.stepWedge(so);
@@ -9099,6 +9188,8 @@ canvas { display: block; }
     const patch = {};
     const instr = {};
     let probe = Object.assign({}, s.probe);
+    // The defect editor (brush) exists only for the weld specimen (§14.3); trade locks it (§14.7 / §15.8).
+    if (name !== 'weld' && defectEditor.isOpen()) defectEditor.close();
     if (prev !== name) {
       closeModeWindows(prev);
       if (prev === 'step') instr.cal = { vel: null, zero: 0 };
@@ -9127,6 +9218,9 @@ canvas { display: block; }
     if (BLOCK_KIND[name] || name === 'lamination' || name === 'trade') {
       if (WELD_KIND[prev] && !(prev === 'trade')) stash = s.defects;
       defects = name === 'lamination' ? laminationDefects(spec) : (name === 'trade' ? (s.trade.active && prev === 'trade' ? s.defects : []) : []);
+    } else if (prev === 'trade') {
+      defects = stash || [];                      // the hidden truth never survives the exam (§15.8)
+      stash = null;
     } else if (WELD_KIND[name] && !WELD_KIND[prev]) {
       if (stash) { defects = stash; stash = null; }
     }
@@ -9221,6 +9315,10 @@ canvas { display: block; }
         return;
       }
       lastAngle = a;
+    }
+    if (keys.indexOf('display') >= 0 || keys.indexOf('trade') >= 0) {
+      // Trade test: the hidden truth defects can never be shown until Submit / Reveal (§8.12, §14.7).
+      if (s.mode === 'trade' && s.trade.active && !s.trade.revealed && !s.display.hide) { UT.setIn('display', { hide: true }); return; }
     }
     if (keys.indexOf('probe') >= 0 || keys.indexOf('specimen') >= 0 || keys.indexOf('display') >= 0) {
       if (s.display.autoTrig) {
@@ -9361,7 +9459,7 @@ canvas { display: block; }
           ]),
           ui.dacRef, ui.dacList,
         ]);
-        dacWin = UT.dom.win({ name: 'dac', title: 'DAC', x: 460, y: 420, w: 300, content: body });
+        dacWin = UT.dom.win({ name: 'dac', title: 'DAC', x: 460, y: 420, w: 300, content: body, onClose: function () { if (st().mode === 'dac') exit(); } });
       }
       dacWin.show();
       dacRefresh();
@@ -9498,6 +9596,7 @@ canvas { display: block; }
       ctx.fillText(z + ' mm', l.x, l.y);
       void a;
     }
+    ctx.textAlign = 'right'; ctx.textBaseline = 'top'; ctx.fillText('Circle-View. Position', o.w - 6, 4);
     // 0 mm line + arrow (pointing left) at the top
     ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(geo.cx, geo.cy); ctx.lineTo(geo.cx, geo.cy - geo.R - 8); ctx.stroke();
@@ -9536,7 +9635,7 @@ canvas { display: block; }
       ctx.strokeStyle = '#000'; ctx.beginPath(); ctx.moveTo(x, g.y + 18); ctx.lineTo(x, g.y + 18 + (big ? 8 : 4)); ctx.stroke();
       if (big) ctx.fillText(Math.round(z) + ' mm', x, g.y + 28);
     }
-    ctx.textBaseline = 'bottom'; ctx.fillText('Position along weld (z)', (g.x0 + g.x1) / 2, g.y - 24);
+    ctx.textAlign = 'right'; ctx.textBaseline = 'top'; ctx.fillText('Plate. Position', o.w - 6, 4);
     for (const d of o.defects) {
       const sel = d.n === o.selectedN;
       ctx.fillStyle = sel ? '#8b0000' : '#e00000';
@@ -9578,7 +9677,6 @@ canvas { display: block; }
       const o = { spec, defects: s.defects, selectedN: selectedN(), w: size.w, h: size.h };
       (spec.pipe ? drawCircleFallback : drawBarFallback)(ctx, o);
     }
-    ui.caption.textContent = spec.pipe ? 'Circle-View. Position along the circumference (mm)' : 'Position along the weld (mm)';
     ui.edStatus.textContent = editorStatusLine();
   }
   function editorZAt(ev) {
@@ -9638,6 +9736,7 @@ canvas { display: block; }
   function onBrush(ev) {
     const s = st();
     if (!s.editing || !s.editing.defect || !ev || !Array.isArray(ev.pts) || !ev.pts.length) return;
+    if (s.trade.active || (s.specimen && s.specimen.kind !== 'weld')) return;   // §14.3 brush only on welds, §15.8 trade lock
     const n = selectedN();
     if (ev.erase) {
       const defects = [];
@@ -9679,14 +9778,7 @@ canvas { display: block; }
     const presetSel = dom.h('select', { class: 'dfe-preset' }, S.defectPresetNames.map(function (p) { return dom.h('option', { value: p.key }, p.label); }));
     const left = dom.h('div', { class: 'dfe-left' }, [
       dom.button('Delete All Defects', function () {
-        const p = dom.confirm('Delete all defects?', { title: 'ERASE ALL DEFECTS' });
-        // Workaround: core's confirm() runs onClose (resolve(false)) before resolve(true) — also watch the OK button.
-        let okClicked = false;
-        const names = Object.keys(dom.wins).filter(function (k) { return k.indexOf('confirm-') === 0; });
-        const cw = names.length ? dom.wins[names[names.length - 1]] : null;
-        const okBtn = cw && cw.el.querySelector('.btn.primary');
-        if (okBtn) okBtn.addEventListener('click', function () { okClicked = true; }, true);
-        p.then(function (yes) { if (yes || okClicked) UT.set({ defects: [] }); });
+        dom.confirm('Delete all defects?', { title: 'ERASE ALL DEFECTS' }).then(function (yes) { if (yes) UT.set({ defects: [] }); });
       }, { class: 'btn dfe-btn' }),
       ui.delN,
       dom.h('div', { class: 'dfe-brushrow', title: 'Brush size (px)' }, [brushIn, dot]),
@@ -9711,8 +9803,7 @@ canvas { display: block; }
       }, { class: 'btn dfe-btn' }),
     ]);
     // middle: canvas
-    ui.caption = dom.h('div', { class: 'dfe-caption' }, 'Circle-View. Position');
-    ui.circle = dom.h('canvas', { id: 'cv-circle', width: 330, height: 330, class: 'dfe-canvas' });
+    ui.circle = dom.h('canvas', { id: 'cv-circle', width: 560, height: 400, class: 'dfe-canvas' });
     ui.edStatus = dom.h('div', { class: 'dfe-status' }, '');
     // Own drag handlers only when 62-view-plan's helpers (which bind their own) are unavailable.
     if (!has('views.plan.drawCircleView')) {
@@ -9737,7 +9828,7 @@ canvas { display: block; }
       ui.circle.addEventListener('mouseup', function () { ed.drag = null; });
       ui.circle.addEventListener('mouseleave', function () { ed.drag = null; });
     }
-    const mid = dom.h('div', { class: 'dfe-mid' }, [ui.caption, ui.circle, ui.edStatus]);
+    const mid = dom.h('div', { class: 'dfe-mid' }, [ui.circle, ui.edStatus]);
     // right: select defect panel
     ui.radios = [];
     const radioRows = [];
@@ -9759,7 +9850,7 @@ canvas { display: block; }
     ]);
     const body = dom.h('div', { class: 'dfe' }, [dom.h('div', { class: 'dfe-row' }, [left, mid, right]), ui.jsonArea]);
     editorWin = dom.win({
-      name: 'defects', title: 'Defects', x: 440, y: 90, w: 700, content: body,
+      name: 'defects', title: 'Defects', x: 380, y: 104, w: 900, content: body,
       onClose: function () { defectEditor._closed(); },
     });
     return editorWin;
@@ -9838,6 +9929,7 @@ canvas { display: block; }
      */
     start(seed) {
       const sd = seed === undefined || seed === null ? Math.floor(Math.random() * 1e9) : (seed >>> 0);
+      if (defectEditor.isOpen()) defectEditor.close();
       if (st().mode !== 'trade') enter('trade', { keepProbe: true, silentUI: typeof document === 'undefined' });
       const s = st();
       const g = generateTruth(sd, s.specimen);
@@ -9973,7 +10065,7 @@ canvas { display: block; }
           ]),
           ui.tResult,
         ]);
-        tradeWin = dom.win({ name: 'trade', title: 'Trade Test', x: 600, y: 110, w: 560, content: body });
+        tradeWin = dom.win({ name: 'trade', title: 'Trade Test', x: 600, y: 110, w: 560, content: body, onClose: function () { if (st().mode === 'trade') exit(); } });
       }
       tradeWin.show();
       if (!ui.tRows.children.length) tradeAddRow();
@@ -10036,7 +10128,7 @@ canvas { display: block; }
           ]),
           ui.fBraceT, ui.fChordT, ui.fOffset,
         ]);
-        tkyWin = dom.win({ name: 'tky', title: 'ADJUST MODE', x: 900, y: 100, w: 300, content: body });
+        tkyWin = dom.win({ name: 'tky', title: 'ADJUST MODE', x: Math.max(480, (typeof window !== 'undefined' ? window.innerWidth : 1280) - 316), y: 106, w: 300, content: body, onClose: function () { if (st().mode === 'tky') exit(); } });
       }
       tkyWin.show();
       tkyRefresh();
@@ -10073,7 +10165,7 @@ canvas { display: block; }
       steps: ['Identify the initial pulse and the dead zone on the left of the screen', 'Probes ▸ Zero Probe ▸ Twin Crystal: the initial pulse disappears', 'Count the multiples 25 / 50 / 75 / 100 mm'] },
     { n: 4, title: 'Angle Probe using the V1 calibration block', ko: 'V1 블록으로 사각탐촉자 교정 (100 mm 반경, 1.5 mm 구멍, 퍼스펙스)', en: 'Angle probe on the V1 block: 100 mm radius, 1.5 mm hole, Perspex insert',
       setup() { setProbe({ angle: 45 }); enter('v1'); setProbe({ x: 100, side: 1 }); setInstr({ range: 200, gain: 30 }); },
-      steps: ['Index at 100: echoes 100 / 200 / 300 (set Range 400)', 'Move to x = 120 (135 − 15·tan45) for the 1.5 mm hole', 'Perspex insert: 0° probe at x = 240'] },
+      steps: ['Index at 100: echoes 100 / 200 / 300 (set Range 400)', 'Move to x = 150 (135 + 15·tan45) for the 1.5 mm hole', 'Perspex insert: 0° probe at x = 240'] },
     { n: 5, title: 'Lamination Check', ko: '라미네이션 검사: 0° 래스터 스캔, 저면에코 소실', en: 'Lamination check: 0° raster, lamination echo and lost backwall',
       setup() { enter('lamination'); setInstr({ range: 100, gain: 30 }); },
       steps: ['Raster along z with ↑/↓ (Shift ×10)', 'Note the lamination echo at 10 / 18 mm and the lost backwall', 'Size it with the 6 dB drop (SIZE window: Mark L / Mark R)'] },
@@ -10130,6 +10222,8 @@ canvas { display: block; }
   function loadLesson(i) {
     const l = lessons[i];
     if (!l) return null;
+    if (defectEditor.isOpen()) defectEditor.close();     // clean UI; lessons 10 / 16 reopen it in setup()
+    if (autoCalWin) autoCal.cancel();
     try { l.setup(); } catch (e) { console.error('[UT.modes] lesson ' + l.n, e); }
     UT.set({ lesson: i });
     lessonsRefresh();
@@ -10202,12 +10296,16 @@ canvas { display: block; }
     '.dfe-dot{display:inline-block;border-radius:50%;background:#e00000}',
     '.dfe-preset{width:100%;font-size:11px}',
     '.dfe-mid{display:flex;flex-direction:column;align-items:center;background:#fff;border:1px solid #999}',
-    '.dfe-caption{font-size:11px;color:#333;padding:2px}',
-    '.dfe-canvas{width:330px;height:330px;display:block;cursor:crosshair}',
+    '.dfe-canvas{width:560px;height:400px;display:block;cursor:crosshair}',
     '.dfe-status{color:#e00000;font-size:12px;font-weight:bold;padding:3px;min-height:16px;align-self:flex-start;background:#ececec;width:100%;box-sizing:border-box}',
-    '.dfe-right{background:#000;color:#ff0;width:120px;padding:4px;display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:bold}',
-    '.dfe-right .fld{display:flex;flex-direction:column;align-items:center;gap:2px;color:#ff0}',
+    '.dfe-right{background:#000;color:#ff0;width:130px;padding:4px;display:flex;flex-direction:column;gap:3px;font-size:11px;font-weight:bold;align-self:stretch}',
+    '.dfe-right .fld{display:flex;flex-direction:column;align-items:center;gap:2px;margin:2px 0;color:#ff0;flex:0 0 auto}',
+    '.dfe-right .fld-label{flex:0 0 auto;text-align:center;color:#ff0}',
+    '.dfe-right .fld-input{flex:0 0 auto;min-width:0}',
+    '.dfe-left .btn,.dfe-right .btn{flex:0 0 auto}',
+    '.dfe-mid{flex:0 0 auto}',
     '.dfe-right .fld-input{width:40px;font-size:11px;text-align:center}',
+    '.dfe-right input,.dfe-right select{color:#111;background:#fff}',
     '.dfe-right .fld input[type=checkbox]{width:auto}',
     '.dfe-right select.fld-input{width:100px}',
     '.dfe-select{border:1px solid #ff0;margin:0;padding:2px 6px;display:flex;flex-direction:column;gap:1px}',
@@ -10394,28 +10492,9 @@ canvas { display: block; }
   }
 
   /**
-   * Confirm dialog → Promise<boolean>. Local variant of UT.dom.confirm that resolves BEFORE closing the
-   * window (core's version fires onClose → resolve(false) first, so it never resolves true).
+   * Confirm dialog → Promise<boolean> (UT.dom.confirm resolves true on OK, false on Cancel/close).
    */
-  function confirmDlg(message, opts) {
-    return new Promise(function (resolve) {
-      const o = opts || {};
-      let settled = false;
-      const settle = function (v) { if (settled) return; settled = true; resolve(v); };
-      const win = UT.dom.win({
-        name: 'confirm-' + UT.uid(), title: o.title || 'Confirm', modal: true, w: 320,
-        onClose: function () { settle(false); },
-      });
-      win.setContent(h('div', { class: 'confirm-body' }, [
-        h('p', {}, message),
-        h('div', { class: 'btn-row' }, [
-          UT.dom.button(o.ok || 'OK', function () { settle(true); win.close(); }, { class: 'btn primary' }),
-          UT.dom.button(o.cancel || 'Cancel', function () { settle(false); win.close(); }),
-        ]),
-      ]));
-      win.show();
-    });
-  }
+  function confirmDlg(message, opts) { return UT.dom.confirm(message, opts); }
 
   // ------------------------------------------------------------------ Korean labels
   const KO = {
@@ -10906,6 +10985,7 @@ canvas { display: block; }
     const hidden = hiddenViews();
     const plot = mode === 'iow';
     main.classList.toggle('plot', plot);
+    main.classList.toggle('tall', ['iow', 'dac', 'step', 'lamination'].indexOf(mode) >= 0);
     main.classList.toggle('block', !plot && hidden.indexOf('plan') >= 0);
     main.classList.toggle('no-ruler', hidden.indexOf('ruler') >= 0);
     main.classList.toggle('usk7', st().utSet === 'usk7');
@@ -10955,7 +11035,7 @@ canvas { display: block; }
     const parts = [];
     parts.push(inch ? 'Pos: ' + (p.x / 25.4).toFixed(2) + ' in' : 'Pos: ' + fmtNum(p.x) + ' mm');
     parts.push(inch ? 'Range ' + (ins.range / 25.4).toFixed(2) + 'in' : 'Range ' + (+ins.range).toFixed(1) + 'mm');
-    parts.push('AMP= ' + fmtNum(ins.gain) + 'dB');
+    parts.push('AMP= ' + fmtNum(s.mode === 'tofd' && s.tofd && Number.isFinite(s.tofd.gainDb) ? s.tofd.gainDb : ins.gain) + 'dB');
     let extra = '';
     if (has('modes.statusMid')) { try { extra = UT.modes.statusMid() || ''; } catch (e) { extra = ''; } }
     else if (s.specimen && s.specimen.pipe) extra = 'WT ' + s.specimen.pipe.wt + 'mm  Dia ' + s.specimen.pipe.odInch + 'inch';
