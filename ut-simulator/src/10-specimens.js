@@ -167,6 +167,13 @@
     });
   }
 
+  /** Nominal pipe size (inch) for a standard OD in mm (e.g. 168.3 → 6); falls back to od/25.4 rounded to 0.1. */
+  function nominalInch(od) {
+    const NPS = [[21.3, 0.5], [26.7, 0.75], [33.4, 1], [42.2, 1.25], [48.3, 1.5], [60.3, 2], [73, 2.5], [88.9, 3], [101.6, 3.5], [114.3, 4], [141.3, 5], [168.3, 6], [219.1, 8], [273.1, 10], [323.9, 12], [355.6, 14], [406.4, 16], [457.2, 18], [508, 20], [610, 24]];
+    for (const [mm, inch] of NPS) if (Math.abs(od - mm) < 0.6) return inch;
+    return +(od / 25.4).toFixed(1);
+  }
+
   /** Pipe circumferential butt weld: same cross-section as a plate of thickness wt; L = circumference. */
   function pipeWeld(opts) {
     const o = Object.assign({ od: 168.3, wt: 20, type: 'single-v' }, opts || {});
@@ -174,7 +181,7 @@
     const spec = plateWeld(Object.assign({}, o, { T: o.wt, L: circ }));
     spec.id = 'pipe-weld';
     spec.name = `Pipe OD ${o.od} mm WT ${o.wt} mm`;
-    spec.pipe = { od: o.od, wt: o.wt, circumference: circ, odInch: +(o.od / 25.4).toFixed(1) };
+    spec.pipe = { od: o.od, wt: o.wt, circumference: circ, odInch: nominalInch(o.od) };
     spec.defaultProbe.z = 0;
     return spec;
   }
@@ -480,7 +487,7 @@
   }
 
   UT.specimens = {
-    arcPoints, deriveEdges, extentsOf, pointInside, scanSurfaceAt, weldGeometry,
+    arcPoints, deriveEdges, extentsOf, pointInside, scanSurfaceAt, weldGeometry, nominalInch,
     plateWeld, pipeWeld, v1, v2, stepWedge, iow, dacBlock, tky, laminationPlate, build,
     isPlanar, bbox, decimate, makeDefect, defectFromBrush, defectLength, defectSamples, circlePts,
     defectPresets, defectPresetNames, normaliseDefects,

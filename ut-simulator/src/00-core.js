@@ -302,14 +302,16 @@
       return new Promise(function (resolve) {
         const o = opts || {};
         let win;
-        const done = function (v) { win.close(); resolve(v); };
+        let settled = false;
+        const settle = function (v) { if (!settled) { settled = true; resolve(v); } };
+        const done = function (v) { settle(v); win.close(); };
         win = dom.win({
           name: 'confirm-' + UT.uid(), title: o.title || 'Confirm', modal: true, w: 320,
           content: dom.h('div', { class: 'confirm-body' }, [
             dom.h('p', {}, message),
             dom.h('div', { class: 'btn-row' }, [dom.button(o.ok || 'OK', function () { done(true); }, { class: 'btn primary' }), dom.button(o.cancel || 'Cancel', function () { done(false); })]),
           ]),
-          onClose: function () { resolve(false); },
+          onClose: function () { settle(false); },
         });
         win.show();
       });
