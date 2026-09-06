@@ -1,5 +1,6 @@
 /* style.css — UTsim page layout, menu/toolbar, Win-classic window chrome, buttons, fields, rulers,
- * status bar. Owned by 90-app.js (SPEC §7, §15.3). Module-specific CSS is injected at runtime. */
+ * status bar, design-box scaling (#app.scaled), touch bar, quick tour, high contrast, print root.
+ * Owned by 90-app.js (SPEC §7, §15.3; SPEC-v2 §5.4, §5.6, §5.7). Module-specific CSS is injected at runtime. */
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; height: 100%; }
@@ -12,6 +13,8 @@ body {
 }
 button, input, select, textarea { font: inherit; color: inherit; }
 canvas { display: block; }
+/* design-box scaling (SPEC-v2 §5.4): the page never scrolls while #app is scaled */
+html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min-width: 0; }
 
 /* ------------------------------------------------------------------ app frame */
 #app {
@@ -26,6 +29,9 @@ canvas { display: block; }
   min-width: 1024px;
   background: #fdfbd8;
 }
+/* 1280 × 760 design box transformed by k = clamp(min(innerW/1280, innerH/760), 0.6, 1.6) (90 sets the transform) */
+#app.scaled { position: fixed; left: 0; top: 0; width: 1280px; height: 760px; min-width: 0; transform-origin: 0 0; overflow: hidden; }
+#app.scaled .win-body { max-height: calc(760px - 60px); }
 #titlebar {
   display: flex; align-items: center; gap: 10px; flex: none;
   height: 26px; padding: 0 8px;
@@ -48,6 +54,8 @@ canvas { display: block; }
 .menu-item { position: relative; display: flex; align-items: center; padding: 0 8px; cursor: default; }
 .menu-item:hover, .menu-item.open { background: #cfe0f7; }
 .menu-item.disabled { color: #999; pointer-events: none; }
+.menu-item:focus { outline: none; }
+.menu-item:focus-visible { outline: 2px solid #0a246a; outline-offset: -2px; }
 .menu-drop {
   position: absolute; left: 0; top: 100%; min-width: 210px;
   background: #f7f7f7; border: 1px solid #8a8a8a; box-shadow: 3px 3px 6px rgba(0,0,0,0.35);
@@ -55,7 +63,7 @@ canvas { display: block; }
 }
 .menu-item.open > .menu-drop { display: block; }
 .menu-entry { position: relative; display: flex; align-items: center; height: 20px; padding: 0 22px 0 4px; white-space: nowrap; cursor: default; }
-.menu-entry:hover, .menu-entry.hover { background: #0a246a; color: #fff; }
+.menu-entry:hover, .menu-entry.hover, .menu-entry.kb, .menu-entry:focus { background: #0a246a; color: #fff; outline: none; }
 .menu-entry.disabled { color: #9a9a9a; }
 .menu-entry.disabled:hover { background: #f7f7f7; color: #9a9a9a; }
 .menu-entry .m-check { width: 16px; text-align: center; flex: none; font-size: 11px; }
@@ -88,6 +96,7 @@ canvas { display: block; }
 .tb-btn:active { border-color: #808080 #fff #fff #808080; }
 .tb-btn.active { background: #d6d6d6; border-color: #707070 #fff #fff #707070; }
 .tb-btn.disabled { opacity: 0.5; pointer-events: none; cursor: default; }
+.tb-btn:focus-visible { outline: 2px solid #0a246a; outline-offset: 1px; }
 .tb-btn .tb-ico { width: 24px; height: 22px; display: block; }
 .tb-btn .tb-ico svg { width: 24px; height: 22px; display: block; }
 .tb-btn .tb-lbl { margin-top: 2px; font-size: 11px; letter-spacing: 0; white-space: nowrap; }
@@ -189,7 +198,7 @@ canvas { display: block; }
 
 /* ------------------------------------------------------------------ windows (Win-classic chrome) */
 .win {
-  position: fixed; z-index: 100;
+  position: absolute; z-index: 100;   /* inside #app (design px) — SPEC-v2 §5.4 */
   background: #ececec; border: 1px solid #404040;
   box-shadow: inset 1px 1px 0 #fff, inset -1px -1px 0 #808080, 4px 4px 10px rgba(0,0,0,0.45);
   min-width: 160px; font-size: 12px; color: #111;
@@ -208,7 +217,8 @@ canvas { display: block; }
 .win-close:active { border-color: #404040 #fff #fff #404040; }
 .win-body { padding: 8px; overflow: auto; max-height: calc(100vh - 60px); }
 .win.modal { z-index: 101; }
-.win-backdrop { position: fixed; left: 0; top: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.25); z-index: 100; }
+.win-backdrop { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.25); z-index: 100; }
+.win-close:focus-visible { outline: 2px solid #ffd21e; }
 
 /* ------------------------------------------------------------------ buttons, fields */
 .btn {
@@ -263,7 +273,79 @@ canvas { display: block; }
 .legend-box { position: absolute; right: 60px; top: 8px; font-size: 10px; background: rgba(255,255,255,0.8); border: 1px solid #666; padding: 2px 5px; pointer-events: none; }
 .legend-box i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; vertical-align: middle; border: 1px solid #333; }
 
+/* ------------------------------------------------------------------ focus rings (§5.7) */
+.btn:focus-visible, .fld-input:focus-visible, .tbar-btn:focus-visible, .prep-icon:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, [tabindex]:focus-visible { outline: 2px solid #0a246a; outline-offset: 1px; }
+#instrument:focus-visible { outline: 2px solid #0a246a; outline-offset: -2px; }
+
+/* ------------------------------------------------------------------ touch bar (SPEC-v2 §5.4, 44 px inside the design box) */
+#touchbar { display: none; flex: none; height: 44px; padding: 3px 6px; gap: 6px; align-items: stretch; background: #e4e4e4; border-top: 1px solid #b0b0b0; user-select: none; touch-action: manipulation; overflow: hidden; }
+#touchbar.shown { display: flex; }
+.tbar-btn {
+  flex: 1 1 0; min-width: 44px; max-width: 120px; padding: 0 4px; font-size: 15px; line-height: 1;
+  border: 1px solid; border-color: #fff #404040 #404040 #fff; background: #f0f0f0; color: #111; cursor: pointer; touch-action: none;
+}
+.tbar-btn.active, .tbar-btn[aria-pressed="true"] { background: #cfe0f7; border-color: #404040 #fff #fff #404040; }
+.tbar-btn[hidden] { display: none; }
+.tbar-btn.tbar-step { flex: 0 0 auto; font-size: 12px; min-width: 84px; }
+#app.with-touchbar #main { --cross-min: 110px; }
+
+/* ------------------------------------------------------------------ quick tour overlay (SPEC-v2 §5.6) */
+#tour { position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 300; display: none; }
+#tour .tour-spot { position: absolute; border: 2px solid #ffd21e; border-radius: 4px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.45); pointer-events: none; }
+#tour .tour-card { position: absolute; left: 50%; bottom: 70px; transform: translateX(-50%); width: 520px; max-width: 90%; background: #fffdf0; color: #111; border: 1px solid #404040; box-shadow: 4px 4px 12px rgba(0,0,0,0.5); padding: 10px 12px; font-size: 13px; line-height: 1.45; }
+#tour .tour-head { display: flex; justify-content: space-between; margin-bottom: 4px; }
+#tour .tour-count { color: #666; }
+#app.reduced-motion #tour .tour-card { transition: none; }
+
+/* ------------------------------------------------------------------ v2 dialogs: weld preps, probe library, material, glossary */
+.prep-icons { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 6px; }
+.prep-icon { width: 44px; height: 32px; padding: 2px; border: 1px solid #808080; background: #fff; cursor: pointer; }
+.prep-icon.active { outline: 2px solid #0a246a; background: #dfe9ff; }
+.prep-icon svg { width: 36px; height: 24px; display: block; }
+.probelib table, .glossary table { border-collapse: collapse; width: 100%; font-size: 11px; }
+.probelib th, .probelib td, .glossary th, .glossary td { border: 1px solid #b5b5b5; padding: 2px 5px; text-align: left; vertical-align: top; }
+.probelib th, .glossary th { background: #dcdcdc; position: sticky; top: 0; }
+.probelib tr.cur td { background: #e2ecff; }
+.probelib .win-body, .glossary .g-scroll { max-height: 420px; overflow: auto; }
+.glossary .g-scroll { border: 1px solid #808080; background: #fff; }
+.glossary .g-term { white-space: nowrap; }
+.glossary .g-see { white-space: nowrap; }
+.glossary .g-see .btn { margin: 0 2px 2px 0; }
+.mat-list { border: 1px solid #808080; background: #fff; padding: 4px 6px; margin-bottom: 6px; }
+.mat-row { display: flex; gap: 8px; align-items: baseline; margin: 2px 0; }
+.mat-row.cur { background: #e2ecff; }
+.mat-row .mat-name { flex: 0 0 200px; font-weight: bold; }
+.mat-row .mat-num { color: #444; font-size: 11px; white-space: pre; }
+#app.finger-tool #cv-cross { cursor: pointer; }
+
+/* ------------------------------------------------------------------ high contrast (display.highContrast → #app.hc) */
+#app.hc { background: #fff; color: #000; }
+#app.hc #titlebar, #app.hc #menubar, #app.hc #toolbar, #app.hc #statusbar, #app.hc #touchbar, #app.hc #main { background: #fff; color: #000; border-color: #000; }
+#app.hc .tb-btn, #app.hc .btn, #app.hc .tbar-btn, #app.hc .sb-panel, #app.hc .fld-input { border: 2px solid #000; background: #fff; color: #000; box-shadow: none; }
+#app.hc .tb-btn.active, #app.hc .btn.active, #app.hc .btn.pressed, #app.hc .tbar-btn.active { background: #000; color: #fff; }
+#app.hc .tb-btn.active .tb-ico svg { filter: brightness(1.6); }
+#app.hc .menu-item:hover, #app.hc .menu-item.open, #app.hc .menu-entry:hover, #app.hc .menu-entry.kb, #app.hc .menu-entry:focus { background: #000; color: #fff; }
+#app.hc .menu-drop, #app.hc .menu-sub { background: #fff; border: 2px solid #000; box-shadow: none; }
+#app.hc .win { border: 2px solid #000; background: #fff; box-shadow: none; }
+#app.hc .win-title { background: #000; color: #fff; }
+#app.hc #cv-plan, #app.hc #cv-cross, #app.hc #cv-ruler, #app.hc #cv-plotter { border: 1px solid #000; background: #fff; }
+#app.hc .tb-btn:focus-visible, #app.hc .btn:focus-visible, #app.hc .menu-item:focus-visible, #app.hc [tabindex]:focus-visible { outline: 3px solid #ff8800; }
+
+/* ------------------------------------------------------------------ reduced motion */
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: 0.001s !important; animation-duration: 0.001s !important; } }
+
+/* ------------------------------------------------------------------ print (div#print-root on body) */
+#print-root { display: none; }
+.print-report { font: 12px/1.4 "Segoe UI", Arial, sans-serif; color: #000; }
+.print-report h1 { font-size: 18px; margin: 0 0 4px; }
+.print-report .print-kv { border-collapse: collapse; margin: 6px 0; }
+.print-report .print-kv th, .print-report .print-kv td { border: 1px solid #666; padding: 2px 6px; text-align: left; vertical-align: top; }
 @media print {
-  #menubar, #toolbar, #statusbar, .win, .win-backdrop { display: none !important; }
-  body { min-width: 0; }
+  #menubar, #toolbar, #statusbar, #touchbar, #tour, .win, .win-backdrop { display: none !important; }
+  body { min-width: 0; overflow: visible; }
+  html.scaled, html.scaled body { overflow: visible; height: auto; }
+  #app.scaled { transform: none !important; margin-left: 0 !important; width: auto; height: auto; }
+  body.print-report #app { display: none !important; }
+  body:has(#print-root:not(:empty)) #app { display: none !important; }
+  body.print-report #print-root, #print-root:not(:empty) { display: block; }
 }
