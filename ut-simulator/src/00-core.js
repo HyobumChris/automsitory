@@ -207,7 +207,7 @@
       lessons: { active: null, step: 0, progress: {}, answers: {}, memo: {}, stepStartedAt: 0 },
       quiz: { active: false, i: 0, n: 10, seed: null, difficulty: 'basic', correct: 0, wrong: 0, times: [], item: null },
       autocal: { stage: 0, t1: null, d1: 10, d2: 25 },   // written by 80-modes (0 idle | 1 after Start | 2 after the first tick)
-      pa: { elements: 16, pitch: 1.0, freq: 5, from: 35, to: 75, step: 1, focusDepth: null, view: 'S', escanAngle: 60, scan: null, tcg: false , angle: null },
+      pa: { elements: 16, pitch: 1.0, freq: 5, from: 35, to: 75, step: 1, focusDepth: null, view: 'S', escanAngle: 60, scan: null, tcg: false },
       bscan: { axis: 'x', on: false, columns: null },
       echodyn: { on: false, samples: [] },
       scenario: { slot: null, name: '', title: '', noteKo: '', noteEn: '', author: '' },

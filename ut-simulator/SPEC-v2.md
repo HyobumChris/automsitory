@@ -169,7 +169,7 @@ trade: { /* …v1: active, revealed, report, score, seed, startedAt, truth */
   hintsUsed: 0, revealedOne: [] /* truth indices revealed via 'Reveal one' */,
 },
 pa: { elements: 16, pitch: 1.0, freq: 5, from: 35, to: 75, step: 1, focusDepth: null, view: 'S',
-  escanAngle: 60, scan: null /* {z0, z1, step, n, xBins, map: Float32Array} */, tcg: false, angle: null /* selected S-scan column (deg), written by 56 */ },
+  escanAngle: 60, scan: null /* {z0, z1, step, n, xBins, map: Float32Array} */, tcg: false },   // 56 may add a transient `angle` (selected column, deg) — NOT in defaultState (a null default breaks 56's 'absent' semantics); not persisted
 bscan: { axis: 'x', on: false, columns: null },    // columns is ALWAYS null in state (module buffer in 66)
 echodyn: { on: false, samples: [] },               // samples is ALWAYS [] in state (module buffer in 66)
 tofd: { /* …v1 */ modeConv: true, straighten: false, deadZones: true },
