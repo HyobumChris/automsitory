@@ -270,15 +270,17 @@ Builders (all return a fresh Specimen):
   from §6.1, do not hard-code it). `arcs = [{cx:60, cy:0, r:25, a0:90, a1:180}, {cx:60, cy:0, r:50, a0:0, a1:90}]`;
   no slot (`retroSlot: false`).
 - `UT.specimens.stepWedge({steps=[5,10,15,20,25], stepLen=40})` — staircase profile, top flat, bottom stepped (0° calibration / auto-cal).
-- `UT.specimens.iow()` — A5/IOW beam-profile block as in the original: outline x −150…150,
-  y 0…50 (T = 50); 1.5 mm SDHs at (−75, 13), (−35, 19), (0, 43), (+45, 25) with labels `13mm` … at the
-  top of dashed vertical guide lines (drawn by 60-view-cross for `spec.id === 'iow'`); a 5-hole ladder
-  at x = +90, depths 15, 19, 23, 27, 31. Default probe x = −52.5, side +1 (on the 13 mm hole).
-- `UT.specimens.dacBlock({T = current weld T, default 20})` — long bar as in the original: outline
-  x −160…160, y 0…T; 3 mm SDHs at (−40, T/4), (−40, 3T/4), (+56, T/2) (`tag:'sdh'`, labels `T/4`, `3T/4`,
-  `T/2` in mm); one notch 3 mm wide × T/3 deep in the bottom face at x = −140…−137 (tag `end`, edge
-  corner reflector). Default probe x = −110, side −1 (pointing left toward the notch). Status
-  segments `AMP= 34dB` and hint `Set Amplitude and press record button, then draw curves`.
+- `UT.specimens.iow()` — A5/IOW beam-profile block (FROZEN geometry, as implemented): outline
+  x 0…300, y 0…45 (T = 45); 1.5 mm SDHs ordered deep→shallow so every hole can be reached from the
+  right: 43 mm at x = 60, 25 mm at x = 120, 19 mm at x = 180, 13 mm at x = 240, with labels `13mm` …
+  drawn at the top of dashed vertical guide lines (60-view-cross for `spec.id === 'iow'`); a 5-hole
+  ladder at x = 20 (depths 8, 14, 20, 26, 32; scanned from the left, side −1). Default probe
+  x = 262, side +1 (on the 13 mm hole: 240 + 13·tan60 = 262.5).
+- `UT.specimens.dacBlock({T = 40, sdh = 3})` (FROZEN geometry, as implemented; modes pass
+  `T = weldOpts.T`): outline x 0…300, y 0…T; 3 mm SDHs at (80, T/4), (150, T/2), (220, 3T/4)
+  (`tag:'sdh'`, labels in mm) and a 2 mm notch in the bottom face at each end (x 4…6 and 294…296,
+  edge corner reflectors). Default probe on the T/4 hole, side +1. Status segments `AMP= 34dB` and
+  hint `Set Amplitude and press record button, then draw curves`.
 - `UT.specimens.tky({braceAngle=45, braceT=12, chordT=20, braceOffset=0})` — chord plate (x from −150..150, y 0..chordT) with a brace plate rising from the top surface at angle `braceAngle` (measured from the chord surface), joined by a weld at the toe; outline is a single polygon (chord ∪ brace ∪ weld fillet). The probe sits on the chord top surface (right of the toe) and on the brace surface (mode `tky` allows `probe.surface = 'chord'|'brace'`; for v1 keep chord only but include the brace outline so rays reflect off it).
 - `UT.specimens.laminationPlate({T=25, L=300})` — plain plate; defects supplied separately (laminations = planar horizontal).
 
@@ -773,7 +775,7 @@ Instrument container id `instrument`. Floating windows have class `.win` and `da
    multiples); status `100mm Radius. Echoes 100, 200, 300, 400 etc`. V2 wide, index x=60, range 250:
    45° facing left (side +1) → 25, 100, 175; facing right (side −1) → 50, 125, 200 (±1 mm; decreasing).
 3. 60° probe: derived wedge angle 47.1° ± 0.2; 45° → 36.7°; 70° → 52.6° (2.74/3.24 Perspex/steel).
-4. 60° probe on `iow`, 13 mm SDH at (−75, 13): with probe side +1 at `x = −75 + 13·tan60 = −52.5` the
+4. 60° probe on `iow`, 13 mm SDH at (240, 13): with probe side +1 at `x = 240 + 13·tan60 = 262.5` the
    SDH echo path = 26.0 mm (±0.5) and it is the max-amplitude position within ±5 mm scans.
 5. Readouts for that echo: SP≈26.0, SD≈22.5, DP≈13.0 (±0.5).
 6. Gain +6 dB doubles amplitude % (below clipping); the 10/20/30/40/60 dB softkeys set gain.
@@ -781,7 +783,8 @@ Instrument container id `instrument`. Floating windows have class `.win` and `da
 8. `plateWeld({T:20, rootHeight:0, capHeight:0})`, 60°, root crack preset (vertical planar at x=0,
    y=17..20): 'corner' echo at path = T/cos60 = 40 (±1) with probe at x ≈ T·tan60 = 34.6 (±3), gone
    (> 20 dB down) when the probe is ±15 mm away. With the default weld (rootHeight 1.5) the preset
-   spans y = T−3 … T+rootHeight and the corner echo appears at path ≈ 43 (±2).
+   spans y = T−3 … T+rootHeight and the 'corner' echo still appears at path ≈ 40 (±2, maximum near
+   x ≈ 38); additional weak 'tip'/'geometry' echoes near 44 mm are allowed.
 9. LOF preset on the right fusion face (bevel 30°): the 60° beam is normal to the face in the SECOND
    leg — maximum with the probe at x ≈ x_f + (2T − y_f)·tan60 (≈ 60 mm for T 20, bevel 30, rootGap 2,
    rootFace 2, where (x_f, y_f) is the face midpoint); scan x = 45…70 for 60° and 35…60 for 45°:
@@ -1047,7 +1050,7 @@ Each entry: `{n, title, ko, en, setup(), steps: [..]}`; `setup()` uses `UT.modes
 3. Zero Probe — v1 narrow, 0° single, range 100. Steps: identify the initial pulse & dead zone;
    Probes ▸ Zero Probe ▸ Twin Crystal → the pulse disappears; count multiples 25/50/75/100.
 4. V1 angle — v1 wide, 45° x 100, range 200 then 400. Steps: echoes 100/200/300; move to
-   x = 135 − 15·tan45 = 120 for the 1.5 mm hole; Perspex insert with 0° at x 240.
+   x = 135 + 15·tan45 = 150 (side +1, beam toward −x) for the 1.5 mm hole; Perspex insert with 0° at x 240.
 5./17. Lamination — lamination-plate 25, two laminations (x 15…40 depth 10, z 40…90; x −60…−30
    depth 18, z 150…200), 0°, range 100. Steps: raster along z, note the lamination echo and the
    lost backwall; size it with the 6 dB drop (SIZE window).
@@ -1057,7 +1060,7 @@ Each entry: `{n, title, ko, en, setup(), steps: [..]}`; `setup()` uses `UT.modes
    the echo doubles; +6 dB again → clipped, read the `%` box (unclipped); note 20·log10 ratios.
 8. TKY — tky brace 60°, 60° chord probe x +35. Steps: change the angle with the ADJUST MODE slider;
    find the toe LOF (`Load Def`); switch to 45°.
-9. Beam spread — iow, 60° x −52.5 (13 mm hole), gain for 80 %, PLOT. Steps per §8.4 for 13/19/25/43.
+9. Beam spread — iow, 60° x 262.5 (13 mm hole), gain for 80 %, PLOT. Steps per §8.4 for 13/19/25/43.
 10. Drawing Defects II — weld plate 20, editor open, brush 26. Steps: paint a root crack; LENGTH 30,
     SEPARATION 20, APPLY TO ALL, OK; scan along z.
 11. How to use the EPOCH — weld plate 20, EPOCH 600, 60°, root-crack preset. Steps: Gain softkey +
