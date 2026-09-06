@@ -1,6 +1,9 @@
 /* 60-view-cross.js — cross-section canvas (cv-cross) + X ruler (cv-ruler): specimen, weld outlines,
  * holes/Perspex, defects, beam fan, probe shoe(s), depth ruler, labels; probe drag, defect brush,
  * hover cursor, wheel gain; V1/V2 oblique block screens (SPEC §7.5, §14.1, §14.8, §15.6).
+ * v2 (SPEC-v2 §3.13, §5.1, §5.4, F1/P2/P3/P6/P8/P9/P10): weld preparations (backing bar, web + fillets,
+ * nozzle), FBH block, converted-ray / surface-wave / focus styles, finger dampers + finger tool, TOFD dead
+ * zones, PA sector + wedge, probe on the web face, Pointer Events, 'ui' probe-drag event, dragTo() helper.
  */
 (function (UT) {
   'use strict';
@@ -10,23 +13,50 @@
   //   (welds, TKY, lamination plate), otherwise on the extents centre (blocks 0…300). Ruler labels are
   //   unsigned |x| for those centred specimens and the raw block x otherwise.
   // - Vertical placement: y = 0 (scan surface) is placed 20–24 mm (× scale) below the canvas top so the
-  //   shoe fits above the plate; taller specimens (TKY brace) push it down; no refit, clipping applies.
+  //   shoe fits above the plate; no refit, clipping applies. v2: a tall structure above the plate (the
+  //   60 mm web of fillet-t / nozzle) only gets as much room as the canvas has left after the plate,
+  //   so the base plate always stays visible and the web is clipped at the top (v1 specimens unchanged).
   // - Beam legs of fan/edge polylines are counted by testing each vertex against the outline/arcs
   //   (a vertex on an outline edge or arc starts a new leg); vertices carrying `.leg` are honoured.
   //   Only the first display.skips legs are drawn, as in §14.1.
-  // - 0° ladder: parallel dotted lines every ~1 mm across the crystal diameter, each cast straight
-  //   down to the first outline edge or planar defect below it (so laminations shadow the backwall).
+  // - 0° ladder: parallel dotted lines every ~1 mm across the crystal size, each cast straight
+  //   down to the first outline edge or planar defect below it (so laminations shadow the backwall);
+  //   on the web face the ladder runs across the web thickness.
   // - TOFD with no tracer rays: a synthetic centre + ±20 dB fan is drawn from each index point to
   //   the backwall (leg 1). TOFD probe positions come from UT.tofd.probePositions(state) when present
   //   (array [tx, rx] or {tx, rx}, each {x, side}); fallback tx = probe.x + pcs/2 (side +1), rx mirrored.
-  // - Brush: left-drag collects mm points; on mouseup emits 'defect:brush' {pts, erase:false, brushMm}.
+  //   Dead zones (tofd.deadZones): frame.tofd.deadZones, else UT.tofd.deadZones(state) when exported;
+  //   drawn as hatched red bands (lateral: 0…dL, backwall: T−dB…T) between the two index points.
+  // - Brush: left-drag collects mm points; on pointerup emits 'defect:brush' {pts, erase:false, brushMm}.
   //   For volumetric brush types (state.editing.brush not planar) the stroke is dilated by the brush
   //   radius and its convex hull is sent as pts, so the resulting polygon is a filled blob like UTman's
   //   dabs. Planar strokes send the raw (decimated) polyline. Right-drag emits {pts, erase:true}.
   //   Brush size (px) comes from setBrush(on, px) or state.editing.brushPx / brushSize; default 26.
-  // - Probe drag: left mousedown anywhere on the canvas (not editing) jumps the probe x to the mouse and
-  //   drags it (clamped to the scan surface); Shift-drag changes z by vertical mouse movement
-  //   (1 mm per mm of scale). Double-click on a defect sets selectedDefect = n − 1.
+  // - Probe drag (Pointer Events, setPointerCapture, primary pointer only): pointerdown anywhere on the
+  //   canvas (not editing) jumps the probe x to the pointer and drags it (clamped to the scan surface);
+  //   Shift-drag changes z by vertical movement (1 mm per mm of scale). Double-click on a defect sets
+  //   selectedDefect = n − 1. One 'ui' {kind:'probe-drag', id:'cv-cross'|'cv-ruler'} is emitted at the END of
+  //   every probe / oblique / ruler drag gesture (a plain click counts as a gesture: it moved the probe).
+  // - Web face (fillet-t / nozzle): pressing on the web (|x| ≤ webT/2 + tol, above the fillet) puts the
+  //   probe on that web face (probe.surface 'web', side = sign(x), x = distance up the web from the
+  //   fillet toe); pressing on the base plate returns it to the plate (surface 'chord'). The surface is
+  //   decided once per gesture at pointerdown.
+  // - Finger tool (state.damping.tool): a press within the surface band (y −15…+6 mm around the scan
+  //   surface, inside the scan-surface x range) toggles a damper: within 4 mm (≥ 14 mm on coarse pointers)
+  //   of an existing damper removes it, otherwise adds one (max 3; a 4th press is ignored). Presses outside
+  //   the band still drag the probe. Dampers are written with UT.setIn('damping', {points}).
+  // - Converted rays (frame.rays.converted): the 40 heaviest entries; L orange dashed, S white dotted;
+  //   vertices carrying `leg` beyond display.skips are dropped. Surface wave (frame.rays.surface.pts):
+  //   1 px wavy cyan line (2 px amplitude, 8 px wavelength) plus small reflector markers.
+  // - Focus (frame.rays.focus): fan polylines start at fan[i].pts[0] (the aperture point) as they come;
+  //   the focal point is marked with a small circle + 'F <mm>'.
+  // - PA (probe.method 'pa'): translucent orange sector from the index point over paFrom…paTo down to the
+  //   backwall, a sub-fan of rays, an orange wedge (wedge angle of the mid angle) and element ticks from
+  //   frame.pa.aperture {x0, x1} (pa.elements ticks) when 56-pa provides it.
+  // - dragTo(x, {z}): one synthetic pointerdown/pointermove/pointerup gesture on #cv-cross through the
+  //   real handlers (scale-aware via UT.dom.scale()); `z` (optional) is applied with UT.setIn('probe')
+  //   after the gesture because a real drag changes x OR z (Shift), never both; exactly one 'ui'
+  //   probe-drag event. Without a laid-out canvas (headless) it moves the probe directly and emits once.
   // - Oblique V1/V2 screen: the wide-face specimen is rebuilt for drawing (cached); the top band is the
   //   narrow face sheared by (depth·cos30°, −depth·sin30°). Probe on the band when spec.face === 'wide'
   //   (x along the band, z = depth fraction), on the front face when 'narrow' (x, y = z). Dropping on the
@@ -40,6 +70,12 @@
   const MM_SPAN = 320;               // canvas width covers 320 mm (§14.1)
   const FONT = '12px "Segoe UI", Arial, sans-serif';
   const FONT_SMALL = '11px "Segoe UI", Arial, sans-serif';
+  const MAX_CONVERTED = 40;          // converted rays drawn per frame (SPEC-v2 §3.13)
+  const MAX_DAMPERS = 3;             // finger dampers (SPEC-v2 §3.3)
+  const DAMPER_TOL_MM = 4;           // click within this of a damper removes it
+  const COARSE_HIT_PX = 53;          // ≈ 14 mm at 96 dpi (SPEC-v2 §5.4 hit targets on coarse pointers)
+  const FINE_HIT_PX = 12;
+  const BACKING_COLOUR = (C.SURFACE_COLOURS && C.SURFACE_COLOURS.backing) || '#0040ff';
 
   const S = {
     canvas: null, ruler: null,
@@ -48,16 +84,18 @@
     obSpecs: {},                     // cached wide specimens for the oblique drawing
     lastFrame: null,
     drag: null,                      // probe drag {kind, ...}
+    pointerId: null,                 // captured pointer of the running gesture
     stroke: null,                    // brush stroke {pts:[{x,y}], erase}
     brush: { on: false, px: 26 },
     ghost: null,                     // oblique drag ghost {face, x, z}
     hoverMm: null,
+    uiEvents: 0,                     // 'ui' probe-drag events emitted (diagnostics / selftest)
   };
 
   // ------------------------------------------------------------------ helpers
   function state() { return UT.state; }
-  function spec() { return UT.state && UT.state.specimen; }
-  function isPlanarType(t) { return UT.specimens && UT.specimens.isPlanar ? UT.specimens.isPlanar(t) : (t === 'planar' || t === 'crack' || t === 'lof' || t === 'lamination' || t === 'root'); }
+  function t(key, params) { return UT.i18n && UT.i18n.t ? UT.i18n.t(key, params) : key; }
+  function isPlanarType(tp) { return UT.specimens && UT.specimens.isPlanar ? UT.specimens.isPlanar(tp) : (tp === 'planar' || tp === 'crack' || tp === 'lof' || tp === 'lamination' || tp === 'root'); }
   function isOblique(st) {
     return !!(st && (st.mode === 'v1' || st.mode === 'v2') && st.specimen && (st.specimen.id === 'v1' || st.specimen.id === 'v2'));
   }
@@ -67,6 +105,17 @@
   }
   function cssW(cv) { return cv.clientWidth || cv.width || 300; }
   function cssH(cv) { return cv.clientHeight || cv.height || 150; }
+  /** True on touch-like devices (pointer: coarse); false headless. */
+  function coarsePointer() {
+    try { return typeof matchMedia === 'function' && !!matchMedia('(pointer: coarse)').matches; } catch (e) { return false; }
+  }
+  /** Hit tolerance in mm for the current pointer type and scale (≥ 14 mm on coarse pointers). */
+  function hitTolMm(minMm) {
+    const sc = (S.xf && S.xf.scale) || 4;
+    const px = coarsePointer() ? COARSE_HIT_PX : FINE_HIT_PX;
+    return Math.max(minMm || 0, px / sc);
+  }
+  function presetOf(angle) { return UT.probe && UT.probe.presetFor ? UT.probe.presetFor(angle) : (UT.probe && UT.probe.presets ? UT.probe.presets[angle] : null); }
 
   /**
    * Pure transform for the normal cross-section: fixed W/320 px per mm (§14.1).
@@ -94,7 +143,11 @@
     const bottom = bottomMm > 4 ? bottomMm : 4;
     const minAbove = bottomMm > 4 ? Math.min(16, bottomMm - 2) : 16;   // shoe (14 mm) + 2 mm: keeps a 20 mm plate + ruler label inside a 180 px row
     const roomAbove = M.clamp(H / scale - yMax - bottom, minAbove, 24);
-    const above = Math.max(roomAbove, -yMin + 6);
+    // structure above the surface (cap bead, web of a T-joint): show it whole only while the plate
+    // still fits — a 60 mm web takes what the canvas has left and is clipped at the top (v2)
+    const wanted = -yMin + 6;
+    const affordable = Math.max(roomAbove, H / scale - yMax - bottom);
+    const above = Math.max(roomAbove, Math.min(wanted, affordable));
     const oy = above * scale;
     return { scale, ox: W / 2 - cx * scale, oy, W, H, cx };
   }
@@ -109,7 +162,7 @@
   /** Room (mm) needed under the backwall for the hollow TT receiver shoe (+ index line), else 0. */
   function ttBottomMm(st) {
     if (!st || !st.probe || st.probe.method !== 'tt' || st.mode === 'tofd') return 0;
-    const pre = UT.probe && UT.probe.presets ? UT.probe.presets[st.probe.angle] : null;
+    const pre = presetOf(st.probe.angle);
     return ((pre && pre.shoeHeight) || 14) + 4;
   }
 
@@ -128,21 +181,21 @@
   /** Recompute the mm→px transform from the canvas size and the current specimen. */
   function fit() { S.ob = null; return ensureTransform(state()); }
 
-  function P(ctx, pt) { const p = toPx(pt.x, pt.y); return p; }
   function polyPath(ctx, pts, close) {
     ctx.beginPath();
     for (let i = 0; i < pts.length; i++) { const p = toPx(pts[i].x, pts[i].y); if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }
     if (close) ctx.closePath();
   }
+  function line(ctx, a, b) { const pa = toPx(a.x, a.y), pb = toPx(b.x, b.y); ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke(); }
 
   /** Tag of the outline edge/arc a point lies on (within tol mm), or null. */
   function surfaceTagAt(sp, x, y, tol) {
-    const t = tol === undefined ? 0.05 : tol;
+    const tl = tol === undefined ? 0.05 : tol;
     for (const e of sp.edges || []) {
-      if (x < Math.min(e.a.x, e.b.x) - t || x > Math.max(e.a.x, e.b.x) + t || y < Math.min(e.a.y, e.b.y) - t || y > Math.max(e.a.y, e.b.y) + t) continue;
-      if (M.pointSegment(x, y, e.a.x, e.a.y, e.b.x, e.b.y).d < t) return e.tag || 'end';
+      if (x < Math.min(e.a.x, e.b.x) - tl || x > Math.max(e.a.x, e.b.x) + tl || y < Math.min(e.a.y, e.b.y) - tl || y > Math.max(e.a.y, e.b.y) + tl) continue;
+      if (M.pointSegment(x, y, e.a.x, e.a.y, e.b.x, e.b.y).d < tl) return e.tag || 'end';
     }
-    for (const a of sp.arcs || []) if (Math.abs(M.dist(x, y, a.cx, a.cy) - a.r) < t) return a.tag || 'radius';
+    for (const a of sp.arcs || []) if (Math.abs(M.dist(x, y, a.cx, a.cy) - a.r) < tl) return a.tag || 'radius';
     return null;
   }
 
@@ -151,6 +204,95 @@
     if (Array.isArray(r)) return r.length && r[0] && Array.isArray(r[0].pts) ? null : r;
     if (Array.isArray(r.pts)) return r.pts;
     return null;
+  }
+
+  // ------------------------------------------------------------------ pure geometry helpers (v2)
+  /** The `n` heaviest entries of a converted-ray list (weight desc; entries without weight count as 0). */
+  function topByWeight(list, n) {
+    if (!Array.isArray(list)) return [];
+    const arr = list.filter(function (c) { return c && Array.isArray(c.pts) && c.pts.length >= 2; });
+    arr.sort(function (a, b) { return (b.weight || 0) - (a.weight || 0); });
+    return arr.slice(0, n);
+  }
+  /**
+   * Wavy polyline (px): a sinusoidal offset of amplitude `amp` and wavelength `wl` along the normal of
+   * each segment of `pts`, sampled every ~wl/6 px. Returns [] for < 2 points.
+   */
+  function wavyPts(pts, amp, wl) {
+    const out = [];
+    if (!pts || pts.length < 2) return out;
+    let s = 0;
+    const step = Math.max(1, wl / 6);
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      const len = M.dist(a.x, a.y, b.x, b.y);
+      if (len < 1e-6) continue;
+      const ux = (b.x - a.x) / len, uy = (b.y - a.y) / len;
+      const nx = -uy, ny = ux;
+      const n = Math.max(1, Math.ceil(len / step));
+      for (let k = (i === 0 ? 0 : 1); k <= n; k++) {
+        const d = len * k / n;
+        const off = amp * Math.sin(2 * Math.PI * (s + d) / wl);
+        out.push({ x: a.x + ux * d + nx * off, y: a.y + uy * d + ny * off });
+      }
+      s += len;
+    }
+    return out;
+  }
+  /** Index of the damper within tol (mm) of x, or −1. */
+  function damperIndexAt(points, x, tol) {
+    let best = -1, bd = tol;
+    (points || []).forEach(function (p, i) {
+      const px = typeof p === 'number' ? p : (p && p.x);
+      if (typeof px !== 'number') return;
+      const d = Math.abs(px - x);
+      if (d <= bd) { bd = d; best = i; }
+    });
+    return best;
+  }
+  /** New damper list after a press at x: removes a damper within tol, else adds x (max `max`; unchanged when full). */
+  function toggleDamperList(points, x, tol, max) {
+    const list = (points || []).map(function (p) { return typeof p === 'number' ? p : p.x; }).filter(function (v) { return typeof v === 'number' && Number.isFinite(v); });
+    const i = damperIndexAt(list, x, tol);
+    if (i >= 0) { list.splice(i, 1); return { points: list, action: 'remove' }; }
+    if (list.length >= (max || MAX_DAMPERS)) return { points: list, action: 'full' };
+    list.push(+x.toFixed(1));
+    return { points: list, action: 'add' };
+  }
+  /** True when a press at (mm) is on the scanning-surface band where dampers may be placed. */
+  function onSurfaceBand(sp, mm) {
+    if (!sp || !sp.scanSurface) return false;
+    const ss = sp.scanSurface;
+    return mm.y >= -15 && mm.y <= 6 && mm.x >= ss.xMin - 2 && mm.x <= ss.xMax + 2;
+  }
+  /**
+   * Which scanning surface a press selects on a set-on T-joint / nozzle: {surface:'web', side, x} on a web face
+   * (|x| ≤ webT/2 + tol above the fillet), {surface:'chord'} on the plate, null for other specimens.
+   */
+  function webPick(sp, mm, tol) {
+    const w = sp && sp.weld;
+    if (!w || !w.web) return null;
+    const hw = w.webT / 2, leg = w.leg || 0;
+    const top = -(sp.extents ? sp.extents.yMin : 60);
+    const tl = tol || 3;
+    if (mm.y < -leg - 1 && Math.abs(mm.x) <= hw + tl) {
+      const side = mm.x >= 0 ? 1 : -1;
+      const x = M.clamp(-mm.y - leg, 0, Math.max(5, top - leg - 8));
+      return { surface: 'web', side, x: +x.toFixed(1) };
+    }
+    return { surface: 'chord' };
+  }
+  /** PA sector polygon (mm) from the emission point over angles a0…a1 (deg) down to depth T; `n` boundary points. */
+  function paSectorPts(E, side, a0, a1, T, n) {
+    const pts = [{ x: E.x, y: E.y }];
+    const k = Math.max(2, n || 12);
+    for (let i = 0; i <= k; i++) {
+      const a = a0 + (a1 - a0) * i / k;
+      const r = M.deg2rad(M.clamp(a, 0, 85));
+      const d = Math.min(T / Math.max(Math.cos(r), 0.1), 4 * T);
+      pts.push({ x: E.x - side * d * Math.sin(r), y: E.y + d * Math.cos(r) });
+    }
+    return pts;
   }
 
   // ------------------------------------------------------------------ brush geometry (pure)
@@ -198,8 +340,9 @@
       ctx.strokeStyle = '#d0d0d0';
       ctx.lineWidth = 1;
       for (const f of sp.weld.fusionFaces || []) {
-        const a = toPx(f.a.x, f.a.y), b = toPx(f.b.x, f.b.y);
-        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        if (!f || !f.a || !f.b) continue;
+        if (f.tag === 'root' && sp.weld.web) continue;   // unfused web/plate interface: drawn from spec.reflectors below
+        line(ctx, f.a, f.b);
       }
       const bulge = function (pts) {
         if (!pts || pts.length < 2) return;
@@ -208,17 +351,77 @@
         ctx.stroke();
       };
       bulge(sp.weld.cap); bulge(sp.weld.root);
-      // root gap / root face lines from the region (single-v / double-v)
-      if (sp.weld.region && sp.weld.region.length >= 4) {
+      // root gap / root face lines from the region (single-v / double-v / K / J)
+      if (!sp.weld.web && sp.weld.region && sp.weld.region.length >= 4) {
         const rg = sp.weld.region;
         ctx.setLineDash([]);
         for (let i = 0; i < rg.length; i++) {
           const a = rg[i], b = rg[(i + 1) % rg.length];
           if (Math.abs(a.y - b.y) < 1e-9 && (Math.abs(a.y) < 1e-9 || Math.abs(a.y - sp.T) < 1e-9)) continue;   // skip top/bottom closing edges
-          const pa = toPx(a.x, a.y), pb = toPx(b.x, b.y);
-          ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
+          line(ctx, a, b);
         }
       }
+      drawBacking(ctx, sp);
+      drawWebFillets(ctx, sp);
+    }
+    drawReflectors(ctx, sp);
+    ctx.restore();
+  }
+
+  /** Backing bar (F1): bar outline in dark grey, its unfused faces/ends ('backing' edges) in SURFACE_COLOURS.backing. */
+  function drawBacking(ctx, sp) {
+    const bar = sp.weld && sp.weld.backing;
+    if (!bar || bar.length < 4) return;
+    ctx.save();
+    polyPath(ctx, bar, true);
+    ctx.fillStyle = 'rgba(0,0,0,0.08)'; ctx.fill();
+    ctx.strokeStyle = '#3a3a3a'; ctx.lineWidth = 1; ctx.setLineDash([]); ctx.stroke();
+    ctx.strokeStyle = BACKING_COLOUR; ctx.lineWidth = 1.5;
+    for (const e of sp.edges || []) if (e.tag === 'backing') line(ctx, e.a, e.b);
+    ctx.restore();
+  }
+
+  /** Web + fillet welds (F1 fillet-t / nozzle): fillet region outlines and the web faces in light grey. */
+  function drawWebFillets(ctx, sp) {
+    const w = sp.weld;
+    if (!w || !w.web) return;
+    ctx.save();
+    ctx.strokeStyle = '#d0d0d0'; ctx.lineWidth = 1; ctx.setLineDash([]);
+    for (const r of w.regions || []) { if (r && r.length >= 3) { polyPath(ctx, r, true); ctx.stroke(); } }
+    // web faces above the fillets (already outline edges; re-stroke lightly so the web reads as a plate)
+    for (const e of sp.edges || []) if (e.tag === 'web') { ctx.strokeStyle = '#4a4a4a'; line(ctx, e.a, e.b); }
+    ctx.restore();
+  }
+
+  /** Planar reflector segments outside the outline (v2 spec.reflectors): unfused interface (dark), FBH handled separately. */
+  function drawReflectors(ctx, sp) {
+    const list = sp.reflectors || [];
+    if (!list.length) return;
+    ctx.save();
+    for (const r of list) {
+      if (!r || !r.a || !r.b || r.tag === 'fbh') continue;
+      ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 1.5; ctx.setLineDash([]);
+      line(ctx, r.a, r.b);
+    }
+    ctx.restore();
+  }
+
+  /** FBH block (P8): drill shaft from the bottom face up to the flat bottom (bar of width d) for each spec.fbhs entry. */
+  function drawFbhs(ctx, sp) {
+    const list = sp && sp.fbhs;
+    if (!list || !list.length) return;
+    const T = sp.T || 60;
+    ctx.save();
+    for (const f of list) {
+      const a = toPx(f.x - f.d / 2, f.y), b = toPx(f.x + f.d / 2, T);
+      const w = Math.max(b.x - a.x, 3);
+      ctx.fillStyle = COL.cream; ctx.fillRect(a.x, a.y, w, b.y - a.y);
+      ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 1; ctx.setLineDash([2, 2]);
+      ctx.beginPath(); ctx.moveTo(a.x, b.y); ctx.lineTo(a.x, a.y); ctx.moveTo(a.x + w, b.y); ctx.lineTo(a.x + w, a.y); ctx.stroke();
+      ctx.setLineDash([]); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(a.x - 1, a.y); ctx.lineTo(a.x + w + 1, a.y); ctx.stroke();
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(a.x - 1, a.y + 1.5); ctx.lineTo(a.x + w + 1, a.y + 1.5); ctx.stroke();
     }
     ctx.restore();
   }
@@ -269,6 +472,33 @@
       ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
       ctx.fillText(h.label || (h.y + 'mm'), a.x + 4, a.y + 3);
     }
+    ctx.restore();
+  }
+
+  /** TOFD dead zones (P9): hatched red bands under the lateral wave and above the backwall between the probes. */
+  function drawDeadZones(ctx, frame, st, sp) {
+    if (st.mode !== 'tofd' || !st.tofd || !st.tofd.deadZones) return;
+    let dz = frame && frame.tofd && frame.tofd.deadZones;
+    if (!dz && UT.tofd && typeof UT.tofd.deadZones === 'function') { try { dz = UT.tofd.deadZones(st); } catch (e) { dz = null; } }
+    if (!dz || !(dz.lateral > 0 || dz.backwall > 0)) return;
+    const pp = tofdProbes(st, null);
+    const x0 = Math.min(pp.tx.x, pp.rx.x), x1 = Math.max(pp.tx.x, pp.rx.x);
+    const T = sp.T || 20;
+    const band = function (yA, yB, label) {
+      const a = toPx(x0, yA), b = toPx(x1, yB);
+      if (b.y - a.y < 0.5) return;
+      ctx.fillStyle = 'rgba(224,0,0,0.18)'; ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
+      ctx.save();
+      ctx.beginPath(); ctx.rect(a.x, a.y, b.x - a.x, b.y - a.y); ctx.clip();
+      ctx.strokeStyle = 'rgba(224,0,0,0.45)'; ctx.lineWidth = 1;
+      for (let x = a.x - (b.y - a.y); x < b.x; x += 6) { ctx.beginPath(); ctx.moveTo(x, b.y); ctx.lineTo(x + (b.y - a.y), a.y); ctx.stroke(); }
+      ctx.restore();
+      ctx.fillStyle = '#a00000'; ctx.font = FONT_SMALL; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText(label, b.x + 4, (a.y + b.y) / 2);
+    };
+    ctx.save();
+    if (dz.lateral > 0) band(0, Math.min(dz.lateral, T), t('dead zone {mm} mm', { mm: dz.lateral.toFixed(1) }));
+    if (dz.backwall > 0) band(Math.max(0, T - dz.backwall), T, t('dead zone {mm} mm', { mm: dz.backwall.toFixed(1) }));
     ctx.restore();
   }
 
@@ -364,30 +594,41 @@
         if (h && h.t < best) best = h.t;
       }
     }
+    // v2 planar reflectors outside the outline (FBH flat bottoms, unfused interfaces) shadow the backwall too
+    for (const r of sp.reflectors || []) {
+      if (!r || !r.a || !r.b) continue;
+      const h = M.raySegment(x, 0.01, 0, 1, r.a.x, r.a.y, r.b.x, r.b.y, 0.02);
+      if (h && h.t < best) best = h.t;
+    }
     return best;
   }
 
   function drawZeroLadder(ctx, st, sp, der, E) {
-    const D = der.diameter || 10;
+    const D = der.crystalA || der.diameter || 10;
     const mode = st.display.colourCode || 'none';
     const defects = st.display.hide ? [] : st.defects;
     const step = Math.max(1, 4 / S.xf.scale);
+    const onWeb = st.probe.surface === 'web' && sp.weld && sp.weld.web;
     ctx.save();
     ctx.lineWidth = 1;
     ctx.setLineDash([1, 2]);
     ctx.strokeStyle = mode === 'none' ? 'rgba(255,255,255,0.55)' : rayColour(mode, 1, null, '#ffffff');
-    if (st.display.singleLine) {
-      const y = castDown(sp, E.x, defects);
-      const a = toPx(E.x, 0), b = toPx(E.x, y);
-      ctx.setLineDash([]); ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-    } else {
-      for (let u = -D / 2; u <= D / 2 + 1e-6; u += step) {
-        const x = E.x + u;
-        const y = castDown(sp, x, defects);
-        const a = toPx(x, 0), b = toPx(x, y);
-        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    const tg = E.tangent || { x: 1, y: 0 }, nm = E.normal || { x: 0, y: 1 };
+    const castLine = function (u) {
+      if (onWeb) {
+        const w = sp.weld.webT || 12;
+        const a = { x: E.x + u * tg.x, y: E.y + u * tg.y };
+        return [a, { x: a.x + nm.x * w, y: a.y + nm.y * w }];
       }
+      const x = E.x + u;
+      return [{ x, y: 0 }, { x, y: castDown(sp, x, defects) }];
+    };
+    if (st.display.singleLine) {
+      const ab = castLine(0);
+      ctx.setLineDash([]); ctx.lineWidth = 1.5;
+      line(ctx, ab[0], ab[1]);
+    } else {
+      for (let u = -D / 2; u <= D / 2 + 1e-6; u += step) { const ab = castLine(u); line(ctx, ab[0], ab[1]); }
     }
     ctx.restore();
   }
@@ -400,11 +641,38 @@
     ctx.setLineDash(dashed ? [4, 3] : [1, 2]);
     ctx.strokeStyle = 'rgba(255,255,255,0.55)';
     for (const a of angles) {
-      const t = Math.tan(M.deg2rad(a));
-      const p0 = toPx(E.x, E.y), p1 = toPx(E.x - side * T * t, T);
+      const tn = Math.tan(M.deg2rad(a));
+      const p0 = toPx(E.x, E.y), p1 = toPx(E.x - side * T * tn, T);
       ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
     }
     ctx.restore();
+  }
+
+  /** Phased-array sector (P10): translucent orange sector over paFrom…paTo plus a sub-fan of rays. */
+  function drawPaSector(ctx, frame, st, sp, E) {
+    const probe = st.probe;
+    const side = probe.side || 1;
+    const T = sp.T || 20;
+    let a0 = probe.paFrom, a1 = probe.paTo;
+    const ss = frame && frame.sscan;
+    if (ss && Array.isArray(ss.angles) && ss.angles.length >= 2) { a0 = ss.angles[0]; a1 = ss.angles[ss.angles.length - 1]; }
+    if (!(a1 > a0)) { a0 = Math.min(a0, a1); a1 = a0 + 1; }
+    const pts = paSectorPts(E, side, a0, a1, T, 16);
+    ctx.save();
+    polyPath(ctx, pts, true);
+    ctx.fillStyle = 'rgba(255,136,0,0.16)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,136,0,0.8)'; ctx.lineWidth = 1; ctx.setLineDash([]); ctx.stroke();
+    ctx.restore();
+    const angles = UT.probe.paAngles(probe);
+    const every = Math.max(1, Math.round(angles.length / 8));
+    const sub = angles.filter(function (_, i) { return i % every === 0; });
+    drawSimpleFan(ctx, sp, E, side, sub, false);
+    // steering angle of the E-scan / selected view as a solid orange line
+    const esc = st.pa && typeof st.pa.escanAngle === 'number' ? st.pa.escanAngle : null;
+    if (esc !== null && st.pa && st.pa.view === 'E') {
+      const tn = Math.tan(M.deg2rad(esc));
+      ctx.save(); ctx.strokeStyle = '#ff8800'; ctx.lineWidth = 1.5; line(ctx, E, { x: E.x - side * T * tn, y: T }); ctx.restore();
+    }
   }
 
   function drawBeam(ctx, frame, st, sp, der, E) {
@@ -421,18 +689,14 @@
       drawSimpleFan(ctx, sp, { x: pp.rx.x, y: 0 }, pp.rx.side, [a - h20, a, a + h20], false);
       return;   // the PE tracer fan (if any) is meaningless for the TOFD pair
     }
-    if (probe.method === 'pa') {
-      const angles = UT.probe.paAngles(probe);
-      const sub = angles.filter(function (_, i) { return i % 2 === 0; });
-      ctx.save();
-      drawSimpleFan(ctx, sp, E, probe.side || 1, sub, false);
-      ctx.restore();
-      return;
-    }
-    if ((probe.angle || 0) === 0) { drawZeroLadder(ctx, st, sp, der, E); return; }
+    if (probe.method === 'pa') { drawPaSector(ctx, frame, st, sp, E); return; }
+    if ((probe.angle || 0) === 0) { drawZeroLadder(ctx, st, sp, der, E); drawSurfaceWave(ctx, frame, st); return; }
     const rays = frame && frame.rays;
     if (!rays) return;
     drawTracerRays(ctx, rays, sp, skips, mode, der, disp.singleLine);
+    drawConverted(ctx, rays, sp, skips, st);
+    drawSurfaceWave(ctx, frame, st);
+    drawFocus(ctx, rays, der);
   }
 
   function drawTracerRays(ctx, rays, sp, skips, mode, der, singleLine) {
@@ -461,6 +725,62 @@
     ctx.restore();
   }
 
+  /** Mode-converted rays (P2): orange dashed L / white dotted S, ≤ 40 by weight, when display.convRays. */
+  function drawConverted(ctx, rays, sp, skips, st) {
+    if (!st.display || st.display.convRays === false) return;
+    const list = topByWeight(rays.converted, MAX_CONVERTED);
+    if (!list.length) return;
+    ctx.save();
+    ctx.lineWidth = 1; ctx.lineCap = 'butt';
+    for (const c of list) {
+      const pts = c.pts.filter(function (p) { return p && typeof p.x === 'number' && (p.leg === undefined || p.leg <= skips); });
+      if (pts.length < 2) continue;
+      const isL = c.mode === 'L';
+      ctx.strokeStyle = isL ? '#ff8800' : 'rgba(255,255,255,0.85)';
+      ctx.setLineDash(isL ? [5, 3] : [2, 2]);
+      ctx.beginPath();
+      for (let i = 0; i < pts.length; i++) { const p = toPx(pts[i].x, pts[i].y); if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /** Surface (Rayleigh) wave (P3): 1 px wavy line along frame.rays.surface.pts + reflector markers. */
+  function drawSurfaceWave(ctx, frame, st) {
+    if (!st.physics || !st.physics.surfaceWave) return;
+    const sw = frame && frame.rays && frame.rays.surface;
+    if (!sw || !Array.isArray(sw.pts) || sw.pts.length < 2) return;
+    const px = sw.pts.map(function (p) { return toPx(p.x, p.y); });
+    const wav = wavyPts(px, 2, 8);
+    if (wav.length < 2) return;
+    ctx.save();
+    ctx.strokeStyle = '#40e0ff'; ctx.lineWidth = 1; ctx.setLineDash([]); ctx.lineJoin = 'round';
+    ctx.beginPath();
+    for (let i = 0; i < wav.length; i++) { if (i === 0) ctx.moveTo(wav[i].x, wav[i].y); else ctx.lineTo(wav[i].x, wav[i].y); }
+    ctx.stroke();
+    for (const r of sw.reflectors || []) {
+      if (!r || typeof r.x !== 'number') continue;
+      const p = toPx(r.x, r.y || 0);
+      ctx.fillStyle = 'rgba(64,224,255,' + M.clamp(0.4 + 0.6 * (r.refl || 0), 0.4, 1) + ')';
+      ctx.beginPath(); ctx.moveTo(p.x, p.y - 1); ctx.lineTo(p.x - 4, p.y - 8); ctx.lineTo(p.x + 4, p.y - 8); ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /** Focal point marker (P6): small circle + 'F <mm>' in the probe colour. */
+  function drawFocus(ctx, rays, der) {
+    const f = rays && rays.focus;
+    if (!f || typeof f.x !== 'number' || typeof f.y !== 'number') return;
+    const p = toPx(f.x, f.y);
+    ctx.save();
+    ctx.strokeStyle = (der && der.colour) || '#00c000'; ctx.lineWidth = 1.5; ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(p.x - 7, p.y); ctx.lineTo(p.x + 7, p.y); ctx.moveTo(p.x, p.y - 7); ctx.lineTo(p.x, p.y + 7); ctx.stroke();
+    ctx.fillStyle = '#000'; ctx.font = FONT_SMALL; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText('F ' + (typeof f.F === 'number' ? f.F.toFixed(0) : '') , p.x + 8, p.y - 8);
+    ctx.restore();
+  }
+
   function legsToPts(legs) {
     const out = [];
     legs.forEach(function (l, i) { if (i === 0) out.push({ x: l.a.x, y: l.a.y, leg: l.leg || 1 }); out.push({ x: l.b.x, y: l.b.y, leg: (l.leg || i + 1) + 1, tag: l.surfaceTag }); });
@@ -484,6 +804,40 @@
     ctx.restore();
   }
 
+  // ------------------------------------------------------------------ drawing: finger dampers (P3)
+  /** Small grey fingertips on the scanning surface at state.damping.points; a caption while the tool is on. */
+  function drawDampers(ctx, st, W) {
+    const pts = (st.damping && st.damping.points) || [];
+    const sc = Math.min(S.xf ? S.xf.scale : 4, 5);
+    ctx.save();
+    for (const p of pts) {
+      const x = typeof p === 'number' ? p : (p && p.x);
+      if (typeof x !== 'number') continue;
+      const c = toPx(x, 0);
+      const w = 7 * sc, h = 9 * sc;
+      ctx.fillStyle = '#c4c4c4'; ctx.strokeStyle = '#606060'; ctx.lineWidth = 1; ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(c.x - w / 2, c.y);
+      ctx.lineTo(c.x - w / 2, c.y - h * 0.55);
+      ctx.quadraticCurveTo(c.x - w / 2, c.y - h, c.x, c.y - h);
+      ctx.quadraticCurveTo(c.x + w / 2, c.y - h, c.x + w / 2, c.y - h * 0.55);
+      ctx.lineTo(c.x + w / 2, c.y);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      // nail
+      ctx.fillStyle = '#e8e8e8';
+      ctx.beginPath(); ctx.ellipse(c.x, c.y - h * 0.72, w * 0.28, h * 0.16, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      // contact line
+      ctx.strokeStyle = '#404040'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(c.x - w / 2, c.y); ctx.lineTo(c.x + w / 2, c.y); ctx.stroke();
+    }
+    if (st.damping && st.damping.tool) {
+      ctx.fillStyle = '#404040'; ctx.font = FONT_SMALL; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText(t('Finger damping: click on the scanning surface to add or remove a damper ({n}/{max})', { n: pts.length, max: MAX_DAMPERS }), 8, 4);
+    }
+    ctx.restore();
+    void W;
+  }
+
   // ------------------------------------------------------------------ drawing: probes
   /** Emission frame for the probe: {x, y, tangent, normal}. */
   function emissionAt(sp, probe) {
@@ -493,11 +847,11 @@
   /**
    * Draw a probe shoe at emission point E (mm) with local frame (tangent t, normal n into the metal).
    * Angle probes: "house" pentagon 24×14 mm (vertical front face, front-top corner sloped at the
-   * wedge angle); 0°: square 20×18 mm.
+   * wedge angle — any custom angle); 0°: square 20×18 mm. Twin crystals get a dashed divider.
    */
-  function drawShoe(ctx, E, t, n, side, der, colour, hollow, opts) {
+  function drawShoe(ctx, E, tg, n, side, der, colour, hollow, opts) {
     const o = opts || {};
-    const map = function (u, v) { return toPx(E.x + u * t.x + v * n.x, E.y + u * t.y + v * n.y); };
+    const map = function (u, v) { return toPx(E.x + u * tg.x + v * n.x, E.y + u * tg.y + v * n.y); };
     const isZero = !der.refracted || der.refracted === 0 || o.zero;
     ctx.save();
     ctx.lineJoin = 'miter';
@@ -517,7 +871,7 @@
       ctx.strokeStyle = '#00e0ff'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(l0.x, l0.y); ctx.lineTo(l1.x, l1.y); ctx.stroke();
     } else {
-      const w = der.shoeWidth || 24, h = der.shoeHeight || 14;
+      const w = o.width || der.shoeWidth || 24, h = der.shoeHeight || 14;
       const half = w / 2;
       // "house" pentagon (§14.1): rectangular body with a vertical front face; only the front-TOP
       // corner is cut by a roof sloped at the wedge angle (the crystal sits on that face). The roof
@@ -530,6 +884,11 @@
       ctx.beginPath(); pts.forEach(function (p, i) { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }); ctx.closePath();
       if (!hollow) { ctx.fillStyle = colour; ctx.fill(); }
       ctx.strokeStyle = hollow ? colour : '#202020'; ctx.lineWidth = hollow ? 2 : 1; ctx.stroke();
+      if (der.crystal === 'twin' && !hollow) {
+        const d0 = map(side * 2, 0), d1 = map(side * 2, -h);
+        ctx.strokeStyle = '#202020'; ctx.lineWidth = 1; ctx.setLineDash([2, 2]);
+        ctx.beginPath(); ctx.moveTo(d0.x, d0.y); ctx.lineTo(d1.x, d1.y); ctx.stroke(); ctx.setLineDash([]);
+      }
       // short green index line beneath the index point
       const i0 = map(0, 0), i1 = map(0, 2.5);
       ctx.strokeStyle = '#00c000'; ctx.lineWidth = 1.5;
@@ -553,10 +912,35 @@
     return { tx, rx };
   }
 
+  /** PA wedge (P10): orange shoe with the mid-angle wedge slope + element ticks along the aperture. */
+  function drawPaProbe(ctx, frame, st, sp, der, E, tg, n) {
+    const probe = st.probe;
+    const side = probe.side || 1;
+    const mid = ((probe.paFrom || 40) + (probe.paTo || 70)) / 2;
+    let wa = der.wedgeAngle;
+    try { if (UT.probe.wedgeAngleFor) wa = UT.probe.wedgeAngleFor(mid, 'shear', der.vWedge || 2.74, sp.material); } catch (e) { /* keep */ }
+    const el = (st.pa && st.pa.elements) || 16, pitch = (st.pa && st.pa.pitch) || 1;
+    const width = M.clamp(el * pitch + 12, 24, 40);
+    const d2 = Object.assign({}, der, { refracted: mid, wedgeAngle: wa, shoeWidth: width, shoeHeight: 14 });
+    drawShoe(ctx, E, tg, n, side, d2, C.PROBE_COLOURS.pa || '#ff8800', false, { width });
+    // element ticks on the wedge roof line
+    const ap = frame && frame.pa && frame.pa.aperture;
+    const x0 = ap && typeof ap.x0 === 'number' ? ap.x0 : E.x - el * pitch / 2;
+    const x1 = ap && typeof ap.x1 === 'number' ? ap.x1 : E.x + el * pitch / 2;
+    const yOff = -10;
+    ctx.save();
+    ctx.strokeStyle = '#402000'; ctx.lineWidth = 1; ctx.setLineDash([]);
+    const a = toPx(x0, yOff), b = toPx(x1, yOff);
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    const nEl = M.clamp(Math.round(el), 2, 64);
+    for (let i = 0; i <= nEl; i++) { const x = a.x + (b.x - a.x) * i / nEl; ctx.beginPath(); ctx.moveTo(x, a.y - 2); ctx.lineTo(x, a.y + 2); ctx.stroke(); }
+    ctx.restore();
+  }
+
   function drawProbes(ctx, frame, st, sp, der, E) {
     const probe = st.probe;
     const colour = der.colour || '#00c000';
-    const t = E.tangent || { x: 1, y: 0 }, n = E.normal || { x: 0, y: 1 };
+    const tg = E.tangent || { x: 1, y: 0 }, n = E.normal || { x: 0, y: 1 };
     if (st.mode === 'tofd') {
       const pp = tofdProbes(st, der);
       const a = (st.tofd && st.tofd.txAngle) || 60;
@@ -570,18 +954,20 @@
       drawShoe(ctx, { x: pp.rx.x, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }, pp.rx.side, d2, col, true);
       return;
     }
+    if (probe.method === 'pa') { drawPaProbe(ctx, frame, st, sp, der, E, tg, n); return; }
     const side = probe.side || 1;
     const theta = der.refracted || 0;
     const T = sp.T || 20;
-    if (probe.method === 'tt') {
+    const onWeb = probe.surface === 'web' && sp.weld && sp.weld.web;
+    if (probe.method === 'tt' && !onWeb) {
       // receiver on the opposite surface where the centre ray exits (hollow, mirrored)
       const xr = E.x - side * T * Math.tan(M.deg2rad(theta));
       drawShoe(ctx, { x: xr, y: T }, { x: 1, y: 0 }, { x: 0, y: -1 }, -side, der, colour, true);
-    } else if (probe.method === 'tandem') {
+    } else if (probe.method === 'tandem' && !onWeb) {
       const xr = E.x - side * T * Math.tan(M.deg2rad(theta));
-      drawShoe(ctx, { x: xr, y: 0 }, t, n, side, der, colour, true);
+      drawShoe(ctx, { x: xr, y: 0 }, tg, n, side, der, colour, true);
     }
-    drawShoe(ctx, E, t, n, side, der, colour, false);
+    drawShoe(ctx, E, tg, n, side, der, colour, false);
   }
 
   // ------------------------------------------------------------------ drawing: ruler, labels, caption
@@ -641,16 +1027,18 @@
     ctx.save();
     ctx.fillStyle = '#000'; ctx.font = FONT; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
     let right = sp && sp.extents ? Math.min(W - 8, toPx(sp.extents.xMax, 0).x - 12) : W - 12;
-    const baseline = toPx(0, 0).y - 6;
+    let baseline = toPx(0, 0).y - 6;
+    if (baseline < 14) baseline = 14;   // tall structures above the plate (web): keep the caption inside the canvas
     // The 3-D window (PIPE on) sits over the right end of the cross band at every viewport size:
     // slide the caption left of it when their boxes intersect (§14.11).
     try {
       const w = UT.dom && UT.dom.wins && UT.dom.wins.pipe3d;
       if (w && w.isOpen() && w.el && S.canvas && typeof w.el.getBoundingClientRect === 'function') {
+        const k = UT.dom.scale ? UT.dom.scale() : 1;
         const wr = w.el.getBoundingClientRect(), cr = S.canvas.getBoundingClientRect();
-        const wl = wr.left - cr.left, wt = wr.top - cr.top, wb = wr.bottom - cr.top;
+        const wl = (wr.left - cr.left) / k, wt = (wr.top - cr.top) / k, wb = (wr.bottom - cr.top) / k;
         const tw = ctx.measureText('CROSS SECTION').width;
-        if (right > wl && right - tw < wr.right - cr.left && baseline > wt && baseline - 12 < wb) right = Math.min(right, wl - 8);
+        if (right > wl && right - tw < (wr.right - cr.left) / k && baseline > wt && baseline - 12 < wb) right = Math.min(right, wl - 8);
       }
     } catch (e) { /* headless / no layout: keep the default position */ }
     ctx.fillText('CROSS SECTION', right, baseline);
@@ -664,10 +1052,12 @@
     if (!sp) return;
     const der = derivedOf(frame, st);
     drawSpecimen(ctx, sp);
+    drawFbhs(ctx, sp);
     drawHoles(ctx, sp);
     drawPerspex(ctx, sp);
     drawSlot(ctx, sp);
     drawIowGuides(ctx, sp);
+    drawDeadZones(ctx, frame, st, sp);
     if (!st.display.hide) drawDefects(ctx, st);
     drawStroke(ctx);
     const E = emissionAt(sp, st.probe);
@@ -676,6 +1066,7 @@
       drawHits(ctx, frame, st);
       drawProbes(ctx, frame, st, sp, der, E);
     }
+    drawDampers(ctx, st, W);
     drawDepthRuler(ctx, sp);
     drawLabels(ctx, sp, true);
     drawCaption(ctx, sp, W);
@@ -884,6 +1275,7 @@
       if (isOblique(st)) { drawOblique(ctx, frame, st, W, H); }
       else { S.ob = null; ensureTransform(st); drawNormal(ctx, frame, st, W, H); }
     } finally { ctx.restore(); }
+    try { cv.classList.toggle('finger', !!(st.damping && st.damping.tool) && !brushActive(st) && !isOblique(st)); } catch (e) { /* headless */ }
   }
 
   /** Draw the X ruler (cv-ruler) with the shared scale; unsigned labels for centred specimens. */
@@ -916,8 +1308,10 @@
       ctx.beginPath(); ctx.moveTo(px, base); ctx.lineTo(px, base + len); ctx.stroke();
       if (ten) ctx.fillText(String(unsigned ? Math.abs(x) : x), px, H - 4);
     }
-    // blue probe marker
-    const pxp = xf.ox + (st.probe.x || 0) * xf.scale;
+    // blue probe marker (on the web face: the web centre)
+    const onWeb = st.probe.surface === 'web' && sp.weld && sp.weld.web;
+    const markX = onWeb ? (st.probe.side === -1 ? -1 : 1) * sp.weld.webT / 2 : (st.probe.x || 0);
+    const pxp = xf.ox + markX * xf.scale;
     ctx.fillStyle = '#0000ff';
     ctx.fillRect(pxp - 1.5, 0, 3, 12);
     ctx.restore();
@@ -941,15 +1335,15 @@
 
   function setCursorMm(mm, view) {
     const cur = state().cursor || {};
-    if (mm === null) { if (cur.view === 'cross' || cur.x !== null) UT.set({ cursor: { x: null, y: null, view: null } }, { noRender: true }); S.hoverMm = null; return; }
+    if (mm === null) { if (cur.view === 'cross' || cur.x !== null) UT.set({ cursor: Object.assign({}, cur, { x: null, y: null, view: null }) }, { noRender: true }); S.hoverMm = null; return; }
     if (S.hoverMm && Math.abs(S.hoverMm.x - mm.x) < 0.05 && Math.abs(S.hoverMm.y - mm.y) < 0.05) return;
     S.hoverMm = mm;
-    UT.set({ cursor: { x: +mm.x.toFixed(1), y: +mm.y.toFixed(1), view: view || 'cross' } }, { noRender: true });
+    UT.set({ cursor: Object.assign({}, cur, { x: +mm.x.toFixed(1), y: +mm.y.toFixed(1), view: view || 'cross' }) }, { noRender: true });
   }
 
-  function defectAt(st, mm) {
-    const tol = 3;
-    let best = null, bestD = tol;
+  function defectAt(st, mm, tol) {
+    const tl = tol || 3;
+    let best = null, bestD = tl;
     for (const d of st.defects || []) {
       if (!d || !d.pts || d.pts.length < 2) continue;
       if (!isPlanarType(d.type) && M.pointInPolygon(mm.x, mm.y, d.pts)) return d;
@@ -974,6 +1368,9 @@
     if (sp.tky && probe.surface === 'brace') {
       const ss = emissionAt(sp, { x: 0, surface: 'brace' });
       x = M.clamp((mm.x - ss.x) * ss.tangent.x + (mm.y - ss.y) * ss.tangent.y, 0, Math.max(10, (sp.tky.braceLen || 90) - 30));
+    } else if (probe.surface === 'web' && sp.weld && sp.weld.web) {
+      const pk = webPick(sp, { x: (probe.side === -1 ? -1 : 1) * sp.weld.webT / 2, y: mm.y }, 0);
+      x = pk && pk.surface === 'web' ? pk.x : 0;
     } else {
       x = clampX(sp, mm.x);
     }
@@ -994,33 +1391,80 @@
     UT.requestRender();
   }
 
-  function onMouseDown(ev) {
+  /** Emit the 'ui' probe-drag event (once per gesture; SPEC-v2 §4.1). */
+  function emitProbeDrag(id) {
+    S.uiEvents++;
+    try { UT.bus.emit('ui', { kind: 'probe-drag', id: id || 'cv-cross' }); } catch (e) { /* bus logs */ }
+  }
+
+  /** Finger tool press: toggle a damper at mm.x (returns true when handled). */
+  function fingerPress(st, mm) {
+    const sp = st.specimen;
+    if (!sp || !onSurfaceBand(sp, mm)) return false;
+    const tol = hitTolMm(DAMPER_TOL_MM);
+    const r = toggleDamperList(st.damping && st.damping.points, mm.x, tol, MAX_DAMPERS);
+    if (r.action === 'full') { UT.requestRender(); return true; }
+    UT.setIn('damping', { points: r.points });
+    return true;
+  }
+
+  function capture(cv, ev) {
+    S.pointerId = ev.pointerId === undefined ? null : ev.pointerId;
+    try { if (cv.setPointerCapture && ev.pointerId !== undefined) cv.setPointerCapture(ev.pointerId); } catch (e) { /* synthetic / unsupported */ }
+  }
+  function release(cv) {
+    try { if (cv && cv.releasePointerCapture && S.pointerId !== null) cv.releasePointerCapture(S.pointerId); } catch (e) { /* ignore */ }
+    S.pointerId = null;
+  }
+  function samePointer(ev) { return S.pointerId === null || ev.pointerId === undefined || ev.pointerId === S.pointerId; }
+
+  function onPointerDown(ev) {
+    if (ev.isPrimary === false) return;
     const st = state();
     const cv = S.canvas;
     const p = UT.dom.localPos(ev, cv);
-    if (ev.button !== 0 && ev.button !== 2) return;
+    const button = ev.button === undefined ? 0 : ev.button;
+    if (button !== 0 && button !== 2) return;
+    if (S.drag) return;   // a gesture is already running (second pointer)
     if (brushActive(st)) {
       if (!st.specimen) return;
       const mm = toMm(p.x, p.y);
       const type = (st.editing && st.editing.brush) || 'planar';
-      S.stroke = { pts: [mm], erase: ev.button === 2, planar: isPlanarType(type) };
+      S.stroke = { pts: [mm], erase: button === 2, planar: isPlanarType(type) };
       S.drag = { kind: 'brush' };
+      capture(cv, ev);
       ev.preventDefault();
       UT.requestRender();
       return;
     }
-    if (ev.button !== 0) return;
+    if (button !== 0) return;
     if (!st.specimen) return;
     if (isOblique(st) && S.ob) {
       const pick = obliquePick(S.ob, p.x, p.y);
       S.drag = { kind: 'oblique', face: st.specimen.face === 'narrow' ? 'narrow' : 'wide' };
+      capture(cv, ev);
       applyObliquePick(st, pick);
       ev.preventDefault();
       return;
     }
     const mm = toMm(p.x, p.y);
-    S.drag = { kind: 'probe', x0: mm.x, y0: mm.y, z0: st.probe.z, shift: ev.shiftKey };
-    if (!ev.shiftKey) moveProbeTo(st, mm, false, null);
+    // finger damping tool (P3)
+    if (st.damping && st.damping.tool && fingerPress(st, mm)) {
+      S.drag = { kind: 'damper' };
+      capture(cv, ev);
+      ev.preventDefault();
+      return;
+    }
+    // web face of a set-on T-joint / nozzle: decide the scanning surface for this gesture (F1)
+    const wp = webPick(st.specimen, mm, hitTolMm(3));
+    if (wp && !ev.shiftKey) {
+      const probe = st.probe;
+      if (wp.surface === 'web' && (probe.surface !== 'web' || probe.side !== wp.side)) UT.setIn('probe', { surface: 'web', side: wp.side, x: wp.x });
+      else if (wp.surface === 'chord' && probe.surface === 'web') UT.setIn('probe', { surface: 'chord', x: +clampX(st.specimen, mm.x).toFixed(1) });
+    }
+    S.drag = { kind: 'probe', x0: mm.x, y0: mm.y, z0: st.probe.z, shift: !!ev.shiftKey };
+    capture(cv, ev);
+    if (!ev.shiftKey) moveProbeTo(state(), mm, false, null);
     cv.classList.add('probe-drag');
     ev.preventDefault();
   }
@@ -1035,12 +1479,14 @@
     } else UT.requestRender();
   }
 
-  function onMouseMove(ev) {
+  function onPointerMove(ev) {
     const st = state();
     const cv = S.canvas;
     if (!cv) return;
-    const p = UT.dom.localPos(ev, cv);
     const d = S.drag;
+    if (d && !samePointer(ev)) return;
+    if (!d && ev.isPrimary === false) return;
+    const p = UT.dom.localPos(ev, cv);
     if (d && d.kind === 'brush') {
       if (!S.stroke) return;
       const mm = toMm(p.x, p.y);
@@ -1054,6 +1500,7 @@
       applyObliquePick(st, obliquePick(S.ob, p.x, p.y));
       return;
     }
+    if (d && d.kind === 'damper') return;
     const mm = toMm(p.x, p.y);
     if (d && d.kind === 'probe') {
       moveProbeTo(st, mm, d.shift || ev.shiftKey, d);
@@ -1061,13 +1508,16 @@
     setCursorMm(mm);
   }
 
-  function onMouseUp(ev) {
+  function onPointerUp(ev) {
     const st = state();
     const d = S.drag;
     if (!d) return;
+    if (ev && !samePointer(ev)) return;
     S.drag = null;
+    release(S.canvas);
     if (S.canvas) S.canvas.classList.remove('probe-drag');
     if (d.kind === 'brush') { endStroke(st); return; }
+    if (d.kind === 'damper') return;
     if (d.kind === 'oblique') {
       const g = S.ghost;
       S.ghost = null;
@@ -1078,7 +1528,7 @@
         UT.setIn('probe', { x: +g.x.toFixed(1), z: +g.z.toFixed(1) });
       } else UT.requestRender();
     }
-    void ev;
+    emitProbeDrag('cv-cross');
   }
 
   function onWheel(ev) {
@@ -1093,47 +1543,65 @@
     const st = state();
     if (!st.specimen || isOblique(st)) return;
     const p = UT.dom.localPos(ev, S.canvas);
-    const d = defectAt(st, toMm(p.x, p.y));
+    const d = defectAt(st, toMm(p.x, p.y), hitTolMm(3));
     if (d) UT.set({ selectedDefect: Math.max(0, (d.n || 1) - 1) });
   }
 
   /**
-   * Initialise the cross-section canvas: mouse handlers + 'render' subscription.
+   * Initialise the cross-section canvas: pointer handlers + 'render' subscription.
    * @param {HTMLCanvasElement} canvas the #cv-cross canvas
    */
   function init(canvas) {
     S.canvas = canvas;
     UT.dom.injectCss('view-cross', cross.css);
-    canvas.addEventListener('mousedown', onMouseDown);
-    canvas.addEventListener('mousemove', onMouseMove);
-    canvas.addEventListener('mouseleave', function () { if (!S.drag) setCursorMm(null); });
+    canvas.addEventListener('pointerdown', onPointerDown);
+    canvas.addEventListener('pointermove', onPointerMove);
+    canvas.addEventListener('pointerup', onPointerUp);
+    canvas.addEventListener('pointercancel', onPointerUp);
+    canvas.addEventListener('pointerleave', function (ev) { if (!S.drag && ev.isPrimary !== false) setCursorMm(null); });
     canvas.addEventListener('wheel', onWheel, { passive: false });
     canvas.addEventListener('dblclick', onDblClick);
     canvas.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
-    window.addEventListener('mousemove', function (ev) { if (S.drag) onMouseMove(ev); });
-    window.addEventListener('mouseup', onMouseUp);
+    // safety net when capture is unavailable (synthetic pointers): finish the gesture on a window-level up
+    window.addEventListener('pointerup', function (ev) { if (S.drag) onPointerUp(ev); });
+    window.addEventListener('pointercancel', function (ev) { if (S.drag) onPointerUp(ev); });
     UT.bus.on('render', function (frame) { draw(frame, UT.state); });
     UT.bus.on('state', function (e) { if (e && e.keys && e.keys.indexOf('specimen') >= 0) { S.ob = null; S.xf = null; } });
   }
 
   /**
-   * Initialise the X ruler canvas (#cv-ruler): click/drag moves the probe; drawn on every 'render'.
+   * Initialise the X ruler canvas (#cv-ruler): press/drag moves the probe (Pointer Events); drawn on every 'render'.
    * @param {HTMLCanvasElement} canvas
    */
   function initRuler(canvas) {
     S.ruler = canvas;
     UT.dom.injectCss('view-cross', cross.css);
-    let down = false;
+    let down = null;
     const move = function (ev) {
       const st = state();
       if (!st.specimen || isOblique(st)) return;
       const p = UT.dom.localPos(ev, canvas);
       const xf = S.xf || ensureTransform(st);
-      moveProbeTo(st, { x: (p.x - xf.ox) / xf.scale, y: 0 }, false, null);
+      if (st.probe.surface === 'web') UT.setIn('probe', { surface: 'chord' });
+      moveProbeTo(state(), { x: (p.x - xf.ox) / xf.scale, y: 0 }, false, null);
     };
-    canvas.addEventListener('mousedown', function (ev) { if (ev.button !== 0) return; if (brushActive(state())) return; down = true; move(ev); ev.preventDefault(); });
-    canvas.addEventListener('mousemove', function (ev) { if (down) move(ev); });
-    window.addEventListener('mouseup', function () { down = false; });
+    const end = function (ev) {
+      if (down === null || (ev && ev.pointerId !== undefined && ev.pointerId !== down)) return;
+      down = null;
+      try { canvas.releasePointerCapture(ev.pointerId); } catch (e) { /* ignore */ }
+      emitProbeDrag('cv-ruler');
+    };
+    canvas.addEventListener('pointerdown', function (ev) {
+      if (ev.isPrimary === false || (ev.button !== undefined && ev.button !== 0)) return;
+      if (brushActive(state()) || down !== null) return;
+      down = ev.pointerId === undefined ? -1 : ev.pointerId;
+      try { canvas.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ }
+      move(ev); ev.preventDefault();
+    });
+    canvas.addEventListener('pointermove', function (ev) { if (down !== null && (ev.pointerId === undefined || ev.pointerId === down || down === -1)) move(ev); });
+    canvas.addEventListener('pointerup', end);
+    canvas.addEventListener('pointercancel', end);
+    window.addEventListener('pointerup', function (ev) { if (down !== null) end(ev); });
     UT.bus.on('render', function () { drawRuler(UT.state); });
   }
 
@@ -1150,16 +1618,79 @@
     UT.requestRender();
   }
 
+  /**
+   * Move the probe to x (mm from the weld centre / block datum) with ONE synthetic pointer gesture
+   * (pointerdown → pointermove → pointerup on #cv-cross, scale-aware) through the real handlers, so
+   * exactly one 'ui' {kind:'probe-drag'} event is emitted. `z` (optional) is applied afterwards.
+   * Headless / not laid out: moves the probe directly and still emits once.
+   * @param {number} x target probe x (mm)
+   * @param {{z?: number}} [opts]
+   * @returns {number} the resulting state.probe.x
+   */
+  function dragTo(x, opts) {
+    const o = opts || {};
+    const st = state();
+    const sp = st.specimen;
+    const cv = S.canvas;
+    const target = Number.isFinite(+x) ? +x : st.probe.x;
+    const zTarget = Number.isFinite(+o.z) ? +o.z : null;
+    let done = false;
+    if (cv && sp && typeof PointerEvent === 'function' && typeof cv.dispatchEvent === 'function' && !brushActive(st)) {
+      try {
+        const rect = cv.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          const k = UT.dom.scale ? UT.dom.scale() : 1;
+          const y = isOblique(st) ? null : -4;
+          let p0, p1;
+          if (isOblique(st) && S.ob) {
+            const face = sp.face === 'narrow' ? 'narrow' : 'wide';
+            const zz = zTarget === null ? st.probe.z : zTarget;
+            p0 = face === 'wide' ? bandPoint(S.ob, st.probe.x, M.clamp(st.probe.z / S.ob.depth, 0.05, 0.95)) : { x: S.ob.ox + st.probe.x * S.ob.sc, y: S.ob.oy + st.probe.z * S.ob.sc };
+            p1 = face === 'wide' ? bandPoint(S.ob, target, M.clamp(zz / S.ob.depth, 0.05, 0.95)) : { x: S.ob.ox + target * S.ob.sc, y: S.ob.oy + zz * S.ob.sc };
+          } else {
+            const surfY = st.probe.surface === 'web' ? emissionAt(sp, st.probe).y : y;
+            p0 = toPx(st.probe.surface === 'web' ? st.probe.x : st.probe.x, surfY);
+            if (st.probe.surface === 'web') { const E0 = emissionAt(sp, st.probe); p0 = toPx(E0.x, E0.y); }
+            p1 = toPx(target, y);
+          }
+          const mk = function (type, p) {
+            return new PointerEvent(type, { bubbles: true, cancelable: true, clientX: rect.left + p.x * k, clientY: rect.top + p.y * k, button: 0, buttons: type === 'pointerup' ? 0 : 1, pointerId: 9001, pointerType: 'mouse', isPrimary: true });
+          };
+          cv.dispatchEvent(mk('pointerdown', p0));
+          const steps = 4;
+          for (let i = 1; i <= steps; i++) cv.dispatchEvent(mk('pointermove', { x: p0.x + (p1.x - p0.x) * i / steps, y: p0.y + (p1.y - p0.y) * i / steps }));
+          cv.dispatchEvent(mk('pointerup', p1));
+          done = !S.drag;
+        }
+      } catch (e) { console.error('[cross] dragTo', e); done = false; }
+    }
+    if (!done) {
+      S.drag = null; release(cv);
+      if (sp) {
+        if (isOblique(st)) UT.setIn('probe', { x: +M.clamp(target, sp.scanSurface.xMin, sp.scanSurface.xMax).toFixed(1) });
+        else moveProbeTo(st, { x: target, y: 0 }, false, null);
+      }
+      emitProbeDrag('cv-cross');
+    }
+    if (zTarget !== null && !isOblique(st)) { const z = +clampZ(sp, zTarget).toFixed(1); if (Math.abs(z - state().probe.z) > 1e-6) UT.setIn('probe', { z }); }
+    if (typeof UT.renderNow === 'function') { try { UT.renderNow(); } catch (e) { /* physics missing */ } }
+    return state().probe.x;
+  }
+
   // ------------------------------------------------------------------ namespace
   const cross = {
-    init, initRuler, draw, drawRuler, toPx, toMm, fit, setBrush,
+    init, initRuler, draw, drawRuler, toPx, toMm, fit, setBrush, dragTo,
     transform() { return S.xf; },
     computeTransform, computeOblique, obliquePick, hull, dilate, surfaceTagAt, castDown,
+    topByWeight, wavyPts, damperIndexAt, toggleDamperList, onSurfaceBand, webPick, paSectorPts,
+    /** 'ui' probe-drag events emitted so far (diagnostics). */
+    uiEventCount() { return S.uiEvents; },
     css: [
       '#cv-cross{display:block;cursor:crosshair;background:#fdfbd8;user-select:none;-webkit-user-select:none;touch-action:none}',
       '#cv-cross.probe-drag{cursor:ew-resize}',
       '#cv-cross.brush{cursor:cell}',
-      '#cv-ruler{display:block;cursor:pointer;background:#fdfbd8;user-select:none;-webkit-user-select:none}',
+      '#cv-cross.finger{cursor:pointer}',
+      '#cv-ruler{display:block;cursor:pointer;background:#fdfbd8;user-select:none;-webkit-user-select:none;touch-action:none}',
     ].join('\n'),
     __selftest() {
       const f = [];
@@ -1167,6 +1698,7 @@
       const xf = computeTransform(sp, 1280, 200);
       if (Math.abs(xf.scale - 4) > 1e-9) f.push('scale ' + xf.scale);
       if (Math.abs(xf.ox - 640) > 1e-9) f.push('weld centred on x=0: ox ' + xf.ox);
+      if (Math.abs(xf.oy - 96) > 1e-9) f.push('v1 plate placement unchanged (24 mm above): oy ' + xf.oy);
       const px = { x: xf.ox + 40 * xf.scale, y: xf.oy + 10 * xf.scale };
       const mm = { x: (px.x - xf.ox) / xf.scale, y: (px.y - xf.oy) / xf.scale };
       if (Math.abs(mm.x - 40) > 1e-9 || Math.abs(mm.y - 10) > 1e-9) f.push('toPx/toMm roundtrip');
@@ -1192,6 +1724,43 @@
       if (pk.face !== 'wide' || Math.abs(pk.x - 100) > 0.01 || Math.abs(pk.z - 12.5) > 0.01) f.push('obliquePick band ' + JSON.stringify(pk));
       const pk2 = obliquePick(ob, ob.ox + 200 * ob.sc, ob.oy + 50 * ob.sc);
       if (pk2.face !== 'narrow' || Math.abs(pk2.x - 200) > 0.01 || Math.abs(pk2.z - 50) > 0.01) f.push('obliquePick front ' + JSON.stringify(pk2));
+      // --- v2: fillet T-joint keeps the base plate inside a 200 px canvas (web clipped at the top)
+      if (UT.specimens.plateWeld && UT.specimens.prepNames) {
+        const ft = UT.specimens.plateWeld({ T: 20, prep: 'fillet-t' });
+        const xt = computeTransform(ft, 1280, 200);
+        if (!(xt.oy + 20 * xt.scale <= 200 - 4 * xt.scale + 1e-6)) f.push('fillet-t plate clipped: oy ' + xt.oy);
+        if (!(xt.oy >= 16 * xt.scale)) f.push('fillet-t shoe room ' + xt.oy);
+        const wp = webPick(ft, { x: 4, y: -30 }, 3);
+        if (!wp || wp.surface !== 'web' || wp.side !== 1 || Math.abs(wp.x - (30 - ft.weld.leg)) > 0.11) f.push('webPick web ' + JSON.stringify(wp));
+        const wl = webPick(ft, { x: -5, y: -20 }, 3);
+        if (!wl || wl.side !== -1) f.push('webPick left face');
+        if (!webPick(ft, { x: 40, y: 5 }, 3) || webPick(ft, { x: 40, y: 5 }, 3).surface !== 'chord') f.push('webPick plate');
+        if (webPick(sp, { x: 0, y: -30 }, 3) !== null) f.push('webPick without web');
+        const sw = UT.specimens.scanSurfaceAt(ft, { x: wp.x, surface: 'web', side: 1 });
+        if (Math.abs(sw.y + 30) > 0.11) f.push('web emission roundtrip ' + sw.y);
+        // backing bar / FBH specs build and expose what the drawing reads
+        const bk = UT.specimens.plateWeld({ T: 20, prep: 'single-v-backing' });
+        if (!bk.weld.backing || !bk.edges.some(function (e) { return e.tag === 'backing'; })) f.push('backing spec fields');
+        if (UT.specimens.fbhBlock) { const fb = UT.specimens.fbhBlock(); if (!fb.fbhs || fb.fbhs.length !== 5 || computeTransform(fb, 1280, 200).scale !== 4) f.push('fbh spec'); if (Math.abs(castDown(fb, 110, []) - 30) > 0.05 || Math.abs(castDown(fb, 130, []) - 60) > 0.05) f.push('castDown fbh ' + castDown(fb, 110, [])); }
+      }
+      // --- v2: pure helpers
+      const top = topByWeight([{ mode: 'L', weight: 0.1, pts: [{ x: 0, y: 0 }, { x: 1, y: 1 }] }, { mode: 'S', weight: 0.5, pts: [{ x: 0, y: 0 }, { x: 1, y: 1 }] }, { mode: 'S', pts: [{ x: 0, y: 0 }] }, null], 1);
+      if (top.length !== 1 || top[0].mode !== 'S') f.push('topByWeight');
+      if (topByWeight(new Array(60).fill({ weight: 1, pts: [{ x: 0, y: 0 }, { x: 1, y: 0 }] }), MAX_CONVERTED).length !== 40) f.push('topByWeight cap');
+      const wv = wavyPts([{ x: 0, y: 0 }, { x: 80, y: 0 }], 2, 8);
+      if (wv.length < 40 || wv.some(function (p) { return Math.abs(p.y) > 2.001; }) || !wv.some(function (p) { return Math.abs(p.y) > 1.5; })) f.push('wavyPts ' + wv.length);
+      if (wavyPts([{ x: 0, y: 0 }], 2, 8).length !== 0) f.push('wavyPts single point');
+      let dl = toggleDamperList([], 20, 4, 3);
+      if (dl.action !== 'add' || dl.points[0] !== 20) f.push('damper add');
+      dl = toggleDamperList(dl.points, 22, 4, 3);
+      if (dl.action !== 'remove' || dl.points.length !== 0) f.push('damper remove within tol');
+      dl = toggleDamperList([10, 20, 30], 50, 4, 3);
+      if (dl.action !== 'full' || dl.points.length !== 3) f.push('damper max 3');
+      if (damperIndexAt([{ x: 5 }, 9], 8.5, 4) !== 1) f.push('damperIndexAt objects');
+      if (!onSurfaceBand(sp, { x: 40, y: -5 }) || onSurfaceBand(sp, { x: 40, y: 12 }) || onSurfaceBand(sp, { x: 400, y: 0 })) f.push('onSurfaceBand');
+      const sec = paSectorPts({ x: 40, y: 0 }, 1, 40, 70, 20, 6);
+      if (sec.length !== 8 || sec[0].x !== 40 || !(sec[1].x < 40) || Math.abs(sec[1].y - 20) > 1e-9 || !(sec[7].x < sec[1].x)) f.push('paSectorPts ' + JSON.stringify(sec[1]));
+      if (typeof dragTo !== 'function' || typeof cross.uiEventCount !== 'function') f.push('dragTo export');
       return f;
     },
   };

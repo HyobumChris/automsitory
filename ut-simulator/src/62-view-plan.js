@@ -1,13 +1,16 @@
 /* 62-view-plan.js — plan-view canvas (cv-plan): scrolling z window, hatched weld band, defect
  * rectangles, probe symbol (rotated by skew), beam footprint, raster trail, z ruler, compass dial
  * (skew drag), probe drag; plus the defect-editor helpers drawCircleView (pipe ring) and
- * drawLinearBar (plate bar). Spec §7.4 as amended by §14.2 / §14.3 / §15.6.
+ * drawLinearBar (plate bar). Spec §7.4 as amended by §14.2 / §14.3 / §15.6; v2: SPEC-v2 F4 (TOFD pair
+ * box), U2 (Pointer Events, scale-aware, touch hit targets), P10/P11 (PA array footprint, C-scan hint
+ * band), T2 §4.2.1 (coverage band from UT.trade.coverageMap()).
  *
  * // SPEC NOTES (decisions where the spec is silent or ambiguous)
  * - Shared X scale: when UT.views.cross.toPx exists, scale = (cross.toPx(10,0).x − cross.toPx(0,0).x)/10
  *   and the origin is shifted by the horizontal offset between #cv-cross and #cv-plan bounding
- *   rects, so the weld centre-line is at the SAME screen x in both views. Fallback: canvasWidth/320
- *   px/mm with x = 0 at the canvas centre.
+ *   rects (divided by UT.dom.scale() so the design-box scaling of U2 does not shift the origin), so the
+ *   weld centre-line is at the SAME screen x in both views. Fallback: canvasWidth/320 px/mm with
+ *   x = 0 at the canvas centre.
  * - The z ruler is a 44 px cream strip at the right edge of the canvas (UTman600 look): ticks every
  *   5 mm, labels every 10 mm, a blue 3 px tick at probe.z. The grey field covers the specimen's x
  *   extents only (cream elsewhere), clipped to the left of the ruler strip.
@@ -17,16 +20,44 @@
  * - Beam footprint length = surface projection |xEnd − probe.x| of the centre ray's last drawn
  *   leg (≤ display.skips) when frame.rays is available, else the distance to x = 0. Not drawn for
  *   0° probes (the beam goes straight down) nor in TOFD mode.
- * - TOFD (state.mode === 'tofd'): one rectangle spanning rx − 12 … tx + 12 mm × 16 mm with a white
- *   dot at the tx index. Positions from UT.tofd.probePositions(state) when present ({tx:{x}, rx:{x}}
- *   or [{x},{x}]), else probe.x ± tofd.pcs/2. Tandem rx / TT receiver: hollow rectangle at
- *   probe.x − side·T·tanθ (TT dashed, it sits on the far surface).
+ * - F4 TOFD (state.mode === 'tofd'): ONE small green 24 × 16 mm box centred between the two index
+ *   points ((tx + rx)/2, probe.z) with two white dots (Tx/Rx) at ±6 mm inside the box — the original's
+ *   small box. Positions from UT.tofd.probePositions(state) when present ({tx:{x}, rx:{x}} or
+ *   [{x},{x}]), else probe.x ± tofd.pcs/2. Dragging the box moves the pair (probe.x/z). Tandem rx / TT
+ *   receiver: hollow rectangle at probe.x − side·T·tanθ (TT dashed, it sits on the far surface).
+ * - PA (probe.method === 'pa'): orange 24 × 16 wedge box with element ticks across the active aperture
+ *   (elements·pitch from state.pa, clamped to the box) and the dashed footprint; short cross ticks on the
+ *   centre line mark the half-skip exit points T·tan(paFrom) and T·tan(paTo). Footprint length falls
+ *   back to |probe.x| because frame.rays is null in PA mode.
+ * - C-scan hint band: a 6 px colour strip just left of the ruler (x = fieldW − 9 … fieldW − 3) along z.
+ *   Source priority: state.pa.scan while probe.method === 'pa'; else state.aut.map (any mode); else
+ *   state.aut.scan while mode === 'aut' (v1 strip data, so the band is useful before 55 writes `map`).
+ *   Map shapes accepted: {z0, z1|step, n, map: Float32Array(n × k)} (row-major), {amp: [Float32Array…]}
+ *   (per channel/gate) or {columns: [[…]]}; the band shows max over channels per z; values whose maximum
+ *   is ≤ 1.5 are treated as fractions (×100). Colours from UT.aut.colourFor(pct, aut.revMap) when 55 is
+ *   loaded, else the same 7-band table; NaN = unscanned = transparent.
+ * - Coverage band (T2 §4.2.1): while trade.active || trade.practice and UT.trade.coverageMap() returns
+ *   {zBin, sides:{1, -1}}, every covered z bin is painted faint green (rgba 0,200,0,0.22) per side over
+ *   the scanning zone x ∈ [cw/2 + 0.5·T·tan45°, cw/2 + 2·T·tan70°] (union of the half- to full-skip bands
+ *   of the 45–70° set), clamped to the scan surface; drawn regardless of display.hide (also in HIDE).
  * - Compass hidden when UT.modes.enabled[mode].hidden/views lists 'compass'; otherwise for modes
- *   dac / v1 / v2 / tky / iow (the TOFD, AUT and lamination screenshots all show the dial).
- * - Mouse: left-drag on the probe symbol keeps the grab offset; mousedown elsewhere on the field
- *   jumps the probe there and drags (UTman "LEFT mouse button/drag to move the UT Probe"). x is
- *   clamped to spec.scanSurface, z clamped 0…L (pipes wrap). Positions rounded to 0.5 mm. Probe
- *   drag is locked while state.editing.defect (skew dial still works).
+ *   dac / v1 / v2 / tky / iow / fbh (the TOFD, AUT and lamination screenshots all show the dial).
+ * - Pointer Events (U2): pointerdown/move/up/cancel on the canvas with setPointerCapture (window
+ *   fallback listeners only when capture fails); non-primary pointers and non-left buttons ignored.
+ *   Legacy mouse/touch listeners are bound only when PointerEvent is unavailable. Left-drag on the
+ *   probe symbol keeps the grab offset; pointerdown elsewhere on the field jumps the probe there and
+ *   drags (UTman "LEFT mouse button/drag to move the UT Probe"). x is clamped to spec.scanSurface, z
+ *   clamped 0…L (pipes wrap). Positions rounded to 0.5 mm. Probe drag is locked while
+ *   state.editing.defect (skew dial still works).
+ * - Touch hit targets: for pointerType 'touch'/'pen' the probe hit region is padded so the target is
+ *   ≥ 44 CSS px (touchPadMm) and the dial accepts presses up to 24 px outside the ring (10 px mouse).
+ * - 'ui' bus event: like 60, the plan view emits UT.bus.emit('ui', {kind:'probe-drag', id:'cv-plan'})
+ *   ONCE per drag gesture (on the first position change) so lesson gesture tallies (L1 step 3, L17
+ *   raster along z) also count drags made in the plan view. UT.views.plan.dragTo(x, {z}) dispatches
+ *   synthetic pointer events on #cv-plan through the same code path (scale-aware) and returns probe.x.
+ * - Weld band for fillet-t / nozzle preps (F1): hatched band of weld.capWidth (= 2·(webT/2 + leg)) with
+ *   the web drawn as a darker solid strip webT wide; prep 'none' draws no band.
+ * - Finger dampers (P3): state.damping.points are drawn as small grey dots at (x_d, probe.z).
  * - Raster trail: recorded in draw() while mode === 'lamination' (positions ≥ 0.5 mm apart, last
  *   200), auto-cleared when the mode is anything else; clearTrail() for tb-clear.
  * - Circle view: ring radii min(150/120 px, fit to canvas); a drag on the annulus selects the
@@ -38,6 +69,8 @@
  * - Linear bar: same semantics with a horizontal bar 0…L (no wrap, zFrom ≤ zTo), tick labels every
  *   round(L/12) mm.
  * - toMm(px, py) returns {x, z, y: z} so both the §15.6 shape ({x, y}) and plan semantics work.
+ * - Canvas captions ('PLAN VIEW', 'Circle-View. Position {z}', 'Plate. Position {z}') go through
+ *   UT.i18n.t() even though canvases are outside the untranslated() audit.
  */
 (function (UT) {
   'use strict';
@@ -48,7 +81,18 @@
   const RULER_W = 44;          // px, z ruler strip at the right
   const DIAL_R = 60;           // px, compass ring radius
   const TRAIL_MAX = 200;
-  const COMPASS_HIDDEN_MODES = { dac: 1, v1: 1, v2: 1, tky: 1, iow: 1 };
+  const BAND_W = 6;            // px, C-scan hint strip width
+  const TOUCH_TARGET_PX = 44;  // minimum touch hit target (CSS px)
+  const COMPASS_HIDDEN_MODES = { dac: 1, v1: 1, v2: 1, tky: 1, iow: 1, fbh: 1 };
+  const TOFD_COLOUR = '#00c000';
+  const COVERAGE_COLOUR = 'rgba(0,200,0,0.22)';
+  // 7-band AUT colour map (§14.6) — used only when UT.aut.colourFor is unavailable
+  const BANDS = [
+    { min: 100, colour: '#ffffff' }, { min: 80, colour: '#ff0000' }, { min: 60, colour: '#ff00ff' },
+    { min: 40, colour: '#ffff00' }, { min: 25, colour: '#00c000' }, { min: 10, colour: '#00ffff' }, { min: -Infinity, colour: '#0000ff' },
+  ];
+
+  function t(key, params) { return UT.i18n && typeof UT.i18n.t === 'function' ? UT.i18n.t(key, params) : key; }
 
   // ------------------------------------------------------------------ pure helpers (headless-safe)
   /** Top of the visible z window (mm) for a probe z on a specimen of length L. */
@@ -100,9 +144,9 @@
 
   /** Inverse of circleAngle: z in [0, C) for a canvas angle (rad). */
   function zAtAngle(aRad, Cir) {
-    let t = (-Math.PI / 2 - aRad) / (2 * Math.PI);   // turns anticlockwise from the top
-    t = t - Math.floor(t);
-    return t * Cir;
+    let t0 = (-Math.PI / 2 - aRad) / (2 * Math.PI);   // turns anticlockwise from the top
+    t0 = t0 - Math.floor(t0);
+    return t0 * Cir;
   }
 
   /**
@@ -130,10 +174,10 @@
   }
 
   /** Lighten a #rrggbb colour toward white by t (0..1). */
-  function lighten(hex, t) {
+  function lighten(hex, tt) {
     const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || '');
     if (!m) return '#e0e0e0';
-    const f = function (h) { const v = parseInt(h, 16); return Math.round(v + (255 - v) * t); };
+    const f = function (h) { const v = parseInt(h, 16); return Math.round(v + (255 - v) * tt); };
     return 'rgb(' + f(m[1]) + ',' + f(m[2]) + ',' + f(m[3]) + ')';
   }
 
@@ -152,11 +196,106 @@
     return UT.specimens && UT.specimens.bbox ? UT.specimens.bbox(d.pts) : null;
   }
 
+  /** Geometry (mm) of the F4 TOFD pair box: 24 × 16 centred between the index points, dots at ±6. */
+  function tofdBox(tx, rx, z) {
+    const xc = (tx + rx) / 2;
+    return { xc, z, x0: xc - 12, x1: xc + 12, z0: z - 8, z1: z + 8, dots: [xc - 6, xc + 6] };
+  }
+
+  /** Extra hit padding (mm) for coarse pointers so a target of sizeMm spans ≥ 44 CSS px (min 1.5 mm). */
+  function touchPadMm(sizeMm, scale) {
+    const need = TOUCH_TARGET_PX / Math.max(scale || 1, 1e-6);
+    return Math.max(1.5, (need - (sizeMm || 0)) / 2);
+  }
+
+  /**
+   * Reduce a C-scan map to one maximum per z column (NaN where nothing was scanned).
+   * Accepts {n, map: Float32Array(n × k)}, {n, amp: [Float32Array…]} (per channel) or {n, columns: [[…]]}.
+   * @returns {Float32Array|null}
+   */
+  function columnMaxima(m) {
+    if (!m || !(m.n > 0)) return null;
+    const n = Math.floor(m.n);
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) out[i] = NaN;
+    const acc = function (i, v) { if (!Number.isFinite(v)) return; out[i] = Number.isNaN(out[i]) ? v : Math.max(out[i], v); };
+    const flat = m.map;
+    if (flat && typeof flat.length === 'number' && typeof flat !== 'function' && flat.length >= n) {
+      const k = Math.max(1, Math.floor(flat.length / n));
+      for (let i = 0; i < n; i++) for (let j = 0; j < k; j++) acc(i, flat[i * k + j]);
+    } else if (Array.isArray(m.amp) && m.amp.length) {
+      for (const ch of m.amp) { if (!ch || typeof ch.length !== 'number') continue; for (let i = 0; i < n && i < ch.length; i++) acc(i, ch[i]); }
+    } else if (Array.isArray(m.columns) && m.columns.length) {
+      for (let i = 0; i < n && i < m.columns.length; i++) { const col = m.columns[i]; if (!col || typeof col.length !== 'number') continue; for (let j = 0; j < col.length; j++) acc(i, col[j]); }
+    } else return null;
+    return out;
+  }
+
+  /** Scale fraction-valued maps (max ≤ 1.5) to % FSH; % maps are returned unchanged. */
+  function pctScale(vals) {
+    let mx = -Infinity;
+    for (let i = 0; i < vals.length; i++) if (Number.isFinite(vals[i]) && vals[i] > mx) mx = vals[i];
+    if (!(mx > 0) || mx > 1.5) return vals;
+    const out = new Float32Array(vals.length);
+    for (let i = 0; i < vals.length; i++) out[i] = vals[i] * 100;
+    return out;
+  }
+
+  /** Colour of an amplitude (% FSH) in the 7-band map (UT.aut.colourFor when available). */
+  function bandColour(pct, rev) {
+    if (UT.aut && typeof UT.aut.colourFor === 'function') { try { return UT.aut.colourFor(pct, rev); } catch (e) { /* fall through */ } }
+    if (!Number.isFinite(pct)) return 'rgba(0,0,0,0)';
+    let idx = BANDS.length - 1;
+    for (let i = 0; i < BANDS.length; i++) { if (pct >= BANDS[i].min) { idx = i; break; } }
+    return BANDS[rev ? BANDS.length - 1 - idx : idx].colour;
+  }
+
+  /**
+   * Merge covered z bins (value ≥ 1) into [zFrom, zTo] runs (mm).
+   * @param {ArrayLike<number>} bins  coverage counts per bin
+   * @param {number} zBin  bin width (mm)
+   * @param {number} [L]  specimen length (runs are clipped to it)
+   */
+  function coverageRuns(bins, zBin, L) {
+    const out = [];
+    if (!bins || !(zBin > 0)) return out;
+    let start = -1;
+    const n = bins.length;
+    for (let i = 0; i <= n; i++) {
+      const on = i < n && bins[i] >= 1;
+      if (on && start < 0) start = i;
+      if (!on && start >= 0) {
+        const a = start * zBin, b = i * zBin;
+        out.push([a, L > 0 ? Math.min(b, L) : b]);
+        start = -1;
+      }
+    }
+    return out;
+  }
+
+  /** Scanning-zone x band (mm from the weld centre, side +1) painted by the coverage overlay. */
+  function coverageBand(spec) {
+    const T = (spec && spec.T) || 20;
+    const cw = (spec && spec.weld && spec.weld.capWidth) || 16;
+    return { inner: cw / 2 + 0.5 * T * Math.tan(M.deg2rad(45)), outer: cw / 2 + 2 * T * Math.tan(M.deg2rad(70)) };
+  }
+
+  /** Element tick positions (mm along the beam axis, u ≤ 0 behind the index) of a PA array inside the 24 mm box. */
+  function paTicks(elements, pitch) {
+    const n = M.clamp(Math.round(elements || 16), 1, 128);
+    const A = Math.min(22, Math.max(2, n * (pitch || 1)));
+    const p = A / n;
+    const u0 = -21 + (24 - A) / 2;
+    const out = [];
+    for (let i = 0; i <= n; i++) out.push(u0 + i * p);
+    return out;
+  }
+
   // ------------------------------------------------------------------ plan view state
   let canvas = null;
   let tf = { scale: 4, originX: 640, zTop: 0, windowMm: 65, w: 1280, h: 260, fieldW: 1236 };
   let trail = [];
-  let drag = null;              // {kind:'probe'|'dial', dx, dz}
+  let drag = null;              // {kind:'probe'|'dial', dx, dz, pointerId, captured, coarse, emitted}
   let dialC = { x: 0, y: 0 };
   let lastProbeSym = null;      // geometry of the drawn probe symbol for hit testing
   let hoverCursor = '';
@@ -165,6 +304,11 @@
     const w = cv.clientWidth || cv.width || 640;
     const h = cv.clientHeight || cv.height || 260;
     return { w, h };
+  }
+
+  function layoutScale() {
+    if (UT.dom && typeof UT.dom.scale === 'function') { try { const k = UT.dom.scale(); if (isFinite(k) && k > 0) return k; } catch (e) { /* ignore */ } }
+    return 1;
   }
 
   /** Recompute the mm→px transform from the canvas box, the shared cross-section scale and the probe z. */
@@ -183,7 +327,7 @@
             const cc = document.getElementById('cv-cross');
             if (cc && cc.getBoundingClientRect && cv.getBoundingClientRect) {
               const a = cc.getBoundingClientRect(), b = cv.getBoundingClientRect();
-              if (a.width > 0 && b.width > 0) off = a.left - b.left;
+              if (a.width > 0 && b.width > 0) off = (a.left - b.left) / layoutScale();
             }
           }
           originX = p0.x + off;
@@ -229,7 +373,8 @@
 
   function drawWeldBand(ctx, spec) {
     const weld = spec.weld;
-    if (!weld || weld.type === 'none' || weld.type === 'fillet') return;
+    if (!weld || weld.type === 'none' || weld.prep === 'none') return;
+    const fillet = weld.type === 'fillet' || weld.prep === 'fillet-t' || weld.prep === 'nozzle';
     const cw = weld.capWidth || 16;
     const xl = toPx(-cw / 2, 0).x, xr = toPx(cw / 2, 0).x;
     if (xr < 0 || xl > tf.fieldW) return;
@@ -244,15 +389,28 @@
     ctx.beginPath();
     for (let y = -wpx; y < tf.h + wpx; y += 7) { ctx.moveTo(xl, y); ctx.lineTo(xr, y + wpx); }
     ctx.stroke();
-    // rippled cap: stacked scallops along z
-    ctx.strokeStyle = 'rgba(232,232,232,0.7)';
-    ctx.lineWidth = 1.5;
-    const pitch = Math.max(8, 5 * tf.scale);
-    const start = -((tf.zTop * tf.scale) % pitch);
-    for (let y = start; y < tf.h + pitch; y += pitch) {
+    if (fillet) {
+      // set-on web seen from above: solid darker strip webT wide between the two fillets
+      const wt = weld.webT || 12;
+      const wl = toPx(-wt / 2, 0).x, wr = toPx(wt / 2, 0).x;
+      ctx.fillStyle = '#4a4a4a';
+      ctx.fillRect(wl, 0, wr - wl, tf.h);
+      ctx.strokeStyle = '#111';
       ctx.beginPath();
-      ctx.ellipse((xl + xr) / 2, y, wpx / 2, pitch * 0.55, 0, Math.PI, 0, false);
+      ctx.moveTo(Math.round(wl) + 0.5, 0); ctx.lineTo(Math.round(wl) + 0.5, tf.h);
+      ctx.moveTo(Math.round(wr) + 0.5, 0); ctx.lineTo(Math.round(wr) + 0.5, tf.h);
       ctx.stroke();
+    } else {
+      // rippled cap: stacked scallops along z
+      ctx.strokeStyle = 'rgba(232,232,232,0.7)';
+      ctx.lineWidth = 1.5;
+      const pitch = Math.max(8, 5 * tf.scale);
+      const start = -((tf.zTop * tf.scale) % pitch);
+      for (let y = start; y < tf.h + pitch; y += pitch) {
+        ctx.beginPath();
+        ctx.ellipse((xl + xr) / 2, y, wpx / 2, pitch * 0.55, 0, Math.PI, 0, false);
+        ctx.stroke();
+      }
     }
     ctx.restore();
     ctx.strokeStyle = '#111';
@@ -261,6 +419,38 @@
     ctx.moveTo(Math.round(xl) + 0.5, 0); ctx.lineTo(Math.round(xl) + 0.5, tf.h);
     ctx.moveTo(Math.round(xr) + 0.5, 0); ctx.lineTo(Math.round(xr) + 0.5, tf.h);
     ctx.stroke();
+  }
+
+  /** Coverage tracker overlay (T2 §4.2.1): faint green band per side over the covered z bins; also in HIDE. */
+  function drawCoverage(ctx, state, spec) {
+    const tr = state.trade;
+    if (!tr || !(tr.active || tr.practice)) return;
+    if (!(UT.trade && typeof UT.trade.coverageMap === 'function')) return;
+    let cm = null;
+    try { cm = UT.trade.coverageMap(); } catch (e) { cm = null; }
+    if (!cm || !cm.sides) return;
+    const zBin = cm.zBin > 0 ? cm.zBin : 5;
+    const band = coverageBand(spec);
+    const ss = spec.scanSurface || spec.extents || { xMin: -150, xMax: 150 };
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, 0, tf.fieldW, tf.h); ctx.clip();
+    ctx.fillStyle = COVERAGE_COLOUR;
+    for (const sideKey of [1, -1]) {
+      const bins = cm.sides[sideKey] || cm.sides[String(sideKey)];
+      if (!bins) continue;
+      const side = sideKey;
+      let xa = side * band.inner, xb = side * band.outer;
+      if (xa > xb) { const tmp = xa; xa = xb; xb = tmp; }
+      xa = M.clamp(xa, ss.xMin, ss.xMax); xb = M.clamp(xb, ss.xMin, ss.xMax);
+      if (xb - xa < 0.5) continue;
+      const px0 = toPx(xa, 0).x, px1 = toPx(xb, 0).x;
+      for (const run of coverageRuns(bins, zBin, spec.L)) {
+        const y0 = toPx(0, run[0]).y, y1 = toPx(0, run[1]).y;
+        if (y1 < 0 || y0 > tf.h) continue;
+        ctx.fillRect(px0, y0, px1 - px0, Math.max(1, y1 - y0));
+      }
+    }
+    ctx.restore();
   }
 
   function drawTrail(ctx) {
@@ -292,6 +482,23 @@
     }
   }
 
+  /** Finger dampers (P3) on the scanning surface: small grey dots at (x_d, probe.z). */
+  function drawDampers(ctx, state) {
+    const pts = state.damping && Array.isArray(state.damping.points) ? state.damping.points : null;
+    if (!pts || !pts.length) return;
+    ctx.save();
+    for (const xd of pts) {
+      const x = typeof xd === 'number' ? xd : (xd && xd.x);
+      if (!Number.isFinite(x)) continue;
+      const p = toPx(x, state.probe.z);
+      if (p.x < 0 || p.x > tf.fieldW) continue;
+      ctx.fillStyle = 'rgba(120,120,120,0.9)';
+      ctx.beginPath(); ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#333'; ctx.lineWidth = 1; ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function footprintLength(frame, state) {
     const probe = state.probe;
     let xEnd = null;
@@ -310,9 +517,10 @@
     return Math.max(0, len);
   }
 
-  function drawFootprint(ctx, frame, state, derived) {
+  function drawFootprint(ctx, frame, state, derived, spec) {
     const probe = state.probe;
-    if (!probe.angle || state.mode === 'tofd') return;
+    const pa = probe.method === 'pa';
+    if ((!probe.angle && !pa) || state.mode === 'tofd') return;
     if (state.display && (state.display.beam === false || state.display.hide)) return;
     const len = footprintLength(frame, state);
     if (len < 2) return;
@@ -329,6 +537,23 @@
       ctx.moveTo(o.x, o.y);
       ctx.lineTo(o.x + d.x * len * tf.scale, o.y + d.z * len * tf.scale);
       ctx.stroke();
+    }
+    if (pa) {
+      // half-skip exit points of the sweep limits: short cross ticks on the centre line
+      const T = (spec && spec.T) || 20;
+      const d = planDir(probe.side, probe.skew || 0);
+      ctx.setLineDash([]);
+      ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+      ctx.lineWidth = 1.5;
+      for (const a of [probe.paFrom, probe.paTo]) {
+        if (!Number.isFinite(a) || a <= 0 || a >= 89) continue;
+        const s = T * Math.tan(M.deg2rad(a));
+        if (s > len) continue;
+        const cx = o.x + d.x * s * tf.scale, cy = o.y + d.z * s * tf.scale;
+        ctx.beginPath();
+        ctx.moveTo(cx - d.z * 5, cy + d.x * 5); ctx.lineTo(cx + d.z * 5, cy - d.x * 5);
+        ctx.stroke();
+      }
     }
     ctx.restore();
   }
@@ -353,6 +578,16 @@
       ctx.fillRect(uB * s, -hv * s, (uF - uB) * s, 2 * hv * s);
       ctx.fillStyle = lighten(colour, 0.45);
       ctx.fillRect((uF - 4) * s, -hv * s, 4 * s, 2 * hv * s);
+      if (Array.isArray(o.ticks) && o.ticks.length) {
+        // PA element ticks across the active aperture
+        ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (const u of o.ticks) { ctx.moveTo(u * s, -hv * s * 0.6); ctx.lineTo(u * s, hv * s * 0.6); }
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+        ctx.strokeRect(o.ticks[0] * s, -hv * s * 0.6, (o.ticks[o.ticks.length - 1] - o.ticks[0]) * s, hv * s * 1.2);
+      }
       ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1;
       ctx.strokeRect(uB * s + 0.5, -hv * s + 0.5, (uF - uB) * s - 1, 2 * hv * s - 1);
       if (o.dotU !== null) {
@@ -384,21 +619,28 @@
 
   function drawProbe(ctx, state, spec, derived) {
     const probe = state.probe;
-    const colour = (derived && derived.colour) || C.PROBE_COLOURS[probe.angle] || '#00c000';
+    const pa = probe.method === 'pa';
+    const colour = pa ? C.PROBE_COLOURS.pa : ((derived && derived.colour) || C.PROBE_COLOURS[probe.angle] || '#00c000');
     ctx.save();
     ctx.beginPath(); ctx.rect(0, 0, tf.fieldW, tf.h); ctx.clip();
     if (state.mode === 'tofd') {
+      // F4: one small green 24 × 16 box centred between the probes with two dots (Tx / Rx)
       const pp = tofdPositions(state);
-      const lo = Math.min(pp.tx, pp.rx), hi = Math.max(pp.tx, pp.rx);
-      const a = toPx(lo - 12, probe.z - 8), b = toPx(hi + 12, probe.z + 8);
-      ctx.fillStyle = colour;
+      const box = tofdBox(pp.tx, pp.rx, probe.z);
+      const a = toPx(box.x0, box.z0), b = toPx(box.x1, box.z1);
+      ctx.fillStyle = TOFD_COLOUR;
       ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
       ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1;
       ctx.strokeRect(a.x + 0.5, a.y + 0.5, b.x - a.x - 1, b.y - a.y - 1);
-      const dot = toPx(pp.tx, probe.z);
       ctx.fillStyle = '#fff';
-      ctx.beginPath(); ctx.arc(dot.x, dot.y, 2.5, 0, Math.PI * 2); ctx.fill();
-      lastProbeSym = { kind: 'box', x0: lo - 12, x1: hi + 12, z0: probe.z - 8, z1: probe.z + 8 };
+      for (const dx of box.dots) {
+        const dot = toPx(dx, probe.z);
+        ctx.beginPath(); ctx.arc(dot.x, dot.y, 2.5, 0, Math.PI * 2); ctx.fill();
+      }
+      lastProbeSym = { kind: 'box', x0: box.x0, x1: box.x1, z0: box.z0, z1: box.z1 };
+    } else if (pa) {
+      const paState = state.pa || {};
+      lastProbeSym = rectSymbol(ctx, probe.x, probe.z, probe.side, probe.skew, colour, { dotU: 0, ticks: paTicks(paState.elements, paState.pitch) });
     } else if (!probe.angle) {
       const D = Math.max(8, (derived && derived.diameter) || probe.diameter || 10);
       const p = toPx(probe.x, probe.z);
@@ -413,6 +655,50 @@
       if (probe.method === 'tt') rectSymbol(ctx, probe.x - (probe.side || 1) * T * Math.tan(th), probe.z, probe.side, probe.skew, colour, { hollow: true, dashed: true });
       lastProbeSym = rectSymbol(ctx, probe.x, probe.z, probe.side, probe.skew, colour, { dotU: 0 });
     }
+    ctx.restore();
+  }
+
+  /** Source of the C-scan hint band: {z0, step, n, vals, rev} or null. */
+  function scanBandSource(state) {
+    const probe = state.probe || {};
+    const pa = state.pa, aut = state.aut;
+    let m = null, rev = false;
+    if (probe.method === 'pa' && pa && pa.scan) m = pa.scan;
+    else if (aut && aut.map) { m = aut.map; rev = !!aut.revMap; }
+    else if (aut && aut.scan && state.mode === 'aut') { m = aut.scan; rev = !!aut.revMap; }
+    if (!m) return null;
+    let vals = null;
+    try { vals = columnMaxima(m); } catch (e) { vals = null; }
+    if (!vals || !vals.length) return null;
+    const n = vals.length;
+    const z0 = Number.isFinite(m.z0) ? m.z0 : 0;
+    const step = m.step > 0 ? m.step : (Number.isFinite(m.z1) && n > 1 ? (m.z1 - z0) / (n - 1) : 1);
+    return { z0, step, n, vals: pctScale(vals), rev };
+  }
+
+  /** AUT / PA C-scan hint band: thin colour strip along z just left of the ruler. */
+  function drawScanBand(ctx, state) {
+    const src = scanBandSource(state);
+    if (!src) return;
+    const x0 = tf.fieldW - BAND_W - 3;
+    const zEnd = tf.zTop + tf.windowMm;
+    const i0 = Math.max(0, Math.floor((tf.zTop - src.z0) / src.step) - 1);
+    const i1 = Math.min(src.n - 1, Math.ceil((zEnd - src.z0) / src.step) + 1);
+    if (i1 < i0) return;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    ctx.fillRect(x0 - 1, 0, BAND_W + 2, tf.h);
+    const hpx = Math.max(1, src.step * tf.scale);
+    for (let i = i0; i <= i1; i++) {
+      const v = src.vals[i];
+      if (!Number.isFinite(v)) continue;
+      const y = toPx(0, src.z0 + i * src.step).y;
+      ctx.fillStyle = bandColour(v, src.rev);
+      ctx.fillRect(x0, y - hpx / 2, BAND_W, hpx + 0.5);
+    }
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x0 - 0.5, 0.5, BAND_W + 1, tf.h - 1);
     ctx.restore();
   }
 
@@ -456,7 +742,7 @@
     ctx.fillStyle = '#000';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
-    ctx.fillText('PLAN VIEW', dialC.x - DIAL_R - 8, 18);
+    ctx.fillText(t('PLAN VIEW'), dialC.x - DIAL_R - 8, 18);
     ctx.strokeStyle = '#0000ff';
     ctx.lineWidth = 3;
     ctx.beginPath(); ctx.arc(dialC.x, dialC.y, DIAL_R, 0, Math.PI * 2); ctx.stroke();
@@ -507,33 +793,53 @@
     recordTrail(state);
     drawField(ctx, spec);
     drawWeldBand(ctx, spec);
+    try { drawCoverage(ctx, state, spec); } catch (e) { /* coverage tracker absent or malformed: ignore */ }
     drawDefects(ctx, state, spec);
     drawTrail(ctx); // after defects so the raster trail stays visible over lamination rectangles (§14.2)
-    drawFootprint(ctx, frame, state, derived);
+    drawFootprint(ctx, frame, state, derived, spec);
+    drawDampers(ctx, state);
     drawProbe(ctx, state, spec, derived);
+    try { drawScanBand(ctx, state); } catch (e) { /* malformed map: ignore */ }
     drawRuler(ctx, state);
     if (!isCompassHidden(state)) drawCompass(ctx, state); else dialC = null;
     ctx.restore();
   }
 
   // ------------------------------------------------------------------ interaction
-  function hitProbe(mm) {
+  function isCoarse(ev) { return !!ev && (ev.pointerType === 'touch' || ev.pointerType === 'pen'); }
+
+  function hitProbe(mm, pad) {
     const s = lastProbeSym;
     if (!s) return false;
-    if (s.kind === 'circle') return M.dist(mm.x, mm.z, s.x, s.z) <= s.r;
-    if (s.kind === 'box') return mm.x >= s.x0 && mm.x <= s.x1 && mm.z >= s.z0 && mm.z <= s.z1;
+    const p = pad || 0;
+    if (s.kind === 'circle') return M.dist(mm.x, mm.z, s.x, s.z) <= s.r + p;
+    if (s.kind === 'box') return mm.x >= s.x0 - p && mm.x <= s.x1 + p && mm.z >= s.z0 - p && mm.z <= s.z1 + p;
     const dx = mm.x - s.x, dz = mm.z - s.z;
     const u = dx * s.dir.x + dz * s.dir.z;
     const v = -dx * s.dir.z + dz * s.dir.x;
-    return u >= s.uB - 1 && u <= s.uF + 1 && Math.abs(v) <= s.hv + 1;
+    return u >= s.uB - 1 - p && u <= s.uF + 1 + p && Math.abs(v) <= s.hv + 1 + p;
   }
 
-  function hitDial(p) { return !!dialC && M.dist(p.x, p.y, dialC.x, dialC.y) <= DIAL_R + 10; }
+  /** Hit padding (mm) for the current probe symbol and pointer kind. */
+  function probePad(coarse) {
+    if (!coarse) return 0;
+    const s = lastProbeSym;
+    const size = !s ? 10 : s.kind === 'circle' ? 2 * s.r : s.kind === 'box' ? Math.min(s.x1 - s.x0, s.z1 - s.z0) : 2 * s.hv;
+    return touchPadMm(size, tf.scale);
+  }
+
+  function hitDial(p, coarse) { return !!dialC && M.dist(p.x, p.y, dialC.x, dialC.y) <= DIAL_R + (coarse ? 24 : 10); }
 
   function applySkew(p, shift) {
     const deg = M.rad2deg(Math.atan2(p.x - dialC.x, -(p.y - dialC.y)));
     const skew = snapSkew(deg, shift);
     if (skew !== (UT.state.probe.skew || 0)) UT.setIn('probe', { skew });
+  }
+
+  function emitDrag(d) {
+    if (!d || d.emitted) return;
+    d.emitted = true;
+    try { UT.bus.emit('ui', { kind: 'probe-drag', id: 'cv-plan' }); } catch (e) { /* ignore */ }
   }
 
   /**
@@ -550,7 +856,7 @@
     z = spec.pipe ? wrapZ(z, spec.L) : M.clamp(z, 0, spec.L);
     x = Math.round(x * 2) / 2; z = Math.round(z * 2) / 2;
     const cur = UT.state.probe;
-    if (x !== cur.x || z !== cur.z) UT.setIn('probe', { x, z });
+    if (x !== cur.x || z !== cur.z) { emitDrag(d); UT.setIn('probe', { x, z }); }
   }
 
   function setCursor(c) {
@@ -559,12 +865,28 @@
     canvas.style.cursor = c;
   }
 
+  function capturePointer(el, ev) {
+    if (!el || ev.pointerId === undefined || typeof el.setPointerCapture !== 'function') return false;
+    try { el.setPointerCapture(ev.pointerId); return true; } catch (e) { return false; }
+  }
+
+  function releasePointer(el, ev) {
+    if (!el || !ev || ev.pointerId === undefined || typeof el.releasePointerCapture !== 'function') return;
+    try { if (!el.hasPointerCapture || el.hasPointerCapture(ev.pointerId)) el.releasePointerCapture(ev.pointerId); } catch (e) { /* ignore */ }
+  }
+
+  function samePointer(d, ev) { return !d || d.pointerId === undefined || ev.pointerId === undefined || d.pointerId === ev.pointerId; }
+
   function onDown(ev) {
     if (ev.button !== undefined && ev.button !== 0) return;
+    if (ev.isPrimary === false) return;
+    if (drag) return;
     const p = UT.dom.localPos(ev, canvas);
     if (p.x < 0 || p.y < 0 || p.x > tf.w || p.y > tf.h) return;
-    if (hitDial(p)) {
-      drag = { kind: 'dial' };
+    const coarse = isCoarse(ev);
+    if (hitDial(p, coarse)) {
+      drag = { kind: 'dial', pointerId: ev.pointerId, coarse };
+      drag.captured = capturePointer(canvas, ev);
       applySkew(p, ev.shiftKey);
       ev.preventDefault();
       return;
@@ -573,15 +895,18 @@
     if (UT.state.editing && UT.state.editing.defect) return;       // editor open: probe locked
     if (!UT.state.specimen) return;
     const mm = toMm(p.x, p.y);
-    if (hitProbe(mm)) drag = { kind: 'probe', dx: UT.state.probe.x - mm.x, dz: 0 };
-    else { drag = { kind: 'probe', dx: 0, dz: 0 }; moveProbe(mm, drag); }
-    drag.py = p.y; drag.z0 = UT.state.probe.z;
+    const grabbed = hitProbe(mm, probePad(coarse));
+    drag = { kind: 'probe', dx: grabbed ? UT.state.probe.x - mm.x : 0, dz: 0, pointerId: ev.pointerId, coarse, emitted: false };
+    drag.captured = capturePointer(canvas, ev);
+    if (!grabbed) moveProbe(mm, drag);                             // jump to the pointer (absolute z)
+    drag.py = p.y; drag.z0 = UT.state.probe.z;                     // z is delta-based from here on
     setCursor('grabbing');
     ev.preventDefault();
   }
 
   function onMove(ev) {
     if (!canvas) return;
+    if (drag && !samePointer(drag, ev)) return;
     const p = UT.dom.localPos(ev, canvas);
     if (drag) {
       if (drag.kind === 'dial') applySkew(p, ev.shiftKey);
@@ -590,24 +915,29 @@
       return;
     }
     if (ev.target !== canvas) return;
-    if (hitDial(p)) setCursor('pointer');
-    else if (p.x <= tf.fieldW && hitProbe(toMm(p.x, p.y))) setCursor('grab');
+    const coarse = isCoarse(ev);
+    if (hitDial(p, coarse)) setCursor('pointer');
+    else if (p.x <= tf.fieldW && hitProbe(toMm(p.x, p.y), probePad(coarse))) setCursor('grab');
     else setCursor('default');
   }
 
-  function onUp() {
+  function onUp(ev) {
     if (!drag) return;
+    if (ev && !samePointer(drag, ev)) return;
+    releasePointer(canvas, ev);
     drag = null;
     setCursor('default');
   }
 
   function onDblClick(ev) {
     const p = UT.dom.localPos(ev, canvas);
-    if (hitDial(p)) { UT.setIn('probe', { skew: 0 }); ev.preventDefault(); }
+    if (hitDial(p, false)) { UT.setIn('probe', { skew: 0 }); ev.preventDefault(); }
   }
 
+  function hasPointerEvents() { return typeof window !== 'undefined' && typeof window.PointerEvent === 'function'; }
+
   /**
-   * Attach the plan view to its canvas (#cv-plan), bind mouse/touch handlers and subscribe to 'render'.
+   * Attach the plan view to its canvas (#cv-plan), bind pointer handlers and subscribe to 'render'.
    * @param {HTMLCanvasElement} cv
    */
   function init(cv) {
@@ -615,19 +945,64 @@
     if (!canvas) return;
     UT.dom.injectCss('view-plan', plan.css);
     canvas.classList.add('plan-view-canvas');
-    canvas.addEventListener('mousedown', onDown);
+    if (hasPointerEvents()) {
+      canvas.addEventListener('pointerdown', onDown);
+      canvas.addEventListener('pointermove', onMove);
+      canvas.addEventListener('pointerup', onUp);
+      canvas.addEventListener('pointercancel', onUp);
+      canvas.addEventListener('lostpointercapture', function (ev) { if (drag && drag.captured && samePointer(drag, ev)) onUp(ev); });
+      // fallback when capture was refused (synthetic pointers, exotic browsers): follow the pointer on window
+      window.addEventListener('pointermove', function (ev) { if (drag && !drag.captured) onMove(ev); });
+      window.addEventListener('pointerup', function (ev) { if (drag && !drag.captured) onUp(ev); });
+      window.addEventListener('pointercancel', function (ev) { if (drag && !drag.captured) onUp(ev); });
+    } else {
+      canvas.addEventListener('mousedown', onDown);
+      canvas.addEventListener('touchstart', onDown, { passive: false });
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+      window.addEventListener('touchmove', onMove, { passive: false });
+      window.addEventListener('touchend', onUp);
+    }
     canvas.addEventListener('dblclick', onDblClick);
-    canvas.addEventListener('touchstart', onDown, { passive: false });
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    window.addEventListener('touchmove', onMove, { passive: false });
-    window.addEventListener('touchend', onUp);
+    canvas.addEventListener('contextmenu', function (ev) { ev.preventDefault(); });
     UT.bus.on('render', function (frame) { draw(frame, UT.state); });
     fit();
   }
 
   /** Clear the lamination raster trail (tb-clear). */
   function clearTrail() { trail = []; }
+
+  /**
+   * Drag the probe in the plan view through the real pointer code path (synthetic pointerdown/move/up on
+   * #cv-plan, scale-aware): the probe moves to x (mm from the weld centre / block datum) and z, emitting
+   * exactly one 'ui' {kind:'probe-drag'} event. Falls back to UT.setIn when the canvas is not mounted.
+   * @param {number} x  target x (mm)
+   * @param {{z?: number}} [opts]
+   * @returns {number} resulting probe.x
+   */
+  function dragTo(x, opts) {
+    const o = opts || {};
+    const st = UT.state;
+    const zTarget = Number.isFinite(o.z) ? o.z : st.probe.z;
+    if (!canvas || !hasPointerEvents() || typeof canvas.getBoundingClientRect !== 'function' || !st.specimen) {
+      if (st.specimen) UT.setIn('probe', { x: Math.round(x * 2) / 2, z: Math.round(zTarget * 2) / 2 });
+      return UT.state.probe.x;
+    }
+    fit();
+    const from = toPx(st.probe.x, st.probe.z);
+    const to = toPx(x, zTarget);
+    const r = canvas.getBoundingClientRect();
+    const k = layoutScale();
+    const fire = function (type, p) {
+      const ev = new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0, buttons: type === 'pointerup' ? 0 : 1, clientX: r.left + p.x * k, clientY: r.top + p.y * k });
+      canvas.dispatchEvent(ev);
+    };
+    fire('pointerdown', from);
+    fire('pointermove', { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 });
+    fire('pointermove', to);
+    fire('pointerup', to);
+    return UT.state.probe.x;
+  }
 
   // ------------------------------------------------------------------ defect editor helpers (circle view / linear bar)
   const editorCtx = new WeakMap();   // canvas → {kind, opts, geom, hoverZ, press}
@@ -644,15 +1019,16 @@
 
   function specLength(spec) { return (spec && spec.L) || 300; }
 
-  function editorZAt(st, p) {
+  function editorZAt(st, p, coarse) {
     const g = st.geom;
     if (!g) return null;
+    const tol = coarse ? 24 : 14;
     if (st.kind === 'circle') {
       const dist = M.dist(p.x, p.y, g.cx, g.cy);
-      if (dist < g.r - 14 || dist > g.R + 14) return null;
+      if (dist < g.r - tol || dist > g.R + tol) return null;
       return zAtAngle(Math.atan2(p.y - g.cy, p.x - g.cx), g.L);
     }
-    if (p.y < g.y0 - 14 || p.y > g.y1 + 14 || p.x < g.x0 - 10 || p.x > g.x1 + 10) return null;
+    if (p.y < g.y0 - tol || p.y > g.y1 + tol || p.x < g.x0 - 10 || p.x > g.x1 + 10) return null;
     return M.clamp((p.x - g.x0) / (g.x1 - g.x0) * g.L, 0, g.L);
   }
 
@@ -663,17 +1039,21 @@
   function bindEditor(cv, st) {
     const down = function (ev) {
       if (ev.button !== undefined && ev.button !== 0) return;
+      if (ev.isPrimary === false) return;
       const p = UT.dom.localPos(ev, cv);
-      const z = editorZAt(st, p);
+      const coarse = isCoarse(ev);
+      const z = editorZAt(st, p, coarse);
       if (z === null) return;
-      st.press = { z0: z, px: p.x, py: p.y };
+      st.press = { z0: z, px: p.x, py: p.y, pointerId: ev.pointerId, coarse };
+      st.press.captured = capturePointer(cv, ev);
       st.moved = false;
       ev.preventDefault();
     };
     const move = function (ev) {
+      if (st.press && !samePointer(st.press, ev)) return;
       const p = UT.dom.localPos(ev, cv);
       if (st.press) {
-        const z = editorZAt(st, p);
+        const z = editorZAt(st, p, st.press.coarse);
         if (M.dist(p.x, p.y, st.press.px, st.press.py) >= 3) st.moved = true;
         if (z !== null && st.moved) {
           const span = st.kind === 'circle' ? ringDragSpan(st.press.z0, z, st.geom.L) : { zFrom: +Math.min(st.press.z0, z).toFixed(1), zTo: +Math.max(st.press.z0, z).toFixed(1) };
@@ -686,14 +1066,16 @@
         return;
       }
       if (ev.target !== cv) return;
-      const z = editorZAt(st, p);
+      const z = editorZAt(st, p, isCoarse(ev));
       if (z !== st.hoverZ) { st.hoverZ = z; editorRedraw(cv, st); }
       cv.style.cursor = z === null ? 'default' : 'crosshair';
     };
     const up = function (ev) {
       if (!st.press) return;
+      if (ev && !samePointer(st.press, ev)) return;
       const pr = st.press;
       st.press = null;
+      releasePointer(cv, ev);
       if (!st.moved) {
         const g = st.geom;
         const defs = (st.opts.defects || []);
@@ -703,15 +1085,25 @@
       } else if (pr.last && typeof st.opts.onDrag === 'function') {
         st.opts.onDrag(pr.last.zFrom, pr.last.zTo);
       }
-      void ev;
     };
-    cv.addEventListener('mousedown', down);
-    cv.addEventListener('touchstart', down, { passive: false });
-    window.addEventListener('mousemove', move);
-    window.addEventListener('touchmove', move, { passive: false });
-    window.addEventListener('mouseup', up);
-    window.addEventListener('touchend', up);
-    cv.addEventListener('mouseleave', function () { if (!st.press && st.hoverZ !== null) { st.hoverZ = null; editorRedraw(cv, st); } });
+    const leave = function () { if (!st.press && st.hoverZ !== null) { st.hoverZ = null; editorRedraw(cv, st); } };
+    if (hasPointerEvents()) {
+      cv.addEventListener('pointerdown', down);
+      cv.addEventListener('pointermove', move);
+      cv.addEventListener('pointerup', up);
+      cv.addEventListener('pointercancel', up);
+      cv.addEventListener('pointerleave', leave);
+      window.addEventListener('pointermove', function (ev) { if (st.press && !st.press.captured) move(ev); });
+      window.addEventListener('pointerup', function (ev) { if (st.press && !st.press.captured) up(ev); });
+    } else {
+      cv.addEventListener('mousedown', down);
+      cv.addEventListener('touchstart', down, { passive: false });
+      window.addEventListener('mousemove', move);
+      window.addEventListener('touchmove', move, { passive: false });
+      window.addEventListener('mouseup', up);
+      window.addEventListener('touchend', up);
+      cv.addEventListener('mouseleave', leave);
+    }
   }
 
   function isSelected(d, opts) {
@@ -801,7 +1193,7 @@
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
     ctx.fillStyle = '#000';
-    ctx.fillText('Circle-View. Position ' + (st.hoverZ === null ? '' : Math.round(st.hoverZ)), w - 6, 4);
+    ctx.fillText(t('Circle-View. Position {z}', { z: st.hoverZ === null ? '' : Math.round(st.hoverZ) }), w - 6, 4);
     ctx.restore();
   }
 
@@ -875,7 +1267,7 @@
     ctx.font = '11px Segoe UI, Arial, sans-serif';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
-    ctx.fillText('Plate. Position ' + (st.hoverZ === null ? '' : Math.round(st.hoverZ)), w - 6, 4);
+    ctx.fillText(t('Plate. Position {z}', { z: st.hoverZ === null ? '' : Math.round(st.hoverZ) }), w - 6, 4);
     ctx.restore();
   }
 
@@ -915,25 +1307,70 @@
     if (Math.abs(wrapZ(-10, 300) - 290) > 1e-9) f.push('wrapZ');
     if (lighten('#00c000', 0.5) !== 'rgb(128,224,128)') f.push('lighten ' + lighten('#00c000', 0.5));
     // transform arithmetic with the fallback scale
+    const saved = tf;
     tf = { scale: 4, originX: 640, zTop: 120, windowMm: 65, w: 1280, h: 260, fieldW: 1236, L: 300 };
     const p = toPx(40, 150);
     if (p.x !== 800 || p.y !== 120) f.push('toPx ' + JSON.stringify(p));
     const mm = toMm(800, 120);
     if (Math.abs(mm.x - 40) > 1e-9 || Math.abs(mm.z - 150) > 1e-9 || mm.y !== mm.z) f.push('toMm ' + JSON.stringify(mm));
     if (isCompassHidden({ mode: 'dac' }) !== true || isCompassHidden({ mode: 'weld' }) !== false) f.push('compass hidden modes');
+    if (isCompassHidden({ mode: 'fbh' }) !== true && !(UT.modes && UT.modes.enabled && UT.modes.enabled.fbh)) f.push('compass hidden fbh');
+    // v2: F4 TOFD box geometry + hit test
+    const box = tofdBox(30, -30, 150);
+    if (box.xc !== 0 || box.x0 !== -12 || box.x1 !== 12 || box.z0 !== 142 || box.z1 !== 158 || box.dots[0] !== -6 || box.dots[1] !== 6) f.push('tofdBox ' + JSON.stringify(box));
+    const savedSym = lastProbeSym;
+    lastProbeSym = { kind: 'box', x0: box.x0, x1: box.x1, z0: box.z0, z1: box.z1 };
+    if (!hitProbe({ x: 11, z: 157 }, 0) || hitProbe({ x: 13, z: 150 }, 0) || !hitProbe({ x: 13, z: 150 }, 2)) f.push('hitProbe box');
+    lastProbeSym = { kind: 'rect', x: 40, z: 150, dir: planDir(1, 0), uF: 3, uB: -21, hv: 8 };
+    if (!hitProbe({ x: 50, z: 150 }, 0) || hitProbe({ x: 30, z: 150 }, 0) || !hitProbe({ x: 40, z: 162 }, 4)) f.push('hitProbe rect pad');
+    lastProbeSym = savedSym;
+    // v2: touch hit padding: a 10 mm target at 4 px/mm (40 px) needs ≥ 44 px → pad 0.5 → min 1.5 mm; at 1 px/mm → 17 mm pad
+    if (touchPadMm(10, 4) !== 1.5 || Math.abs(touchPadMm(10, 1) - 17) > 1e-9 || touchPadMm(30, 4) !== 1.5) f.push('touchPadMm ' + touchPadMm(10, 1));
+    // v2: C-scan band reduction
+    const cm = columnMaxima({ n: 3, map: new Float32Array([1, 5, 2, NaN, 0, 0]) });
+    if (!cm || cm[0] !== 5 || cm[1] !== 2 || cm[2] !== 0) f.push('columnMaxima map ' + (cm && Array.from(cm)));
+    const ca = columnMaxima({ n: 4, amp: [new Float32Array([10, NaN, 30, NaN]), new Float32Array([5, 50, NaN, NaN])] });
+    if (!ca || ca[0] !== 10 || ca[1] !== 50 || ca[2] !== 30 || !Number.isNaN(ca[3])) f.push('columnMaxima amp ' + (ca && Array.from(ca)));
+    const cc = columnMaxima({ n: 2, columns: [[0.1, 0.4], [0.2]] });
+    if (!cc || Math.abs(cc[0] - 0.4) > 1e-6) f.push('columnMaxima columns');
+    const ps = pctScale(cc);
+    if (Math.abs(ps[0] - 40) > 1e-4 || Math.abs(ps[1] - 20) > 1e-4) f.push('pctScale fraction ' + Array.from(ps));
+    if (pctScale(cm) !== cm) f.push('pctScale keeps % maps');
+    if (columnMaxima(null) !== null || columnMaxima({ n: 0 }) !== null || columnMaxima({ n: 3 }) !== null) f.push('columnMaxima guards');
+    if (typeof bandColour(90, false) !== 'string' || bandColour(NaN, false) !== 'rgba(0,0,0,0)') f.push('bandColour');
+    // v2: coverage runs + band
+    const runs = coverageRuns(new Uint8Array([0, 1, 1, 0, 2, 0, 1]), 5, 32);
+    if (JSON.stringify(runs) !== '[[5,15],[20,25],[30,32]]') f.push('coverageRuns ' + JSON.stringify(runs));
+    if (coverageRuns(null, 5).length !== 0 || coverageRuns(new Uint8Array([0, 0]), 5).length !== 0) f.push('coverageRuns empty');
+    const cb = coverageBand({ T: 20, weld: { capWidth: 16 } });
+    if (Math.abs(cb.inner - 18) > 1e-9 || Math.abs(cb.outer - (8 + 40 * Math.tan(M.deg2rad(70)))) > 1e-9) f.push('coverageBand ' + JSON.stringify(cb));
+    // v2: PA element ticks fit inside the 24 mm box behind the index
+    const ticks = paTicks(16, 1);
+    if (ticks.length !== 17 || Math.abs(ticks[16] - ticks[0] - 16) > 1e-9 || ticks[0] < -21 || ticks[16] > 3) f.push('paTicks ' + JSON.stringify(ticks));
+    const big = paTicks(32, 1);
+    if (big.length !== 33 || big[32] - big[0] > 22 + 1e-9 || big[0] < -21) f.push('paTicks clamp');
+    // v2: scan band source selection (pure, no DOM)
+    const s1 = scanBandSource({ probe: { method: 'pe' }, mode: 'aut', aut: { scan: { z0: 0, z1: 2, step: 1, n: 3, amp: [new Float32Array([10, 20, 30])] }, revMap: true } });
+    if (!s1 || s1.n !== 3 || s1.step !== 1 || !s1.rev || s1.vals[2] !== 30) f.push('scanBandSource aut.scan');
+    if (scanBandSource({ probe: { method: 'pe' }, mode: 'weld', aut: { scan: { n: 3, amp: [[1, 2, 3]] } } }) !== null) f.push('scanBandSource aut.scan only in aut mode');
+    const s2 = scanBandSource({ probe: { method: 'pa' }, mode: 'weld', pa: { scan: { z0: 10, z1: 20, n: 3, xBins: 2, map: new Float32Array([0.1, 0.2, 0.3, 0.05, 0, 0]) } }, aut: { map: { n: 1, map: [1] } } });
+    if (!s2 || s2.z0 !== 10 || Math.abs(s2.step - 5) > 1e-9 || Math.abs(s2.vals[0] - 20) > 1e-4 || Math.abs(s2.vals[1] - 30) > 1e-4) f.push('scanBandSource pa.scan ' + JSON.stringify(s2 && Array.from(s2.vals)));
+    if (scanBandSource({ probe: {}, mode: 'weld', aut: { scan: null, map: null } }) !== null) f.push('scanBandSource none');
+    tf = saved;
     return f;
   }
 
   const plan = {
-    init, draw, toPx, toMm, fit, drawCircleView, drawLinearBar, clearTrail, __selftest,
+    init, draw, toPx, toMm, fit, drawCircleView, drawLinearBar, clearTrail, dragTo, __selftest,
     /** Pure helpers (exposed for tests). */
-    helpers: { zWindowTop, snapSkew, skewLabel, wrapZ, zSpans, circleAngle, zAtAngle, ringDragSpan, zInDefect, planDir, lighten, isCompassHidden },
+    helpers: { zWindowTop, snapSkew, skewLabel, wrapZ, zSpans, circleAngle, zAtAngle, ringDragSpan, zInDefect, planDir, lighten, isCompassHidden,
+      tofdBox, touchPadMm, columnMaxima, pctScale, bandColour, coverageRuns, coverageBand, paTicks, scanBandSource },
     /** Current transform (read-only snapshot). */
     get transform() { return Object.assign({}, tf); },
     css: [
-      '#cv-plan, .plan-view-canvas { display: block; cursor: default; touch-action: none; }',
+      '#cv-plan, .plan-view-canvas { display: block; cursor: default; touch-action: none; user-select: none; -webkit-user-select: none; }',
       '.plan-view-canvas.plan-grab { cursor: grabbing; }',
-      '#cv-circle, .cv-circle { display: block; cursor: default; touch-action: none; background: #fff; }',
+      '#cv-circle, .cv-circle { display: block; cursor: default; touch-action: none; user-select: none; -webkit-user-select: none; background: #fff; }',
     ].join('\n'),
   };
   UT.views.plan = plan;
