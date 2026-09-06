@@ -1,0 +1,59 @@
+name: UTsim CI
+
+on:
+  push:
+    paths:
+      - 'ut-simulator/**'
+      - 'utman_simulator.html'
+      - '.github/workflows/utsim-ci.yml'
+  pull_request:
+    paths:
+      - 'ut-simulator/**'
+      - 'utman_simulator.html'
+      - '.github/workflows/utsim-ci.yml'
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Playwright
+        run: npm i -g playwright@1.56.0
+
+      - name: Export NODE_PATH
+        run: echo "NODE_PATH=$(npm root -g)" >> "$GITHUB_ENV"
+
+      - name: Install Chromium
+        run: npx --yes playwright@1.56.0 install --with-deps chromium
+
+      - name: Module self-tests
+        run: node tools/node-load.mjs --selftest
+        working-directory: ut-simulator
+
+      - name: Build single file
+        run: python3 build.py
+        working-directory: ut-simulator
+
+      - name: Acceptance
+        run: node tools/acceptance.mjs --json acceptance.json
+        working-directory: ut-simulator
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: utsim-build
+          path: |
+            utman_simulator.html
+            docs/utman_simulator.html
+            ut-simulator/acceptance.json
