@@ -1702,7 +1702,8 @@
     addPreset,
     enterMode: enter,
     lessons() { return modes.lessons.map(function (l) { return l.title; }); },
-    setMaterial,
+    // SPEC-v2 §7: test helpers are state helpers + renderNow, so UT.frame is current when the call returns
+    setMaterial(key) { const r = setMaterial(key); try { UT.renderNow(); } catch (e) { /* logged by core */ } return r; },
     // §1 (3): late-binding shell — 84-trade extends it with Object.assign(UT.test.trade, {...})
     trade: {
       start(seed) { return (UT.trade || trade).start(seed); },
