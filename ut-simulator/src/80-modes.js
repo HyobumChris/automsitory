@@ -128,7 +128,7 @@
   }
   function buildSpecimen(mode, opts, probe) {
     const cur = st().specimen;
-    const so = opts && opts.specimenOpts;
+    const so = opts && opts.specimenOpts ? clampOpts(opts.specimenOpts) : undefined;
     switch (mode) {
       case 'weld': return weldSpecimen(so);
       case 'tofd': case 'aut': case 'trade': {
@@ -532,7 +532,15 @@
   function slotDefect(defects, n) { return defects.find(function (d) { return d.n === n; }) || null; }
   function freeSlot(defects) { for (let n = 1; n <= 8; n++) if (!slotDefect(defects, n)) return n; return null; }
   function sortByN(defects) { return defects.slice().sort(function (a, b) { return a.n - b.n; }); }
-  function setDefects(arr) { UT.set({ defects: S.normaliseDefects(arr) }); return st().defects; }
+  /**
+   * Unknown type strings survive normaliseDefects (the tracer treats them as volumetric); map them to
+   * 'volumetric' so the editor's Type <select> (DEFECT_TYPES) and the trade report always hold a known
+   * value without changing the physics.
+   */
+  function coerceTypes(list) {
+    return list.map(function (d) { return DEFECT_TYPES.indexOf(d.type) >= 0 ? d : Object.assign({}, d, { type: 'volumetric' }); });
+  }
+  function setDefects(arr) { UT.set({ defects: coerceTypes(S.normaliseDefects(arr)) }); return st().defects; }
   function scaleHeight(d, height) {
     const b = S.bbox(d.pts);
     const h = Math.max(1e-6, b.h);
@@ -1275,13 +1283,36 @@
   };
 
   // ------------------------------------------------------------------ test API (§15.10)
+  // Numeric limits for specimen options (same as the Weld dialog / 90-app WELD_RANGES — keep in sync);
+  // non-finite values are dropped, numbers clamped, so an oversized specimen can never reach the state.
+  const OPT_RANGES = {
+    T: [3, 100], L: [50, 2000], bevel: [0, 60], rootGap: [0, 10], rootFace: [0, 10], capWidth: [0, 60], capHeight: [0, 10],
+    rootHeight: [0, 10], od: [25, 2000], wt: [3, 100],
+    braceAngle: [20, 90], braceT: [3, 100], chordT: [3, 100], braceOffset: [-100, 100], braceLen: [20, 300], weldLeg: [2, 30],
+  };
+  const OPT_ENUMS = { type: ['single-v', 'double-v', 'none'], face: ['wide', 'narrow'] };
+  /** Sanitised copy of a specimen-options object (unknown keys pass through only when finite/boolean/short string). */
+  function clampOpts(opts) {
+    const out = {};
+    if (!opts || typeof opts !== 'object') return out;
+    Object.keys(opts).forEach(function (k) {
+      const v = opts[k];
+      if (OPT_RANGES[k]) { const n = typeof v === 'string' && v.trim() !== '' ? +v : v; if (Number.isFinite(n)) out[k] = M.clamp(n, OPT_RANGES[k][0], OPT_RANGES[k][1]); }
+      else if (OPT_ENUMS[k]) { if (OPT_ENUMS[k].indexOf(v) >= 0) out[k] = v; }
+      else if (typeof v === 'boolean') out[k] = v;
+      else if (typeof v === 'number') { if (Number.isFinite(v)) out[k] = M.clamp(v, -1e4, 1e4); }
+      else if (typeof v === 'string' && v.length <= 40) out[k] = v;
+    });
+    return out;
+  }
   function loadSpecimen(id, opts) {
     const mode = MODE_OF[id];
     if (!mode) throw new Error('Unknown specimen id: ' + id);
+    const o = clampOpts(opts);
     if (id === 'plate-weld' || id === 'pipe-weld') {
-      UT.setIn('weldOpts', Object.assign({ pipe: id === 'pipe-weld' }, opts || {}), { silent: true, noRender: true });
+      UT.setIn('weldOpts', Object.assign(o, { pipe: id === 'pipe-weld' }), { silent: true, noRender: true });
       enter('weld', { silentUI: true });
-    } else enter(mode, { specimenOpts: opts, silentUI: true });
+    } else enter(mode, { specimenOpts: opts ? o : undefined, silentUI: true });
     return st().specimen;
   }
   Object.assign(UT.test, {
@@ -1417,7 +1448,7 @@
     enter, exit, toggle, current, setFace, statusMid, rebuild,
     enabled, isToolbarEnabled, isMenuEnabled, hiddenViews, hints: HINTS,
     lessons, lessonsWindow, defectEditor, tradeTest, tkyPanel, dacPanel,
-    autoCal, dac, plot, sizing, trade,
+    autoCal, dac, plot, sizing, trade, setDefects, clampOpts,
     rng: M.rng, css, __selftest,
   });
   UT.modes = modes;

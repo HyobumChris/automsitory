@@ -8,12 +8,19 @@
  * View: rotate by yaw about Y, then by pitch about X, then perspective-project onto the canvas.
  */
 // SPEC NOTES
-// - Window: created in init() via UT.dom.win({name:'pipe3d'}) at (innerWidth − 300, innerHeight − 260),
-//   canvas #cv-3d 260 × 200 px. Title '3D Pipe' for spec.pipe, '3D Plate' otherwise (updated on 'state').
-// - Visibility model: `display.pipe3d` = "the user wants the 3-D window". The window is shown iff
-//   display.pipe3d && specimen && (specimen.pipe || mode === 'weld'); the 'state' listener only calls
-//   show()/hide() when that predicate CHANGES (so the app's own open()/close() calls never flap).
-//   open() sets display.pipe3d = true and shows; close() (and the ✕ button) sets display.pipe3d = false.
+// - Window: created in init() via UT.dom.win({name:'pipe3d'}); on its FIRST show it is snapped to the
+//   bottom-right corner of the viewport (8 px margin, the reference position, SPEC §7 "3D Pipe (bottom-right)")
+//   using the measured window size; afterwards the user's dragged position is kept. Canvas #cv-3d 260 × 200 px.
+//   Title '3D Pipe' for spec.pipe, '3D Plate' otherwise (updated on 'state').
+// - Visibility model: `display.pipe3d` = "the user wants the 3-D window"; it is a PIPE feature (§1.1, §8.8:
+//   PIPE "shows/hides the 3D window"; no plate reference screenshot has one). The window is shown iff
+//   display.pipe3d && specimen && (specimen.pipe || (mode === 'weld' && plateWanted)), where `plateWanted`
+//   = the user explicitly asked for it while on a plate: open() (lessons, app), or a lone 'display' patch
+//   that flips pipe3d false → true (Options ▸ Show 3D Window); cleared by close() / ✕ / pipe3d → false.
+//   So a plate boots without the window, PIPE on shows '3D Pipe', PIPE off hides it again (display.pipe3d
+//   stays true = the preference survives), and a boot restore never conjures a '3D Plate' window.
+//   The 'state' listener only calls show()/hide() when the predicate CHANGES (the app's own open()/close()
+//   calls never flap). open() sets display.pipe3d = true and shows; close() (and ✕) sets it to false.
 // - Mesh: cylinder of length 220 mm (axial), 40 segments; the weld ring is a lighter band of capWidth
 //   raised by max(2.5 mm, 2 % of OD) so it reads as a cap; both ends are open (annulus + inner bore),
 //   the near end therefore shows the wall like the original's cut-away. Plate: slab 220 (x) × L (z) × T.
@@ -51,6 +58,9 @@
   let canvas = null, win = null;
   let view = Object.assign({}, DEFAULT_VIEW);
   let lastShown = null;      // last value of the visibility predicate acted upon
+  let plateWanted = false;   // user explicitly asked for the window while on a plate (see header notes)
+  let lastFlag = null;       // last seen display.pipe3d (to detect the explicit false → true flip)
+  let placed = false;        // window snapped to the bottom-right corner on its first show
   let drag = null;
   let lastProj = null;       // projection of the last draw (for toPx)
 
@@ -401,9 +411,16 @@
   function redraw() { draw(UT.frame, UT.state); }
 
   // ------------------------------------------------------------------ window / visibility
-  function shouldShow(state) {
+  /**
+   * Visibility predicate (pure): pipes whenever display.pipe3d; plates only in weld mode AND when the
+   * user explicitly asked (`wantPlate`, defaults to the module flag `plateWanted`).
+   * @param {object} [state]
+   * @param {boolean} [wantPlate]
+   */
+  function shouldShow(state, wantPlate) {
     const s = state || UT.state;
-    return !!(s && s.display && s.display.pipe3d && s.specimen && (s.specimen.pipe || s.mode === 'weld'));
+    const wp = wantPlate === undefined ? plateWanted : !!wantPlate;
+    return !!(s && s.display && s.display.pipe3d && s.specimen && (s.specimen.pipe || (s.mode === 'weld' && wp)));
   }
 
   function titleFor(state) { return state && state.specimen && state.specimen.pipe ? '3D Pipe' : '3D Plate'; }
@@ -420,7 +437,26 @@
 
   function onState(ev) {
     const keys = (ev && ev.keys) || [];
+    if (keys.indexOf('display') >= 0) {
+      const flag = !!(UT.state.display && UT.state.display.pipe3d);
+      if (flag !== lastFlag) {
+        // a lone display patch flipping pipe3d on = Options ▸ Show 3D Window (explicit); bulk patches
+        // (File ▸ New, restores) are not a request for a '3D Plate' window
+        if (flag && keys.length === 1) plateWanted = true;
+        if (!flag) plateWanted = false;
+        lastFlag = flag;
+      }
+    }
     if (keys.indexOf('display') >= 0 || keys.indexOf('mode') >= 0 || keys.indexOf('specimen') >= 0 || keys.indexOf('weldOpts') >= 0) syncVisibility(false);
+  }
+
+  /** First show: snap the window to the bottom-right corner of the viewport (reference position). */
+  function placeDefault(api) {
+    if (placed || !api || !api.el || typeof window === 'undefined') return;
+    placed = true;
+    const r = api.el.getBoundingClientRect();
+    api.el.style.left = Math.max(0, window.innerWidth - r.width - 8) + 'px';
+    api.el.style.top = Math.max(0, window.innerHeight - r.height - 8) + 'px';
   }
 
   function attachMouse(cv) {
@@ -462,11 +498,12 @@
       const iw = (typeof window !== 'undefined' && window.innerWidth) || 1280;
       const ih = (typeof window !== 'undefined' && window.innerHeight) || 720;
       win = UT.dom.win({
-        name: 'pipe3d', title: titleFor(UT.state), x: Math.max(0, iw - 300), y: Math.max(0, ih - 260),
+        name: 'pipe3d', title: titleFor(UT.state), x: Math.max(0, iw - CANVAS_W - 10), y: Math.max(0, ih - CANVAS_H - 31),
         content: canvas,
-        onShow: function () { redraw(); },
+        onShow: function (api) { placeDefault(api); redraw(); },
         onClose: function () {
           lastShown = false;
+          plateWanted = false;
           if (UT.state.display && UT.state.display.pipe3d) UT.setIn('display', { pipe3d: false }, { noRender: true });
         },
       });
@@ -475,6 +512,7 @@
     attachMouse(canvas);
     UT.bus.on('render', function (f) { if (!win || win.isOpen()) draw(f, UT.state); });
     UT.bus.on('state', onState);
+    lastFlag = !!(UT.state.display && UT.state.display.pipe3d);   // boot value is not an explicit request
     syncVisibility(false);
     return pipe3d;
   }
@@ -483,6 +521,7 @@
   function open() {
     if (!win) init();
     lastShown = true;
+    plateWanted = true;
     if (!(UT.state.display && UT.state.display.pipe3d)) UT.setIn('display', { pipe3d: true }, { noRender: true });
     win.setTitle(titleFor(UT.state));
     if (!win.isOpen()) win.show(); else redraw();
@@ -493,6 +532,7 @@
   function close() {
     if (!win) return null;
     lastShown = false;
+    plateWanted = false;
     if (win.isOpen()) win.hide();
     if (UT.state.display && UT.state.display.pipe3d) UT.setIn('display', { pipe3d: false }, { noRender: true });
     return win;
@@ -563,9 +603,11 @@
     const span = defectSpan({ zFrom: 500, zTo: 20 }, body);
     if (Math.abs(span.z1 - (20 + body.L)) > 1e-9) f.push('defect wrap');
     if (shade([1, 1, 1], [0, 0, 1]).indexOf('rgb(') !== 0) f.push('shade');
-    if (shouldShow({ display: { pipe3d: true }, specimen: plateSpec, mode: 'v1' })) f.push('shouldShow v1 plate');
+    if (shouldShow({ display: { pipe3d: true }, specimen: plateSpec, mode: 'v1' }, true)) f.push('shouldShow v1 plate');
     if (!shouldShow({ display: { pipe3d: true }, specimen: spec, mode: 'aut' })) f.push('shouldShow pipe aut');
-    if (!shouldShow({ display: { pipe3d: true }, specimen: plateSpec, mode: 'weld' })) f.push('shouldShow weld plate');
+    if (shouldShow({ display: { pipe3d: true }, specimen: plateSpec, mode: 'weld' }, false)) f.push('shouldShow weld plate not requested');
+    if (!shouldShow({ display: { pipe3d: true }, specimen: plateSpec, mode: 'weld' }, true)) f.push('shouldShow weld plate requested');
+    if (shouldShow({ display: { pipe3d: false }, specimen: spec, mode: 'weld' })) f.push('shouldShow pipe display off');
     return f;
   }
 

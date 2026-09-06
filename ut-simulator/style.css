@@ -92,8 +92,13 @@ canvas { display: block; }
 #main {
   flex: 1 1 auto;
   display: grid;
+  /* cross-section row: what is left of the viewport once the fixed parts are taken — bars 100 px,
+   * #main padding 6 px, EPOCH instrument column 396 px (this is what sizes the plan row: the grid's
+   * free space is indefinite, so the 1fr row is content-sized), ruler 30 px, status bar 28 px = 560 px.
+   * ≈ 26vh on tall screens, and exactly fits the smallest supported viewport 1024 × 700 (§7). */
+  --cross-h: clamp(120px, calc(100vh - 560px), 236px);
   grid-template-columns: 470px minmax(0, 1fr);
-  grid-template-rows: minmax(360px, 1fr) 30px clamp(180px, 26vh, 236px);
+  grid-template-rows: minmax(360px, 1fr) 30px var(--cross-h);
   gap: 0;
   min-height: 0;
   padding: 4px 6px 2px 6px;
@@ -121,28 +126,34 @@ canvas { display: block; }
 #main.block.no-ruler #ruler-area { display: none; }
 #main.block.no-ruler #instrument { grid-area: 1 / 1 / 2 / 2; }
 #main.block.no-ruler #cross-area { grid-area: 1 / 2 / 2 / 3; }
-#main.no-ruler:not(.block) { grid-template-rows: minmax(360px, 1fr) 0 clamp(180px, 26vh, 236px); }
+#main.no-ruler:not(.block) { grid-template-rows: minmax(360px, 1fr) 0 var(--cross-h); }
 /* block specimens (IOW 45 mm, DAC, step wedge, lamination plate): taller cross-section so the whole block fits */
-#main.tall:not(.block) { grid-template-rows: minmax(300px, 1fr) 30px clamp(200px, min(36vh, calc(100vh - 560px)), 340px); }
+#main.tall:not(.block) { grid-template-rows: minmax(300px, 1fr) 30px clamp(140px, min(36vh, calc(100vh - 560px)), 340px); }
 #main.no-ruler:not(.block) #ruler-area { display: none; }
 /* USK7: the instrument column shrinks to the small launcher panel */
 #main.usk7 { grid-template-columns: max-content minmax(0, 1fr); }
 #main.usk7 #instrument { min-width: 24px; }
 
 /* ------------------------------------------------------------------ status bar */
+/* One 28 px row (1 border + 1 pad + 2 × 11 px lines + 2 panel borders + 2 pad) in the original's small
+ * 10 px font: the physics line takes the free space and wraps onto a second line inside its panel when
+ * the viewport is narrower than the whole line (< ~1300 px); its 430 px minimum is just above the
+ * two-line wrap width, so it never needs a third line while sharing the row. The Pos/Range/AMP panels
+ * and the hint are never shrunk or cut: only when even those do not fit on one row (TOFD/IOW hints at
+ * 1024 px) does the hint drop to a second row, right-aligned. */
 #statusbar {
-  display: flex; align-items: stretch; gap: 3px;
-  height: 24px; padding: 2px 4px;
+  display: flex; flex-wrap: wrap; align-items: stretch; gap: 3px;
+  min-height: 28px; padding: 1px 4px 2px;
   background: #ececec; border-top: 1px solid #b0b0b0;
-  font-size: 11px; white-space: nowrap; overflow: hidden; user-select: none;
+  font-size: 10px; line-height: 11px; white-space: nowrap; overflow: hidden; user-select: none;
 }
 .sb-panel {
   display: flex; align-items: center; padding: 0 6px;
   border: 1px solid; border-color: #808080 #fff #fff #808080;
-  background: #ececec; overflow: hidden; text-overflow: ellipsis; flex: none;
+  background: #ececec; overflow: hidden; flex: none;
 }
-.sb-left { flex: 0 1 auto; min-width: 120px; }
-.sb-right { flex: 1 1 auto; min-width: 80px; margin-left: auto; }
+.sb-left { flex: 1 1 430px; min-width: 430px; white-space: normal; }
+.sb-right { flex: 0 0 auto; min-width: max-content; margin-left: auto; }
 .sb-panel.empty { min-width: 40px; }
 
 /* ------------------------------------------------------------------ windows (Win-classic chrome) */

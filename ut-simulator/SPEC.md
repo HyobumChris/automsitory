@@ -1003,7 +1003,7 @@ Disabled toolbar buttons get class `.disabled` (50 % opacity, no click; `UT.test
 | tofd | 0, v2, v1, damp | probes, options | compass |
 | aut | damp | options | compass |
 | tky | v2, v1, dac, plot, pipe, tofd, aut | weld | plan, compass, ruler |
-| trade | defect (locked), v1, v2, dac, plot, tky | defects | — |
+| trade | defect (locked), hide (locked until Submit/Reveal), v1, v2, dac, plot, tky | defects | — |
 | step / lamination | v2, v1, dac, plot, tky, tofd, aut | — | compass |
 
 ### 14.8 V1 / V2 block screens (60-view-cross draws; 80-modes owns the face switch)
@@ -1233,7 +1233,8 @@ sets `trade.score`, `trade.revealed = true`, `display.hide = false`, returns the
   window `pipe3d`; `tb-clear → UT.ascan.clearPeak(); UT.setIn('tofd', {scan: null}); UT.setIn('aut', {scan: null}); UT.setIn('plot', {points: [], edgeMarks: []}); UT.setIn('sizing', {marks: []})` + clear the raster trail (never defects).
 - Windows (`data-win`) and owners: `pipe3d` (64), `defects` (80), `tofd`, `tofd-ascan` (50), `aut` (55),
   `plotter`, `rad`, `size` (66), `usk7` (70), `weld`, `wedge`, `options`, `stepwedge`, `about`, `guide`, `keys`,
-  `export` (90), `tky`, `trade`, `lessons`, `dac` (80). Owners create them lazily on first `open()`.
+  `export`, `export-defects`, `import-defects` (90, Defects ▸ Export/Import dialogs), `tky`, `trade`, `lessons`, `dac`,
+  `autocal` (80, the Auto Cal two-point wizard). Owners create them lazily on first `open()`.
 - Events (complete catalogue): `'state' {keys, patch}`, `'render' frame`, `'status' status`,
   `'win:show'|'win:hide'|'win:close' winApi` (core); `'resize'` (90); `'mode' {mode, prev}` (80);
   `'defect:brush' {pts, erase}` (60); `'lang' lang` (90); `'scan:progress' {kind, i, n}` (50/55). No others.

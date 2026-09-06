@@ -20,7 +20,8 @@
 // - rectify: 'full' → samples = summed envelopes, rf = null; 'rf' → rf = signed carrier sum, samples =
 //   |rf|; 'half+' / 'half−' → samples = max(±rf, 0), rf = null.
 // - Gates are in DISPLAYED path mm (they are drawn on the screen). The readout peak is the maximum
-//   sample inside the gate (EPOCH "Peak"); it is attributed to the on-screen echo whose displayed path
+//   UNCLIPPED sample (`ascan.raw`, reject applied but no 120 % clip) inside the gate (EPOCH "Peak"),
+//   so a saturated echo is still found at its centre rather than at the first clipped sample; it is attributed to the on-screen echo whose displayed path
 //   is within max(2·sigma, 1 mm) of the peak sample (the strongest such echo) so peakPct is the
 //   UNCLIPPED echo amplitude and `path` its TRUE path. Grass/initial-pulse peaks report echoKind 'noise'
 //   / 'initial' with the sample value and the inverse-cal true path.
@@ -262,6 +263,7 @@
     const sigma = Math.max(sigmaOf(derived, inst), 1.5 * spacing);
     const lambda = derived.lambda || 1;
     const samples = new Float32Array(n);
+    const raw = new Float32Array(n);      // unclipped (reject applied, no 120 % clip) — gate peak search
     const rf = wantRf ? new Float32Array(n) : null;
     const env = wantRf ? rf : samples;
     const pathAt = function (i) { return delay + i / (n - 1) * range; };
@@ -326,12 +328,13 @@
         if (Math.abs(r) < reject) rf[i] = 0;
       } else v = samples[i];
       if (v < reject) v = 0;
+      raw[i] = v;
       samples[i] = v > CLIP_PCT ? CLIP_PCT : v;
     }
 
     onScreen.sort(function (a, b) { return a.pDisp - b.pDisp; });
     return {
-      samples, rf: rectify === 'rf' ? rf : null, peak: null, range, delay, n, pathAt, sigma,
+      samples, raw, rf: rectify === 'rf' ? rf : null, peak: null, range, delay, n, pathAt, sigma,
       echoesOnScreen: onScreen, noiseSeed, initialPulse, reject,
       initialZone: initialPulse ? { from: dispPath(0, inst, derived), to: dispPath(0, inst, derived) + 3 * lambda + 1.5 } : null,
     };
@@ -362,8 +365,11 @@
       const range = ascan.range, delay = ascan.delay;
       const i0 = Math.max(0, Math.ceil((s0 - delay) / range * (n - 1)));
       const i1 = Math.min(n - 1, Math.floor((s1 - delay) / range * (n - 1)));
+      // peak search on the UNCLIPPED envelope (ascan.raw) so a saturated echo is still located at its
+      // true centre and its unclipped amplitude is reported (§14.4 / §15.5); samples is the clipped fallback
+      const src = ascan.raw && ascan.raw.length === n ? ascan.raw : ascan.samples;
       let peak = -1, iPeak = -1;
-      for (let i = i0; i <= i1; i++) { if (ascan.samples[i] > peak) { peak = ascan.samples[i]; iPeak = i; } }
+      for (let i = i0; i <= i1; i++) { if (src[i] > peak) { peak = src[i]; iPeak = i; } }
       if (iPeak < 0 || peak < (g.level || 0) || peak <= 0) { out.push(null); continue; }
       const pPeak = ascan.pathAt(iPeak);
       const win = Math.max(2 * (ascan.sigma || 1), 1);

@@ -579,13 +579,31 @@
     ctx.font = FONT_SMALL; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     const top = toPx(0, 0).y, bot = toPx(0, yMax).y;
     ctx.beginPath(); ctx.moveTo(x0 + 0.5, top); ctx.lineTo(x0 + 0.5, bot); ctx.stroke();
-    for (let d = 0; d <= yMax + 1e-6; d += 5) {
+    // Tick/label steps come from the pixel scale (5/10 mm at the normal scale; coarser when the mm
+    // are tiny on screen) and the loop covers only the visible canvas rows, so the cost is bounded by
+    // canvas pixels rather than by the specimen thickness (the plate is clipped by the canvas anyway).
+    const step = rulerStep(5, xf.scale, 3);
+    const labelStep = rulerStep(10, xf.scale, 12, step);
+    const dLo = Math.max(0, Math.floor(toMm(0, 0).y / step) * step);
+    const dHi = Math.min(yMax, toMm(0, xf.H).y + step);
+    if (!((dHi - dLo) / step <= 5000)) { ctx.restore(); return; }
+    for (let d = dLo; d <= dHi + 1e-6; d += step) {
       const y = Math.round(toPx(0, d).y) + 0.5;
-      const len = d % 10 === 0 ? 10 : 6;
+      const label = d % labelStep === 0;
+      const len = label ? 10 : 6;
       ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x0 + len, y); ctx.stroke();
-      if (d % 10 === 0) ctx.fillText(String(d), x0 + 14, d === 0 ? y - 6 : y);
+      if (label) ctx.fillText(String(d), x0 + 14, d === 0 ? y - 6 : y);
     }
     ctx.restore();
+  }
+
+  // Smallest "nice" tick spacing (base × 1, 5, 10, 50, 100 … mm) that is at least minPx apart on
+  // screen and (optionally) a multiple of `coarse`. Returns `base` unchanged at the normal scale.
+  function rulerStep(base, scale, minPx, coarse) {
+    let s = base;
+    const mul = coarse || 1;
+    for (let i = 0; i < 40 && (s * scale < minPx || s % mul !== 0); i++) s *= (i % 2 === 0) ? 5 : 2;
+    return s;
   }
 
   function drawLabels(ctx, sp, skipCaption) {
@@ -606,8 +624,20 @@
   function drawCaption(ctx, sp, W) {
     ctx.save();
     ctx.fillStyle = '#000'; ctx.font = FONT; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
-    const right = sp && sp.extents ? Math.min(W - 8, toPx(sp.extents.xMax, 0).x - 12) : W - 12;
-    ctx.fillText('CROSS SECTION', right, toPx(0, 0).y - 6);
+    let right = sp && sp.extents ? Math.min(W - 8, toPx(sp.extents.xMax, 0).x - 12) : W - 12;
+    const baseline = toPx(0, 0).y - 6;
+    // The 3-D window (PIPE on) sits over the right end of the cross band at every viewport size:
+    // slide the caption left of it when their boxes intersect (§14.11).
+    try {
+      const w = UT.dom && UT.dom.wins && UT.dom.wins.pipe3d;
+      if (w && w.isOpen() && w.el && S.canvas && typeof w.el.getBoundingClientRect === 'function') {
+        const wr = w.el.getBoundingClientRect(), cr = S.canvas.getBoundingClientRect();
+        const wl = wr.left - cr.left, wt = wr.top - cr.top, wb = wr.bottom - cr.top;
+        const tw = ctx.measureText('CROSS SECTION').width;
+        if (right > wl && right - tw < wr.right - cr.left && baseline > wt && baseline - 12 < wb) right = Math.min(right, wl - 8);
+      }
+    } catch (e) { /* headless / no layout: keep the default position */ }
+    ctx.fillText('CROSS SECTION', right, baseline);
     ctx.restore();
   }
 
@@ -853,14 +883,19 @@
     const xf = S.canvas ? (S.xf || ensureTransform(st)) : computeTransform(sp, W, H);
     const unsigned = sp.extents.xMin < 0;
     const mmAt = function (px) { return (px - xf.ox) / xf.scale; };
-    const x0 = Math.ceil(mmAt(0) / 2) * 2, x1 = Math.floor(mmAt(W) / 2) * 2;
+    // Tick every 2 mm / label every 10 mm at the normal scale; coarser steps when the mm are tiny
+    // on screen so the loop count stays bounded by the canvas width (§14.1, §15.11).
+    const step = rulerStep(2, xf.scale, 3);
+    const labelStep = rulerStep(10, xf.scale, 16, step);
+    const x0 = Math.ceil(mmAt(0) / step) * step, x1 = Math.floor(mmAt(W) / step) * step;
     ctx.strokeStyle = COL.ruler; ctx.fillStyle = COL.ruler; ctx.lineWidth = 1;
     ctx.font = FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
     const base = 1;
     ctx.beginPath(); ctx.moveTo(0, base + 0.5); ctx.lineTo(W, base + 0.5); ctx.stroke();
-    for (let x = x0; x <= x1; x += 2) {
+    if (!((x1 - x0) / step <= 5000)) { ctx.restore(); return; }
+    for (let x = x0; x <= x1; x += step) {
       const px = Math.round(xf.ox + x * xf.scale) + 0.5;
-      const ten = Math.abs(x) % 10 === 0;
+      const ten = Math.abs(x) % labelStep === 0;
       const len = ten ? 11 : 5;
       ctx.beginPath(); ctx.moveTo(px, base); ctx.lineTo(px, base + len); ctx.stroke();
       if (ten) ctx.fillText(String(unsigned ? Math.abs(x) : x), px, H - 4);

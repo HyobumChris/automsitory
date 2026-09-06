@@ -497,8 +497,8 @@
     recordTrail(state);
     drawField(ctx, spec);
     drawWeldBand(ctx, spec);
-    drawTrail(ctx);
     drawDefects(ctx, state, spec);
+    drawTrail(ctx); // after defects so the raster trail stays visible over lamination rectangles (§14.2)
     drawFootprint(ctx, frame, state, derived);
     drawProbe(ctx, state, spec, derived);
     drawRuler(ctx, state);

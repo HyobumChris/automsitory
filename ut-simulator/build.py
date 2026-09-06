@@ -25,6 +25,8 @@ def main():
     def css_repl(m):
         href = m.group(1)
         css = read(href)
+        if '</style' in css.lower():
+            raise SystemExit('ERROR: %s contains a literal </style> sequence; write it as <\\/style>' % href)
         return '<style>\n/* ---- %s ---- */\n%s\n</style>' % (href, css)
 
     def js_repl(m):

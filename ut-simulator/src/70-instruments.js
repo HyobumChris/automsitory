@@ -662,7 +662,7 @@
     const S = frame && frame.sscan;
     ctx.save();
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
-    if (!S || !S.columns || !S.columns.length) { ctx.fillStyle = '#ccc'; ctx.font = '11px Segoe UI, Arial, sans-serif'; ctx.fillText('S-SCAN (no data)', 6, 14); ctx.restore(); return; }
+    if (!S || !S.columns || !S.columns.length) { ctx.fillStyle = '#ccc'; ctx.font = '11px Segoe UI, Arial, sans-serif'; ctx.textBaseline = 'bottom'; ctx.fillText('S-SCAN (no data)', 4, H - 2); ctx.restore(); return; }
     const I = (state && state.instrument) || UT.defaultState().instrument;
     const K = (UT.ascan && UT.ascan.K_REF) || 1;
     const gainLin = Math.pow(10, (I.gain || 0) / 20);
@@ -673,7 +673,9 @@
     const depthMax = Math.min(maxPath, Math.max(T * 1.05, maxPath * Math.cos(M.deg2rad(aMax)) * 1.05));
     const xMax = maxPath * Math.sin(M.deg2rad(aMax)) * 1.02;
     const side = (state && state.probe && state.probe.side) || 1;
-    const mL = 18, mT = 18, mB = 12, mR = 6;
+    // USK7: the magenta CRT text line (.usk-text DOM overlay, ~canvas y 6..19) sits at the top-left, so
+    // start the sector lower there; the caption goes on a second bottom row (never at the top-left).
+    const mL = 18, mT = mem.skin === 'usk7' ? 26 : 18, mB = 24, mR = 6;
     const scale = Math.min((W - mL - mR) / Math.max(1, xMax), (H - mT - mB) / Math.max(1, depthMax));
     const ox = side > 0 ? W - mR : mL, oy = mT;
     const toX = function (lat) { return ox - side * lat * scale; };
@@ -699,12 +701,13 @@
       });
     });
     // frame texts
-    ctx.fillStyle = '#e0e0e0'; ctx.font = 'bold 11px Segoe UI, Arial, sans-serif'; ctx.textBaseline = 'top';
-    ctx.fillText('S-SCAN ' + aMin.toFixed(0) + '°–' + aMax.toFixed(0) + '°', 4, 1);
-    ctx.font = '9px Segoe UI, Arial, sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#e0e0e0'; ctx.font = '9px Segoe UI, Arial, sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     for (let d = 0; d <= depthMax + 1e-9; d += 10) { ctx.fillText(String(d), mL - 2, toY(d)); }
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.fillText('0', ox, H - mB + 1); ctx.fillText(Math.round(xMax) + ' mm', toX(xMax * 0.9), H - mB + 1);
+    // caption: bottom-left, under the mm scale (the top-left is the USK7 CRT text line)
+    ctx.font = 'bold 11px Segoe UI, Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    ctx.fillText('S-SCAN ' + aMin.toFixed(0) + '°–' + aMax.toFixed(0) + '°', 3, H - 1);
     ctx.restore();
   }
 

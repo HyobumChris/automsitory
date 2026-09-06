@@ -100,8 +100,13 @@ canvas { display: block; }
 #main {
   flex: 1 1 auto;
   display: grid;
+  /* cross-section row: what is left of the viewport once the fixed parts are taken — bars 100 px,
+   * #main padding 6 px, EPOCH instrument column 396 px (this is what sizes the plan row: the grid's
+   * free space is indefinite, so the 1fr row is content-sized), ruler 30 px, status bar 28 px = 560 px.
+   * ≈ 26vh on tall screens, and exactly fits the smallest supported viewport 1024 × 700 (§7). */
+  --cross-h: clamp(120px, calc(100vh - 560px), 236px);
   grid-template-columns: 470px minmax(0, 1fr);
-  grid-template-rows: minmax(360px, 1fr) 30px clamp(180px, 26vh, 236px);
+  grid-template-rows: minmax(360px, 1fr) 30px var(--cross-h);
   gap: 0;
   min-height: 0;
   padding: 4px 6px 2px 6px;
@@ -129,28 +134,34 @@ canvas { display: block; }
 #main.block.no-ruler #ruler-area { display: none; }
 #main.block.no-ruler #instrument { grid-area: 1 / 1 / 2 / 2; }
 #main.block.no-ruler #cross-area { grid-area: 1 / 2 / 2 / 3; }
-#main.no-ruler:not(.block) { grid-template-rows: minmax(360px, 1fr) 0 clamp(180px, 26vh, 236px); }
+#main.no-ruler:not(.block) { grid-template-rows: minmax(360px, 1fr) 0 var(--cross-h); }
 /* block specimens (IOW 45 mm, DAC, step wedge, lamination plate): taller cross-section so the whole block fits */
-#main.tall:not(.block) { grid-template-rows: minmax(300px, 1fr) 30px clamp(200px, min(36vh, calc(100vh - 560px)), 340px); }
+#main.tall:not(.block) { grid-template-rows: minmax(300px, 1fr) 30px clamp(140px, min(36vh, calc(100vh - 560px)), 340px); }
 #main.no-ruler:not(.block) #ruler-area { display: none; }
 /* USK7: the instrument column shrinks to the small launcher panel */
 #main.usk7 { grid-template-columns: max-content minmax(0, 1fr); }
 #main.usk7 #instrument { min-width: 24px; }
 
 /* ------------------------------------------------------------------ status bar */
+/* One 28 px row (1 border + 1 pad + 2 × 11 px lines + 2 panel borders + 2 pad) in the original's small
+ * 10 px font: the physics line takes the free space and wraps onto a second line inside its panel when
+ * the viewport is narrower than the whole line (< ~1300 px); its 430 px minimum is just above the
+ * two-line wrap width, so it never needs a third line while sharing the row. The Pos/Range/AMP panels
+ * and the hint are never shrunk or cut: only when even those do not fit on one row (TOFD/IOW hints at
+ * 1024 px) does the hint drop to a second row, right-aligned. */
 #statusbar {
-  display: flex; align-items: stretch; gap: 3px;
-  height: 24px; padding: 2px 4px;
+  display: flex; flex-wrap: wrap; align-items: stretch; gap: 3px;
+  min-height: 28px; padding: 1px 4px 2px;
   background: #ececec; border-top: 1px solid #b0b0b0;
-  font-size: 11px; white-space: nowrap; overflow: hidden; user-select: none;
+  font-size: 10px; line-height: 11px; white-space: nowrap; overflow: hidden; user-select: none;
 }
 .sb-panel {
   display: flex; align-items: center; padding: 0 6px;
   border: 1px solid; border-color: #808080 #fff #fff #808080;
-  background: #ececec; overflow: hidden; text-overflow: ellipsis; flex: none;
+  background: #ececec; overflow: hidden; flex: none;
 }
-.sb-left { flex: 0 1 auto; min-width: 120px; }
-.sb-right { flex: 1 1 auto; min-width: 80px; margin-left: auto; }
+.sb-left { flex: 1 1 430px; min-width: 430px; white-space: normal; }
+.sb-right { flex: 0 0 auto; min-width: max-content; margin-left: auto; }
 .sb-panel.empty { min-width: 40px; }
 
 /* ------------------------------------------------------------------ windows (Win-classic chrome) */
@@ -1405,10 +1416,14 @@ canvas { display: block; }
   //    response of a SDH peaks uniquely when the ray passes through its centre (otherwise the flat
   //    capture disc made every position within ±c equally loud, which broke "max within ±5 mm").
   // 2. Weld bead surfaces (outline tags 'cap' and 'root') are rough: besides the specular return test
-  //    they act as weak diffuse scatterers at the hit point (kind 'geometry', S = 0.45·|cos incidence|,
-  //    D = q^1.5). Machined surfaces (top/bottom/end/step/brace/fusion/radius) stay purely specular.
-  //    Without this, the 8-segment sine bead never returns a 45/60/70° beam within θ20 and the
-  //    root/cap geometry echoes required by §6.1 3 and §11.1 would never exist.
+  //    they act as weak diffuse scatterers at the hit point (kind 'geometry',
+  //    S = BEAD_SCATTER·|cos incidence|·min(1, |n_x|/0.5), D = q^1.5) — the slope factor |n_x| makes a
+  //    FLAT bead (rootHeight/capHeight 0, outline points still tagged root/cap) a plain backwall/top
+  //    that does not scatter, and BEAD_SCATTER (0.08) keeps the root-bead echo ≥ 20 dB below the
+  //    corner echo of a 3 mm root crack so an AUT gate at 20 % of the corner peak stays clear of it
+  //    (§11.1 #12 on the default weld). Machined surfaces (top/bottom/end/step/brace/fusion/radius)
+  //    stay purely specular. Without the bead scatter, the 8-segment sine bead never returns a
+  //    45/60/70° beam within θ20 and the root/cap geometry echoes of §6.1 3 would never exist.
   // 3. Lamination size factor uses the lateral extent (width) instead of the through-thickness
   //    height: S = min(1.2, max(width, height)/4). A 0.5 mm-high, 40 mm-wide lamination is a large
   //    reflector for a 0° beam (§6.3 "strong echo at its depth").
@@ -1436,12 +1451,31 @@ canvas { display: block; }
   //     was hit > 12° off its normal. A leg-2 normal-incidence return off a fusion face (bottom → face →
   //     bottom → probe) is otherwise labelled 'corner' by the literal rule; it is a plain 'defect' echo.
   //     Corner echoes report x,y of the defect hit and the leg of the first reflection of the pair.
-  // 14. Raw echoes with amp < 1e-6 (−120 dB, < 1 % FSH even at 110 dB gain) are dropped before merging.
+  // 14. Raw echoes with max(amp, ampNoZ) < 1e-6 (−120 dB, < 1 % FSH even at 110 dB gain) are dropped
+  //     before merging. An echo whose z-overlap Z is 0 (defect not under the probe's z) is KEPT with
+  //     amp 0 when its ampNoZ is finite, so the AUT trace-once + zFactor() re-weighting (§15.11) can
+  //     recover it at other z; such echoes contribute no highlight dot.
   // 15. Step-wedge floors (tag 'step') report kind 'backwall' (§6.3: "backwall at the local step
   //     thickness"); the vertical risers ('end') stay 'geometry'.
   // 16. TT receiver aperture: a fan ray counts when its first outline hit lies within D/2 of the
   //     centre-ray line (perpendicular) and within D of the receiver point, so a clean plate transmits 1.0
   //     for every angle. Planar defect segments still reflect in TT mode (they shadow the receiver).
+  //     The transmitter is TT_SUB sub-apertures spread over the crystal (offsets −D/2..+D/2 along the
+  //     scanning surface, each with the full fan; receiver test translated by the same offset), so a
+  //     reflector narrower than the crystal shadows only part of the signal. Volumetric defects
+  //     (types volumetric/porosity/slag) attenuate a TT ray by TT_EXTINCTION dB per mm of chord through
+  //     the defect polygon × reflectivity × z-overlap fraction (10 × 4 mm inclusion at 0° → −6 dB).
+  //     Pulse-echo/tandem rays are not attenuated (only TT).
+  // 17. Volumetric scatterers: each sample point keeps only its LOUDEST capture across the fan rays
+  //     (per leg) before merging, so the incoherent sum of rule 5 runs over distinct scatterer points and
+  //     the amplitude does not grow with fanCount (S-scan fan of 5 = A-scan fan of 21). Their echo kind
+  //     is 'defect' (§15.4) with defectType volumetric/porosity/slag; mergeEchoes applies the incoherent
+  //     sum to 'defect' groups whose defectType is not planar.
+  // 18. Return aperture soft edge: the SPEC's hard gate dE ≤ ra is kept at full weight, followed by a
+  //     taper zone ra < dE < ra + AP_TAIL·D with weight cos²(π/2·(dE − ra)/(AP_TAIL·D)) (AP_TAIL = 2:
+  //     0 at ra + 2D; a 21-ray fan then fades in ≤ 6 dB steps per ray at the fan edge), so a mirror-like
+  //     reflector leaving the fan fades out instead of switching off (the dev < θ20 gate is widened to
+  //     2·θ20 for the same reason; w(2θ20) = −40 dB one-way).
 
   const M = UT.math;
   const DEG = Math.PI / 180;
@@ -1452,6 +1486,10 @@ canvas { display: block; }
   const OTHER_LOSS = 0.95;
   const CORNER_MIN_INC = 12;  // deg from the normal at the defect for the corner rule (SPEC NOTE 13)
   const AMP_FLOOR = 1e-6;     // echoes below this (−120 dB) are dropped (SPEC NOTE 14)
+  const BEAD_SCATTER = 0.08;  // rough weld-bead diffuse coefficient (SPEC NOTE 2)
+  const TT_SUB = 7;           // through-transmission sub-apertures across the crystal (SPEC NOTE 16)
+  const TT_EXTINCTION = 1.5;  // dB per mm of TT ray chord through a volumetric defect (SPEC NOTE 16)
+  const AP_TAIL = 2;          // return-aperture taper zone beyond ra, in crystal diameters (SPEC NOTE 18)
   const sampleCache = new WeakMap();
   const geomCache = new WeakMap();   // specimen → flattened edges/arcs with precomputed normals
 
@@ -1538,15 +1576,25 @@ canvas { display: block; }
     return g;
   }
 
+  /** True when a defect bbox touches the specimen extents (padded ~5 mm); no extents → keep it. */
+  function overlapsSpecimen(bb, specimen) {
+    const ex = specimen && specimen.extents;
+    if (!ex || !Number.isFinite(bb.xMin) || !Number.isFinite(bb.yMin)) return true;
+    const pad = 5;
+    return bb.xMax >= ex.xMin - pad && bb.xMin <= ex.xMax + pad && bb.yMax >= ex.yMin - pad && bb.yMin <= ex.yMax + pad;
+  }
+
   /** Build the reflector lists once per trace: defect segments, diffuse points, hole discs. */
   function buildScene(specimen, defects, probe) {
     const segs = [];      // specular planar defect segments
     const points = [];    // diffuse scatterers
+    const vols = [];      // volumetric defect polygons (TT extinction, SPEC NOTE 16)
     const list = Array.isArray(defects) ? defects : [];
     for (const d of list) {
       if (!d || d.visible === false || !Array.isArray(d.pts) || d.pts.length < 2) continue;
       const refl = d.reflectivity === undefined ? 1 : d.reflectivity;
       const bb = UT.specimens.bbox(d.pts);
+      if (!overlapsSpecimen(bb, specimen)) continue;   // off-specimen defect: nothing to reflect (saves the sampling work)
       const height = d.height === undefined ? Math.max(0.5, bb.h) : d.height;
       if (UT.specimens.isPlanar(d.type)) {
         const isLam = d.type === 'lamination';
@@ -1566,15 +1614,39 @@ canvas { display: block; }
         const sm = samplesOf(d);
         const n = Math.max(1, sm.length);
         const S = Math.min(1, height / 3) * refl / Math.sqrt(n);
-        for (const p of sm) points.push({ x: p.x, y: p.y, kind: 'volumetric', S, dExp: 2, cap: 0, defect: d });
+        for (const p of sm) points.push({ x: p.x, y: p.y, kind: 'defect', vol: true, S, dExp: 2, cap: 0, defect: d });
+        if (d.pts.length >= 3) vols.push({ pts: d.pts, refl, defect: d });
       }
     }
     for (const h of specimen.holes || []) {
       const dia = 2 * h.r;
       points.push({ x: h.x, y: h.y, kind: 'sdh', S: Math.min(1, Math.sqrt(dia / 3)), dExp: 1.5, cap: h.r + 0.5, tag: h.tag || 'sdh', label: h.label || (dia + 'mm'), hole: h });
     }
+    for (let i = 0; i < points.length; i++) points[i].idx = i;
     const g = geometryOf(specimen);
-    return { segs, points, edges: g.edges, arcs: g.arcs, perspex: g.perspex };
+    return { segs, points, vols, edges: g.edges, arcs: g.arcs, perspex: g.perspex };
+  }
+
+  /** Length of the ray segment [pos, pos + dir·L] inside a closed polygon (sum of chords). */
+  function chordThrough(poly, px, py, dx, dy, L) {
+    const ts = [];
+    for (let i = 0; i < poly.length - 1; i++) {
+      const ax = poly[i].x, ay = poly[i].y, ex = poly[i + 1].x - ax, ey = poly[i + 1].y - ay;
+      const den = dx * ey - dy * ex;
+      if (den > -1e-12 && den < 1e-12) continue;
+      const t = ((ax - px) * ey - (ay - py) * ex) / den;
+      if (t <= 0 || t >= L) continue;
+      const u = ((ax - px) * dy - (ay - py) * dx) / den;
+      if (u < 0 || u > 1) continue;
+      ts.push(t);
+    }
+    let inside = M.pointInPolygon(px, py, poly), prev = 0, chord = 0;
+    if (ts.length) {
+      ts.sort(function (a, b) { return a - b; });
+      for (const t of ts) { if (inside) chord += t - prev; inside = !inside; prev = t; }
+    }
+    if (inside) chord += L - prev;
+    return chord;
   }
 
   // ------------------------------------------------------------------ per-ray march
@@ -1582,17 +1654,21 @@ canvas { display: block; }
    * March one ray. Returns { pts, legs, echoes, hits, transmitted }.
    * @param {object} C  trace context
    * @param {number} delta  fan offset (deg)
+   * @param {number} [off]  emission offset along the scanning surface (mm, TT sub-apertures only)
    */
-  function marchRay(C, delta) {
+  function marchRay(C, delta, off) {
     const w = M.beamWeight20(delta, C.th20);
     const dir0 = dirAt(C.ss, C.side, C.theta + delta);
-    let pos = { x: C.E.x + dir0.x * STEP_OFF, y: C.E.y + dir0.y * STEP_OFF };
+    const o = off || 0;
+    const E0 = { x: C.E.x + C.ss.tangent.x * o, y: C.E.y + C.ss.tangent.y * o };
+    const rx0 = C.rx ? { x: C.rx.x + C.ss.tangent.x * o, y: C.rx.y + C.ss.tangent.y * o } : null;
+    let pos = { x: E0.x + dir0.x * STEP_OFF, y: E0.y + dir0.y * STEP_OFF };
     let dir = { x: dir0.x, y: dir0.y };
     let len = 0, bounces = 0, leg = 1, e = 1;
     const hist = [];                   // last two reflections
     let sawDefect = false, sawBottom = false;
     let slotPending = false;
-    const pts = [{ x: C.E.x, y: C.E.y, leg: 1 }];
+    const pts = [{ x: E0.x, y: E0.y, leg: 1 }];
     const legs = [];
     const echoes = [];
     const hits = [];
@@ -1657,8 +1733,22 @@ canvas { display: block; }
           if (d > cap) continue;
           const path = len + u;
           const taper = Math.cos(Math.PI / 2 * d / cap);
-          echoes.push(makeEcho(C, { path, kind: P.kind, leg, x: P.x, y: P.y, w, wReturn: w, e, S: P.S, dExp: P.dExp,
-            defect: P.defect, tag: P.tag, label: P.label, angleDev: delta, extra: taper }));
+          const ec = makeEcho(C, { path, kind: P.kind, leg, x: P.x, y: P.y, w, wReturn: w, e, S: P.S, dExp: P.dExp,
+            defect: P.defect, tag: P.tag, label: P.label, angleDev: delta, extra: taper });
+          if (P.vol) {
+            // one entry per scatterer point and leg: the loudest capture over the fan (SPEC NOTE 17)
+            const key = P.idx * 64 + leg;
+            const cur = C.volBest.get(key);
+            if (!cur || ec.ampNoZ > cur.ampNoZ) C.volBest.set(key, ec);
+          } else echoes.push(ec);
+        }
+      } else if (C.tt && scene.vols.length) {
+        // extinction through volumetric defects (SPEC NOTE 16)
+        for (const V of scene.vols) {
+          const chord = chordThrough(V.pts, pos.x, pos.y, dir.x, dir.y, L);
+          if (chord <= 0) continue;
+          const zf = zOverlap(V.defect, C.probeZ, C.diameter / 2 + (len + L) * Math.tan(C.th20 * DEG), C.L, C.wrap);
+          e *= Math.pow(10, -TT_EXTINCTION * V.refl * zf * zf * chord / 20);
         }
       }
 
@@ -1669,9 +1759,9 @@ canvas { display: block; }
       legs.push({ a: { x: pos.x, y: pos.y }, b: hp, leg, surfaceTag: fromTag, hitTag: best.tag });
 
       // through transmission receiver test (first outline hit only)
-      if (C.tt && best.type === 'outline' && leg === 1 && C.rx) {
-        const dPerp = Math.abs((hp.x - C.rx.x) * C.u0.y - (hp.y - C.rx.y) * C.u0.x);   // distance from the centre-ray line
-        if (dPerp <= C.diameter / 2 && M.dist(hp.x, hp.y, C.rx.x, C.rx.y) <= C.diameter) transmitted += w * e;
+      if (C.tt && best.type === 'outline' && leg === 1 && rx0) {
+        const dPerp = Math.abs((hp.x - rx0.x) * C.u0.y - (hp.y - rx0.y) * C.u0.x);   // distance from the sub-aperture's centre-ray line
+        if (dPerp <= C.diameter / 2 && M.dist(hp.x, hp.y, rx0.x, rx0.y) <= C.diameter) transmitted += w * e;
       }
 
       // ---- reflect
@@ -1698,7 +1788,8 @@ canvas { display: block; }
           // rough weld bead: weak diffuse geometry scatter (SPEC NOTE 2)
           if (!C.tt && !C.tandem && (best.tag === 'cap' || best.tag === 'root')) {
             const inc = Math.abs(dot(dir.x, dir.y, best.nx, best.ny));
-            echoes.push(makeEcho(C, { path: len, kind: 'geometry', leg: leg - 1, x: hp.x, y: hp.y, w, wReturn: w, e: e / OTHER_LOSS, S: 0.45 * inc, dExp: 1.5, tag: best.tag, angleDev: delta }));
+            const slope = Math.min(1, Math.abs(best.nx) / 0.5);   // 0 for a flat bead (SPEC NOTE 2)
+            if (slope > 1e-6) echoes.push(makeEcho(C, { path: len, kind: 'geometry', leg: leg - 1, x: hp.x, y: hp.y, w, wReturn: w, e: e / OTHER_LOSS, S: BEAD_SCATTER * inc * slope, dExp: 1.5, tag: best.tag, angleDev: delta }));
           }
         } else if (best.type === 'perspex') {
           e *= OTHER_LOSS;
@@ -1735,9 +1826,12 @@ canvas { display: block; }
             const dE = M.dist(cross.x, cross.y, C.E.x, C.E.y);
             const ra = C.diameter / 2 + (len + cross.t) * Math.sin(C.th6 * DEG);
             const dev = M.angleBetween(dir.x, dir.y, -C.u0.x, -C.u0.y);
-            if (dE <= ra && dev < C.th20) {
+            const tail = AP_TAIL * C.diameter;
+            if (dE < ra + tail && dev < 2 * C.th20) {
+              // full weight inside ra, cos² taper to 0 over the next AP_TAIL·D (SPEC NOTE 18)
+              const wAp = dE <= ra ? 1 : Math.pow(Math.cos(Math.PI / 2 * (dE - ra) / tail), 2);
               const info = returnInfo(hist);
-              echoes.push(makeEcho(C, { path: (len + cross.t) / 2, kind: info.kind, leg: info.leg, x: info.x, y: info.y, w, wReturn: M.beamWeight20(dev, C.th20), e, S: info.S, dExp: info.dExp, defect: info.defect, tag: info.tag, angleDev: delta }));
+              echoes.push(makeEcho(C, { path: (len + cross.t) / 2, kind: info.kind, leg: info.leg, x: info.x, y: info.y, w, wReturn: M.beamWeight20(dev, C.th20) * wAp, e, S: info.S, dExp: info.dExp, defect: info.defect, tag: info.tag, angleDev: delta }));
               if (C.retroSlot && dE <= 1.0) slotPending = true;
             }
           }
@@ -1802,8 +1896,12 @@ canvas { display: block; }
   }
 
   // ------------------------------------------------------------------ merging
+  function isVolumetricEcho(ec) {
+    return ec.kind === 'defect' && ec.defectType !== undefined && !UT.specimens.isPlanar(ec.defectType);
+  }
+
   function mergeEchoes(raw) {
-    const list = raw.filter(function (ec) { return ec.amp >= AMP_FLOOR || ec.kind === 'transmitted'; });
+    const list = raw.filter(function (ec) { return Math.max(ec.amp, ec.ampNoZ || 0) >= AMP_FLOOR || ec.kind === 'transmitted'; });
     list.sort(function (a, b) { return a.path - b.path; });
     const groups = [];
     const byKey = new Map();
@@ -1820,13 +1918,13 @@ canvas { display: block; }
       if (!g) { g = { best: ec, sum2: ec.amp * ec.amp, sumNoZ2: ec.ampNoZ * ec.ampNoZ, last: ec.path }; arr.push(g); groups.push(g); }
       else {
         g.sum2 += ec.amp * ec.amp; g.sumNoZ2 += ec.ampNoZ * ec.ampNoZ; g.last = ec.path;
-        if (ec.amp > g.best.amp) g.best = ec;
+        if (ec.amp > g.best.amp || (ec.amp === g.best.amp && ec.ampNoZ > g.best.ampNoZ)) g.best = ec;
       }
     }
     const out = [];
     for (const g of groups) {
       const ec = Object.assign({}, g.best);
-      if (ec.kind === 'volumetric') { ec.amp = Math.sqrt(g.sum2); ec.ampNoZ = Math.sqrt(g.sumNoZ2); }
+      if (isVolumetricEcho(ec)) { ec.amp = Math.sqrt(g.sum2); ec.ampNoZ = Math.sqrt(g.sumNoZ2); }
       out.push(ec);
     }
     out.sort(function (a, b) { return a.path - b.path; });
@@ -1862,7 +1960,7 @@ canvas { display: block; }
       probeZ: probe.z || 0, skew: probe.skew || 0, L: specimen.L || 0, wrap: !!specimen.pipe,
       scene: buildScene(specimen, a.defects, probe),
       tt: probe.method === 'tt', tandem: probe.method === 'tandem',
-      rx: null, rxDir: null,
+      rx: null, rxDir: null, volBest: new Map(),
     };
     // receivers
     let receiver = null;
@@ -1898,6 +1996,19 @@ canvas { display: block; }
       }
       for (const ec of r.echoes) raw.push(ec);
     }
+    if (C.tt && TT_SUB > 1) {
+      // remaining sub-apertures across the crystal (drawing keeps the centre one) — SPEC NOTE 16
+      for (let k = 0; k < TT_SUB; k++) {
+        const off = -C.diameter / 2 + C.diameter * (k + 0.5) / TT_SUB;
+        if (Math.abs(off) < 1e-9) continue;
+        for (let i = 0; i < n; i++) {
+          const delta = n === 1 ? 0 : -C.th20 + 2 * C.th20 * i / (n - 1);
+          const r = marchRay(C, delta, off);
+          sumW += r.w; sumT += r.transmitted;
+        }
+      }
+    }
+    C.volBest.forEach(function (ec) { raw.push(ec); });
     if (!centre) centre = { pts: fan.length ? fan[Math.floor(fan.length / 2)].pts : [], legs: [] };
     let echoes;
     if (C.tt) {
@@ -1909,7 +2020,7 @@ canvas { display: block; }
       echoes = mergeEchoes(raw);
     }
     for (const ec of echoes) {
-      if (ec.kind === 'transmitted') continue;
+      if (ec.kind === 'transmitted' || !(ec.amp >= AMP_FLOOR)) continue;
       hits.push({ x: ec.x, y: ec.y, kind: ec.kind, defectId: ec.defectId, tag: ec.tag });
     }
     const res = { centre, fan, edge20: [fan.length ? fan[0].pts : [], fan.length ? fan[fan.length - 1].pts : []], echoes, hits, E: C.E, u0: C.u0 };
@@ -1960,7 +2071,7 @@ canvas { display: block; }
     if (!echo) return '';
     let name = KIND_NAMES[echo.kind] || echo.kind;
     if (echo.kind === 'sdh' && echo.label) name = 'SDH ' + echo.label;
-    else if ((echo.kind === 'defect' || echo.kind === 'volumetric' || echo.kind === 'lamination' || echo.kind === 'corner' || echo.kind === 'tip') && echo.label) name = echo.label + (echo.kind === 'corner' ? ' (corner)' : echo.kind === 'tip' ? ' (tip)' : '');
+    else if ((echo.kind === 'defect' || echo.kind === 'lamination' || echo.kind === 'corner' || echo.kind === 'tip') && echo.label) name = echo.label + (echo.kind === 'corner' ? ' (corner)' : echo.kind === 'tip' ? ' (tip)' : '');
     else if (echo.kind === 'geometry' && echo.tag) name = 'Geometry (' + echo.tag + ')';
     if (echo.tag === 'tandem') name = 'Tandem: ' + name;
     const p = echo.path === undefined ? '' : ' ' + M.fmt(echo.path, 1) + ' mm';
@@ -2074,6 +2185,36 @@ canvas { display: block; }
     const ttb = run(pl, { angle: 0, x: 40, method: 'tt' }, { skips: 3 }, [S.defectPresets.lamination(pl)], 100).echoes[0];
     if (!ttc || ttc.kind !== 'transmitted' || Math.abs(ttc.amp - 1) > 1e-6 || Math.abs(ttc.path - 20) > 1e-6) f.push('tt clean');
     if (!ttb || ttb.amp > 0.05) f.push('tt shadow');
+    // (i) volumetric: kind 'defect', amplitude independent of fanCount (SPEC NOTE 17)
+    const pv = S.plateWeld({ T: 20, rootHeight: 0, capHeight: 0 });
+    const por = S.defectPresets.porosity(pv);
+    const volAmp = function (fc) {
+      const p = Object.assign({ mode: 'shear', freq: 5, diameter: 10, wedgeVel: 2.74, method: 'pe', z: pv.L / 2, side: 1, skew: 0 }, { angle: 60, x: 19 });
+      const r = trace({ specimen: pv, probe: p, derived: UT.probe.derive(p, pv), display: { skips: 3 }, defects: [por], opts: { maxPath: 100, fanCount: fc, maxLegs: 3 } });
+      let m = 0, kinds = 0;
+      for (const e of r.echoes) if (e.defectId !== undefined && e.kind !== 'tip') { kinds += e.kind === 'defect' ? 0 : 1; if (e.amp > m) m = e.amp; }
+      return { m, kinds };
+    };
+    const v5 = volAmp(5), v21 = volAmp(21), v81 = volAmp(81);
+    if (v21.kinds) f.push('volumetric echo kind not defect');
+    if (!(v21.m > 0) || Math.abs(dB(v81.m, v21.m)) > 1 || Math.abs(dB(v5.m, v21.m)) > 1) f.push('volumetric amp vs fanCount: ' + v5.m + ' / ' + v21.m + ' / ' + v81.m);
+    // (j) z-overlap 0 keeps the echo with amp 0 / finite ampNoZ (AUT re-weighting)
+    const far = run(pw, { angle: 60, x: 34.6, z: 100 }, { skips: 3 }, [Object.assign({}, crack, { zFrom: 120, zTo: 150 })], 100);
+    const farC = far.echoes.find(function (e) { return e.kind === 'corner'; });
+    if (!farC || farC.amp !== 0 || !(farC.ampNoZ > 0)) f.push('Z = 0 corner echo dropped');
+    // (k) flat root bead does not scatter; default bead echo ≥ 14 dB below the corner echo
+    if (rc.echoes.some(function (e) { return e.kind === 'geometry' && e.tag === 'root'; })) f.push('flat root scatters');
+    const pd = S.plateWeld({ T: 20 });
+    const rcd = run(pd, { angle: 60, x: 31 }, { skips: 3 }, [S.defectPresets.rootCrack(pd)], 100);
+    const cd = near(rcd.echoes, 'corner', 40, 2);
+    const gd = rcd.echoes.filter(function (e) { return e.kind === 'geometry' && e.tag === 'root' && Math.abs(e.path - 40) < 4; }).sort(function (a, b) { return b.amp - a.amp; })[0];
+    if (!cd) f.push('default weld corner echo missing');
+    else if (gd && dB(cd.amp, gd.amp) < 14) f.push('root bead echo only ' + dB(cd.amp, gd.amp).toFixed(1) + ' dB below corner');
+    // (l) TT: volumetric shadow ≥ 3 dB, narrow planar → partial shadow
+    const ttv = run(pl, { angle: 0, x: 60, method: 'tt' }, { skips: 3 }, [{ id: 'v', type: 'volumetric', pts: [{ x: 55, y: 8 }, { x: 65, y: 8 }, { x: 65, y: 12 }, { x: 55, y: 12 }, { x: 55, y: 8 }], height: 4, zFrom: 120, zTo: 180 }], 100).echoes[0];
+    if (!ttv || dB(1, ttv.amp) < 3) f.push('tt volumetric shadow ' + (ttv && ttv.amp));
+    const ttp = run(pl, { angle: 0, x: 60, method: 'tt' }, { skips: 3 }, [{ id: 'p', type: 'planar', pts: [{ x: 57, y: 10 }, { x: 63, y: 10 }], height: 0.5, zFrom: 120, zTo: 180 }], 100).echoes[0];
+    if (!ttp || !(ttp.amp > 0.05 && ttp.amp < 0.9)) f.push('tt partial shadow ' + (ttp && ttp.amp));
     // describe
     if (typeof describe({ kind: 'backwall', path: 25, leg: 1 }) !== 'string') f.push('describe');
     return f;
@@ -2107,7 +2248,8 @@ canvas { display: block; }
 // - rectify: 'full' → samples = summed envelopes, rf = null; 'rf' → rf = signed carrier sum, samples =
 //   |rf|; 'half+' / 'half−' → samples = max(±rf, 0), rf = null.
 // - Gates are in DISPLAYED path mm (they are drawn on the screen). The readout peak is the maximum
-//   sample inside the gate (EPOCH "Peak"); it is attributed to the on-screen echo whose displayed path
+//   UNCLIPPED sample (`ascan.raw`, reject applied but no 120 % clip) inside the gate (EPOCH "Peak"),
+//   so a saturated echo is still found at its centre rather than at the first clipped sample; it is attributed to the on-screen echo whose displayed path
 //   is within max(2·sigma, 1 mm) of the peak sample (the strongest such echo) so peakPct is the
 //   UNCLIPPED echo amplitude and `path` its TRUE path. Grass/initial-pulse peaks report echoKind 'noise'
 //   / 'initial' with the sample value and the inverse-cal true path.
@@ -2349,6 +2491,7 @@ canvas { display: block; }
     const sigma = Math.max(sigmaOf(derived, inst), 1.5 * spacing);
     const lambda = derived.lambda || 1;
     const samples = new Float32Array(n);
+    const raw = new Float32Array(n);      // unclipped (reject applied, no 120 % clip) — gate peak search
     const rf = wantRf ? new Float32Array(n) : null;
     const env = wantRf ? rf : samples;
     const pathAt = function (i) { return delay + i / (n - 1) * range; };
@@ -2413,12 +2556,13 @@ canvas { display: block; }
         if (Math.abs(r) < reject) rf[i] = 0;
       } else v = samples[i];
       if (v < reject) v = 0;
+      raw[i] = v;
       samples[i] = v > CLIP_PCT ? CLIP_PCT : v;
     }
 
     onScreen.sort(function (a, b) { return a.pDisp - b.pDisp; });
     return {
-      samples, rf: rectify === 'rf' ? rf : null, peak: null, range, delay, n, pathAt, sigma,
+      samples, raw, rf: rectify === 'rf' ? rf : null, peak: null, range, delay, n, pathAt, sigma,
       echoesOnScreen: onScreen, noiseSeed, initialPulse, reject,
       initialZone: initialPulse ? { from: dispPath(0, inst, derived), to: dispPath(0, inst, derived) + 3 * lambda + 1.5 } : null,
     };
@@ -2449,8 +2593,11 @@ canvas { display: block; }
       const range = ascan.range, delay = ascan.delay;
       const i0 = Math.max(0, Math.ceil((s0 - delay) / range * (n - 1)));
       const i1 = Math.min(n - 1, Math.floor((s1 - delay) / range * (n - 1)));
+      // peak search on the UNCLIPPED envelope (ascan.raw) so a saturated echo is still located at its
+      // true centre and its unclipped amplitude is reported (§14.4 / §15.5); samples is the clipped fallback
+      const src = ascan.raw && ascan.raw.length === n ? ascan.raw : ascan.samples;
       let peak = -1, iPeak = -1;
-      for (let i = i0; i <= i1; i++) { if (ascan.samples[i] > peak) { peak = ascan.samples[i]; iPeak = i; } }
+      for (let i = i0; i <= i1; i++) { if (src[i] > peak) { peak = src[i]; iPeak = i; } }
       if (iPeak < 0 || peak < (g.level || 0) || peak <= 0) { out.push(null); continue; }
       const pPeak = ascan.pathAt(iPeak);
       const win = Math.max(2 * (ascan.sigma || 1), 1);
@@ -2782,8 +2929,10 @@ canvas { display: block; }
 //   backwall 0.9 × the in-plane directivity at the mid-point reflection; tips 0.25·min(1, height/2)
 //   × reflectivity, volumetric defects give one pair at the bbox centre-line with a further ×0.5.
 // - depthFromTime() returns 0 when the argument of the root is negative (times before the lateral).
-// - D-scan columns store GREY 0..1 ((rf + 1)/2) sampled on the scan's own axis (t0Us/rangeUs kept in
-//   the scan object) and are resampled to the current Range/X-Shift when drawn. runScan() is pure
+// - D-scan columns store GREY 0..1 (0.5 + rf·2, clipped — a ×2 display contrast so the lateral wave and
+//   backwall saturate to black/white bands as in UTman) sampled on the scan's own axis (t0Us/rangeUs kept in
+//   the scan object) and are resampled to the current Range/X-Shift when drawn with a signed peak hold per
+//   pixel (the 512-sample wavelets are shorter than one screen pixel otherwise). runScan() is pure
 //   and synchronous (opts.sync is accepted and ignored); startScan()/stopScan() animate 8 columns per
 //   frame, store partial scans via UT.setIn('tofd', {scan, running}) and emit 'scan:progress'.
 // - D-scan canvas 280 × 450: left 140 px = the scan image (z top→bottom, wedge-zeroed time left→right),
@@ -2808,6 +2957,7 @@ canvas { display: block; }
   const GRASS = 0.015;
   const AMP_REL = { lateral: 0.6, backwall: 0.9, tip: 0.25 };
   const DSCAN = { w: 280, h: 450, imgW: 140, miniW: 140, miniH: 140 };
+  const DSCAN_CONTRAST = 2;          // D-scan grey = 0.5 + rf·DSCAN_CONTRAST (clipped): lateral/backwall saturate as in UTman
   const ASCAN = { w: 236, h: 140, plotW: 198, plotH: 118, legendX: 204, legendW: 30 };
   const LIMITS = { pcs: [20, 200], rangeUs: [2, 40], delayUs: [0, 40], gainDb: [0, 80] };
 
@@ -3055,7 +3205,7 @@ canvas { display: block; }
     const evs = eventsAt(sc._spec, sc._g, sc._defects, z);
     const rf = synthRf(evs, sc._t, sc.gainDb, sc._g.freq, z);
     const col = new Float32Array(sc.nS);
-    for (let k = 0; k < sc.nS; k++) col[k] = (rf[k] + 1) / 2;
+    for (let k = 0; k < sc.nS; k++) col[k] = M.clamp(0.5 + rf[k] * DSCAN_CONTRAST, 0, 1);
     return col;
   }
 
@@ -3142,9 +3292,10 @@ canvas { display: block; }
     '.win[data-win=tofd-ascan] .tofd-amp input[type=range]{writing-mode:vertical-lr;direction:rtl;height:56px;width:18px;margin:0}',
     '.win[data-win=tofd-ascan] .tofd-amp .tofd-amp-val{font-size:10px}',
     '.win[data-win=tofd-ascan] .tofd-off{width:38px;height:54px;margin:0;padding:0;font:bold 12px "Segoe UI",Arial,sans-serif;color:#fff;background:#2b2b2b;border:2px outset #777;cursor:pointer;align-self:center}',
-    '.win[data-win=tofd-ascan] .tofd-extra{display:flex;gap:8px;align-items:center;margin-top:3px;font:11px "Segoe UI",Arial,sans-serif;color:#000}',
-    '.win[data-win=tofd-ascan] .tofd-extra .fld{display:flex;align-items:center;gap:3px;margin:0}',
-    '.win[data-win=tofd-ascan] .tofd-extra .fld-input{width:48px;font-size:11px;padding:1px 2px}',
+    '.win[data-win=tofd-ascan] .tofd-extra{display:flex;flex-wrap:wrap;gap:3px 10px;align-items:center;margin-top:3px;max-width:100%;overflow:hidden;font:11px "Segoe UI",Arial,sans-serif;color:#000}',
+    '.win[data-win=tofd-ascan] .tofd-extra .fld{display:flex;flex:0 0 auto;align-items:center;gap:3px;margin:0;min-width:0}',
+    '.win[data-win=tofd-ascan] .tofd-extra .fld-label{flex:0 0 auto;width:auto;text-align:left;font-size:11px;white-space:nowrap}',
+    '.win[data-win=tofd-ascan] .tofd-extra .fld-input{flex:0 0 auto;width:48px;min-width:0;box-sizing:border-box;font-size:11px;padding:1px 2px}',
     '.win[data-win=tofd-ascan] .tofd-extra select.fld-input{width:52px}',
   ].join('\n');
 
@@ -3342,14 +3493,27 @@ canvas { display: block; }
     ctx.restore();
   }
 
-  function greyAt(sc, zr, rangeUs, delayUs, px, py) {
+  /**
+   * Grey (0..1) of the D-scan pixel (px, py); −1 outside the scan. Each pixel covers `binPx` screen
+   * pixels of time: the signed extreme (farthest from mid grey) of the samples in that bin is used
+   * (peak hold) so the short RF wavelets survive the 512-sample → 140-px resampling as solid stripes.
+   */
+  function greyAt(sc, zr, rangeUs, delayUs, px, py, binPx) {
     const z = zr.z0 + (zr.z1 - zr.z0) * py / (DSCAN.h - 1);
     const i = Math.round((z - sc.z0) / sc.step);
     if (i < 0 || i >= sc.columns.length) return -1;
-    const tDisp = delayUs + rangeUs * px / (DSCAN.imgW - 1);
-    const j = Math.round((tDisp - sc.t0Us) / sc.rangeUs * (sc.nS - 1));
-    if (j < 0 || j >= sc.nS) return -1;
-    return sc.columns[i][j];
+    const col = sc.columns[i];
+    const half = (binPx || 1) / 2;
+    const sPerPx = rangeUs / (DSCAN.imgW - 1) / sc.rangeUs * (sc.nS - 1);   // scan samples per screen pixel
+    const jc = (delayUs + rangeUs * px / (DSCAN.imgW - 1) - sc.t0Us) / sc.rangeUs * (sc.nS - 1);
+    let j0 = Math.ceil(jc - half * sPerPx), j1 = Math.floor(jc + half * sPerPx);
+    if (j1 < j0) j0 = j1 = Math.round(jc);
+    if (j1 < 0 || j0 >= sc.nS) return -1;
+    if (j0 < 0) j0 = 0;
+    if (j1 > sc.nS - 1) j1 = sc.nS - 1;
+    let best = col[j0], dev = Math.abs(best - 0.5);
+    for (let j = j0 + 1; j <= j1; j++) { const d = Math.abs(col[j] - 0.5); if (d > dev) { dev = d; best = col[j]; } }
+    return best;
   }
 
   function drawDscan(frame, state) {
@@ -3374,7 +3538,7 @@ canvas { display: block; }
       const d = img.data;
       for (let py = 0; py < DSCAN.h; py++) {
         for (let px = 0; px < DSCAN.imgW; px++) {
-          const v = greyAt(sc, zr, rangeUs, delayUs, px, py);
+          const v = greyAt(sc, zr, rangeUs, delayUs, px, py, 1);
           const g = v < 0 ? 0 : Math.round(M.clamp(v, 0, 1) * 255);
           const k = (py * DSCAN.imgW + px) * 4;
           d[k] = g; d[k + 1] = g; d[k + 2] = g; d[k + 3] = 255;
@@ -3388,7 +3552,7 @@ canvas { display: block; }
       const md = mini.data;
       for (let py = 0; py < DSCAN.miniH; py++) {
         for (let px = 0; px < DSCAN.miniW; px++) {
-          const v = greyAt(sc, zr, rangeUs, delayUs, cx - 35 + px / 2, cy - 35 + py / 2);
+          const v = greyAt(sc, zr, rangeUs, delayUs, cx - 35 + px / 2, cy - 35 + py / 2, 0.5);
           const g = v < 0 ? 0 : Math.round(M.clamp(v, 0, 1) * 255);
           const k = (py * DSCAN.miniW + px) * 4;
           md[k] = g; md[k + 1] = g; md[k + 2] = g; md[k + 3] = 255;
@@ -3559,6 +3723,7 @@ canvas { display: block; }
         let lo2 = 1, hi2 = 0;
         for (let i = 0; i < sc.columns[135].length; i++) { lo2 = Math.min(lo2, sc.columns[135][i]); hi2 = Math.max(hi2, sc.columns[135][i]); }
         if (lo2 < 0 || hi2 > 1 || hi2 - lo2 < 0.3) f.push('scan column grey range ' + lo2.toFixed(2) + '..' + hi2.toFixed(2));
+        if (lo2 > 0.05 || hi2 < 0.95) f.push('scan column not saturated by lateral/backwall ' + lo2.toFixed(2) + '..' + hi2.toFixed(2));
       }
       if (typeof css !== 'string' || css.indexOf('/style') >= 0) f.push('css');
     } catch (e) { f.push('exception ' + (e && e.message)); }
@@ -4931,13 +5096,31 @@ canvas { display: block; }
     ctx.font = FONT_SMALL; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     const top = toPx(0, 0).y, bot = toPx(0, yMax).y;
     ctx.beginPath(); ctx.moveTo(x0 + 0.5, top); ctx.lineTo(x0 + 0.5, bot); ctx.stroke();
-    for (let d = 0; d <= yMax + 1e-6; d += 5) {
+    // Tick/label steps come from the pixel scale (5/10 mm at the normal scale; coarser when the mm
+    // are tiny on screen) and the loop covers only the visible canvas rows, so the cost is bounded by
+    // canvas pixels rather than by the specimen thickness (the plate is clipped by the canvas anyway).
+    const step = rulerStep(5, xf.scale, 3);
+    const labelStep = rulerStep(10, xf.scale, 12, step);
+    const dLo = Math.max(0, Math.floor(toMm(0, 0).y / step) * step);
+    const dHi = Math.min(yMax, toMm(0, xf.H).y + step);
+    if (!((dHi - dLo) / step <= 5000)) { ctx.restore(); return; }
+    for (let d = dLo; d <= dHi + 1e-6; d += step) {
       const y = Math.round(toPx(0, d).y) + 0.5;
-      const len = d % 10 === 0 ? 10 : 6;
+      const label = d % labelStep === 0;
+      const len = label ? 10 : 6;
       ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x0 + len, y); ctx.stroke();
-      if (d % 10 === 0) ctx.fillText(String(d), x0 + 14, d === 0 ? y - 6 : y);
+      if (label) ctx.fillText(String(d), x0 + 14, d === 0 ? y - 6 : y);
     }
     ctx.restore();
+  }
+
+  // Smallest "nice" tick spacing (base × 1, 5, 10, 50, 100 … mm) that is at least minPx apart on
+  // screen and (optionally) a multiple of `coarse`. Returns `base` unchanged at the normal scale.
+  function rulerStep(base, scale, minPx, coarse) {
+    let s = base;
+    const mul = coarse || 1;
+    for (let i = 0; i < 40 && (s * scale < minPx || s % mul !== 0); i++) s *= (i % 2 === 0) ? 5 : 2;
+    return s;
   }
 
   function drawLabels(ctx, sp, skipCaption) {
@@ -4958,8 +5141,20 @@ canvas { display: block; }
   function drawCaption(ctx, sp, W) {
     ctx.save();
     ctx.fillStyle = '#000'; ctx.font = FONT; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
-    const right = sp && sp.extents ? Math.min(W - 8, toPx(sp.extents.xMax, 0).x - 12) : W - 12;
-    ctx.fillText('CROSS SECTION', right, toPx(0, 0).y - 6);
+    let right = sp && sp.extents ? Math.min(W - 8, toPx(sp.extents.xMax, 0).x - 12) : W - 12;
+    const baseline = toPx(0, 0).y - 6;
+    // The 3-D window (PIPE on) sits over the right end of the cross band at every viewport size:
+    // slide the caption left of it when their boxes intersect (§14.11).
+    try {
+      const w = UT.dom && UT.dom.wins && UT.dom.wins.pipe3d;
+      if (w && w.isOpen() && w.el && S.canvas && typeof w.el.getBoundingClientRect === 'function') {
+        const wr = w.el.getBoundingClientRect(), cr = S.canvas.getBoundingClientRect();
+        const wl = wr.left - cr.left, wt = wr.top - cr.top, wb = wr.bottom - cr.top;
+        const tw = ctx.measureText('CROSS SECTION').width;
+        if (right > wl && right - tw < wr.right - cr.left && baseline > wt && baseline - 12 < wb) right = Math.min(right, wl - 8);
+      }
+    } catch (e) { /* headless / no layout: keep the default position */ }
+    ctx.fillText('CROSS SECTION', right, baseline);
     ctx.restore();
   }
 
@@ -5205,14 +5400,19 @@ canvas { display: block; }
     const xf = S.canvas ? (S.xf || ensureTransform(st)) : computeTransform(sp, W, H);
     const unsigned = sp.extents.xMin < 0;
     const mmAt = function (px) { return (px - xf.ox) / xf.scale; };
-    const x0 = Math.ceil(mmAt(0) / 2) * 2, x1 = Math.floor(mmAt(W) / 2) * 2;
+    // Tick every 2 mm / label every 10 mm at the normal scale; coarser steps when the mm are tiny
+    // on screen so the loop count stays bounded by the canvas width (§14.1, §15.11).
+    const step = rulerStep(2, xf.scale, 3);
+    const labelStep = rulerStep(10, xf.scale, 16, step);
+    const x0 = Math.ceil(mmAt(0) / step) * step, x1 = Math.floor(mmAt(W) / step) * step;
     ctx.strokeStyle = COL.ruler; ctx.fillStyle = COL.ruler; ctx.lineWidth = 1;
     ctx.font = FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
     const base = 1;
     ctx.beginPath(); ctx.moveTo(0, base + 0.5); ctx.lineTo(W, base + 0.5); ctx.stroke();
-    for (let x = x0; x <= x1; x += 2) {
+    if (!((x1 - x0) / step <= 5000)) { ctx.restore(); return; }
+    for (let x = x0; x <= x1; x += step) {
       const px = Math.round(xf.ox + x * xf.scale) + 0.5;
-      const ten = Math.abs(x) % 10 === 0;
+      const ten = Math.abs(x) % labelStep === 0;
       const len = ten ? 11 : 5;
       ctx.beginPath(); ctx.moveTo(px, base); ctx.lineTo(px, base + len); ctx.stroke();
       if (ten) ctx.fillText(String(unsigned ? Math.abs(x) : x), px, H - 4);
@@ -6001,8 +6201,8 @@ canvas { display: block; }
     recordTrail(state);
     drawField(ctx, spec);
     drawWeldBand(ctx, spec);
-    drawTrail(ctx);
     drawDefects(ctx, state, spec);
+    drawTrail(ctx); // after defects so the raster trail stays visible over lamination rectangles (§14.2)
     drawFootprint(ctx, frame, state, derived);
     drawProbe(ctx, state, spec, derived);
     drawRuler(ctx, state);
@@ -6444,12 +6644,19 @@ canvas { display: block; }
  * View: rotate by yaw about Y, then by pitch about X, then perspective-project onto the canvas.
  */
 // SPEC NOTES
-// - Window: created in init() via UT.dom.win({name:'pipe3d'}) at (innerWidth − 300, innerHeight − 260),
-//   canvas #cv-3d 260 × 200 px. Title '3D Pipe' for spec.pipe, '3D Plate' otherwise (updated on 'state').
-// - Visibility model: `display.pipe3d` = "the user wants the 3-D window". The window is shown iff
-//   display.pipe3d && specimen && (specimen.pipe || mode === 'weld'); the 'state' listener only calls
-//   show()/hide() when that predicate CHANGES (so the app's own open()/close() calls never flap).
-//   open() sets display.pipe3d = true and shows; close() (and the ✕ button) sets display.pipe3d = false.
+// - Window: created in init() via UT.dom.win({name:'pipe3d'}); on its FIRST show it is snapped to the
+//   bottom-right corner of the viewport (8 px margin, the reference position, SPEC §7 "3D Pipe (bottom-right)")
+//   using the measured window size; afterwards the user's dragged position is kept. Canvas #cv-3d 260 × 200 px.
+//   Title '3D Pipe' for spec.pipe, '3D Plate' otherwise (updated on 'state').
+// - Visibility model: `display.pipe3d` = "the user wants the 3-D window"; it is a PIPE feature (§1.1, §8.8:
+//   PIPE "shows/hides the 3D window"; no plate reference screenshot has one). The window is shown iff
+//   display.pipe3d && specimen && (specimen.pipe || (mode === 'weld' && plateWanted)), where `plateWanted`
+//   = the user explicitly asked for it while on a plate: open() (lessons, app), or a lone 'display' patch
+//   that flips pipe3d false → true (Options ▸ Show 3D Window); cleared by close() / ✕ / pipe3d → false.
+//   So a plate boots without the window, PIPE on shows '3D Pipe', PIPE off hides it again (display.pipe3d
+//   stays true = the preference survives), and a boot restore never conjures a '3D Plate' window.
+//   The 'state' listener only calls show()/hide() when the predicate CHANGES (the app's own open()/close()
+//   calls never flap). open() sets display.pipe3d = true and shows; close() (and ✕) sets it to false.
 // - Mesh: cylinder of length 220 mm (axial), 40 segments; the weld ring is a lighter band of capWidth
 //   raised by max(2.5 mm, 2 % of OD) so it reads as a cap; both ends are open (annulus + inner bore),
 //   the near end therefore shows the wall like the original's cut-away. Plate: slab 220 (x) × L (z) × T.
@@ -6487,6 +6694,9 @@ canvas { display: block; }
   let canvas = null, win = null;
   let view = Object.assign({}, DEFAULT_VIEW);
   let lastShown = null;      // last value of the visibility predicate acted upon
+  let plateWanted = false;   // user explicitly asked for the window while on a plate (see header notes)
+  let lastFlag = null;       // last seen display.pipe3d (to detect the explicit false → true flip)
+  let placed = false;        // window snapped to the bottom-right corner on its first show
   let drag = null;
   let lastProj = null;       // projection of the last draw (for toPx)
 
@@ -6837,9 +7047,16 @@ canvas { display: block; }
   function redraw() { draw(UT.frame, UT.state); }
 
   // ------------------------------------------------------------------ window / visibility
-  function shouldShow(state) {
+  /**
+   * Visibility predicate (pure): pipes whenever display.pipe3d; plates only in weld mode AND when the
+   * user explicitly asked (`wantPlate`, defaults to the module flag `plateWanted`).
+   * @param {object} [state]
+   * @param {boolean} [wantPlate]
+   */
+  function shouldShow(state, wantPlate) {
     const s = state || UT.state;
-    return !!(s && s.display && s.display.pipe3d && s.specimen && (s.specimen.pipe || s.mode === 'weld'));
+    const wp = wantPlate === undefined ? plateWanted : !!wantPlate;
+    return !!(s && s.display && s.display.pipe3d && s.specimen && (s.specimen.pipe || (s.mode === 'weld' && wp)));
   }
 
   function titleFor(state) { return state && state.specimen && state.specimen.pipe ? '3D Pipe' : '3D Plate'; }
@@ -6856,7 +7073,26 @@ canvas { display: block; }
 
   function onState(ev) {
     const keys = (ev && ev.keys) || [];
+    if (keys.indexOf('display') >= 0) {
+      const flag = !!(UT.state.display && UT.state.display.pipe3d);
+      if (flag !== lastFlag) {
+        // a lone display patch flipping pipe3d on = Options ▸ Show 3D Window (explicit); bulk patches
+        // (File ▸ New, restores) are not a request for a '3D Plate' window
+        if (flag && keys.length === 1) plateWanted = true;
+        if (!flag) plateWanted = false;
+        lastFlag = flag;
+      }
+    }
     if (keys.indexOf('display') >= 0 || keys.indexOf('mode') >= 0 || keys.indexOf('specimen') >= 0 || keys.indexOf('weldOpts') >= 0) syncVisibility(false);
+  }
+
+  /** First show: snap the window to the bottom-right corner of the viewport (reference position). */
+  function placeDefault(api) {
+    if (placed || !api || !api.el || typeof window === 'undefined') return;
+    placed = true;
+    const r = api.el.getBoundingClientRect();
+    api.el.style.left = Math.max(0, window.innerWidth - r.width - 8) + 'px';
+    api.el.style.top = Math.max(0, window.innerHeight - r.height - 8) + 'px';
   }
 
   function attachMouse(cv) {
@@ -6898,11 +7134,12 @@ canvas { display: block; }
       const iw = (typeof window !== 'undefined' && window.innerWidth) || 1280;
       const ih = (typeof window !== 'undefined' && window.innerHeight) || 720;
       win = UT.dom.win({
-        name: 'pipe3d', title: titleFor(UT.state), x: Math.max(0, iw - 300), y: Math.max(0, ih - 260),
+        name: 'pipe3d', title: titleFor(UT.state), x: Math.max(0, iw - CANVAS_W - 10), y: Math.max(0, ih - CANVAS_H - 31),
         content: canvas,
-        onShow: function () { redraw(); },
+        onShow: function (api) { placeDefault(api); redraw(); },
         onClose: function () {
           lastShown = false;
+          plateWanted = false;
           if (UT.state.display && UT.state.display.pipe3d) UT.setIn('display', { pipe3d: false }, { noRender: true });
         },
       });
@@ -6911,6 +7148,7 @@ canvas { display: block; }
     attachMouse(canvas);
     UT.bus.on('render', function (f) { if (!win || win.isOpen()) draw(f, UT.state); });
     UT.bus.on('state', onState);
+    lastFlag = !!(UT.state.display && UT.state.display.pipe3d);   // boot value is not an explicit request
     syncVisibility(false);
     return pipe3d;
   }
@@ -6919,6 +7157,7 @@ canvas { display: block; }
   function open() {
     if (!win) init();
     lastShown = true;
+    plateWanted = true;
     if (!(UT.state.display && UT.state.display.pipe3d)) UT.setIn('display', { pipe3d: true }, { noRender: true });
     win.setTitle(titleFor(UT.state));
     if (!win.isOpen()) win.show(); else redraw();
@@ -6929,6 +7168,7 @@ canvas { display: block; }
   function close() {
     if (!win) return null;
     lastShown = false;
+    plateWanted = false;
     if (win.isOpen()) win.hide();
     if (UT.state.display && UT.state.display.pipe3d) UT.setIn('display', { pipe3d: false }, { noRender: true });
     return win;
@@ -6999,9 +7239,11 @@ canvas { display: block; }
     const span = defectSpan({ zFrom: 500, zTo: 20 }, body);
     if (Math.abs(span.z1 - (20 + body.L)) > 1e-9) f.push('defect wrap');
     if (shade([1, 1, 1], [0, 0, 1]).indexOf('rgb(') !== 0) f.push('shade');
-    if (shouldShow({ display: { pipe3d: true }, specimen: plateSpec, mode: 'v1' })) f.push('shouldShow v1 plate');
+    if (shouldShow({ display: { pipe3d: true }, specimen: plateSpec, mode: 'v1' }, true)) f.push('shouldShow v1 plate');
     if (!shouldShow({ display: { pipe3d: true }, specimen: spec, mode: 'aut' })) f.push('shouldShow pipe aut');
-    if (!shouldShow({ display: { pipe3d: true }, specimen: plateSpec, mode: 'weld' })) f.push('shouldShow weld plate');
+    if (shouldShow({ display: { pipe3d: true }, specimen: plateSpec, mode: 'weld' }, false)) f.push('shouldShow weld plate not requested');
+    if (!shouldShow({ display: { pipe3d: true }, specimen: plateSpec, mode: 'weld' }, true)) f.push('shouldShow weld plate requested');
+    if (shouldShow({ display: { pipe3d: false }, specimen: spec, mode: 'weld' })) f.push('shouldShow pipe display off');
     return f;
   }
 
@@ -8679,7 +8921,7 @@ canvas { display: block; }
     const S = frame && frame.sscan;
     ctx.save();
     ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
-    if (!S || !S.columns || !S.columns.length) { ctx.fillStyle = '#ccc'; ctx.font = '11px Segoe UI, Arial, sans-serif'; ctx.fillText('S-SCAN (no data)', 6, 14); ctx.restore(); return; }
+    if (!S || !S.columns || !S.columns.length) { ctx.fillStyle = '#ccc'; ctx.font = '11px Segoe UI, Arial, sans-serif'; ctx.textBaseline = 'bottom'; ctx.fillText('S-SCAN (no data)', 4, H - 2); ctx.restore(); return; }
     const I = (state && state.instrument) || UT.defaultState().instrument;
     const K = (UT.ascan && UT.ascan.K_REF) || 1;
     const gainLin = Math.pow(10, (I.gain || 0) / 20);
@@ -8690,7 +8932,9 @@ canvas { display: block; }
     const depthMax = Math.min(maxPath, Math.max(T * 1.05, maxPath * Math.cos(M.deg2rad(aMax)) * 1.05));
     const xMax = maxPath * Math.sin(M.deg2rad(aMax)) * 1.02;
     const side = (state && state.probe && state.probe.side) || 1;
-    const mL = 18, mT = 18, mB = 12, mR = 6;
+    // USK7: the magenta CRT text line (.usk-text DOM overlay, ~canvas y 6..19) sits at the top-left, so
+    // start the sector lower there; the caption goes on a second bottom row (never at the top-left).
+    const mL = 18, mT = mem.skin === 'usk7' ? 26 : 18, mB = 24, mR = 6;
     const scale = Math.min((W - mL - mR) / Math.max(1, xMax), (H - mT - mB) / Math.max(1, depthMax));
     const ox = side > 0 ? W - mR : mL, oy = mT;
     const toX = function (lat) { return ox - side * lat * scale; };
@@ -8716,12 +8960,13 @@ canvas { display: block; }
       });
     });
     // frame texts
-    ctx.fillStyle = '#e0e0e0'; ctx.font = 'bold 11px Segoe UI, Arial, sans-serif'; ctx.textBaseline = 'top';
-    ctx.fillText('S-SCAN ' + aMin.toFixed(0) + '°–' + aMax.toFixed(0) + '°', 4, 1);
-    ctx.font = '9px Segoe UI, Arial, sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#e0e0e0'; ctx.font = '9px Segoe UI, Arial, sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     for (let d = 0; d <= depthMax + 1e-9; d += 10) { ctx.fillText(String(d), mL - 2, toY(d)); }
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.fillText('0', ox, H - mB + 1); ctx.fillText(Math.round(xMax) + ' mm', toX(xMax * 0.9), H - mB + 1);
+    // caption: bottom-left, under the mm scale (the top-left is the USK7 CRT text line)
+    ctx.font = 'bold 11px Segoe UI, Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    ctx.fillText('S-SCAN ' + aMin.toFixed(0) + '°–' + aMax.toFixed(0) + '°', 3, H - 1);
     ctx.restore();
   }
 
@@ -9120,7 +9365,7 @@ canvas { display: block; }
   }
   function buildSpecimen(mode, opts, probe) {
     const cur = st().specimen;
-    const so = opts && opts.specimenOpts;
+    const so = opts && opts.specimenOpts ? clampOpts(opts.specimenOpts) : undefined;
     switch (mode) {
       case 'weld': return weldSpecimen(so);
       case 'tofd': case 'aut': case 'trade': {
@@ -9524,7 +9769,15 @@ canvas { display: block; }
   function slotDefect(defects, n) { return defects.find(function (d) { return d.n === n; }) || null; }
   function freeSlot(defects) { for (let n = 1; n <= 8; n++) if (!slotDefect(defects, n)) return n; return null; }
   function sortByN(defects) { return defects.slice().sort(function (a, b) { return a.n - b.n; }); }
-  function setDefects(arr) { UT.set({ defects: S.normaliseDefects(arr) }); return st().defects; }
+  /**
+   * Unknown type strings survive normaliseDefects (the tracer treats them as volumetric); map them to
+   * 'volumetric' so the editor's Type <select> (DEFECT_TYPES) and the trade report always hold a known
+   * value without changing the physics.
+   */
+  function coerceTypes(list) {
+    return list.map(function (d) { return DEFECT_TYPES.indexOf(d.type) >= 0 ? d : Object.assign({}, d, { type: 'volumetric' }); });
+  }
+  function setDefects(arr) { UT.set({ defects: coerceTypes(S.normaliseDefects(arr)) }); return st().defects; }
   function scaleHeight(d, height) {
     const b = S.bbox(d.pts);
     const h = Math.max(1e-6, b.h);
@@ -10267,13 +10520,36 @@ canvas { display: block; }
   };
 
   // ------------------------------------------------------------------ test API (§15.10)
+  // Numeric limits for specimen options (same as the Weld dialog / 90-app WELD_RANGES — keep in sync);
+  // non-finite values are dropped, numbers clamped, so an oversized specimen can never reach the state.
+  const OPT_RANGES = {
+    T: [3, 100], L: [50, 2000], bevel: [0, 60], rootGap: [0, 10], rootFace: [0, 10], capWidth: [0, 60], capHeight: [0, 10],
+    rootHeight: [0, 10], od: [25, 2000], wt: [3, 100],
+    braceAngle: [20, 90], braceT: [3, 100], chordT: [3, 100], braceOffset: [-100, 100], braceLen: [20, 300], weldLeg: [2, 30],
+  };
+  const OPT_ENUMS = { type: ['single-v', 'double-v', 'none'], face: ['wide', 'narrow'] };
+  /** Sanitised copy of a specimen-options object (unknown keys pass through only when finite/boolean/short string). */
+  function clampOpts(opts) {
+    const out = {};
+    if (!opts || typeof opts !== 'object') return out;
+    Object.keys(opts).forEach(function (k) {
+      const v = opts[k];
+      if (OPT_RANGES[k]) { const n = typeof v === 'string' && v.trim() !== '' ? +v : v; if (Number.isFinite(n)) out[k] = M.clamp(n, OPT_RANGES[k][0], OPT_RANGES[k][1]); }
+      else if (OPT_ENUMS[k]) { if (OPT_ENUMS[k].indexOf(v) >= 0) out[k] = v; }
+      else if (typeof v === 'boolean') out[k] = v;
+      else if (typeof v === 'number') { if (Number.isFinite(v)) out[k] = M.clamp(v, -1e4, 1e4); }
+      else if (typeof v === 'string' && v.length <= 40) out[k] = v;
+    });
+    return out;
+  }
   function loadSpecimen(id, opts) {
     const mode = MODE_OF[id];
     if (!mode) throw new Error('Unknown specimen id: ' + id);
+    const o = clampOpts(opts);
     if (id === 'plate-weld' || id === 'pipe-weld') {
-      UT.setIn('weldOpts', Object.assign({ pipe: id === 'pipe-weld' }, opts || {}), { silent: true, noRender: true });
+      UT.setIn('weldOpts', Object.assign(o, { pipe: id === 'pipe-weld' }), { silent: true, noRender: true });
       enter('weld', { silentUI: true });
-    } else enter(mode, { specimenOpts: opts, silentUI: true });
+    } else enter(mode, { specimenOpts: opts ? o : undefined, silentUI: true });
     return st().specimen;
   }
   Object.assign(UT.test, {
@@ -10409,7 +10685,7 @@ canvas { display: block; }
     enter, exit, toggle, current, setFace, statusMid, rebuild,
     enabled, isToolbarEnabled, isMenuEnabled, hiddenViews, hints: HINTS,
     lessons, lessonsWindow, defectEditor, tradeTest, tkyPanel, dacPanel,
-    autoCal, dac, plot, sizing, trade,
+    autoCal, dac, plot, sizing, trade, setDefects, clampOpts,
     rng: M.rng, css, __selftest,
   });
   UT.modes = modes;
@@ -10567,7 +10843,17 @@ canvas { display: block; }
     const pipe = !(st().weldOpts && st().weldOpts.pipe);
     UT.setIn('weldOpts', { pipe }, { noRender: true });
     reenterWeldLike();
-    showPipe3d(pipe && st().display.pipe3d !== false);
+    syncPipe3d();
+  }
+  /**
+   * One rule for the 3-D window: 64-view-3d shows it when display.pipe3d && (pipe || weld mode) and
+   * re-syncs itself on every 'display' / 'weldOpts' / 'specimen' / 'mode' state event, so after a
+   * weldOpts / mode change the app only needs the fallback (window without 64-view-3d).
+   */
+  function syncPipe3d() {
+    if (has('views.pipe3d.open')) return;
+    const s = st();
+    if (winApi('pipe3d')) showPipe3d(!!(s.weldOpts && s.weldOpts.pipe) && s.display.pipe3d !== false);
   }
   function showPipe3d(show) {
     const v = has('views.pipe3d');
@@ -10742,7 +11028,7 @@ canvas { display: block; }
       { id: 'menu-weld', key: 'Weld', items: [
         { key: 'Weld Settings...', action: openWeld },
         { key: 'Presets', sub: WELD_PRESETS.map(function (p) {
-          return { key: p.key, action: function () { UT.setIn('weldOpts', Object.assign({}, UT.defaultState().weldOpts, p.opts), { noRender: true }); reenterWeldLike(); showPipe3d(!!p.opts.pipe && st().display.pipe3d !== false); } };
+          return { key: p.key, action: function () { UT.setIn('weldOpts', Object.assign({}, UT.defaultState().weldOpts, p.opts), { noRender: true }); reenterWeldLike(); syncPipe3d(); } };
         }) },
         sepItem(),
         { key: 'Pipe', action: togglePipe, check: function () { return !!(s.weldOpts && s.weldOpts.pipe); } },
@@ -10776,7 +11062,7 @@ canvas { display: block; }
           { key: 'Geometry', action: function () { setDisplay({ colourCode: 'geometry' }); }, check: function () { return st().display.colourCode === 'geometry'; } },
         ] },
         { key: 'Show Plan View', action: function () { setDisplay({ plan: !st().display.plan }); applyLayout(); }, check: function () { return st().display.plan !== false; } },
-        { key: 'Show 3D Window', action: function () { const v = !st().display.pipe3d; setDisplay({ pipe3d: v }); showPipe3d(v); }, check: function () { return st().display.pipe3d !== false; } },
+        { key: 'Show 3D Window', action: function () { const v = !st().display.pipe3d; setDisplay({ pipe3d: v }); syncPipe3d(); }, check: function () { return st().display.pipe3d !== false; } },
         { key: 'Show Legend', action: function () { setDisplay({ legend: !st().display.legend }); }, check: function () { return st().display.legend !== false; } },
         { key: 'Language', sub: [
           { key: 'English', action: function () { app.setLang('en'); }, check: function () { return mem.lang === 'en'; } },
@@ -11005,9 +11291,40 @@ canvas { display: block; }
     UT.bus.on('status', renderStatus);
     UT.bus.on('state', onState);
     UT.bus.on('mode', function () { applyLayout(); refreshToolbar(); });
-    UT.bus.on('win:show', function (w) { keepBelowToolbar(w); refreshToolbar(); });
+    UT.bus.on('win:show', function (w) { keepBelowToolbar(w); bindWinClamp(w); clampToViewport(w); refreshToolbar(); });
     UT.bus.on('win:hide', refreshToolbar);
     UT.bus.on('win:close', refreshToolbar);
+    UT.bus.on('resize', function () { for (const k of Object.keys(UT.dom.wins)) { const w = UT.dom.wins[k]; if (w && w.isOpen()) clampToViewport(w); } });
+  }
+  /**
+   * Keep a floating window inside the viewport: the full window where it fits, otherwise at least the
+   * title bar (≥ 40 px of it horizontally) stays reachable; never above the toolbar.
+   */
+  function clampToViewport(w) {
+    if (!w || !w.el || !w.isOpen() || typeof window === 'undefined') return;
+    const el = w.el, vw = window.innerWidth, vh = window.innerHeight;
+    if (!(vw > 0 && vh > 0)) return;
+    const r = el.getBoundingClientRect();
+    const tb = mem.built && !el.classList.contains('modal') ? byId('toolbar') : null;
+    const minTop = tb ? Math.round(tb.getBoundingClientRect().bottom + 2) : 0;
+    const titleH = Math.max(20, (el.firstChild && el.firstChild.offsetHeight) || 0);
+    const maxLeft = Math.max(0, vw - r.width);
+    const maxTop = Math.max(minTop, vh - r.height);
+    const left = M.clamp(el.offsetLeft, Math.min(0, vw - 40 - r.width), Math.min(maxLeft, vw - 40));
+    const top = M.clamp(el.offsetTop, minTop, Math.max(minTop, Math.min(maxTop, vh - titleH)));
+    if (left !== el.offsetLeft) el.style.left = Math.floor(left) + 'px';
+    if (top !== el.offsetTop) el.style.top = Math.floor(top) + 'px';
+  }
+  /** Wrap 00-core's title-bar drag (frozen) with a viewport clamp: our listeners run after core's. */
+  function bindWinClamp(w) {
+    if (!w || !w.el || w.el.dataset.clampBound) return;
+    w.el.dataset.clampBound = '1';
+    const title = w.el.querySelector('.win-title');
+    if (!title) return;
+    let dragging = false;
+    title.addEventListener('mousedown', function (e) { if (e.button === 0 && !(e.target && e.target.classList && e.target.classList.contains('win-close'))) dragging = true; });
+    window.addEventListener('mousemove', function () { if (dragging) clampToViewport(w); });
+    window.addEventListener('mouseup', function () { if (dragging) { dragging = false; clampToViewport(w); } });
   }
   /** Floating (non-modal) windows never cover the menu bar / toolbar: nudge them below the toolbar. */
   function keepBelowToolbar(w) {
@@ -11153,7 +11470,7 @@ canvas { display: block; }
         if (o.pipe) o.T = o.wt;
         UT.setIn('weldOpts', o, { noRender: true });
         reenterWeldLike();
-        showPipe3d(!!o.pipe && st().display.pipe3d !== false);
+        syncPipe3d();
       };
       return h('div', {}, [
         h('div', { class: 'fld-grid' }, [
@@ -11269,7 +11586,7 @@ canvas { display: block; }
         sel('Colour code', s.display.colourCode || 'none', [{ value: 'none', label: 'None' }, { value: 'propagation', label: 'Mode propagation (leg colours)' }, { value: 'geometry', label: 'Geometry (last surface)' }], function (v) { setDisplay({ colourCode: v }); }),
         sel('Number of skips', String(s.display.skips || 3), [1, 2, 3, 4].map(function (n) { return { value: String(n), label: String(n) }; }), function (v) { setDisplay({ skips: parseInt(v, 10) }); }),
         chk('Show plan view', s.display.plan !== false, function (v) { setDisplay({ plan: v }); applyLayout(); }),
-        chk('Show 3D window', s.display.pipe3d !== false, function (v) { setDisplay({ pipe3d: v }); showPipe3d(v && !!(st().weldOpts && st().weldOpts.pipe)); }),
+        chk('Show 3D window', s.display.pipe3d !== false, function (v) { setDisplay({ pipe3d: v }); syncPipe3d(); }),
         chk('Show legend', s.display.legend !== false, function (v) { setDisplay({ legend: v }); }),
         chk('Show beam', s.display.beam !== false, function (v) { setDisplay({ beam: v }); }),
         chk('Auto trig (angle/thickness follow probe)', s.display.autoTrig !== false, function (v) { setDisplay({ autoTrig: v }); }),
@@ -11382,8 +11699,8 @@ canvas { display: block; }
         try {
           const arr = JSON.parse(ta.value);
           if (!Array.isArray(arr)) throw new Error('expected a JSON array');
-          const defects = has('specimens.normaliseDefects') ? UT.specimens.normaliseDefects(arr) : arr;
-          UT.set({ defects });
+          if (has('modes.setDefects')) UT.modes.setDefects(arr);
+          else UT.set({ defects: has('specimens.normaliseDefects') ? UT.specimens.normaliseDefects(arr) : arr });
           win.close();
         } catch (e) { UT.dom.alert('Invalid defect JSON: ' + e.message, 'Import Defects'); }
       };
@@ -11424,7 +11741,7 @@ canvas { display: block; }
     const d = UT.defaultState().display;
     setDisplay({ plan: d.plan, pipe3d: d.pipe3d, legend: d.legend, beam: d.beam, hide: false });
     if (st().utSet === 'usk7') call('instruments.setSkin', ['usk7']);
-    if (st().weldOpts && st().weldOpts.pipe) showPipe3d(true);
+    syncPipe3d();
     applyLayout();
     refreshToolbar();
   }
@@ -11455,26 +11772,78 @@ canvas { display: block; }
     for (const k of INSTR_KEYS) if (s.instrument && s.instrument[k] !== undefined) ins[k] = s.instrument[k];
     return UT.clone({ v: 1, probe: s.probe, instrument: ins, display: s.display, defects: s.defects || [], weldOpts: s.weldOpts, utSet: s.utSet, lang: lang || 'en' });
   }
+  /** Finite number from a stored value (number or numeric string), else `def`. */
+  function num(v, def) {
+    const n = typeof v === 'number' ? v : (typeof v === 'string' && v.trim() !== '' ? +v : NaN);
+    return Number.isFinite(n) ? n : def;
+  }
+  /** Finite number clamped to [lo, hi]; non-numeric → `def` (then clamped). */
+  function numIn(v, def, lo, hi) { return M.clamp(num(v, def), lo, hi); }
+  // Stored-record validation ranges (same limits as the Weld / wedge dialogs and instrument softkeys).
+  const WELD_RANGES = { T: [3, 100], L: [50, 2000], bevel: [0, 60], rootGap: [0, 10], rootFace: [0, 10], capWidth: [0, 60], capHeight: [0, 10], rootHeight: [0, 10], od: [25, 2000], wt: [3, 100] };
+  const WELD_TYPES = ['single-v', 'double-v', 'none'];
+  const PROBE_RANGES = { angle: [0, 89.9], freq: [0.5, 20], diameter: [1, 50], wedgeVel: [1, 6], x: [-3000, 3000], z: [-5000, 5000], skew: [-360, 360], paFrom: [0, 89.9], paTo: [0, 89.9], paStep: [0.1, 10] };
+  const PROBE_ENUMS = { mode: ['shear', 'comp'], crystal: ['single', 'twin'], method: ['pe', 'tt', 'tandem', 'pa'], surface: ['chord', 'brace'] };
+  const DISPLAY_RANGES = { skips: [1, 12] };
+  const DISPLAY_ENUMS = { units: ['mm', 'inch'] };
+  const RECTIFY = ['full', 'rf', 'pos', 'neg'];
+  /**
+   * Coerce `rec` onto the shape of `def`: every key of `def` keeps its default type (boolean → !!,
+   * number → finite & clamped to ranges[k], string → one of enums[k] when given), unknown keys are dropped.
+   */
+  function coerceLike(def, rec, ranges, enums) {
+    const out = {};
+    const src = rec && typeof rec === 'object' ? rec : {};
+    for (const k of Object.keys(def)) {
+      const d = def[k], v = src[k];
+      if (typeof d === 'boolean') out[k] = v === undefined ? d : !!v;
+      else if (typeof d === 'number') { const r = (ranges && ranges[k]) || [-1e6, 1e6]; out[k] = numIn(v, d, r[0], r[1]); }
+      else if (typeof d === 'string') out[k] = typeof v === 'string' && (!enums || !enums[k] || enums[k].indexOf(v) >= 0) && v.length <= 40 ? v : d;
+      else out[k] = v === undefined ? d : v;
+    }
+    return out;
+  }
+  function coerceGate(g, d) {
+    const s = g && typeof g === 'object' ? g : {};
+    return { on: s.on === undefined ? !!d.on : !!s.on, start: numIn(s.start, d.start, -50, 1000), width: numIn(s.width, d.width, 0, 1000), level: numIn(s.level, d.level, 0, 100), alarm: !!s.alarm };
+  }
   /** Turn a stored record into a UT.set patch (validated, merged over the defaults); null when unusable. */
   function patchFromRecord(rec) {
     if (!rec || typeof rec !== 'object' || rec.v !== 1) return null;
     const def = UT.defaultState();
     const patch = {};
-    if (rec.probe && typeof rec.probe === 'object') patch.probe = Object.assign({}, def.probe, rec.probe);
+    if (rec.probe && typeof rec.probe === 'object') {
+      const pr = coerceLike(def.probe, rec.probe, PROBE_RANGES, PROBE_ENUMS);
+      pr.side = num(rec.probe.side, 1) < 0 ? -1 : 1;
+      if (pr.angle === 0) pr.mode = 'comp';
+      patch.probe = pr;
+    }
     if (rec.instrument && typeof rec.instrument === 'object') {
       const ins = Object.assign({}, def.instrument);
-      for (const k of INSTR_KEYS) if (rec.instrument[k] !== undefined) ins[k] = rec.instrument[k];
-      if (!Array.isArray(ins.gates) || ins.gates.length < 2) ins.gates = def.instrument.gates;
-      if (!ins.dac || typeof ins.dac !== 'object') ins.dac = def.instrument.dac;
-      if (!ins.cal || typeof ins.cal !== 'object') ins.cal = def.instrument.cal;
-      if (!ins.trig || typeof ins.trig !== 'object') ins.trig = def.instrument.trig;
-      ins.gain = M.clamp(+ins.gain || 0, 0, 110);
-      ins.range = M.clamp(+ins.range || 100, 10, 1000);
+      const ri = rec.instrument;
+      for (const k of INSTR_KEYS) if (ri[k] !== undefined) ins[k] = ri[k];
+      ins.gain = numIn(ins.gain, def.instrument.gain, 0, 110);
+      ins.refGain = numIn(ins.refGain, ins.gain, 0, 110);
+      ins.range = numIn(ins.range, def.instrument.range, 10, 1000);
+      ins.delay = numIn(ins.delay, def.instrument.delay, -50, 1000);
+      ins.reject = numIn(ins.reject, def.instrument.reject, 0, 80);
+      ins.damping = !!ins.damping;
+      if (RECTIFY.indexOf(ins.rectify) < 0) ins.rectify = def.instrument.rectify;
+      const defGates = def.instrument.gates;
+      ins.gates = (Array.isArray(ins.gates) && ins.gates.length >= 2 ? ins.gates : defGates).map(function (g, i) { return coerceGate(g, defGates[Math.min(i, defGates.length - 1)]); });
+      const dac = ins.dac && typeof ins.dac === 'object' ? ins.dac : def.instrument.dac;
+      ins.dac = {
+        points: (Array.isArray(dac.points) ? dac.points : []).filter(function (p) { return p && Number.isFinite(p.path) && Number.isFinite(p.ampPct); }).map(function (p) { return { path: p.path, ampPct: p.ampPct }; }),
+        on: !!dac.on, refDb: Number.isFinite(dac.refDb) ? M.clamp(dac.refDb, 0, 110) : null, curves: dac.curves === undefined ? true : !!dac.curves,
+      };
+      const cal = ins.cal && typeof ins.cal === 'object' ? ins.cal : def.instrument.cal;
+      ins.cal = { vel: Number.isFinite(cal.vel) ? M.clamp(cal.vel, 1, 10) : null, zero: numIn(cal.zero, 0, -50, 50) };
+      ins.trig = coerceLike(def.instrument.trig, ins.trig, { angle: [0, 89.9], thick: [1, 1000], xValue: [-3000, 3000] });
       patch.instrument = ins;
     }
-    if (rec.display && typeof rec.display === 'object') patch.display = Object.assign({}, def.display, rec.display);
+    if (rec.display && typeof rec.display === 'object') patch.display = coerceLike(def.display, rec.display, DISPLAY_RANGES, DISPLAY_ENUMS);
     if (Array.isArray(rec.defects)) patch.defects = has('specimens.normaliseDefects') ? UT.specimens.normaliseDefects(rec.defects) : rec.defects;
-    if (rec.weldOpts && typeof rec.weldOpts === 'object') patch.weldOpts = Object.assign({}, def.weldOpts, rec.weldOpts);
+    if (rec.weldOpts && typeof rec.weldOpts === 'object') patch.weldOpts = coerceLike(def.weldOpts, rec.weldOpts, WELD_RANGES, { type: WELD_TYPES });
     if (rec.utSet === 'epoch600' || rec.utSet === 'epoch4' || rec.utSet === 'usk7') patch.utSet = rec.utSet;
     if (rec.lang === 'ko' || rec.lang === 'en') patch.__lang = rec.lang;
     return patch;
@@ -11541,7 +11910,7 @@ canvas { display: block; }
       const o = st().weldOpts || {};
       UT.set({ specimen: o.pipe && UT.specimens.pipeWeld ? UT.specimens.pipeWeld(o) : UT.specimens.plateWeld(o) }, { noRender: true });
     }
-    if (st().weldOpts && st().weldOpts.pipe && st().display.pipe3d !== false) showPipe3d(true);
+    syncPipe3d();
     applyLayout();
     refreshToolbar();
     try { UT.renderNow(); } catch (e) { console.error('[UT.app] renderNow', e); }
@@ -11569,6 +11938,12 @@ canvas { display: block; }
         const p = patchFromRecord(rec);
         if (!p || p.instrument.gain !== 30 || p.utSet !== 'epoch600' || p.__lang !== 'ko' || !p.probe) f.push('patchFromRecord');
         if (patchFromRecord({ v: 2 }) !== null || patchFromRecord('x') !== null) f.push('patchFromRecord rejects');
+        const bad = patchFromRecord({ v: 1, weldOpts: { T: 1e7, L: 'huge', bevel: -5, type: 'zigzag', pipe: 1, W: 1e9 }, instrument: { range: 0, delay: 'x', reject: -3, rectify: 'odd', gates: [{ start: 'a' }, null, { on: 1, level: 500 }], cal: { vel: 'v', zero: 1e9 } }, probe: { angle: 'x', x: 1e9, side: -2, method: 'bogus' }, display: { skips: 99, units: 'furlong', plan: 0 } });
+        const bw = bad.weldOpts, bi = bad.instrument, bp = bad.probe, bd = bad.display;
+        if (bw.T !== 100 || bw.L !== 300 || bw.bevel !== 0 || bw.type !== 'single-v' || bw.pipe !== true || bw.W !== undefined) f.push('patchFromRecord weldOpts ' + JSON.stringify(bw));
+        if (bi.range !== 10 || bi.delay !== 0 || bi.reject !== 0 || bi.rectify !== 'full' || bi.gates.length !== 3 || bi.gates[0].start !== 10 || bi.gates[1].on !== false || bi.gates[2].level !== 100 || bi.cal.vel !== null || bi.cal.zero !== 50) f.push('patchFromRecord instrument ' + JSON.stringify(bi));
+        if (bp.angle !== 60 || bp.x !== 3000 || bp.side !== -1 || bp.method !== 'pe') f.push('patchFromRecord probe ' + JSON.stringify(bp));
+        if (bd.skips !== 12 || bd.units !== 'mm' || bd.plan !== false) f.push('patchFromRecord display ' + JSON.stringify(bd));
         if (parseSteps('25, 5,10 ,15;20 20').join(',') !== '5,10,15,20,25') f.push('parseSteps');
         const r = wedgeToRefracted(47.1, 2.74, null);
         if (r.mode !== 'shear' || Math.abs(r.refracted - 60) > 0.2) f.push('wedge 47.1 -> ' + r.refracted + ' ' + r.mode);

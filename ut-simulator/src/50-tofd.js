@@ -22,8 +22,10 @@
 //   backwall 0.9 × the in-plane directivity at the mid-point reflection; tips 0.25·min(1, height/2)
 //   × reflectivity, volumetric defects give one pair at the bbox centre-line with a further ×0.5.
 // - depthFromTime() returns 0 when the argument of the root is negative (times before the lateral).
-// - D-scan columns store GREY 0..1 ((rf + 1)/2) sampled on the scan's own axis (t0Us/rangeUs kept in
-//   the scan object) and are resampled to the current Range/X-Shift when drawn. runScan() is pure
+// - D-scan columns store GREY 0..1 (0.5 + rf·2, clipped — a ×2 display contrast so the lateral wave and
+//   backwall saturate to black/white bands as in UTman) sampled on the scan's own axis (t0Us/rangeUs kept in
+//   the scan object) and are resampled to the current Range/X-Shift when drawn with a signed peak hold per
+//   pixel (the 512-sample wavelets are shorter than one screen pixel otherwise). runScan() is pure
 //   and synchronous (opts.sync is accepted and ignored); startScan()/stopScan() animate 8 columns per
 //   frame, store partial scans via UT.setIn('tofd', {scan, running}) and emit 'scan:progress'.
 // - D-scan canvas 280 × 450: left 140 px = the scan image (z top→bottom, wedge-zeroed time left→right),
@@ -48,6 +50,7 @@
   const GRASS = 0.015;
   const AMP_REL = { lateral: 0.6, backwall: 0.9, tip: 0.25 };
   const DSCAN = { w: 280, h: 450, imgW: 140, miniW: 140, miniH: 140 };
+  const DSCAN_CONTRAST = 2;          // D-scan grey = 0.5 + rf·DSCAN_CONTRAST (clipped): lateral/backwall saturate as in UTman
   const ASCAN = { w: 236, h: 140, plotW: 198, plotH: 118, legendX: 204, legendW: 30 };
   const LIMITS = { pcs: [20, 200], rangeUs: [2, 40], delayUs: [0, 40], gainDb: [0, 80] };
 
@@ -295,7 +298,7 @@
     const evs = eventsAt(sc._spec, sc._g, sc._defects, z);
     const rf = synthRf(evs, sc._t, sc.gainDb, sc._g.freq, z);
     const col = new Float32Array(sc.nS);
-    for (let k = 0; k < sc.nS; k++) col[k] = (rf[k] + 1) / 2;
+    for (let k = 0; k < sc.nS; k++) col[k] = M.clamp(0.5 + rf[k] * DSCAN_CONTRAST, 0, 1);
     return col;
   }
 
@@ -382,9 +385,10 @@
     '.win[data-win=tofd-ascan] .tofd-amp input[type=range]{writing-mode:vertical-lr;direction:rtl;height:56px;width:18px;margin:0}',
     '.win[data-win=tofd-ascan] .tofd-amp .tofd-amp-val{font-size:10px}',
     '.win[data-win=tofd-ascan] .tofd-off{width:38px;height:54px;margin:0;padding:0;font:bold 12px "Segoe UI",Arial,sans-serif;color:#fff;background:#2b2b2b;border:2px outset #777;cursor:pointer;align-self:center}',
-    '.win[data-win=tofd-ascan] .tofd-extra{display:flex;gap:8px;align-items:center;margin-top:3px;font:11px "Segoe UI",Arial,sans-serif;color:#000}',
-    '.win[data-win=tofd-ascan] .tofd-extra .fld{display:flex;align-items:center;gap:3px;margin:0}',
-    '.win[data-win=tofd-ascan] .tofd-extra .fld-input{width:48px;font-size:11px;padding:1px 2px}',
+    '.win[data-win=tofd-ascan] .tofd-extra{display:flex;flex-wrap:wrap;gap:3px 10px;align-items:center;margin-top:3px;max-width:100%;overflow:hidden;font:11px "Segoe UI",Arial,sans-serif;color:#000}',
+    '.win[data-win=tofd-ascan] .tofd-extra .fld{display:flex;flex:0 0 auto;align-items:center;gap:3px;margin:0;min-width:0}',
+    '.win[data-win=tofd-ascan] .tofd-extra .fld-label{flex:0 0 auto;width:auto;text-align:left;font-size:11px;white-space:nowrap}',
+    '.win[data-win=tofd-ascan] .tofd-extra .fld-input{flex:0 0 auto;width:48px;min-width:0;box-sizing:border-box;font-size:11px;padding:1px 2px}',
     '.win[data-win=tofd-ascan] .tofd-extra select.fld-input{width:52px}',
   ].join('\n');
 
@@ -582,14 +586,27 @@
     ctx.restore();
   }
 
-  function greyAt(sc, zr, rangeUs, delayUs, px, py) {
+  /**
+   * Grey (0..1) of the D-scan pixel (px, py); −1 outside the scan. Each pixel covers `binPx` screen
+   * pixels of time: the signed extreme (farthest from mid grey) of the samples in that bin is used
+   * (peak hold) so the short RF wavelets survive the 512-sample → 140-px resampling as solid stripes.
+   */
+  function greyAt(sc, zr, rangeUs, delayUs, px, py, binPx) {
     const z = zr.z0 + (zr.z1 - zr.z0) * py / (DSCAN.h - 1);
     const i = Math.round((z - sc.z0) / sc.step);
     if (i < 0 || i >= sc.columns.length) return -1;
-    const tDisp = delayUs + rangeUs * px / (DSCAN.imgW - 1);
-    const j = Math.round((tDisp - sc.t0Us) / sc.rangeUs * (sc.nS - 1));
-    if (j < 0 || j >= sc.nS) return -1;
-    return sc.columns[i][j];
+    const col = sc.columns[i];
+    const half = (binPx || 1) / 2;
+    const sPerPx = rangeUs / (DSCAN.imgW - 1) / sc.rangeUs * (sc.nS - 1);   // scan samples per screen pixel
+    const jc = (delayUs + rangeUs * px / (DSCAN.imgW - 1) - sc.t0Us) / sc.rangeUs * (sc.nS - 1);
+    let j0 = Math.ceil(jc - half * sPerPx), j1 = Math.floor(jc + half * sPerPx);
+    if (j1 < j0) j0 = j1 = Math.round(jc);
+    if (j1 < 0 || j0 >= sc.nS) return -1;
+    if (j0 < 0) j0 = 0;
+    if (j1 > sc.nS - 1) j1 = sc.nS - 1;
+    let best = col[j0], dev = Math.abs(best - 0.5);
+    for (let j = j0 + 1; j <= j1; j++) { const d = Math.abs(col[j] - 0.5); if (d > dev) { dev = d; best = col[j]; } }
+    return best;
   }
 
   function drawDscan(frame, state) {
@@ -614,7 +631,7 @@
       const d = img.data;
       for (let py = 0; py < DSCAN.h; py++) {
         for (let px = 0; px < DSCAN.imgW; px++) {
-          const v = greyAt(sc, zr, rangeUs, delayUs, px, py);
+          const v = greyAt(sc, zr, rangeUs, delayUs, px, py, 1);
           const g = v < 0 ? 0 : Math.round(M.clamp(v, 0, 1) * 255);
           const k = (py * DSCAN.imgW + px) * 4;
           d[k] = g; d[k + 1] = g; d[k + 2] = g; d[k + 3] = 255;
@@ -628,7 +645,7 @@
       const md = mini.data;
       for (let py = 0; py < DSCAN.miniH; py++) {
         for (let px = 0; px < DSCAN.miniW; px++) {
-          const v = greyAt(sc, zr, rangeUs, delayUs, cx - 35 + px / 2, cy - 35 + py / 2);
+          const v = greyAt(sc, zr, rangeUs, delayUs, cx - 35 + px / 2, cy - 35 + py / 2, 0.5);
           const g = v < 0 ? 0 : Math.round(M.clamp(v, 0, 1) * 255);
           const k = (py * DSCAN.miniW + px) * 4;
           md[k] = g; md[k + 1] = g; md[k + 2] = g; md[k + 3] = 255;
@@ -799,6 +816,7 @@
         let lo2 = 1, hi2 = 0;
         for (let i = 0; i < sc.columns[135].length; i++) { lo2 = Math.min(lo2, sc.columns[135][i]); hi2 = Math.max(hi2, sc.columns[135][i]); }
         if (lo2 < 0 || hi2 > 1 || hi2 - lo2 < 0.3) f.push('scan column grey range ' + lo2.toFixed(2) + '..' + hi2.toFixed(2));
+        if (lo2 > 0.05 || hi2 < 0.95) f.push('scan column not saturated by lateral/backwall ' + lo2.toFixed(2) + '..' + hi2.toFixed(2));
       }
       if (typeof css !== 'string' || css.indexOf('/style') >= 0) f.push('css');
     } catch (e) { f.push('exception ' + (e && e.message)); }
