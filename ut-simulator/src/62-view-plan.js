@@ -69,8 +69,10 @@
  * - Linear bar: same semantics with a horizontal bar 0…L (no wrap, zFrom ≤ zTo), tick labels every
  *   round(L/12) mm.
  * - toMm(px, py) returns {x, z, y: z} so both the §15.6 shape ({x, y}) and plan semantics work.
- * - Canvas captions ('PLAN VIEW', 'Circle-View. Position {z}', 'Plate. Position {z}') go through
- *   UT.i18n.t() even though canvases are outside the untranslated() audit.
+ * - The static 'PLAN VIEW' heading is drawn in English like the cross-section's 'CROSS SECTION'
+ *   (SPEC-v2 §5.3: canvases are out of scope; both main-canvas headings follow the same rule).
+ *   The parametrised editor captions ('Circle-View. Position {z}', 'Plate. Position {z}') go
+ *   through UT.i18n.t() even though canvases are outside the untranslated() audit.
  */
 (function (UT) {
   'use strict';
@@ -744,7 +746,7 @@
     ctx.fillStyle = '#000';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
-    ctx.fillText(t('PLAN VIEW'), dialC.x - DIAL_R - 8, 18);
+    ctx.fillText('PLAN VIEW', dialC.x - DIAL_R - 8, 18); // English like 60's 'CROSS SECTION' (§5.3: canvases out of scope)
     ctx.strokeStyle = '#0000ff';
     ctx.lineWidth = 3;
     ctx.beginPath(); ctx.arc(dialC.x, dialC.y, DIAL_R, 0, Math.PI * 2); ctx.stroke();

@@ -12363,8 +12363,10 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
  * - Linear bar: same semantics with a horizontal bar 0…L (no wrap, zFrom ≤ zTo), tick labels every
  *   round(L/12) mm.
  * - toMm(px, py) returns {x, z, y: z} so both the §15.6 shape ({x, y}) and plan semantics work.
- * - Canvas captions ('PLAN VIEW', 'Circle-View. Position {z}', 'Plate. Position {z}') go through
- *   UT.i18n.t() even though canvases are outside the untranslated() audit.
+ * - The static 'PLAN VIEW' heading is drawn in English like the cross-section's 'CROSS SECTION'
+ *   (SPEC-v2 §5.3: canvases are out of scope; both main-canvas headings follow the same rule).
+ *   The parametrised editor captions ('Circle-View. Position {z}', 'Plate. Position {z}') go
+ *   through UT.i18n.t() even though canvases are outside the untranslated() audit.
  */
 (function (UT) {
   'use strict';
@@ -13038,7 +13040,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     ctx.fillStyle = '#000';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
-    ctx.fillText(t('PLAN VIEW'), dialC.x - DIAL_R - 8, 18);
+    ctx.fillText('PLAN VIEW', dialC.x - DIAL_R - 8, 18); // English like 60's 'CROSS SECTION' (§5.3: canvases out of scope)
     ctx.strokeStyle = '#0000ff';
     ctx.lineWidth = 3;
     ctx.beginPath(); ctx.arc(dialC.x, dialC.y, DIAL_R, 0, Math.PI * 2); ctx.stroke();
@@ -16726,6 +16728,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
  *   cycles the filter (caption FILTER). USK7: a small magenta line under the CRT text shows `P 200V 150Ω  F BB`.
  * - PA: drawSscan draws `frame.sscan` (from UT.pa when present — 40 already prefers `frame.pa.sscan`) and marks the
  *   selected angle (`frame.paSelected.angle`) with a thin dashed radial line.
+ * - Tooltips / aria-labels (§5.7): every hard key, dB cell, P/F key and USK7 button carries title + aria-label from the
+ *   TIPS table (English keys, params for P{n}/F{n}/dB cells/knobs), stored in data-tip and re-applied by relabelTips()
+ *   on 'lang' and when autoPct changes (GATES tip reads '2ND F + GATES = AUTO 80 %' live). KO entries live in 92.
  * - i18n: softkey labels, captions, datalog window texts and status hints go through UT.i18n.t() with `data-i18n`
  *   (relabelled on 'lang'); product hard-key legends (dB, SAVE, GATES, OLYMPUS, EPOCH 600, P1…, F1…) sit in
  *   `.no-i18n` elements, as do numeric value cells.
@@ -17154,9 +17159,73 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   }
 
   // ------------------------------------------------------------------ DOM builders
-  /** Hard key button: product legend (no i18n), takes the instrument focus, emits 'ui' softkey {id: uiId || label}. */
+  /**
+   * Tooltip / screen-reader texts of the hard keys (SPEC-v2 §5.7: every control is labelled), keyed by the 'ui' id
+   * (`uiId || label`). English KEYS — translated at render time by t() and re-applied on 'lang' (relabelTips).
+   */
+  const TIPS = {
+    'dB': 'Gain — select the gain (2ND F + dB = store / release the reference gain)',
+    'SAVE': 'Save the current readouts to the datalogger',
+    'up': 'Step the selected parameter up (gain +0.5 dB; 2ND F + ▲ = +6 dB)',
+    'down': 'Step the selected parameter down (gain −0.5 dB; 2ND F + ▼ = −6 dB)',
+    'left': 'Coarse step down (gain −6 dB)',
+    'right': 'Coarse step up (gain +6 dB)',
+    'enter': 'Enter — confirm (next Auto Cal step)',
+    'freeze': 'Freeze the A-scan (2ND F + ❄ = Compare snapshot)',
+    'escape': 'Back — leave the sub-page, cancel 2ND F / Auto Cal',
+    'GATES': 'Gates — select gate 1 / 2 and open its page (2ND F + GATES = AUTO {pct} %)',
+    'RANGE': 'Range 50 → 100 → 200 → 400 mm (2ND F + RANGE = backwards)',
+    '2ND F': 'Second function — latch, then press dB, GATES, ❄, RANGE or ▲▼',
+    'PEAK MEM': 'Peak memory on / off',
+    'power': 'Power (decorative LED)',
+    'NEXT GROUP': 'Next softkey page',
+    'P': 'Softkey page {n}',
+    'F': 'Press softkey {n} of the current column',
+    // EPOCH 4 keypad
+    'GATE 1': 'Gate 1 — select gate 1 (start)', 'GATE 2': 'Gate 2 — select gate 2 (start)',
+    'PULSER': 'Pulser — damping on / off (2ND F + PULSER = receiver filter)', 'DISPLAY': 'Display — cycle the rectification',
+    'DEPTH %AMP': 'Big readout: depth ↔ amplitude %', 'CAL': 'Auto Cal — two-point velocity / zero calibration',
+    'ZERO OFFSET': 'Select the zero offset', 'RANGE-e4': 'Select the range (2ND F + RANGE = 50 → 100 → 200 → 400 mm)',
+    'VEL': 'Select the velocity', 'ANGLE': 'Select the probe angle (2ND F + ANGLE = thickness)',
+    'OPTION': 'Option (no function)', 'ID': 'ID (no function)', 'ON/OFF': 'Power (decorative LED)',
+    // USK 7
+    'ERASE DAC': 'Erase the DAC curve', 'OFF': 'Close the USK 7 window', 'Show USK 7': 'Re-open the USK 7 window',
+    'knob-': 'Turn {k} down', 'knob+': 'Turn {k} up',
+  };
+  /** Set title + aria-label from an i18n key (+ params) and remember the key on the element for relabelTips(). */
+  function tip(el, key, params) {
+    if (!el || !key) return el;
+    el.dataset.tip = key;
+    if (params) el.dataset.tipParams = JSON.stringify(params); else delete el.dataset.tipParams;
+    const s = t(key, params);
+    el.setAttribute('title', s); el.setAttribute('aria-label', s);
+    return el;
+  }
+  /** Re-apply every [data-tip] title / aria-label of the mounted skins (on 'lang' and when autoPct changes). */
+  function relabelTips() {
+    const roots = [];
+    if (mem.container) roots.push(mem.container);
+    if (mem.uskWin && mem.uskWin.el) roots.push(mem.uskWin.el);
+    roots.forEach(function (root) {
+      const els = root.querySelectorAll('[data-tip]');
+      for (let i = 0; i < els.length; i++) {
+        let params = null;
+        try { params = els[i].dataset.tipParams ? JSON.parse(els[i].dataset.tipParams) : null; } catch (e) { params = null; }
+        if (els[i].dataset.tip === TIPS.GATES) params = { pct: PARAMS.autoPct.get() };
+        tip(els[i], els[i].dataset.tip, params);
+      }
+    });
+  }
+  /**
+   * Hard key button: product legend (no i18n), takes the instrument focus, emits 'ui' softkey {id: uiId || label}.
+   * Carries a translated title / aria-label: `attrs.tip` (+ `attrs.tipParams`) or TIPS[uiId || label] (§5.7).
+   */
   function key(label, onClick, cls, attrs, uiId) {
-    return h('button', Object.assign({ class: 'ik no-i18n ' + (cls || ''), type: 'button', onclick: function (e) { e.preventDefault(); mem.focused = true; emitUi('softkey', uiId || label); onClick && onClick(e); } }, attrs || {}), label);
+    const a = Object.assign({}, attrs || {});
+    const tk = a.tip || TIPS[uiId || label]; let tp = a.tipParams || null; delete a.tip; delete a.tipParams;
+    if (tk === TIPS.GATES) tp = { pct: PARAMS.autoPct.get() };
+    const el = h('button', Object.assign({ class: 'ik no-i18n ' + (cls || ''), type: 'button', onclick: function (e) { e.preventDefault(); mem.focused = true; emitUi('softkey', uiId || label); onClick && onClick(e); } }, a), label);
+    return tip(el, tk, tp);
   }
   function arrowPad(cls) {
     return h('div', { class: 'ik-pad ' + (cls || '') }, [
@@ -17213,7 +17282,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     R.legs = [1, 2, 3].map(function (n) { return h('span', { class: 'e6-leg' }, 'L' + n); });
     R.pageInd = h('span', { class: 'e6-page' }, '1/5');
     R.bottom = h('div', { class: 'e6-bottom no-i18n' }, [10, 20, 30, 40, 60, null, null].map(function (g) {
-      return g === null ? h('span', { class: 'e6-bcell' }) : h('button', { class: 'e6-bcell', type: 'button', onclick: function () { mem.focused = true; emitUi('softkey', 'db-' + g); keys.setGain(g); } }, g.toFixed(1) + 'dB');
+      return g === null ? h('span', { class: 'e6-bcell' }) : tip(h('button', { class: 'e6-bcell', type: 'button', onclick: function () { mem.focused = true; emitUi('softkey', 'db-' + g); keys.setGain(g); } }, g.toFixed(1) + 'dB'), 'Set the gain to {g} dB', { g: g.toFixed(1) });
     }));
     const screen = h('div', { class: 'e6-screen' }, [
       h('div', { class: 'e6-hdr no-i18n' }, [h('span', { class: 'e6-hbox' }, 'NONAME00'), h('span', { class: 'e6-hlab' }, 'ID'), h('span', { class: 'e6-hbox e6-hid' }, '1')]),
@@ -17229,9 +17298,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const centre = h('div', { class: 'e6-centre' }, [
       h('div', { class: 'e6-top no-i18n' }, [h('span', { class: 'e6-leds' }, R.leds), h('span', { class: 'e6-olympus' }, 'OLYMPUS'), key('⏻', function () { mem.ledOn = !mem.ledOn; R.leds[0].classList.toggle('on', mem.ledOn); }, 'ik-power', null, 'power')]),
       screen,
-      h('div', { class: 'e6-prow no-i18n' }, ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7'].map(function (p) { return key(p, function () { const n = parseInt(p.slice(1), 10); mem.subPage = null; if (n <= 5) setInst({ page: n }); rebuildSoftkeys(); }, 'ik-p'); })),
+      h('div', { class: 'e6-prow no-i18n' }, ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7'].map(function (p) { return key(p, function () { const n = parseInt(p.slice(1), 10); mem.subPage = null; if (n <= 5) setInst({ page: n }); rebuildSoftkeys(); }, 'ik-p', { tip: TIPS.P, tipParams: { n: p.slice(1) } }); })),
     ]);
-    const right = h('div', { class: 'e6-right no-i18n' }, [key('NEXT GROUP', keys.nextGroup, 'ik-next'), h('div', { class: 'e6-fkeys' }, ['F1', 'F2', 'F3', 'F4', 'F5'].map(function (f, i) { return key(f, function () { softkeyPress(i + (mem.subPage ? 1 : 0)); }, 'ik-f'); }))]);
+    const right = h('div', { class: 'e6-right no-i18n' }, [key('NEXT GROUP', keys.nextGroup, 'ik-next'), h('div', { class: 'e6-fkeys' }, ['F1', 'F2', 'F3', 'F4', 'F5'].map(function (f, i) { return key(f, function () { softkeyPress(i + (mem.subPage ? 1 : 0)); }, 'ik-f', { tip: TIPS.F, tipParams: { n: i + 1 } }); }))]);
     const body = h('div', { class: 'skin skin-epoch600' + (mem.touch ? ' touch' : '') }, [leftPad, centre, right]);
     container.appendChild(body);
     rebuildSoftkeys();
@@ -17324,7 +17393,10 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       if (v) { setText(v, valueOf(v.dataset.param)); cell.classList.toggle('sel', v.dataset.param === sel); if (v.dataset.param === 'gain') v.classList.toggle('ref', refLocked()); }
     });
     if (R.refCap) R.refCap.classList.toggle('lit', refLocked());
-    if (R.autoCap) { setText(R.autoCap, 'AUTO ' + PARAMS.autoPct.get() + '%'); R.autoCap.classList.toggle('lit', mem.secondF); }
+    if (R.autoCap) {
+      setText(R.autoCap, 'AUTO ' + PARAMS.autoPct.get() + '%'); R.autoCap.classList.toggle('lit', mem.secondF);
+      if (mem.tipPct !== PARAMS.autoPct.get()) { mem.tipPct = PARAMS.autoPct.get(); relabelTips(); }
+    }
     R.leds[1].classList.toggle('on', !!inst().freeze); R.leds[2].classList.toggle('on', !!inst().peakMem);
     drawMiniIcon(frame);
   }
@@ -17369,7 +17441,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     screen.classList.add('no-i18n');
     R.softLabels = Array.prototype.slice.call(screen.querySelectorAll('.e4-sk'));
     R.secondF = key('2ND F', keys.secondF, 'e4k grey e4-2f');
-    const kp = function (label, fn, cls, cap, uiId) { return h('div', { class: 'e4-kc' }, [h('span', { class: 'e4-cap' }, cap || ' '), key(label, fn, 'e4k ' + cls, null, uiId)]); };
+    const kp = function (label, fn, cls, cap, uiId, tipKey) { return h('div', { class: 'e4-kc' }, [h('span', { class: 'e4-cap' }, cap || ' '), key(label, fn, 'e4k ' + cls, tipKey ? { tip: tipKey } : null, uiId)]); };
     const keypad = h('div', { class: 'e4-keypad no-i18n' }, [
       h('div', { class: 'e4-padwrap' }, [h('span', { class: 'e4-cap' }, 'REF'), h('div', { class: 'e4-pad' }, [
         key('GAIN', keys.dB, 'e4k green', null, 'dB'), key('▲', keys.up, 'e4k green', null, 'up'), key('SAVE THICK', keys.save, 'e4k green', null, 'SAVE'),
@@ -17379,14 +17451,14 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       h('div', { class: 'e4-grid' }, [
         kp('GATE 1', function () { setInst({ activeGate: 0, selectedParam: 'g1start' }); }, 'red', 'ALARM 1'), kp('PULSER', function () { if (mem.secondF) { setSecondF(false); keys.filter(); } else keys.damping(); }, 'orange', 'FILTER'), kp('DISPLAY', keys.rectify, 'orange', 'PRINT'),
         kp('GATE 2', function () { setInst({ activeGate: 1, selectedParam: 'g2start' }); if (!gateOf(1).on) patchGate(1, { on: true }); }, 'red', 'ALARM 2'), kp('PEAK MEM', keys.peakMem, 'red'), kp('DEPTH %AMP', function () { setInst({ readout: inst().readout === 'amp' ? 'dp' : 'amp' }); }, 'orange', 'ECHO-ECHO'),
-        kp('CAL', keys.autoCal, 'yellow', 'CONTRAST'), kp('ZERO OFFSET', function () { selectParam('zero'); }, 'yellow', '# DIV'), kp('RANGE', function () { if (mem.secondF) keys.range(); else selectParam('range'); }, 'yellow', 'ZOOM'),
+        kp('CAL', keys.autoCal, 'yellow', 'CONTRAST'), kp('ZERO OFFSET', function () { selectParam('zero'); }, 'yellow', '# DIV'), kp('RANGE', function () { if (mem.secondF) keys.range(); else selectParam('range'); }, 'yellow', 'ZOOM', null, TIPS['RANGE-e4']),
         kp('VEL', function () { selectParam('velocity'); }, 'yellow', 'REJECT'), kp('ANGLE', function () { selectParam(mem.secondF ? 'trigThick' : 'trigAngle'); setSecondF(false); }, 'yellow', 'THICKNESS'), h('div', { class: 'e4-kc' }, [h('span', { class: 'e4-cap' }, ' '), R.secondF]),
         kp('OPTION', null, 'grey'), kp('ID', null, 'blue'), kp('ON/OFF', function () { mem.ledOn = !mem.ledOn; }, 'green'),
       ]),
     ]);
     const body = h('div', { class: 'skin skin-epoch4' }, [
       h('div', { class: 'e4-bezel' }, [screen]),
-      h('div', { class: 'e4-fkeys' }, ['F1', 'F2', 'F3', 'F4', 'F5'].map(function (f, i) { return key(f, function () { const lbl = R.softLabels[i]; if (lbl) lbl.click(); }, 'e4-f'); })),
+      h('div', { class: 'e4-fkeys' }, ['F1', 'F2', 'F3', 'F4', 'F5'].map(function (f, i) { return key(f, function () { const lbl = R.softLabels[i]; if (lbl) lbl.click(); }, 'e4-f', { tip: TIPS.F, tipParams: { n: i + 1 } }); })),
       keypad,
       h('div', { class: 'e4-brand' }, 'EPOCH 4'),
     ]);
@@ -17461,7 +17533,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   function knob(label, opts) {
     const dial = h('div', { class: 'usk-dial', role: 'slider', 'aria-label': label, tabindex: '0' }, [h('div', { class: 'usk-ptr' })]);
     const el = h('div', { class: 'usk-knob no-i18n' }, [
-      h('div', { class: 'usk-lr' }, [key('◀', function () { opts.step(-1); }, 'usk-arr', null, label + '-'), key('▶', function () { opts.step(+1); }, 'usk-arr', null, label + '+')]),
+      h('div', { class: 'usk-lr' }, [key('◀', function () { opts.step(-1); }, 'usk-arr', { tip: TIPS['knob-'], tipParams: { k: label } }, label + '-'), key('▶', function () { opts.step(+1); }, 'usk-arr', { tip: TIPS['knob+'], tipParams: { k: label } }, label + '+')]),
       dial, h('span', { class: 'usk-klab' }, label),
     ]);
     dial.addEventListener('wheel', function (e) { e.preventDefault(); emitUi('wheel', label); opts.step(e.deltaY < 0 ? 1 : -1); });
@@ -17516,7 +17588,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     container.appendChild(h('div', { class: 'skin skin-uskdock' }, [
       h('div', { class: 'uskdock-title', i18n: 'UT SET: KRAUTKRÄMER USK 7 (analogue)' }),
       tx('div', 'uskdock-hint', 'The USK 7 floats over the plan view. Read the screen — this set has no digital readouts.'),
-      UT.dom.button('Show USK 7', function () { mem.focused = true; emitUi('softkey', 'Show USK 7'); win.show(); }, { class: 'ik uskdock-btn' }),
+      tip(UT.dom.button('Show USK 7', function () { mem.focused = true; emitUi('softkey', 'Show USK 7'); win.show(); }, { class: 'ik uskdock-btn' }), TIPS['Show USK 7']),
     ]));
   }
   function updateUsk7() {
@@ -17846,7 +17918,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
         if (keys.indexOf('instrument') >= 0) { const c = inst().compare; if (c === null || (c && typeof c.length === 'number')) mem.compare = c || null; }
       });
       try { if (!mem.mq && typeof matchMedia === 'function') mem.mq = matchMedia('(pointer: coarse)'); if (mem.mq && mem.mq.addEventListener) mem.mq.addEventListener('change', applyTouch); } catch (e) { /* ignore */ }
-      UT.bus.on('lang', function () { rebuildSoftkeys(); refreshDatalogWindow(true); if (mem.skin) onRender(UT.frame); });
+      UT.bus.on('lang', function () { rebuildSoftkeys(); relabelTips(); refreshDatalogWindow(true); if (mem.skin) onRender(UT.frame); });
       UT.bus.on('mode', function (p) {
         if (mem.skin !== 'usk7' || !mem.uskWin || !p) return;
         const el = mem.uskWin.el;
@@ -18168,7 +18240,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     auto, storeRef, wheel, compare, save, datalog,
     fmtLen: function (mm, dp) { return UT.fmtLen(mm, dp); },
     /** Internals exposed for tests / other modules (read-only use). */
-    _: { PARAMS, LEGAL_PARAMS, THEMES, keys, adjust, selectParam, softkeyItems, nextRange, foldDepth, ampColour, dacPolyline, dacAt, tcgFlatPolyline, compareOf, alarmActive, checkAlarms, energyV, dampingOhms, filterOf, prfOf, tcgActive, wantTouch, mem },
+    _: { PARAMS, LEGAL_PARAMS, THEMES, keys, adjust, selectParam, softkeyItems, nextRange, foldDepth, ampColour, dacPolyline, dacAt, tcgFlatPolyline, compareOf, alarmActive, checkAlarms, energyV, dampingOhms, filterOf, prfOf, tcgActive, wantTouch, mem, TIPS, tip, relabelTips },
     get window() { return ensureUskWindow(); },
     __selftest() {
       const f = [];
