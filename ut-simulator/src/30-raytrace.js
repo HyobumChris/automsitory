@@ -1291,8 +1291,9 @@
     const lib = (UT.specimens && UT.specimens.materials && UT.specimens.materials[sm.key]) || null;
     const vS = sm.vShear || (derived.mode === 'shear' ? derived.vel : UT.consts.V_SHEAR_STEEL);
     const vL = sm.vComp || (derived.mode === 'comp' ? derived.vel : UT.consts.V_COMP_STEEL);
-    const aL = lib && Number.isFinite(lib.attenL5) ? lib.attenL5 : 0.005;
-    const aS = lib && Number.isFinite(lib.attenS5) ? lib.attenS5 : 0.010;
+    // per-mode one-way attenuation: spec.material carries attenL5/attenS5 since 10-specimens v2; the library lookup is the fallback
+    const aL = Number.isFinite(sm.attenL5) ? sm.attenL5 : (lib && Number.isFinite(lib.attenL5) ? lib.attenL5 : 0.005);
+    const aS = Number.isFinite(sm.attenS5) ? sm.attenS5 : (lib && Number.isFinite(lib.attenS5) ? lib.attenS5 : 0.010);
     return { vS, vL, attenL5: aL, attenS5: aS, key: sm.key || 'carbon' };
   }
 

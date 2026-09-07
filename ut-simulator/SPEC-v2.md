@@ -270,7 +270,9 @@ Not saved while `trade.active`.
   with energy `eR = 0.15·clamp((refracted − 60)/15, 0, 1)` (60° → 0).
 - It travels along consecutive `top`/`cap` outline edges; at a **discontinuity** — cap toe (first `cap` vertex), plate/block
   end, notch, a surface-breaking planar defect (crack reaching y ≤ 0.5) — a fraction reflects back: cap toe 0.5, end face
-  1.0, notch 0.8, surface-breaking crack 0.8; the rest continues (cap: passes over). Returned energy → echo kind
+  1.0, notch 0.8, surface-breaking crack 0.8; the rest continues (cap: passes over). The 'end face' discontinuity is ANY
+  convex corner of the scanning surface (plate/block end, a radius arc, a step), not only outline edges tagged `end`
+  (30-raytrace, QA round 1). Returned energy → echo kind
   `'surface'`, `tUs = 2·d/vR`, displayed `path = d·vS/vR` (default weld capWidth 16 → toe at x = ±8; probe at x = 40 → d = 32,
   path = 34.8 mm), amplitude `eR·refl·q^0.5` with the surface-distance law.
 - **Finger damping** (`damping.points`): each damper at `x_d` between the probe and the discontinuity multiplies the surface
@@ -312,7 +314,8 @@ only (never on blocks) — the physics hook for lesson 24 and the procedure tran
 `pa-16-1.0` (array; used by 56). `UT.probe.select(id)` → patch for `UT.setIn('probe', …)` (§1).
 Custom angle: `probe.angle` may be any 35…80 (dialog); the toolbar angle buttons pick the library entry of the current
 family with that angle (`libForAngle`, fallback generic). `derive()` uses `crystalDims.a` for the fan and `crystalDims.b`
-for `hz`; twin-crystal angle probes: no initial pulse, near-surface sensitivity boost ×1.5 for path < 15 mm.
+for `hz`; twin-crystal angle probes: no initial pulse, near-surface sensitivity boost ×1.5 for path < 15 mm — owned by
+30-raytrace (`makeEcho`, constant `C.nearBoost`): ×1.5 for `Echo.lenMm ≤ 12 mm`, linear roll-off to ×1 at 15 mm.
 Library window `probelib` (90): table (maker, name, angle, freq, crystal, N, θ6/θ20), Select.
 
 ### 3.6 P6 — focused probes (30, 20)

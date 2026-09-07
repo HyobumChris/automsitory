@@ -144,7 +144,6 @@
   function byId(id) { const d = doc(); return d ? d.getElementById(id) : null; }
   function winApi(name) { return UT.dom.wins[name] || null; }
   function winOpen(name) { const w = winApi(name); return !!(w && w.isOpen()); }
-  function fmtNum(v, dp) { const n = +v; return Number.isInteger(n) ? String(n) : n.toFixed(dp === undefined ? 1 : dp); }
   function scanRange() {
     const sp = st().specimen;
     const ss = sp && sp.scanSurface ? sp.scanSurface : { xMin: -150, xMax: 150 };
@@ -1189,9 +1188,9 @@
     const s = st(), p = s.probe, ins = s.instrument;
     const inch = s.display.units === 'inch';
     const parts = [];
-    parts.push(inch ? 'Pos: ' + (p.x / 25.4).toFixed(2) + ' in' : 'Pos: ' + fmtNum(p.x) + ' mm');
+    parts.push(inch ? 'Pos: ' + (p.x / 25.4).toFixed(2) + ' in' : 'Pos: ' + UT.fmtNum(p.x, 'auto') + ' mm');
     parts.push(inch ? 'Range ' + (ins.range / 25.4).toFixed(2) + 'in' : 'Range ' + (+ins.range).toFixed(1) + 'mm');
-    parts.push('AMP= ' + fmtNum(s.mode === 'tofd' && s.tofd && Number.isFinite(s.tofd.gainDb) ? s.tofd.gainDb : ins.gain) + 'dB');
+    parts.push('AMP= ' + UT.fmtNum(s.mode === 'tofd' && s.tofd && Number.isFinite(s.tofd.gainDb) ? s.tofd.gainDb : ins.gain, 'auto') + 'dB');
     let extra = '';
     if (has('modes.statusMid')) { try { extra = UT.modes.statusMid() || ''; } catch (e) { extra = ''; } }
     else if (s.specimen && s.specimen.pipe) extra = 'WT ' + s.specimen.pipe.wt + 'mm  Dia ' + s.specimen.pipe.odInch + 'inch';
@@ -1817,7 +1816,7 @@
     ['FBH / DGS', '평저공 / DGS 선도', 'flat-bottom hole; disc-equivalent size', '원판 등가 크기 산정', []],
     ['Corner echo', '코너 에코', 'strong echo from a surface-breaking defect and the backwall (90° corner)', '표면 개구 결함과 저면이 이루는 모서리 반사', [11]],
     ['Tip diffraction', '팁 회절(단부 에코)', 'weak echo from a crack tip; used for height', '균열 끝에서의 약한 회절 에코, 높이 측정', [13]],
-    ['Mode conversion', '모드 변환', 'S↔L conversion at surfaces → spurious echoes', '표면·결함에서의 파 변환 → 의사 지시', []],
+    ['Mode conversion', '모드 변환', 'S↔L conversion at surfaces → spurious echoes; OFF also removes the conversion LOSS on specular echoes (the 60° root-corner echo reads ≈ +5.5 dB higher)', '표면·결함에서의 파 변환 → 의사 지시; OFF로 하면 정반사 에코의 변환 손실도 사라져 60° 루트 코너 에코가 ≈ +5.5 dB 높게 읽힘', []],
     ['Surface wave', '표면파', 'Rayleigh wave from steep wedges; damped by a finger', '손가락으로 감쇠되는 표면 진행파', []],
     ['Geometry echo', '형상 에코', 'root bead / cap / backing bar reflections – plot before calling a defect', '이면 비드·덧살·배킹 바 반사 – 결함 판정 전 플로팅', []],
     ['Transfer correction', '전달 손실 보정', 'dB added for surface/attenuation differences between block and part', '시험편과 대비 시험편의 차이를 보정하는 dB', [24]],
@@ -1972,7 +1971,7 @@
         kv(t('Probe'), (dv.libName || '') + '  ' + (s.probe.angle + '°') + ' ' + (s.probe.freq + ' MHz') + '  x ' + s.probe.x + '  z ' + s.probe.z + '  ' + t('side') + ' ' + (s.probe.side > 0 ? 'A' : 'B')),
         kv(t('Physics'), dv.statusLine || ''),
         kv(t('Instrument'), s.utSet + '  ' + t('Gain') + ' ' + s.instrument.gain + ' dB  ' + t('Range') + ' ' + s.instrument.range + ' mm  ' + t('Ref') + ' ' + s.instrument.refGain + ' dB'),
-        R ? kv(t('Readouts'), 'SP ' + fmtNum(R.sp || R.path || 0) + '  SD ' + fmtNum(R.sd || 0) + '  DP ' + fmtNum(R.dp || R.depth || 0) + '  ' + fmtNum(R.peakPct || R.ampPct || 0) + ' %') : null,
+        R ? kv(t('Readouts'), 'SP ' + UT.fmtNum(R.sp || R.path || 0, 'auto') + '  SD ' + UT.fmtNum(R.sd || 0, 'auto') + '  DP ' + UT.fmtNum(R.dp || R.depth || 0, 'auto') + '  ' + UT.fmtNum(R.peakPct || R.ampPct || 0, 'auto') + ' %') : null,
         s.standards && s.standards.lastEval ? kv(t('Evaluation'), s.standards.lastEval.ruleId + ' ' + (s.standards.lastEval.level || '') + ': ' + (s.standards.lastEval.rows || []).map(function (r) { return (r.result && r.result.disposition) || ''; }).join(', ')) : null,
       ]),
       imgOf('cv-ascan'), imgOf('cv-cross'),

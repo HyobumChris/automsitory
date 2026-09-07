@@ -848,7 +848,7 @@
   function beamWidths6(derived, path) {
     const d = derived || {};
     const lam = d.lambda || 0.648, a = d.crystalA || d.diameter || 10, b = d.crystalB || a;
-    const th = M.deg2rad(d.refracted || 0), th6 = M.deg2rad(d.halfAngle6dB || M.rad2deg(Math.asin(M.clamp(0.51 * lam / a, 0, 0.999))));
+    const th = M.deg2rad(d.refracted || 0), th6 = Number.isFinite(d.halfAngle6dB) ? M.deg2rad(d.halfAngle6dB) : Math.asin(M.clamp(0.51 * lam / a, 0, 0.999));   // derive() contract first, λ/a fallback
     const p = Math.max(0, path || 0);
     return {
       w6x: 2 * p * Math.tan(th6) / Math.max(Math.cos(th), 1e-6) + a,
@@ -932,7 +932,9 @@
     const lam = d.lambda || 0.648, b = d.crystalB || d.diameter || 10;
     const p = Math.max(0, path || 0);
     const wz6 = p * Math.tan(Math.asin(M.clamp(0.51 * lam / b, 0, 0.999))) + b / 2;
-    const wz20 = (d.nearField && p < d.nearField) ? b / 2 : p * Math.tan(Math.asin(M.clamp(0.87 * lam / b, 0, 0.999))) + b / 2;
+    // −20 dB half-angle across the beam: derive() publishes halfAngle20dBz (from crystalB, SPEC-v2 §3.1); fall back to λ/b
+    const th20z = Number.isFinite(d.halfAngle20dBz) ? M.deg2rad(d.halfAngle20dBz) : Math.asin(M.clamp(0.87 * lam / b, 0, 0.999));
+    const wz20 = (d.nearField && p < d.nearField) ? b / 2 : p * Math.tan(th20z) + b / 2;
     return { wz6, wz20 };
   }
   /** Through-wall (x) 20 dB edge projection at a depth: {near, far} x positions of the beam edges. */

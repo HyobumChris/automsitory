@@ -154,7 +154,6 @@
   function inst() { return UT.state.instrument; }
   function derived() { return (UT.frame && UT.frame.derived) || UT.probe.derive(UT.state.probe, UT.state.specimen); }
   function fmtGain(g) { return (Math.abs(g - Math.round(g)) < 1e-9 ? String(Math.round(g)) : g.toFixed(1)) + 'dB'; }
-  function fmtNum(v, dp) { return (v === null || v === undefined || Number.isNaN(v)) ? '--' : Number(v).toFixed(dp); }
   function isInch() { return st().display && st().display.units === 'inch'; }
   function fmtRead(mm) { if (mm === null || mm === undefined || Number.isNaN(mm)) return '--.--'; return isInch() ? (mm / 25.4).toFixed(3) : M.fmt2(mm); }
   function unitLabel() { return isInch() ? 'in' : 'mm'; }
@@ -872,7 +871,7 @@
     win.show();
     // placeholder in the instrument column
     container.appendChild(h('div', { class: 'skin skin-uskdock' }, [
-      h('div', { class: 'uskdock-title no-i18n' }, 'UT SET: KRAUTKRÄMER USK 7 (analogue)'),
+      h('div', { class: 'uskdock-title', i18n: 'UT SET: KRAUTKRÄMER USK 7 (analogue)' }),
       tx('div', 'uskdock-hint', 'The USK 7 floats over the plan view. Read the screen — this set has no digital readouts.'),
       UT.dom.button('Show USK 7', function () { mem.focused = true; emitUi('softkey', 'Show USK 7'); win.show(); }, { class: 'ik uskdock-btn' }),
     ]));

@@ -530,6 +530,17 @@
     if (UT.state.display && UT.state.display.units === 'inch') return (mm / 25.4).toFixed(dp === undefined ? 3 : dp) + '"';
     return math.fmt(mm, dp === undefined ? 1 : dp) + ' mm';
   };
+  /**
+   * Shared plain-number formatter (QA round 1): ONE dash string for every window so the same readout never prints
+   * '--', '—' and 'NaN' in different places. dp: decimals (default 1) or 'auto' (integers without decimals, else 1 dp —
+   * the v1 status-bar style 'Pos: 67 mm'); dash: text for null/undefined/NaN/±∞ (default '—').
+   */
+  UT.fmtNum = function (v, dp, dash) {
+    const n = Number(v);
+    if (v === null || v === undefined || v === '' || !Number.isFinite(n)) return dash === undefined ? '—' : dash;
+    if (dp === 'auto') return Number.isInteger(n) ? String(n) : n.toFixed(1);
+    return n.toFixed(dp === undefined ? 1 : dp);
+  };
 
   // ------------------------------------------------------------------ self test
   UT.core = {

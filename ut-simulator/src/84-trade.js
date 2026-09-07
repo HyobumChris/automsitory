@@ -116,7 +116,6 @@
   function num(v) { const x = typeof v === 'string' ? (v.trim() === '' ? NaN : +v) : +v; return Number.isFinite(x) ? x : NaN; }
   function r1(v) { return Math.round(v * 10) / 10; }
   function esc(s) { return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
-  function fmtNum(v, dp) { return Number.isFinite(v) ? Number(v).toFixed(dp === undefined ? 1 : dp) : '—'; }
   function clock(sec) { const s = Math.max(0, Math.floor(sec)); const mm = Math.floor(s / 60), ss = s % 60; return (mm < 10 ? '0' : '') + mm + ':' + (ss < 10 ? '0' : '') + ss; }
   function tx(tag, key, params, attrs) { return dom.h(tag, Object.assign({ dataset: { i18n: key } }, attrs || {}), t(key, params)); }
   function btn(key, fn, attrs) { return dom.button(t(key), fn, Object.assign({ dataset: { i18n: key } }, attrs || {})); }
@@ -884,16 +883,16 @@
     html += kv('Calibration block', calTxt);
     html += kv('Reference level', esc(refTxt));
     html += kv('Scanning sensitivity', scanTxt);
-    html += kv('Transfer correction', esc(fmtNum(std.transferDb || 0, 1)) + ' dB');
+    html += kv('Transfer correction', esc(UT.fmtNum(std.transferDb || 0, 1)) + ' dB');
     html += kv('Couplant', esc(reportMeta.couplant));
     html += kv('Surface condition', esc(reportMeta.surface));
     html += '</table>';
     html += '<h3>' + L('Indications') + '</h3><table class="tr-ind"><tr>' + ['No', 'z from datum', 'x from weld CL', 'Length', 'Depth to top', 'Height', 'Max amp (% DAC / dB vs ref)', 'Angle & side', 'Classification', 'Disposition'].map(function (k) { return '<th>' + L(k) + '</th>'; }).join('') + '</tr>';
     rows.forEach(function (d, i) {
       const r = d.row;
-      const pct = Number.isFinite(r.ampDb) ? Math.round(100 * Math.pow(10, r.ampDb / 20)) + ' % / ' + fmtNum(r.ampDb, 1) + ' dB' : '—';
-      const xs = d.truth && Number.isFinite(d.truth.x) && withTruth ? fmtNum(d.truth.x, 1) : '—';
-      html += '<tr class="' + esc(d.status || '') + '"><td>' + esc(Number.isFinite(r.n) ? r.n : i + 1) + '</td><td>' + fmtNum(r.z, 0) + '</td><td>' + xs + '</td><td>' + fmtNum(r.length, 0) + '</td><td>' + fmtNum(r.depth, 1) + '</td><td>' + fmtNum(r.height, 1) + '</td><td>' + pct + '</td><td>' + (Number.isFinite(r.angle) ? r.angle + '°' : '—') + ' ' + (r.side === -1 ? 'B' : (r.side === 1 ? 'A' : '')) + '</td><td>' + esc(normType(r.type) ? typeLabel(normType(r.type)) : r.type) + '</td><td>' + esc(r.disposition ? t(r.disposition) : '—') + '</td></tr>';
+      const pct = Number.isFinite(r.ampDb) ? Math.round(100 * Math.pow(10, r.ampDb / 20)) + ' % / ' + UT.fmtNum(r.ampDb, 1) + ' dB' : '—';
+      const xs = d.truth && Number.isFinite(d.truth.x) && withTruth ? UT.fmtNum(d.truth.x, 1) : '—';
+      html += '<tr class="' + esc(d.status || '') + '"><td>' + esc(Number.isFinite(r.n) ? r.n : i + 1) + '</td><td>' + UT.fmtNum(r.z, 0) + '</td><td>' + xs + '</td><td>' + UT.fmtNum(r.length, 0) + '</td><td>' + UT.fmtNum(r.depth, 1) + '</td><td>' + UT.fmtNum(r.height, 1) + '</td><td>' + pct + '</td><td>' + (Number.isFinite(r.angle) ? r.angle + '°' : '—') + ' ' + (r.side === -1 ? 'B' : (r.side === 1 ? 'A' : '')) + '</td><td>' + esc(normType(r.type) ? typeLabel(normType(r.type)) : r.type) + '</td><td>' + esc(r.disposition ? t(r.disposition) : '—') + '</td></tr>';
     });
     if (!rows.length) html += '<tr><td colspan="10">' + L('no indications recorded') + '</td></tr>';
     html += '</table>';
@@ -915,7 +914,7 @@
     if (withTruth) {
       html += '<h3>' + L('True defects') + '</h3><table class="tr-truth"><tr>' + ['No', 'From z', 'Length', 'Depth', 'Height', 'Type', 'x', 'Side', 'Best dB'].map(function (k) { return '<th>' + L(k) + '</th>'; }).join('') + '</tr>';
       tr.truth.forEach(function (q) {
-        html += '<tr class="' + (q.recordable === false ? 'tr-dim' : '') + '"><td>' + q.n + '</td><td>' + q.zFrom + '</td><td>' + fmtNum(q.zTo - q.zFrom, 1) + '</td><td>' + q.depth + '</td><td>' + q.height + '</td><td>' + esc(typeLabel(normType(q.type)) || q.type) + '</td><td>' + fmtNum(q.x, 1) + '</td><td>' + (q.side === -1 ? 'B' : (q.side === 1 ? 'A' : 'CL')) + '</td><td>' + fmtNum(q.bestDb, 1) + (q.recordable === false ? ' (' + L('below recording level') + ')' : '') + '</td></tr>';
+        html += '<tr class="' + (q.recordable === false ? 'tr-dim' : '') + '"><td>' + q.n + '</td><td>' + q.zFrom + '</td><td>' + UT.fmtNum(q.zTo - q.zFrom, 1) + '</td><td>' + q.depth + '</td><td>' + q.height + '</td><td>' + esc(typeLabel(normType(q.type)) || q.type) + '</td><td>' + UT.fmtNum(q.x, 1) + '</td><td>' + (q.side === -1 ? 'B' : (q.side === 1 ? 'A' : 'CL')) + '</td><td>' + UT.fmtNum(q.bestDb, 1) + (q.recordable === false ? ' (' + L('below recording level') + ')' : '') + '</td></tr>';
       });
       html += '</table>';
     }
@@ -1141,7 +1140,7 @@
       ui.result.appendChild(tx('div', 'True defects', null, { class: 'tr-sub' }));
       ui.result.appendChild(dom.h('table', { class: 'tr-truth' }, [dom.h('tr', {}, ['#', 'From z', 'Length', 'Depth', 'Height', 'Type', 'Side', 'Best dB'].map(function (k) { return k === '#' ? dom.h('th', {}, '#') : tx('th', k); }))]
         .concat(tr.truth.map(function (q) {
-          const cells = [q.n, q.zFrom, r1(q.zTo - q.zFrom), q.depth, q.height, typeLabel(normType(q.type)) || q.type, q.side === -1 ? 'B' : (q.side === 1 ? 'A' : 'CL'), fmtNum(q.bestDb, 1) + (q.recordable === false ? ' (' + t('below recording level') + ')' : '')];
+          const cells = [q.n, q.zFrom, r1(q.zTo - q.zFrom), q.depth, q.height, typeLabel(normType(q.type)) || q.type, q.side === -1 ? 'B' : (q.side === 1 ? 'A' : 'CL'), UT.fmtNum(q.bestDb, 1) + (q.recordable === false ? ' (' + t('below recording level') + ')' : '')];
           return dom.h('tr', { class: q.recordable === false ? 'tr-dim' : '' }, cells.map(function (c) { return dom.h('td', {}, String(c)); }));
         }))));
       if (res && res.misses && res.misses.length) ui.result.appendChild(dom.h('div', { class: 'tr-miss' }, t('Missed') + ': ' + res.misses.map(function (m) { return '#' + m.n + ' (' + (typeLabel(normType(m.type)) || m.type) + ' z ' + m.zFrom + ')'; }).join(', ')));

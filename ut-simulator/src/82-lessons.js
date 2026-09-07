@@ -414,7 +414,7 @@
       function () { const d = st().defects[0]; H.dragTo(st().probe.x, { z: d ? (d.zFrom + d.zTo) / 2 : 150 }); },
       { hk: '↑/↓ 키 또는 평면도 드래그로 z를 맞추세요.', he: 'Use ↑/↓ or drag in the plan view to set z.', ok: '결함 중심에서 코너 에코가 최대입니다.', oe: 'The corner echo peaks at the defect centre.' }),
     C('루트 균열의 전형적 에코는?', 'The typical root-crack echo is…', [['corner', '코너 에코 (0.5 스킵, 강함)', 'Corner echo (half skip, strong)'], ['tip', '팁 회절만', 'Tip only', '팁은 약합니다; 코너가 지배적입니다.', 'Tips are weak; the corner dominates.'], ['weak', '약한 지시', 'Weak indication'], ['none', '없음', 'None']], 'corner',
-      { hk: '균열과 저면이 90°를 이룹니다.', he: 'Crack and backwall form a 90° corner.', ok: '코너 에코는 각도와 무관하게 되돌아옵니다 — 표면 개구 결함의 표지.', oe: 'A corner reflects back regardless of angle — the signature of a surface-breaking defect.' }),
+      { hk: '균열과 저면이 90°를 이룹니다.', he: 'Crack and backwall form a 90° corner.', ok: '코너 에코는 각도와 무관하게 되돌아옵니다 — 표면 개구 결함의 표지. (함정: 탐촉자 ▸ 모드 변환을 끄면 정반사 에코의 변환 손실도 사라져 이 60° 루트 코너 에코가 ≈ +5.5 dB 높게 읽힙니다.)', oe: 'A corner reflects back regardless of angle — the signature of a surface-breaking defect. (Trap: switching Probes ▸ Mode conversion OFF also removes the conversion loss on specular echoes, so this 60° root-corner echo reads ≈ +5.5 dB higher.)' }),
     N('코너 에코 빔 노정(mm)?', 'Corner-echo beam path (mm)?', 40, 1.5, { hk: 'T/cos60.', he: 'T/cos60.', ok: '20/cos60 = 40 mm, 탐촉자 x ≈ 34.6.', oe: '20/cos60 = 40 mm, probe at x ≈ 34.6.' }),
   ]; };
   STEPS[11] = function () { return [
@@ -727,7 +727,7 @@
     stopHintTimer();
     writeL({ active: null, step: 0, memo: {} });
     UT.set({ lesson: null }, { noRender: true });
-    if (!L.autoRunning) { announce(t('Lesson {n} complete — score {s} %', { n, s: score }), 'ok'); UT.status({ right: t('Lesson {n} complete — score {s} %', { n, s: score }) }); }
+    if (!L.autoRunning) { announce(t('Lesson {n} complete — score {s} %', { n, s: score }), 'ok'); setStatusHint(function () { return t('Lesson {n} complete — score {s} %', { n, s: score }); }); }
     refresh(true);
   }
   /** Evaluate only the current step (pure function of state + frame). Returns true when it passed. */
@@ -787,13 +787,13 @@
     UT.set({ lesson: n - 1 }, { noRender: true });
     L.lastCompleted = null;
     announce('', '');
-    UT.status({ right: (ko() ? ln.ko : ln.en) });   // before enterStep: a hint fired from step 0 must stay visible in the status bar
+    setStatusHint(function () { return ko() ? ln.ko : ln.en; });   // before enterStep: a hint fired from step 0 must stay visible in the status bar
     enterStep(n, 0);
     UT.renderNow();
     return ln;
   };
   /** Stop the active lesson (keeps progress). */
-  api.stop = function () { stopHintTimer(); writeL({ active: null, step: 0, memo: {} }); UT.set({ lesson: null }, { noRender: true }); refresh(true); };
+  api.stop = function () { stopHintTimer(); setStatusHint(null); writeL({ active: null, step: 0, memo: {} }); UT.set({ lesson: null }, { noRender: true }); refresh(true); };
   /** Jump to step i of the active lesson. */
   api.goto = function (i) { const l = ls(); if (l.active === null) return; const ln = lesson(l.active); i = M.clamp(Math.round(+i || 0), 0, ln.steps.length - 1); enterStep(l.active, i); };
   /** {n, step, done[]} of the active lesson (n null when idle). */
@@ -811,7 +811,7 @@
     if (!L.hintShown) { L.hintShown = true; writeProg(l.active, { hints: progOf(l.active).hints + 1 }); }
     const text = ko() ? step.hintKo : step.hintEn;
     announce(text || t('No hint for this step'), 'hint');
-    UT.status({ right: t('Hint') + ': ' + (text || t('No hint for this step')) });
+    setStatusHint(function () { const tx = ko() ? step.hintKo : step.hintEn; return t('Hint') + ': ' + (tx || t('No hint for this step')); });
     refresh(true);
     return text;
   };
@@ -915,6 +915,8 @@
   });
   UT.bus.on('lang', function () {
     if (ls().active !== null && ls().active !== undefined) { const memo = Object.assign({}, ls().memo || {}); memo.langChanges = (memo.langChanges || 0) + 1; writeL({ memo }); scheduleEval(); }
+    // the status-bar hint is stored as a closure (not a language-specific string) so it follows the language switch
+    if (L.statusHint && ((ls().active !== null && ls().active !== undefined) || (st().quiz && st().quiz.active))) { try { UT.status({ right: L.statusHint() }); } catch (e) { console.error('[UT.lessons] status hint', e); } }
     if (L.win) { L.win.setTitle(t('Lessons')); refresh(true); }
     if (Q.win) { Q.win.setTitle(t('Echo quiz')); quizRefresh(); }
   });
@@ -1125,6 +1127,8 @@
     return categoryOf(e || R);
   }
   const Q = { win: null, ui: {}, dirty: false, saved: null, seed: null, rng: null, ids: [] };
+  /** Status-bar hint: fn() builds the text in the CURRENT language; re-issued by the 'lang' handler (null clears). */
+  function setStatusHint(fn) { L.statusHint = typeof fn === 'function' ? fn : null; if (L.statusHint) UT.status({ right: L.statusHint() }); }
   /** lowbias32 finaliser: the plain LCG's first draws are ~linear in the seed, so seeds 1, 2, 3… would open with the same item. */
   function mix32(x) {
     x = x >>> 0;
@@ -1222,7 +1226,7 @@
       if (Q.saved) UT.setIn('display', { beam: Q.saved.beam, hide: false }, { noRender: true });
       const lab = LABELS[item.correctId];
       quizAnnounce((correct ? t('Correct') : t('Wrong')) + ' — ' + (ko() ? lab.ko + ': ' + lab.dko : lab.en + ': ' + lab.den));
-      UT.status({ right: (ko() ? lab.ko : lab.en) + ' — ' + (ko() ? lab.dko : lab.den) });
+      setStatusHint(function () { return (ko() ? lab.ko : lab.en) + ' — ' + (ko() ? lab.dko : lab.den); });
       UT.renderNow();
       quizRefresh();
       return { correct, correctId: item.correctId };

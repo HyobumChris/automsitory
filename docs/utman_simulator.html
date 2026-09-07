@@ -896,6 +896,17 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     if (UT.state.display && UT.state.display.units === 'inch') return (mm / 25.4).toFixed(dp === undefined ? 3 : dp) + '"';
     return math.fmt(mm, dp === undefined ? 1 : dp) + ' mm';
   };
+  /**
+   * Shared plain-number formatter (QA round 1): ONE dash string for every window so the same readout never prints
+   * '--', '—' and 'NaN' in different places. dp: decimals (default 1) or 'auto' (integers without decimals, else 1 dp —
+   * the v1 status-bar style 'Pos: 67 mm'); dash: text for null/undefined/NaN/±∞ (default '—').
+   */
+  UT.fmtNum = function (v, dp, dash) {
+    const n = Number(v);
+    if (v === null || v === undefined || v === '' || !Number.isFinite(n)) return dash === undefined ? '—' : dash;
+    if (dp === 'auto') return Number.isInteger(n) ? String(n) : n.toFixed(1);
+    return n.toFixed(dp === undefined ? 1 : dp);
+  };
 
   // ------------------------------------------------------------------ self test
   UT.core = {
@@ -1781,7 +1792,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     { key: 'rootCrack', label: 'Root crack (균열)' }, { key: 'incompletePenetration', label: 'Incomplete penetration (용입 부족)' },
     { key: 'lof', label: 'Lack of side-wall fusion (융합 불량)' }, { key: 'porosity', label: 'Porosity (기공)' },
     { key: 'slag', label: 'Slag inclusion (슬래그)' }, { key: 'toeCrack', label: 'Toe crack (토우 균열)' },
-    { key: 'centrelineCrack', label: 'Centreline crack' }, { key: 'lamination', label: 'Lamination (라미네이션)' },
+    { key: 'centrelineCrack', label: 'Centreline crack (중심선 균열)' }, { key: 'lamination', label: 'Lamination (라미네이션)' },
     { key: 'backingLof', label: 'Backing bar lack of fusion (배킹바 융합불량)' }, { key: 'toeCrackFillet', label: 'Fillet toe crack (필릿 토우 균열)' },
   ];
 
@@ -3474,8 +3485,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const lib = (UT.specimens && UT.specimens.materials && UT.specimens.materials[sm.key]) || null;
     const vS = sm.vShear || (derived.mode === 'shear' ? derived.vel : UT.consts.V_SHEAR_STEEL);
     const vL = sm.vComp || (derived.mode === 'comp' ? derived.vel : UT.consts.V_COMP_STEEL);
-    const aL = lib && Number.isFinite(lib.attenL5) ? lib.attenL5 : 0.005;
-    const aS = lib && Number.isFinite(lib.attenS5) ? lib.attenS5 : 0.010;
+    // per-mode one-way attenuation: spec.material carries attenL5/attenS5 since 10-specimens v2; the library lookup is the fallback
+    const aL = Number.isFinite(sm.attenL5) ? sm.attenL5 : (lib && Number.isFinite(lib.attenL5) ? lib.attenL5 : 0.005);
+    const aS = Number.isFinite(sm.attenS5) ? sm.attenS5 : (lib && Number.isFinite(lib.attenS5) ? lib.attenS5 : 0.010);
     return { vS, vL, attenL5: aL, attenS5: aS, key: sm.key || 'carbon' };
   }
 
@@ -5969,7 +5981,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     out.push('ASME BPVC VIII-1 App. 12 (12-3) + ASME V Art. 4 — confidence HIGH: investigate all indications > 20 % of reference (compared in percent so −14 dB counts as 20 %); reject cracks / LOF / IP regardless; other indications reject when > 100 % DAC AND longer than 6 mm (t ≤ 19), t/3 (19 < t ≤ 57) or 19 mm (t > 57). Basic block SDH ⌀ 2.4 mm for t ≤ 25.');
     out.push('AWS D1.1 Table 8.2 (statically loaded, non-tubular) — confidence MEDIUM-HIGH (~75 %) on the class numbers, HIGH on structure: rating d = a − b − c with c = 2 dB per inch of sound path beyond 1 in (rounded, .5 up); classes A–D per thickness band and probe angle; for t ≤ 3/4 in only 70° is listed (45°/60° → n/a); the B/C isolation (spacing) rule is omitted; class D is accepted and not recorded.');
     out.push('DGS / ERS — normalised Krautkrämer diagram: backwall 1/A, disc 2π·G²/A² (lead decision), SDH √(2λd)/(a·A^1.5); far-field approximation (A ≥ 1); DGS applies to the 0° probe only; the transfer correction is added to the specimen echo.');
-    out.push('Mode conversion — the S↔L conversion coefficients R_LS(φ) and R_SL(φ) of the ray tracer are closed-form fits, ±0.1; converted echoes are labelled "Mode-converted (L/S)".');
+    out.push('Mode conversion — the S↔L conversion coefficients R_LS(φ) and R_SL(φ) of the ray tracer are closed-form fits, ±0.1; converted echoes are labelled "Mode-converted (L/S)". Switching Probes ▸ Mode conversion OFF also removes the conversion LOSS on specular echoes (the 1 − R split), so the 60° root-corner echo reads ≈ +5.5 dB higher with mode conversion off — compare readings only with the same setting.');
     out.push('Exam sharing — an exam link contains no defects (only the seed, the code hash and the settings) and the result token is signed with FNV-1a. This is obfuscation for classroom use, not security: the browser devtools can still reach the generator.');
     out.push('Transfer correction — measured as the gain difference between the block and the specimen backwall (same path); ISO 17640: ignore < 2 dB, compensate 2…12 dB, investigate > 12 dB. Lesson 24 enters it in Evaluation ▸ Transfer.');
     return out;
@@ -15339,7 +15351,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   function beamWidths6(derived, path) {
     const d = derived || {};
     const lam = d.lambda || 0.648, a = d.crystalA || d.diameter || 10, b = d.crystalB || a;
-    const th = M.deg2rad(d.refracted || 0), th6 = M.deg2rad(d.halfAngle6dB || M.rad2deg(Math.asin(M.clamp(0.51 * lam / a, 0, 0.999))));
+    const th = M.deg2rad(d.refracted || 0), th6 = Number.isFinite(d.halfAngle6dB) ? M.deg2rad(d.halfAngle6dB) : Math.asin(M.clamp(0.51 * lam / a, 0, 0.999));   // derive() contract first, λ/a fallback
     const p = Math.max(0, path || 0);
     return {
       w6x: 2 * p * Math.tan(th6) / Math.max(Math.cos(th), 1e-6) + a,
@@ -15423,7 +15435,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const lam = d.lambda || 0.648, b = d.crystalB || d.diameter || 10;
     const p = Math.max(0, path || 0);
     const wz6 = p * Math.tan(Math.asin(M.clamp(0.51 * lam / b, 0, 0.999))) + b / 2;
-    const wz20 = (d.nearField && p < d.nearField) ? b / 2 : p * Math.tan(Math.asin(M.clamp(0.87 * lam / b, 0, 0.999))) + b / 2;
+    // −20 dB half-angle across the beam: derive() publishes halfAngle20dBz (from crystalB, SPEC-v2 §3.1); fall back to λ/b
+    const th20z = Number.isFinite(d.halfAngle20dBz) ? M.deg2rad(d.halfAngle20dBz) : Math.asin(M.clamp(0.87 * lam / b, 0, 0.999));
+    const wz20 = (d.nearField && p < d.nearField) ? b / 2 : p * Math.tan(th20z) + b / 2;
     return { wz6, wz20 };
   }
   /** Through-wall (x) 20 dB edge projection at a depth: {near, far} x positions of the beam edges. */
@@ -16565,7 +16579,6 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   function inst() { return UT.state.instrument; }
   function derived() { return (UT.frame && UT.frame.derived) || UT.probe.derive(UT.state.probe, UT.state.specimen); }
   function fmtGain(g) { return (Math.abs(g - Math.round(g)) < 1e-9 ? String(Math.round(g)) : g.toFixed(1)) + 'dB'; }
-  function fmtNum(v, dp) { return (v === null || v === undefined || Number.isNaN(v)) ? '--' : Number(v).toFixed(dp); }
   function isInch() { return st().display && st().display.units === 'inch'; }
   function fmtRead(mm) { if (mm === null || mm === undefined || Number.isNaN(mm)) return '--.--'; return isInch() ? (mm / 25.4).toFixed(3) : M.fmt2(mm); }
   function unitLabel() { return isInch() ? 'in' : 'mm'; }
@@ -17283,7 +17296,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     win.show();
     // placeholder in the instrument column
     container.appendChild(h('div', { class: 'skin skin-uskdock' }, [
-      h('div', { class: 'uskdock-title no-i18n' }, 'UT SET: KRAUTKRÄMER USK 7 (analogue)'),
+      h('div', { class: 'uskdock-title', i18n: 'UT SET: KRAUTKRÄMER USK 7 (analogue)' }),
       tx('div', 'uskdock-hint', 'The USK 7 floats over the plan view. Read the screen — this set has no digital readouts.'),
       UT.dom.button('Show USK 7', function () { mem.focused = true; emitUi('softkey', 'Show USK 7'); win.show(); }, { class: 'ik uskdock-btn' }),
     ]));
@@ -20204,7 +20217,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       function () { const d = st().defects[0]; H.dragTo(st().probe.x, { z: d ? (d.zFrom + d.zTo) / 2 : 150 }); },
       { hk: '↑/↓ 키 또는 평면도 드래그로 z를 맞추세요.', he: 'Use ↑/↓ or drag in the plan view to set z.', ok: '결함 중심에서 코너 에코가 최대입니다.', oe: 'The corner echo peaks at the defect centre.' }),
     C('루트 균열의 전형적 에코는?', 'The typical root-crack echo is…', [['corner', '코너 에코 (0.5 스킵, 강함)', 'Corner echo (half skip, strong)'], ['tip', '팁 회절만', 'Tip only', '팁은 약합니다; 코너가 지배적입니다.', 'Tips are weak; the corner dominates.'], ['weak', '약한 지시', 'Weak indication'], ['none', '없음', 'None']], 'corner',
-      { hk: '균열과 저면이 90°를 이룹니다.', he: 'Crack and backwall form a 90° corner.', ok: '코너 에코는 각도와 무관하게 되돌아옵니다 — 표면 개구 결함의 표지.', oe: 'A corner reflects back regardless of angle — the signature of a surface-breaking defect.' }),
+      { hk: '균열과 저면이 90°를 이룹니다.', he: 'Crack and backwall form a 90° corner.', ok: '코너 에코는 각도와 무관하게 되돌아옵니다 — 표면 개구 결함의 표지. (함정: 탐촉자 ▸ 모드 변환을 끄면 정반사 에코의 변환 손실도 사라져 이 60° 루트 코너 에코가 ≈ +5.5 dB 높게 읽힙니다.)', oe: 'A corner reflects back regardless of angle — the signature of a surface-breaking defect. (Trap: switching Probes ▸ Mode conversion OFF also removes the conversion loss on specular echoes, so this 60° root-corner echo reads ≈ +5.5 dB higher.)' }),
     N('코너 에코 빔 노정(mm)?', 'Corner-echo beam path (mm)?', 40, 1.5, { hk: 'T/cos60.', he: 'T/cos60.', ok: '20/cos60 = 40 mm, 탐촉자 x ≈ 34.6.', oe: '20/cos60 = 40 mm, probe at x ≈ 34.6.' }),
   ]; };
   STEPS[11] = function () { return [
@@ -20517,7 +20530,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     stopHintTimer();
     writeL({ active: null, step: 0, memo: {} });
     UT.set({ lesson: null }, { noRender: true });
-    if (!L.autoRunning) { announce(t('Lesson {n} complete — score {s} %', { n, s: score }), 'ok'); UT.status({ right: t('Lesson {n} complete — score {s} %', { n, s: score }) }); }
+    if (!L.autoRunning) { announce(t('Lesson {n} complete — score {s} %', { n, s: score }), 'ok'); setStatusHint(function () { return t('Lesson {n} complete — score {s} %', { n, s: score }); }); }
     refresh(true);
   }
   /** Evaluate only the current step (pure function of state + frame). Returns true when it passed. */
@@ -20577,13 +20590,13 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     UT.set({ lesson: n - 1 }, { noRender: true });
     L.lastCompleted = null;
     announce('', '');
-    UT.status({ right: (ko() ? ln.ko : ln.en) });   // before enterStep: a hint fired from step 0 must stay visible in the status bar
+    setStatusHint(function () { return ko() ? ln.ko : ln.en; });   // before enterStep: a hint fired from step 0 must stay visible in the status bar
     enterStep(n, 0);
     UT.renderNow();
     return ln;
   };
   /** Stop the active lesson (keeps progress). */
-  api.stop = function () { stopHintTimer(); writeL({ active: null, step: 0, memo: {} }); UT.set({ lesson: null }, { noRender: true }); refresh(true); };
+  api.stop = function () { stopHintTimer(); setStatusHint(null); writeL({ active: null, step: 0, memo: {} }); UT.set({ lesson: null }, { noRender: true }); refresh(true); };
   /** Jump to step i of the active lesson. */
   api.goto = function (i) { const l = ls(); if (l.active === null) return; const ln = lesson(l.active); i = M.clamp(Math.round(+i || 0), 0, ln.steps.length - 1); enterStep(l.active, i); };
   /** {n, step, done[]} of the active lesson (n null when idle). */
@@ -20601,7 +20614,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     if (!L.hintShown) { L.hintShown = true; writeProg(l.active, { hints: progOf(l.active).hints + 1 }); }
     const text = ko() ? step.hintKo : step.hintEn;
     announce(text || t('No hint for this step'), 'hint');
-    UT.status({ right: t('Hint') + ': ' + (text || t('No hint for this step')) });
+    setStatusHint(function () { const tx = ko() ? step.hintKo : step.hintEn; return t('Hint') + ': ' + (tx || t('No hint for this step')); });
     refresh(true);
     return text;
   };
@@ -20705,6 +20718,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   });
   UT.bus.on('lang', function () {
     if (ls().active !== null && ls().active !== undefined) { const memo = Object.assign({}, ls().memo || {}); memo.langChanges = (memo.langChanges || 0) + 1; writeL({ memo }); scheduleEval(); }
+    // the status-bar hint is stored as a closure (not a language-specific string) so it follows the language switch
+    if (L.statusHint && ((ls().active !== null && ls().active !== undefined) || (st().quiz && st().quiz.active))) { try { UT.status({ right: L.statusHint() }); } catch (e) { console.error('[UT.lessons] status hint', e); } }
     if (L.win) { L.win.setTitle(t('Lessons')); refresh(true); }
     if (Q.win) { Q.win.setTitle(t('Echo quiz')); quizRefresh(); }
   });
@@ -20915,6 +20930,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     return categoryOf(e || R);
   }
   const Q = { win: null, ui: {}, dirty: false, saved: null, seed: null, rng: null, ids: [] };
+  /** Status-bar hint: fn() builds the text in the CURRENT language; re-issued by the 'lang' handler (null clears). */
+  function setStatusHint(fn) { L.statusHint = typeof fn === 'function' ? fn : null; if (L.statusHint) UT.status({ right: L.statusHint() }); }
   /** lowbias32 finaliser: the plain LCG's first draws are ~linear in the seed, so seeds 1, 2, 3… would open with the same item. */
   function mix32(x) {
     x = x >>> 0;
@@ -21012,7 +21029,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       if (Q.saved) UT.setIn('display', { beam: Q.saved.beam, hide: false }, { noRender: true });
       const lab = LABELS[item.correctId];
       quizAnnounce((correct ? t('Correct') : t('Wrong')) + ' — ' + (ko() ? lab.ko + ': ' + lab.dko : lab.en + ': ' + lab.den));
-      UT.status({ right: (ko() ? lab.ko : lab.en) + ' — ' + (ko() ? lab.dko : lab.den) });
+      setStatusHint(function () { return (ko() ? lab.ko : lab.en) + ' — ' + (ko() ? lab.dko : lab.den); });
       UT.renderNow();
       quizRefresh();
       return { correct, correctId: item.correctId };
@@ -21260,7 +21277,6 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   function num(v) { const x = typeof v === 'string' ? (v.trim() === '' ? NaN : +v) : +v; return Number.isFinite(x) ? x : NaN; }
   function r1(v) { return Math.round(v * 10) / 10; }
   function esc(s) { return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
-  function fmtNum(v, dp) { return Number.isFinite(v) ? Number(v).toFixed(dp === undefined ? 1 : dp) : '—'; }
   function clock(sec) { const s = Math.max(0, Math.floor(sec)); const mm = Math.floor(s / 60), ss = s % 60; return (mm < 10 ? '0' : '') + mm + ':' + (ss < 10 ? '0' : '') + ss; }
   function tx(tag, key, params, attrs) { return dom.h(tag, Object.assign({ dataset: { i18n: key } }, attrs || {}), t(key, params)); }
   function btn(key, fn, attrs) { return dom.button(t(key), fn, Object.assign({ dataset: { i18n: key } }, attrs || {})); }
@@ -22028,16 +22044,16 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     html += kv('Calibration block', calTxt);
     html += kv('Reference level', esc(refTxt));
     html += kv('Scanning sensitivity', scanTxt);
-    html += kv('Transfer correction', esc(fmtNum(std.transferDb || 0, 1)) + ' dB');
+    html += kv('Transfer correction', esc(UT.fmtNum(std.transferDb || 0, 1)) + ' dB');
     html += kv('Couplant', esc(reportMeta.couplant));
     html += kv('Surface condition', esc(reportMeta.surface));
     html += '</table>';
     html += '<h3>' + L('Indications') + '</h3><table class="tr-ind"><tr>' + ['No', 'z from datum', 'x from weld CL', 'Length', 'Depth to top', 'Height', 'Max amp (% DAC / dB vs ref)', 'Angle & side', 'Classification', 'Disposition'].map(function (k) { return '<th>' + L(k) + '</th>'; }).join('') + '</tr>';
     rows.forEach(function (d, i) {
       const r = d.row;
-      const pct = Number.isFinite(r.ampDb) ? Math.round(100 * Math.pow(10, r.ampDb / 20)) + ' % / ' + fmtNum(r.ampDb, 1) + ' dB' : '—';
-      const xs = d.truth && Number.isFinite(d.truth.x) && withTruth ? fmtNum(d.truth.x, 1) : '—';
-      html += '<tr class="' + esc(d.status || '') + '"><td>' + esc(Number.isFinite(r.n) ? r.n : i + 1) + '</td><td>' + fmtNum(r.z, 0) + '</td><td>' + xs + '</td><td>' + fmtNum(r.length, 0) + '</td><td>' + fmtNum(r.depth, 1) + '</td><td>' + fmtNum(r.height, 1) + '</td><td>' + pct + '</td><td>' + (Number.isFinite(r.angle) ? r.angle + '°' : '—') + ' ' + (r.side === -1 ? 'B' : (r.side === 1 ? 'A' : '')) + '</td><td>' + esc(normType(r.type) ? typeLabel(normType(r.type)) : r.type) + '</td><td>' + esc(r.disposition ? t(r.disposition) : '—') + '</td></tr>';
+      const pct = Number.isFinite(r.ampDb) ? Math.round(100 * Math.pow(10, r.ampDb / 20)) + ' % / ' + UT.fmtNum(r.ampDb, 1) + ' dB' : '—';
+      const xs = d.truth && Number.isFinite(d.truth.x) && withTruth ? UT.fmtNum(d.truth.x, 1) : '—';
+      html += '<tr class="' + esc(d.status || '') + '"><td>' + esc(Number.isFinite(r.n) ? r.n : i + 1) + '</td><td>' + UT.fmtNum(r.z, 0) + '</td><td>' + xs + '</td><td>' + UT.fmtNum(r.length, 0) + '</td><td>' + UT.fmtNum(r.depth, 1) + '</td><td>' + UT.fmtNum(r.height, 1) + '</td><td>' + pct + '</td><td>' + (Number.isFinite(r.angle) ? r.angle + '°' : '—') + ' ' + (r.side === -1 ? 'B' : (r.side === 1 ? 'A' : '')) + '</td><td>' + esc(normType(r.type) ? typeLabel(normType(r.type)) : r.type) + '</td><td>' + esc(r.disposition ? t(r.disposition) : '—') + '</td></tr>';
     });
     if (!rows.length) html += '<tr><td colspan="10">' + L('no indications recorded') + '</td></tr>';
     html += '</table>';
@@ -22059,7 +22075,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     if (withTruth) {
       html += '<h3>' + L('True defects') + '</h3><table class="tr-truth"><tr>' + ['No', 'From z', 'Length', 'Depth', 'Height', 'Type', 'x', 'Side', 'Best dB'].map(function (k) { return '<th>' + L(k) + '</th>'; }).join('') + '</tr>';
       tr.truth.forEach(function (q) {
-        html += '<tr class="' + (q.recordable === false ? 'tr-dim' : '') + '"><td>' + q.n + '</td><td>' + q.zFrom + '</td><td>' + fmtNum(q.zTo - q.zFrom, 1) + '</td><td>' + q.depth + '</td><td>' + q.height + '</td><td>' + esc(typeLabel(normType(q.type)) || q.type) + '</td><td>' + fmtNum(q.x, 1) + '</td><td>' + (q.side === -1 ? 'B' : (q.side === 1 ? 'A' : 'CL')) + '</td><td>' + fmtNum(q.bestDb, 1) + (q.recordable === false ? ' (' + L('below recording level') + ')' : '') + '</td></tr>';
+        html += '<tr class="' + (q.recordable === false ? 'tr-dim' : '') + '"><td>' + q.n + '</td><td>' + q.zFrom + '</td><td>' + UT.fmtNum(q.zTo - q.zFrom, 1) + '</td><td>' + q.depth + '</td><td>' + q.height + '</td><td>' + esc(typeLabel(normType(q.type)) || q.type) + '</td><td>' + UT.fmtNum(q.x, 1) + '</td><td>' + (q.side === -1 ? 'B' : (q.side === 1 ? 'A' : 'CL')) + '</td><td>' + UT.fmtNum(q.bestDb, 1) + (q.recordable === false ? ' (' + L('below recording level') + ')' : '') + '</td></tr>';
       });
       html += '</table>';
     }
@@ -22285,7 +22301,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       ui.result.appendChild(tx('div', 'True defects', null, { class: 'tr-sub' }));
       ui.result.appendChild(dom.h('table', { class: 'tr-truth' }, [dom.h('tr', {}, ['#', 'From z', 'Length', 'Depth', 'Height', 'Type', 'Side', 'Best dB'].map(function (k) { return k === '#' ? dom.h('th', {}, '#') : tx('th', k); }))]
         .concat(tr.truth.map(function (q) {
-          const cells = [q.n, q.zFrom, r1(q.zTo - q.zFrom), q.depth, q.height, typeLabel(normType(q.type)) || q.type, q.side === -1 ? 'B' : (q.side === 1 ? 'A' : 'CL'), fmtNum(q.bestDb, 1) + (q.recordable === false ? ' (' + t('below recording level') + ')' : '')];
+          const cells = [q.n, q.zFrom, r1(q.zTo - q.zFrom), q.depth, q.height, typeLabel(normType(q.type)) || q.type, q.side === -1 ? 'B' : (q.side === 1 ? 'A' : 'CL'), UT.fmtNum(q.bestDb, 1) + (q.recordable === false ? ' (' + t('below recording level') + ')' : '')];
           return dom.h('tr', { class: q.recordable === false ? 'tr-dim' : '' }, cells.map(function (c) { return dom.h('td', {}, String(c)); }));
         }))));
       if (res && res.misses && res.misses.length) ui.result.appendChild(dom.h('div', { class: 'tr-miss' }, t('Missed') + ': ' + res.misses.map(function (m) { return '#' + m.n + ' (' + (typeLabel(normType(m.type)) || m.type) + ' z ' + m.zFrom + ')'; }).join(', ')));
@@ -22750,7 +22766,6 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   function byId(id) { const d = doc(); return d ? d.getElementById(id) : null; }
   function winApi(name) { return UT.dom.wins[name] || null; }
   function winOpen(name) { const w = winApi(name); return !!(w && w.isOpen()); }
-  function fmtNum(v, dp) { const n = +v; return Number.isInteger(n) ? String(n) : n.toFixed(dp === undefined ? 1 : dp); }
   function scanRange() {
     const sp = st().specimen;
     const ss = sp && sp.scanSurface ? sp.scanSurface : { xMin: -150, xMax: 150 };
@@ -23795,9 +23810,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const s = st(), p = s.probe, ins = s.instrument;
     const inch = s.display.units === 'inch';
     const parts = [];
-    parts.push(inch ? 'Pos: ' + (p.x / 25.4).toFixed(2) + ' in' : 'Pos: ' + fmtNum(p.x) + ' mm');
+    parts.push(inch ? 'Pos: ' + (p.x / 25.4).toFixed(2) + ' in' : 'Pos: ' + UT.fmtNum(p.x, 'auto') + ' mm');
     parts.push(inch ? 'Range ' + (ins.range / 25.4).toFixed(2) + 'in' : 'Range ' + (+ins.range).toFixed(1) + 'mm');
-    parts.push('AMP= ' + fmtNum(s.mode === 'tofd' && s.tofd && Number.isFinite(s.tofd.gainDb) ? s.tofd.gainDb : ins.gain) + 'dB');
+    parts.push('AMP= ' + UT.fmtNum(s.mode === 'tofd' && s.tofd && Number.isFinite(s.tofd.gainDb) ? s.tofd.gainDb : ins.gain, 'auto') + 'dB');
     let extra = '';
     if (has('modes.statusMid')) { try { extra = UT.modes.statusMid() || ''; } catch (e) { extra = ''; } }
     else if (s.specimen && s.specimen.pipe) extra = 'WT ' + s.specimen.pipe.wt + 'mm  Dia ' + s.specimen.pipe.odInch + 'inch';
@@ -24423,7 +24438,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     ['FBH / DGS', '평저공 / DGS 선도', 'flat-bottom hole; disc-equivalent size', '원판 등가 크기 산정', []],
     ['Corner echo', '코너 에코', 'strong echo from a surface-breaking defect and the backwall (90° corner)', '표면 개구 결함과 저면이 이루는 모서리 반사', [11]],
     ['Tip diffraction', '팁 회절(단부 에코)', 'weak echo from a crack tip; used for height', '균열 끝에서의 약한 회절 에코, 높이 측정', [13]],
-    ['Mode conversion', '모드 변환', 'S↔L conversion at surfaces → spurious echoes', '표면·결함에서의 파 변환 → 의사 지시', []],
+    ['Mode conversion', '모드 변환', 'S↔L conversion at surfaces → spurious echoes; OFF also removes the conversion LOSS on specular echoes (the 60° root-corner echo reads ≈ +5.5 dB higher)', '표면·결함에서의 파 변환 → 의사 지시; OFF로 하면 정반사 에코의 변환 손실도 사라져 60° 루트 코너 에코가 ≈ +5.5 dB 높게 읽힘', []],
     ['Surface wave', '표면파', 'Rayleigh wave from steep wedges; damped by a finger', '손가락으로 감쇠되는 표면 진행파', []],
     ['Geometry echo', '형상 에코', 'root bead / cap / backing bar reflections – plot before calling a defect', '이면 비드·덧살·배킹 바 반사 – 결함 판정 전 플로팅', []],
     ['Transfer correction', '전달 손실 보정', 'dB added for surface/attenuation differences between block and part', '시험편과 대비 시험편의 차이를 보정하는 dB', [24]],
@@ -24578,7 +24593,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
         kv(t('Probe'), (dv.libName || '') + '  ' + (s.probe.angle + '°') + ' ' + (s.probe.freq + ' MHz') + '  x ' + s.probe.x + '  z ' + s.probe.z + '  ' + t('side') + ' ' + (s.probe.side > 0 ? 'A' : 'B')),
         kv(t('Physics'), dv.statusLine || ''),
         kv(t('Instrument'), s.utSet + '  ' + t('Gain') + ' ' + s.instrument.gain + ' dB  ' + t('Range') + ' ' + s.instrument.range + ' mm  ' + t('Ref') + ' ' + s.instrument.refGain + ' dB'),
-        R ? kv(t('Readouts'), 'SP ' + fmtNum(R.sp || R.path || 0) + '  SD ' + fmtNum(R.sd || 0) + '  DP ' + fmtNum(R.dp || R.depth || 0) + '  ' + fmtNum(R.peakPct || R.ampPct || 0) + ' %') : null,
+        R ? kv(t('Readouts'), 'SP ' + UT.fmtNum(R.sp || R.path || 0, 'auto') + '  SD ' + UT.fmtNum(R.sd || 0, 'auto') + '  DP ' + UT.fmtNum(R.dp || R.depth || 0, 'auto') + '  ' + UT.fmtNum(R.peakPct || R.ampPct || 0, 'auto') + ' %') : null,
         s.standards && s.standards.lastEval ? kv(t('Evaluation'), s.standards.lastEval.ruleId + ' ' + (s.standards.lastEval.level || '') + ': ' + (s.standards.lastEval.rows || []).map(function (r) { return (r.result && r.result.disposition) || ''; }).join(', ')) : null,
       ]),
       imgOf('cv-ascan'), imgOf('cv-cross'),
@@ -25421,7 +25436,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     // ------------------------------------------------------------------ specimens / defect preset labels (10 + 90 preset submenu)
     'No weld (plain plate)': '용접부 없음 (평판)', 'Single-V': '단일 V', 'Double-V (X)': '양면 V (X)', 'Single-bevel (K)': '단일 베벨 (K)', 'Single-J': '단일 J', 'Single-V with backing bar': '단일 V + 배킹 바', 'Fillet T-joint (set-on)': '필릿 T 이음 (셋온)', 'Nozzle / branch (set-on)': '노즐 / 분기관 (셋온)',
     'Lack of side-wall fusion': '측벽 융합 불량', 'Root crack': '루트 균열', 'Toe crack': '토우 균열', 'Centreline crack': '중심선 균열', 'Backing bar lack of fusion': '배킹 바 융합 불량', 'Fillet toe crack': '필릿 토우 균열', 'web/plate interface': '웨브/판 경계면',
-    'Lack of side-wall fusion (융합 불량)': '측벽 융합 불량', 'Porosity (기공)': '기공', 'Slag inclusion (슬래그)': '슬래그 혼입', 'Root crack (균열)': '루트 균열', 'Incomplete penetration (용입 부족)': '용입 부족', 'Toe crack (토우 균열)': '토우 균열', 'Lamination (라미네이션)': '라미네이션',
+    'Lack of side-wall fusion (융합 불량)': '측벽 융합 불량', 'Porosity (기공)': '기공', 'Slag inclusion (슬래그)': '슬래그 혼입', 'Root crack (균열)': '루트 균열', 'Centreline crack (중심선 균열)': '중심선 균열', 'Incomplete penetration (용입 부족)': '용입 부족', 'Toe crack (토우 균열)': '토우 균열', 'Lamination (라미네이션)': '라미네이션',
     'Backing bar lack of fusion (배킹바 융합불량)': '배킹 바 융합 불량', 'Fillet toe crack (필릿 토우 균열)': '필릿 토우 균열',
     'Carbon steel': '탄소강', 'Austenitic stainless': '오스테나이트계 스테인리스강', 'Aluminium': '알루미늄', 'Copper': '구리', 'Titanium': '티타늄', 'Cast iron': '주철', 'Perspex (PMMA)': '퍼스펙스 (PMMA)',
     'IIW V1 calibration block': 'IIW V1 표준 시험편', 'DAC reference block': 'DAC 대비 시험편', 'A5 IOW beam profile block': 'A5 IOW 빔 프로파일 시험편', 'Step wedge': '스텝 웨지', 'FBH reference block ': '평저공 대비 시험편 ',
@@ -25457,6 +25472,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     'Note as geometry echo': '형상 에코로 메모', 'Ignore': '무시', 'Root bead (geometry)': '이면 비드(형상)', 'Cap (geometry)': '덧살(형상)', 'Backing bar edge': '배킹 바 에지', 'Corner echo (root defect)': '코너 에코(루트 결함)', 'Defect (fusion face)': '결함(융합면)', 'Mode-converted echo': '모드 변환 에코',
     // ------------------------------------------------------------------ QA round 1 sweep (DAC window, defect editor, trade report, standards notes, sizing recommendation, USK7 dock)
     'Hide Curves': '커브 숨기기', 'Select Defect': '결함 선택', 'lof': '융합 불량', 'Scanning sensitivity': '주사 감도', 'not-recordable': '기록 불요',
+    'Exam loaded — enter the candidate name and press Start': '시험이 로드되었습니다 — 수험자 이름을 입력하고 Start를 누르세요',
     'General': '일반', 'Exam sharing': '시험 공유', 'ASME VIII-1 App. 12 / ASME V Art. 4': 'ASME VIII-1 부록 12 / ASME V 제4장', 'AWS D1.1 Table 8.2': 'AWS D1.1 표 8.2',
     'ISO 11666:2018 Tables 2-4': 'ISO 11666:2018 표 2-4', 'ASME BPVC VIII-1 App.12 (12-3), ASME V Art.4': 'ASME BPVC VIII-1 부록 12 (12-3), ASME V 제4장',
     'AWS D1.1/D1.1M Table 8.2 (6.3 in :2010) — statically loaded': 'AWS D1.1/D1.1M 표 8.2 (2010판 6.3) — 정하중', 'statically loaded': '정하중',

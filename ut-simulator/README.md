@@ -130,6 +130,13 @@ NODE_PATH=/opt/node22/lib/node_modules node tools/integ.mjs --shots /tmp/utsim-s
 빌드 결과물은 약 1.8 MB(주석 포함, 미압축 — 단일 파일의 가독성을 의도)의 단일 HTML이며 외부 리소스를 참조하지 않습니다. `docs/utman_simulator.html` 에도 같은 파일이 쓰입니다. 브라우저에서
 `utman_simulator.html#selftest` 로 열면 콘솔에 모든 모듈의 셀프테스트 결과가 출력됩니다.
 
+`build.py` 는 index.html 에 나열된 src 모듈이 하나라도 없으면 exit 1 로 중단합니다(부분 빌드 금지 — V2-26 은 두 출력 파일이 바이트 단위로
+동일한지 검사합니다).
+
+**GitHub Pages 배포 결정 (SPEC-v2 §6.3)**: v2 코드 변경 없이 저장소 설정으로 배포합니다 — 관리자가 저장소 Settings ▸ Pages 의 소스를
+`main` 브랜치의 `/docs` 폴더로 지정합니다. 기존 `.github/workflows/deploy-pages.yml`(hatch-coaming-3d 배포)은 손대지 않았으며,
+`docs/utman_simulator.html` 이 게시되는 사본입니다(`python3 build.py` 가 `../utman_simulator.html` 과 함께 매번 같은 내용으로 갱신).
+
 ### 검증 결과 (Acceptance checks, SPEC §11.1)
 
 | # | 검사 | 결과 |

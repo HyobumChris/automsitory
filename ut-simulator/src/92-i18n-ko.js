@@ -291,7 +291,7 @@
     // ------------------------------------------------------------------ specimens / defect preset labels (10 + 90 preset submenu)
     'No weld (plain plate)': '용접부 없음 (평판)', 'Single-V': '단일 V', 'Double-V (X)': '양면 V (X)', 'Single-bevel (K)': '단일 베벨 (K)', 'Single-J': '단일 J', 'Single-V with backing bar': '단일 V + 배킹 바', 'Fillet T-joint (set-on)': '필릿 T 이음 (셋온)', 'Nozzle / branch (set-on)': '노즐 / 분기관 (셋온)',
     'Lack of side-wall fusion': '측벽 융합 불량', 'Root crack': '루트 균열', 'Toe crack': '토우 균열', 'Centreline crack': '중심선 균열', 'Backing bar lack of fusion': '배킹 바 융합 불량', 'Fillet toe crack': '필릿 토우 균열', 'web/plate interface': '웨브/판 경계면',
-    'Lack of side-wall fusion (융합 불량)': '측벽 융합 불량', 'Porosity (기공)': '기공', 'Slag inclusion (슬래그)': '슬래그 혼입', 'Root crack (균열)': '루트 균열', 'Incomplete penetration (용입 부족)': '용입 부족', 'Toe crack (토우 균열)': '토우 균열', 'Lamination (라미네이션)': '라미네이션',
+    'Lack of side-wall fusion (융합 불량)': '측벽 융합 불량', 'Porosity (기공)': '기공', 'Slag inclusion (슬래그)': '슬래그 혼입', 'Root crack (균열)': '루트 균열', 'Centreline crack (중심선 균열)': '중심선 균열', 'Incomplete penetration (용입 부족)': '용입 부족', 'Toe crack (토우 균열)': '토우 균열', 'Lamination (라미네이션)': '라미네이션',
     'Backing bar lack of fusion (배킹바 융합불량)': '배킹 바 융합 불량', 'Fillet toe crack (필릿 토우 균열)': '필릿 토우 균열',
     'Carbon steel': '탄소강', 'Austenitic stainless': '오스테나이트계 스테인리스강', 'Aluminium': '알루미늄', 'Copper': '구리', 'Titanium': '티타늄', 'Cast iron': '주철', 'Perspex (PMMA)': '퍼스펙스 (PMMA)',
     'IIW V1 calibration block': 'IIW V1 표준 시험편', 'DAC reference block': 'DAC 대비 시험편', 'A5 IOW beam profile block': 'A5 IOW 빔 프로파일 시험편', 'Step wedge': '스텝 웨지', 'FBH reference block ': '평저공 대비 시험편 ',
@@ -327,6 +327,7 @@
     'Note as geometry echo': '형상 에코로 메모', 'Ignore': '무시', 'Root bead (geometry)': '이면 비드(형상)', 'Cap (geometry)': '덧살(형상)', 'Backing bar edge': '배킹 바 에지', 'Corner echo (root defect)': '코너 에코(루트 결함)', 'Defect (fusion face)': '결함(융합면)', 'Mode-converted echo': '모드 변환 에코',
     // ------------------------------------------------------------------ QA round 1 sweep (DAC window, defect editor, trade report, standards notes, sizing recommendation, USK7 dock)
     'Hide Curves': '커브 숨기기', 'Select Defect': '결함 선택', 'lof': '융합 불량', 'Scanning sensitivity': '주사 감도', 'not-recordable': '기록 불요',
+    'Exam loaded — enter the candidate name and press Start': '시험이 로드되었습니다 — 수험자 이름을 입력하고 Start를 누르세요',
     'General': '일반', 'Exam sharing': '시험 공유', 'ASME VIII-1 App. 12 / ASME V Art. 4': 'ASME VIII-1 부록 12 / ASME V 제4장', 'AWS D1.1 Table 8.2': 'AWS D1.1 표 8.2',
     'ISO 11666:2018 Tables 2-4': 'ISO 11666:2018 표 2-4', 'ASME BPVC VIII-1 App.12 (12-3), ASME V Art.4': 'ASME BPVC VIII-1 부록 12 (12-3), ASME V 제4장',
     'AWS D1.1/D1.1M Table 8.2 (6.3 in :2010) — statically loaded': 'AWS D1.1/D1.1M 표 8.2 (2010판 6.3) — 정하중', 'statically loaded': '정하중',

@@ -854,7 +854,7 @@
     { key: 'rootCrack', label: 'Root crack (균열)' }, { key: 'incompletePenetration', label: 'Incomplete penetration (용입 부족)' },
     { key: 'lof', label: 'Lack of side-wall fusion (융합 불량)' }, { key: 'porosity', label: 'Porosity (기공)' },
     { key: 'slag', label: 'Slag inclusion (슬래그)' }, { key: 'toeCrack', label: 'Toe crack (토우 균열)' },
-    { key: 'centrelineCrack', label: 'Centreline crack' }, { key: 'lamination', label: 'Lamination (라미네이션)' },
+    { key: 'centrelineCrack', label: 'Centreline crack (중심선 균열)' }, { key: 'lamination', label: 'Lamination (라미네이션)' },
     { key: 'backingLof', label: 'Backing bar lack of fusion (배킹바 융합불량)' }, { key: 'toeCrackFillet', label: 'Fillet toe crack (필릿 토우 균열)' },
   ];
 
