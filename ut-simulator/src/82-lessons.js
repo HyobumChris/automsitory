@@ -19,7 +19,9 @@
  *   that advances per start so repeat runs alternate).
  * - Transition steps: `memo.was` is (re)set to false whenever the check is false, so a step that was already true at
  *   entry passes after the user makes it false and true again.
- * - start(n) first resets a small baseline (single crystal, PE, skew 0, freeze/peakMem off, reject/delay 0, HIDE off, BEAM on)
+ * - start(n) first resets the §4.1 baseline (gates/tcg/pulser/receiver/reject/delay/freeze/peakMem/damping, single crystal, PE,
+ *   skew 0, focus off, physics + damping points, weldOpts, material carbon, HIDE off, BEAM on); quiz.start() resets the whole
+ *   probe/instrument slices the same way so a shared seed gives the same items on every machine/session (§4.5)
  *   so lessons never inherit e.g. lesson 3's twin crystal (v1's loadLesson did not; the v1 setups assume these defaults).
  * - Manual 'Do it for me' force-advances when the check still fails after two renders (never leaves the user stuck);
  *   autoRun records such steps in `failedSteps` and continues so later steps are still exercised.
@@ -53,7 +55,7 @@
 
   // module-level buffers (never written to state from a 'render' listener)
   const L = { win: null, ui: {}, hintTimer: null, evalTimer: null, lastEval: 0, uiSeen: 0, autoRunning: false, prevFrame: null, curFrame: null,
-    lastRefresh: 0, feedback: '', feedbackKind: '', hintShown: false, lastCompleted: null, cov: { 1: {}, '-1': {} }, drift: 0 };
+    lastRefresh: 0, feedback: '', feedbackKind: '', hintShown: false, lastCompleted: null, cov: { 1: {}, '-1': {} }, drift: 0, doingIt: false };
 
   // ------------------------------------------------------------------ action helpers used by doIt() (guarded + fallbacks)
   function emitUi(kind, id) { UT.bus.emit('ui', { kind, id, synthetic: true }); }
@@ -684,7 +686,8 @@
   function startHintTimer() {
     stopHintTimer();
     if (L.autoRunning || typeof setTimeout !== 'function') return;
-    L.hintTimer = setTimeout(function () { L.hintTimer = null; if (ls().active !== null && !L.hintShown) api.hint(); }, 30000);
+    // the automatic hint is only charged when the user can actually see it (§4.1 'hintsShown'): window open, or not at all
+    L.hintTimer = setTimeout(function () { L.hintTimer = null; if (ls().active !== null && !L.hintShown && api.window && api.window.isOpen()) api.hint(); }, 30000);
   }
   /** Enter step i of the active lesson: reset memo (keep set), record `was`, restart the hint timer. */
   function enterStep(n, i) {
@@ -703,6 +706,7 @@
   }
   function passStep(n, i, how) {
     const ln = lesson(n), step = ln.steps[i];
+    if (how === 'user' && L.doingIt) how = 'doIt';   // passed from inside 'Do it for me' (choice/numeric answer, synchronous check)
     const p = progOf(n);
     if (how === 'doIt') p.doIt = (p.doIt || 0) + 1;
     p.passed = Object.assign({}, p.passed || {}); p.passed[i] = how;
@@ -748,6 +752,22 @@
   }
 
   api.list = list;
+  /**
+   * §4.1 baseline applied before a lesson setup() and before a quiz (§4.5 'same seed → same sequence'): nothing an earlier
+   * lesson, test or the user left behind (twin crystal, 2.5 MHz, reject, delay, freeze, TCG, damping fingers, physics
+   * switches, austenitic material, a 30 mm weld, autocal zero …) may change what a step check or a quiz scenario sees.
+   * `full` (quiz) resets the whole probe/instrument slices (datalog/compare kept); lessons reset the keys listed in §4.1.
+   */
+  function baseline(full) {
+    const d = UT.defaultState(), s = st();
+    const instr = full
+      ? Object.assign({}, d.instrument, { datalog: s.instrument.datalog, compare: s.instrument.compare })
+      : { gates: d.instrument.gates, tcg: d.instrument.tcg, pulser: d.instrument.pulser, receiver: d.instrument.receiver, reject: 0, delay: 0, freeze: false, peakMem: false, damping: false };
+    UT.setIn('instrument', instr, { noRender: true });
+    UT.setIn('probe', full ? d.probe : { crystal: 'single', method: 'pe', skew: 0, focus: d.probe.focus }, { noRender: true });
+    UT.setIn('display', { hide: false, beam: true }, { noRender: true });
+    UT.set({ physics: d.physics, damping: d.damping, weldOpts: d.weldOpts, material: 'carbon' }, { noRender: true });
+  }
   /** Start lesson n (1…25): runs setup(), resets answers/memo, enters step 0. */
   api.start = function (n) {
     n = +n; const ln = lesson(n); if (!ln) return null;
@@ -755,10 +775,8 @@
     if (has('modes.defectEditor.isOpen') && UT.modes.defectEditor.isOpen()) UT.modes.defectEditor.close();
     if (has('modes.autoCal.cancel')) UT.modes.autoCal.cancel();
     L.cov = { 1: {}, '-1': {} };
-    // clean baseline so a lesson never inherits twin crystal / freeze / reject / hidden defects from the previous one
-    UT.setIn('instrument', { freeze: false, peakMem: false, reject: 0, delay: 0 }, { noRender: true });
-    UT.setIn('probe', { crystal: 'single', method: 'pe', skew: 0 }, { noRender: true });
-    UT.setIn('display', { hide: false, beam: true }, { noRender: true });
+    // clean baseline (§4.1) so a lesson never inherits twin crystal / freeze / reject / hidden defects from the previous one
+    baseline(false);
     let init = null;
     try { init = ln.setup(); } catch (e) { console.error('[UT.lessons] setup ' + n, e); }
     const memo = { ui: tally() };
@@ -769,9 +787,9 @@
     UT.set({ lesson: n - 1 }, { noRender: true });
     L.lastCompleted = null;
     announce('', '');
+    UT.status({ right: (ko() ? ln.ko : ln.en) });   // before enterStep: a hint fired from step 0 must stay visible in the status bar
     enterStep(n, 0);
     UT.renderNow();
-    UT.status({ right: (ko() ? ln.ko : ln.en) });
     return ln;
   };
   /** Stop the active lesson (keeps progress). */
@@ -793,6 +811,7 @@
     if (!L.hintShown) { L.hintShown = true; writeProg(l.active, { hints: progOf(l.active).hints + 1 }); }
     const text = ko() ? step.hintKo : step.hintEn;
     announce(text || t('No hint for this step'), 'hint');
+    UT.status({ right: t('Hint') + ': ' + (text || t('No hint for this step')) });
     refresh(true);
     return text;
   };
@@ -800,7 +819,9 @@
   api.doIt = function () {
     const l = ls(), step = curStep(); if (!step) return false;
     const n = l.active, i = l.step;
+    L.doingIt = true;
     try { if (step.doIt) step.doIt(ctx()); } catch (e) { console.error('[UT.lessons] doIt ' + n + '/' + (i + 1), e); }
+    L.doingIt = false;
     UT.renderNow();
     if (ls().active === n && ls().step === i) {
       let ok = safeCheck(step, ctx());
@@ -808,7 +829,8 @@
       passStep(n, i, 'doIt');
       return ok;
     }
-    writeProg(n, { doIt: progOf(n).doIt + 1 });
+    const p = progOf(n);
+    if (!(p.passed && p.passed[i] === 'doIt')) writeProg(n, { doIt: p.doIt + 1 });   // advanced inside doIt without passStep (already counted otherwise)
     return true;
   };
   /** Answer the current choice/numeric step. Returns true when the step passed. */
@@ -1175,6 +1197,7 @@
       const seed = o.seed === undefined || o.seed === null ? (Date.now() & 0xffff) : (+o.seed >>> 0);
       Q.rng = M.rng(seed); Q.seed = seed;
       if (ls().active !== null && ls().active !== undefined) api.stop();
+      baseline(true);   // same seed → same sequence on every machine/session, whatever probe/instrument/material was left behind
       quizWrite({ active: true, i: 0, n, seed, difficulty: ['basic', 'intermediate', 'advanced'].indexOf(o.difficulty) >= 0 ? o.difficulty : 'basic', correct: 0, wrong: 0, times: [], item: null });
       quizAnnounce('');
       return nextItem();

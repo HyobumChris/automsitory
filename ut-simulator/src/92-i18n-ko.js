@@ -35,6 +35,8 @@
     'Steps 5-25 mm (5 mm)': '스텝 5-25 mm (5 mm)', 'Steps 10-50 mm (10 mm)': '스텝 10-50 mm (10 mm)', 'Custom Steps...': '사용자 정의 스텝...',
     'Auto Cal': '자동 교정', 'Exit Step Wedge': '스텝 웨지 나가기', 'FBH block': '평저공 시험편',
     'Weld Settings...': '용접부 설정...', 'Weld…': '용접부…', 'Material…': '재질…', 'Presets': '프리셋', 'Pipe': '파이프', 'TKY Joint': 'TKY 이음',
+    'Plate': '평판', 'T-joint': 'T형 이음', 'T-joint: plate chord with an angled brace (modelled)': 'T형 이음: 평판 코드에 경사 브레이스 (모델링됨)',
+    '{kind} joint is not modelled in this version — only the T-joint geometry is available': '{kind} 이음은 이 버전에서 모델링되지 않습니다 — T형 이음 형상만 사용할 수 있습니다',
     'Defect Editor...': '결함 편집기...', 'Add Preset': '프리셋 추가', 'Delete All Defects': '모든 결함 삭제', 'Hide Defects': '결함 숨기기',
     'Import Defects...': '결함 가져오기...', 'Export Defects...': '결함 내보내기...', 'Lamination Check': '라미네이션 검사', 'Trade Test...': '실기 시험...', 'Trade Test…': '실기 시험…',
     'Random practice…': '무작위 연습…',

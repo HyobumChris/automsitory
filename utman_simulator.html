@@ -2366,7 +2366,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   //     shear angle probe with refracted ≥ 65° or wedge angle ≥ secondCritical − 6°. It walks the outline from the
   //     emission point in the beam direction over consecutive 'top'/'cap' edges: top→cap = cap toe (0.5, continues
   //     over the bead), a run ending in another tag = plate/block end (1.0, stop) unless a 'top' edge at the same
-  //     level resumes within NOTCH_GAP (12 mm) → notch (0.8, continues); a planar defect with a vertex at y ≤ 0.5 mm
+  //     level resumes within NOTCH_GAP (12 mm) → notch (0.8, continues) — 'end' means the tag 'end' OR any next edge
+  //     that turns down into the specimen (the V1 block's 100 mm radius, a step, an end face: convex corner, 1.0);
+  //     only an edge rising above the surface (cap→web/brace, an untagged bead) is a 'toe' (0.5); a planar defect with a vertex at y ≤ 0.5 mm
   //     between the probe and the next vertex = surface-breaking crack (0.8, continues). At most 4 reflectors.
   //     Each finger damper (opts.damping.points, x on the chord) between the probe and the reflector multiplies the
   //     echo by 0.01 (0.1 each way). Echo: kind 'surface', tag = reflector kind ('cap-toe'|'end'|'notch'|'crack'|
@@ -2381,7 +2383,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   //     response width would not narrow at the focus (V2-6 wants ≤ 0.7×). Gf(lenMm) multiplies every echo.
   // 35. FBH / reflectors (§3.8): spec.reflectors segments are two-sided specular planar reflectors outside the
   //     outline with tip scatter (0.12) at ends that are not on the outline. tag 'fbh' → kind 'fbh' (tag 'fbh',
-  //     label from the reflector), S = min(1, π·d²/(2·λ·max(lenMm, N))), D = q^0.5; tag 'interface' → kind
+  //     label from the reflector), S = π·d²/(2·λ·max(lenMm, N)) WITHOUT a min(1, …) cap (§3.8 lead decision: the
+  //     ratio exceeds 1 for large discs near the near field — ⌀6 at 30 mm, 5 MHz L: 1.6 — and the DGS ERS readout
+  //     inverts exactly this law, so a cap would compress ⌀6 to 4.2 mm), D = q^0.5; tag 'interface' → kind
   //     'geometry' (tag 'interface', S 1, q^0.5). Reflectors do not take part in the corner rule and span all z.
   // 36. describe(echo) returns an object {text, name, category, kind, mode, path, leg, label, toString()} (a String
   //     in v1 — nobody consumed it); string contexts still work through toString(). It also accepts a Readout
@@ -2392,8 +2396,14 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   // 37. Defaults when 40-ascan passes no opts.physics: modeConv/surfaceWave/sideLobes true (the v2 default
   //     state); the fan layout follows fanCount alone (NOTE 28). opts.damping/weldMaterial/transferLossDb default
   //     to none. Outline tags 'backing', 'web', 'fusion', 'interface' are ordinary geometry surfaces (kind 'geometry').
-  // 38. Twin-crystal near-surface boost (×1.5 below 15 mm, §3.5) is an instrument-side amplitude rule and is left
-  //     to 40-ascan (it is not applied here).
+  // 38. Twin-crystal angle probes (§3.5, probe.crystal === 'twin' with refracted > 0): near-surface sensitivity
+  //     boost ×1.5 on every echo with lenMm < 15 mm, applied HERE (the amplitude-law owner; 40-ascan only drops the
+  //     initial pulse). The factor rolls off linearly between 12 and 15 mm (1.5 → 1) so the echo-dynamic curve of a
+  //     reflector crossing 15 mm has no step; 0° twin probes and the surface wave are not boosted.
+  // 39. Performance (§6.4): diffuse volumetric / tip sampling runs on legs 1…DEEP_LEGS (4) only — i.e. up to the
+  //     4th backwall multiple of a 0° probe (leg k covers paths (k−1)·T…k·T); deeper legs capture holes only, like
+  //     side-lobe and converted branches. Specular echoes (backwall multiples, lamination, corners) are unaffected.
+  //     A 0° probe on the default plate with range 400 (42 legs) otherwise spends ~2× the budget in point sampling.
 
   const M = UT.math;
   const DEG = Math.PI / 180;
@@ -2429,6 +2439,10 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   const NOTCH_GAP = 12;       // SPEC NOTE 33
   const SURF_MAX_REFL = 4;
   const DAMPER_FACTOR = 0.01; // 0.1 each way (§3.3)
+  const TWIN_BOOST = 1.5;     // §3.5 twin-crystal angle probe near-surface boost (SPEC NOTE 38)
+  const TWIN_NEAR = 15;       // mm: boosted below this path (SPEC NOTE 38)
+  const TWIN_ROLL = 12;       // mm: full boost up to here, linear roll-off to TWIN_NEAR (SPEC NOTE 38)
+  const DEEP_LEGS = 4;        // diffuse volumetric / tip sampling only on legs ≤ this (SPEC NOTE 39)
   const sampleCache = new WeakMap();
   const geomCache = new WeakMap();   // specimen → flattened edges/arcs with precomputed normals
 
@@ -2649,7 +2663,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     // typed copy of the segments for the hot loop (ax, ay, ex, ey, nx, ny)
     const sf = new Float64Array(segs.length * 6);
     for (let i = 0; i < segs.length; i++) { const s = segs[i]; sf[i * 6] = s.ax; sf[i * 6 + 1] = s.ay; sf[i * 6 + 2] = s.ex; sf[i * 6 + 3] = s.ey; sf[i * 6 + 4] = s.nx; sf[i * 6 + 5] = s.ny; }
-    return { segs, sf, points, vols, holes, edges: g.edges, ef: g.ef, arcs: g.arcs, perspex: g.perspex };
+    const sdhPoints = points.filter(function (P) { return P.kind === 'sdh'; });   // holes-only list for cheap branches (SPEC NOTES 29/30/39)
+    return { segs, sf, points, sdhPoints, vols, holes, edges: g.edges, ef: g.ef, arcs: g.arcs, perspex: g.perspex };
   }
 
   /** Distance from a point to the nearest outline edge or arc of the flattened geometry. */
@@ -2811,11 +2826,10 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
 
         // ---- diffuse scatterers along the segment
         if (!C.tt && !C.tandem) {
-          const points = scene.points;
-          const cheapOnly = sideLobe || conv !== null;   // SPEC NOTES 29/30: side-lobe and converted branches sample holes only
+          const cheapOnly = sideLobe || conv !== null || leg > DEEP_LEGS;   // SPEC NOTES 29/30/39: side-lobe, converted and deep-leg branches sample holes only
+          const points = cheapOnly ? scene.sdhPoints : scene.points;
           for (let pi = 0; pi < points.length; pi++) {
             const P = points[pi];
-            if (cheapOnly && P.kind !== 'sdh') continue;
             const rx = P.x - px, ry = P.y - py;
             const u = rx * dx + ry * dy;
             if (u <= 1e-6 || u >= L) continue;
@@ -2835,7 +2849,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
               cur = C.volBest.get(key);
               if (cur) {
                 const qq = C.nearField / Math.max(lenMm, C.nearField);
-                const bound = w * w * e * P.S * qq * qq * taper * Math.pow(10, -attP / 20) * C.transferLin * C.Gf(lenMm) * (isConv && mode !== C.probeMode ? 0.5 : 1);
+                const bound = w * w * e * P.S * qq * qq * taper * Math.pow(10, -attP / 20) * C.transferLin * C.Gf(lenMm) * C.nearBoost(lenMm) * (isConv && mode !== C.probeMode ? 0.5 : 1);
                 if (bound * tw <= cur.amp && bound <= cur.ampNoZ) continue;
               }
             }
@@ -3136,8 +3150,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const D = Math.pow(q, o.dExp);
     const Mf = Math.pow(10, -o.att / 20);
     let S = o.S;
-    if (o.fbhD) S *= Math.min(1, Math.PI * o.fbhD * o.fbhD / (2 * C.lambda * Math.max(lenMm, C.nearField)));   // FBH law (§3.8)
-    const base = o.w * o.wReturn * o.e * S * D * Mf * (o.extra === undefined ? 1 : o.extra) * C.transferLin * C.Gf(lenMm);
+    if (o.fbhD) S *= Math.PI * o.fbhD * o.fbhD / (2 * C.lambda * Math.max(lenMm, C.nearField));   // FBH law (§3.8): NO min(1, …) cap (DGS round-trip)
+    const base = o.w * o.wReturn * o.e * S * D * Mf * (o.extra === undefined ? 1 : o.extra) * C.transferLin * C.Gf(lenMm) * C.nearBoost(lenMm);
     const hz = lenMm * C.tan20z + C.crystalB / 2;
     const vol = !!o.defect && !UT.specimens.isPlanar(o.defect.type);   // volumetric scatterers: ×1 (§6.7)
     const skewed = !vol && (o.kind === 'defect' || o.kind === 'corner' || o.kind === 'geometry' || o.kind === 'lamination') && C.theta > 0;
@@ -3177,7 +3191,23 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     let ov = Math.max(0, Math.min(hi, b) - Math.max(lo, a));
     if (wrap && L > 0) { ov += Math.max(0, Math.min(hi, b - L) - Math.max(lo, a - L)); ov += Math.max(0, Math.min(hi, b + L) - Math.max(lo, a + L)); }
     const r = ov / (2 * hz);
-    return r >= 1 ? 1 : r <= 0 ? 0 : Math.sqrt(r);
+    if (r >= 1) return 1;
+    if (r <= 0) return 0;
+    // SPEC-v2 §4.4 (lead decision): planar / lamination defects follow the piecewise-linear footprint law
+    //   Z = r (r ≥ 0.5)  |  Z = 0.1 + 0.8·r (r < 0.5)
+    // so the −6 dB point of a z-sweep falls exactly at the defect end (half the footprint on the defect → half amplitude,
+    // the 6 dB drop rationale) and the −20 dB point falls where the −20 dB beam edge reaches the end (the 20 dB drop
+    // rationale: the field at the footprint edge IS −20 dB). Volumetric clusters keep the v1 ^0.5 (incoherent) law (§6.7).
+    if (!zLinear(d)) return Math.sqrt(r);
+    return r >= 0.5 ? r : 0.1 + 0.8 * r;
+  }
+  /** True for defect types whose z-profile is linear (planar + lamination); volumetric → false. */
+  function zLinear(d) {
+    const type = d && d.type;
+    if (type === 'lamination') return true;
+    const sp = UT.specimens;
+    if (sp && typeof sp.isPlanar === 'function') return !!sp.isPlanar(type);
+    return type !== 'volumetric' && type !== 'porosity' && type !== 'slag';
   }
   /** Serialisable copy of a branch's z-factor chain (cached on the array: chains are shared by many echoes). */
   function zsOut(zs) {
@@ -3283,7 +3313,10 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
         k = notch.k; cur = at(k);
         continue;
       }
-      emit(x, y, nxt.tag === 'end' ? 'end' : 'toe', nxt.tag === 'end' ? 1.0 : 0.5, null);
+      // run end (§3.3): an 'end' edge or any edge turning DOWN into the specimen (radius arc, step, end face) is a
+      // convex corner = end face (1.0); an edge rising above the surface (fillet web, untagged bead) is a toe (0.5)
+      const convex = nxt.tag === 'end' || nxt.b.y > y + 0.05;
+      emit(x, y, convex ? 'end' : 'toe', convex ? 1.0 : 0.5, null);
       break;
     }
     if (!echoes.length) return null;
@@ -3485,6 +3518,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const fanMaxA = derived.fanMax || (derived.halfAngle20dB || 4) * 2;
     const isWeld = specimen.kind === 'weld';
     const transferDb = isWeld && Number.isFinite(opts.transferLossDb) ? M.clamp(opts.transferLossDb, 0, 8) : 0;
+    const twin = probe.crystal === 'twin' && theta > 0;   // §3.5 twin-crystal angle probe (SPEC NOTE 38)
     const C = {
       specimen, defects: Array.isArray(a.defects) ? a.defects : [],
       E: em.E, u0: em.u0, ss: em, side: em.side, segment: em.segment, theta, mode: derived.mode,
@@ -3499,6 +3533,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       modeConv, sideLobes, surfaceWave: surfOn, dirW,
       devMax: Math.max(2 * (derived.halfAngle20dB || 4), fanMaxA),
       Gf: focusOn ? function (len) { const g = Math.min(N / F, 3) - 1; const r = (len - F) / (0.25 * F); return 1 + g * Math.exp(-r * r); } : function () { return 1; },
+      twin, nearBoost: twin ? function (len) { return len >= TWIN_NEAR ? 1 : 1 + (TWIN_BOOST - 1) * M.clamp((TWIN_NEAR - len) / (TWIN_NEAR - TWIN_ROLL), 0, 1); } : function () { return 1; },
       maxLegs, maxLen: Math.max(2 * maxPath + 100, 700), retroSlot: !!specimen.retroSlot,
       probeZ: probe.z || 0, skew: fold180(probe.skew || 0), L: specimen.L || 0, wrap: !!specimen.pipe,
       scene: buildScene(specimen, a.defects, probe),
@@ -3999,6 +4034,38 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const fbw = near(run(fb, { angle: 0, x: 30 }, { skips: 3 }, [], 100).echoes, 'backwall', 60, 0.5);
     if (!f3 || !f6 || !fbw) f.push('fbh echoes');
     else if (!(f6.amp > f3.amp) || !(f3.amp < fbw.amp)) f.push('fbh law ' + f3.amp + ' ' + f6.amp + ' ' + fbw.amp);
+    // no min(1, …) cap (§3.8): ⌀6 / ⌀3 at the same depth = (6/3)² = +12.04 dB exactly
+    if (f3 && f6 && Math.abs(dB(f6.amp, f3.amp) - 20 * Math.log10(4)) > 0.05) f.push('fbh cap ' + dB(f6.amp, f3.amp).toFixed(2) + ' dB');
+    // (w) twin-crystal angle probe (§3.5, SPEC NOTE 38): DAC block T 20, SDHs at depth 5/10/15 → 60° paths 10/20/30;
+    //     twin-60-4 vs mwb60-4 (same 4 MHz 9×8 crystal): +3.52 dB at path 10, identical at 20 and 30
+    const dac20 = S.dacBlock({ T: 20 });
+    const sdhMax = function (libId, hole) {
+      const pr = Object.assign({}, UT.probe.select(libId), { side: 1, z: dac20.defaultProbe ? dac20.defaultProbe.z : 0 });
+      const x0 = hole.x + hole.y * Math.tan(60 * DEG);
+      let best = 0;
+      for (let x = x0 - 3; x <= x0 + 3.001; x += 0.5) {
+        for (const e of run(dac20, Object.assign({ x }, pr), { skips: 3 }, [], 50).echoes) if (e.kind === 'sdh' && e.leg === 1 && Math.abs(e.path - hole.y / Math.cos(60 * DEG)) < 2 && e.amp > best) best = e.amp;
+      }
+      return best;
+    };
+    const dacHoles = (dac20.holes || []).filter(function (h) { return h.y <= 15.5; }).sort(function (a, b) { return a.y - b.y; });
+    if (dacHoles.length < 3 || !UT.probe.select('twin-60-4') || !UT.probe.select('mwb60-4')) f.push('twin selftest setup');
+    else {
+      const tw = dacHoles.map(function (h) { return sdhMax('twin-60-4', h); }), sg = dacHoles.map(function (h) { return sdhMax('mwb60-4', h); });
+      if (!(sg[0] > 0) || Math.abs(dB(tw[0], sg[0]) - 20 * Math.log10(TWIN_BOOST)) > 0.05) f.push('twin boost at path 10: ' + (sg[0] > 0 ? dB(tw[0], sg[0]).toFixed(2) : 'none') + ' dB');
+      if (!(sg[1] > 0) || !(sg[2] > 0) || Math.abs(dB(tw[1], sg[1])) > 1e-6 || Math.abs(dB(tw[2], sg[2])) > 1e-6) f.push('twin boost beyond 15 mm');
+    }
+    // (x) surface wave on the V1 block (SPEC NOTE 33): 70° at x 100 towards the 100 mm radius → 'end' 1.0 at d = 100
+    const v1s = run(S.v1({ face: 'wide' }), { angle: 70, x: 100, side: 1 }, { skips: 3 }, [], 400);
+    const v1e = (v1s.echoes || []).find(function (e) { return e.kind === 'surface'; });
+    if (!v1e || v1e.tag !== 'end' || v1e.surfaceRefl !== 1 || Math.abs(v1e.lenMm - 100) > 0.1 || Math.abs(v1e.path - 108) > 1) f.push('v1 block surface end ' + (v1e ? v1e.tag + ' ' + v1e.path.toFixed(1) : 'missing'));
+    const v1r = v1s.surface && v1s.surface.reflectors[0];
+    if (!v1r || v1r.kind !== 'end' || v1r.refl !== 1 || Math.abs(v1r.x) > 0.01) f.push('v1 block surface reflector ' + JSON.stringify(v1r));
+    // (y) deep legs (SPEC NOTE 39): 0° / range 400 keeps its backwall multiples and holes; volumetric captures only up to leg 4
+    const deep = run(S.plateWeld({ T: 20 }), { angle: 0, x: 40 }, { skips: 3 }, [S.defectPresets.porosity(S.plateWeld({ T: 20 }))], 400, { maxLegs: 42 });
+    const bwN = deep.echoes.filter(function (e) { return e.kind === 'backwall'; }).length;
+    if (bwN < 18) f.push('deep backwall multiples ' + bwN);
+    if (deep.echoes.some(function (e) { return e.kind === 'defect' && e.leg > DEEP_LEGS; })) f.push('volumetric capture beyond DEEP_LEGS');
     // (v) weld preps (V2-23): trace without errors; backing bar → 'geometry' tag 'backing'
     for (const prep of ['single-bevel', 'j', 'single-v-backing', 'fillet-t', 'nozzle']) {
       try {
@@ -4076,7 +4143,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
 //   array are merged per index into clones of the existing gates, capped at GATE_SLOTS = 2 (G1/G2).
 //   Test API validation (setProbe / setInstrument): numeric fields are applied only when they coerce to
 //   a finite number (then clamped), otherwise the previous value is kept; enums are checked against
-//   their lists; state never receives NaN / strings for numeric fields.
+//   their lists (an unknown receiver.filter id falls back to 'broadband', not the previous value);
+//   state never receives NaN / strings for numeric fields.
 // - traceOpts(): for angle 0 maxLegs is derived from the range, max(12, ceil(2·maxPath/T) + 2) capped
 //   at 60 (T = local step thickness on the step wedge), so the multiples continue to the end of the screen.
 // v2 (SPEC-v2 §3.2, §3.4, §3.7, §3.10, §6.4, §7)
@@ -4893,6 +4961,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     return Number.isFinite(n) ? M.clamp(n, lo, hi) : prev;
   }
   function oneOf(v, list, prev) { return list.indexOf(v) >= 0 ? v : prev; }
+  /** Receiver filter coercion: omitted → prev; unknown id → 'broadband' (the documented fallback, as 90's patchFromRecord). */
+  function filterId(v, prev) { return v === undefined ? prev : (FILTERS.indexOf(v) >= 0 ? v : 'broadband'); }
   function bool(v, prev) { return v === undefined ? prev : !!v; }
   function isObj(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
 
@@ -5044,7 +5114,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       if (!(isObj(q.pulser) && q.pulser.damping !== undefined)) { pulser.damping = patch.damping ? 50 : 150; pulserTouched = true; }
     }
     if (pulserTouched) patch.pulser = pulser;
-    if (isObj(q.receiver)) patch.receiver = Object.assign({}, cur.receiver || { filter: 'broadband' }, { filter: oneOf(q.receiver.filter, FILTERS, (cur.receiver && cur.receiver.filter) || 'broadband') });
+    if (isObj(q.receiver)) patch.receiver = Object.assign({}, cur.receiver || { filter: 'broadband' }, { filter: filterId(q.receiver.filter, (cur.receiver && cur.receiver.filter) || 'broadband') });
     if (q.autoPct !== undefined) patch.autoPct = num(q.autoPct, cur.autoPct === undefined ? 80 : cur.autoPct, 1, 120);
     if (q.compare !== undefined) patch.compare = q.compare ? snapshot() : null;
     for (const k of ['page', 'readout', 'selectedParam']) if (q[k] !== undefined && (typeof q[k] === 'string' || typeof q[k] === 'number')) patch[k] = q[k];
@@ -5262,6 +5332,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       if (Math.abs(at({ receiver: { filter: '5-15' } }) - at({})) > 1e-9 || Math.abs(at({ receiver: { filter: '1.5-8.5' } }) - at({})) > 1e-9) f.push('5 MHz in band changed amplitude');
       if (Math.abs(at2({ receiver: { filter: 'broadband' } }) - at2({})) > 1e-9 || Math.abs(at2({ receiver: { filter: '0.2-10' } }) - at2({})) > 1e-9) f.push('broadband / 0.2-10 changed the 2 MHz probe');
       if (filterMismatch({ receiver: { filter: 'nonsense' } }, d2)) f.push('unknown filter should be broadband');
+      if (filterId('nonsense', '5-15') !== 'broadband' || filterId(undefined, '5-15') !== '5-15' || filterId('0.2-10', '5-15') !== '0.2-10') f.push('setInstrument filter coercion');
     }
     const tOpts = traceOpts({ instrument: { range: 100, delay: 0 }, display: { skips: 3 } }, { kind: 'weld', T: 10 }, { angle: 0, x: 60 });
     if (tOpts.maxLegs !== 22) f.push('traceOpts 0deg maxLegs ' + tOpts.maxLegs);
@@ -17954,10 +18025,11 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
 // - Late binding to 82/84: the v1 lesson array is UT.modes.lessonSetups; UT.modes.lessons is a getter returning
 //   UT.lessons.list when 82 is loaded (else lessonSetups). modes.lessonsWindow / modes.tradeTest delegate to
 //   UT.lessons.window / UT.trade.window when those modules exist and NEVER create dom.win 'lessons' / 'trade' then;
-//   the legacy v1 windows are created only in their absence. UT.test.trade = {start, truth, submit, practice} is
-//   created here with late-binding methods ((UT.trade || legacy).start …); 84 extends it with Object.assign.
-//   modes.trade stays the legacy (v1) engine; modes.practice.start(seed) → UT.trade.practice.start when present,
-//   else the legacy generator with trade.practice = true and no timer (reveal allowed any time).
+//   UT.test.trade = {start, truth, submit, practice} is created here with late-binding methods; 84 extends it
+//   with Object.assign. modes.trade / modes.practice / modes.tradeTest / modes.lessonsWindow are thin delegates to
+//   UT.trade / UT.trade.practice / UT.trade.window / UT.lessons.window: the v1 engine and windows were removed
+//   (E5, dead in the single file) and a delegate throws '[UT.modes] 8x … is not loaded' when its owner is absent.
+//   Leaving mode 'trade' also discards a shared exam (trade.exam = null): the §4.2.3 lock never outlives the exam.
 // - Mode 'fbh' (UT.specimens.fbhBlock, T from specimenOpts, default 60): forces the 0° probe like step/lamination
 //   (DGS applies to the 0° probe only) with the same savedAngle restore rule; MODE_OF.fbh = 'fbh'; DISABLED.fbh and
 //   'tools' in ALL_MENUS exactly per SPEC-v2 §8 (tools is enabled in every mode except with the editor open).
@@ -18048,12 +18120,10 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   let savedGates = null;       // instrument.gates before step mode reset gate 1 for the auto-cal, restored on exit
   let savedProbeMode = null;   // {angle, mode} before tofd forced the compression mode (§6.6), restored on exit
   const STEP_GATE1 = { on: true, start: 6, width: 40, level: 20, alarm: false };   // covers the 1st backwall of the 10 mm step under the wrong cal (8.4 mm)
-  let tradeTimer = null;
-  let quietUI = false;         // true while __selftest runs: trade.start must not open the Trade Test window
   let autoCalState = null;     // {step: 1|2, t1, d1, d2}
   let rebuildTimer = null;     // deferred specimen-vs-state check after a material / weldOpts change (v2)
   let dampingToolWas = false;  // last seen damping.tool (status hint edge, v2 P3)
-  let dacWin = null, tkyWin = null, tradeWin = null, lessonsWin = null, editorWin = null, autoCalWin = null;
+  let dacWin = null, tkyWin = null, editorWin = null, autoCalWin = null;
   const ui = {};               // live DOM refs of the windows (rebuilt lazily)
   const tkyOpts = { braceAngle: 60, braceT: 12, chordT: 20, braceOffset: 0, precision: 1, kind: 'T-joint' };   // §14.9 Default
 
@@ -18209,9 +18279,10 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
         savedProbeMode = null;
       }
       if (prev === 'trade') {
-        stopTradeTimer();
-        // The exam is over: the hidden truth must not survive into another mode (§15.8), so submit() cannot score it
-        patch.trade = Object.assign({}, s.trade, { active: false, truth: [], seed: null, score: null, result: null, report: [], startedAt: null, revealed: false, practice: false });
+        // The exam is over: the hidden truth must not survive into another mode (§15.8), so submit() cannot score it.
+        // A shared exam (SPEC-v2 §4.2.3) is abandoned with it: the lock (HIDE/BEAM/editor, forced display.hide) applies
+        // only while the exam runs — the candidate must never stay locked out of the simulator without the code.
+        patch.trade = Object.assign({}, s.trade, { active: false, truth: [], seed: null, score: null, result: null, report: [], startedAt: null, revealed: false, practice: false, exam: null, hintsUsed: 0, revealedOne: [] });
         patch.display = Object.assign({}, s.display, { hide: false });
       }
     }
@@ -18999,33 +19070,11 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     fields: ed,
   };
 
-  // ------------------------------------------------------------------ trade test (§8.12, §15.8)
-  const TRADE_PRESETS = ['rootCrack', 'lof', 'porosity', 'slag', 'toeCrack', 'centrelineCrack', 'incompletePenetration'];
-  function generateTruth(seed, spec) {
-    const r = M.rng(seed);
-    const count = 3 + Math.floor(r() * 4);          // 3..6
-    const L = spec.L;
-    const slotLen = L / count;
-    const defects = [];
-    for (let i = 0; i < count; i++) {
-      const key = TRADE_PRESETS[Math.floor(r() * TRADE_PRESETS.length)];
-      const length = Math.round(15 + r() * 30);
-      const zFrom = Math.round(M.clamp(i * slotLen + 5 + r() * Math.max(1, slotLen - length - 10), 0, Math.max(0, L - length)));
-      const opts = { n: i + 1, zFrom, length, label: 'Defect ' + (i + 1) };
-      if (key === 'lof' || key === 'toeCrack') opts.side = r() < 0.5 ? -1 : 1;
-      if (key === 'rootCrack' || key === 'centrelineCrack') opts.height = Math.round(2 + r() * 4);
-      if (key === 'porosity') { opts.dia = +(2 + r() * 3).toFixed(1); opts.x = Math.round((r() - 0.5) * 6); opts.y = +(spec.T * (0.3 + r() * 0.4)).toFixed(1); }
-      if (key === 'slag') { opts.x = Math.round((r() - 0.5) * 6); opts.y = +(spec.T * (0.3 + r() * 0.4)).toFixed(1); }
-      const d = S.defectPresets[key](spec, opts);
-      d.n = i + 1; d.label = 'Defect ' + (i + 1); d.id = 1000 + i;
-      defects.push(d);
-    }
-    const truth = defects.map(function (d) {
-      const b = S.bbox(d.pts);
-      return { n: d.n, zFrom: +d.zFrom.toFixed(1), zTo: +d.zTo.toFixed(1), depth: +b.yMin.toFixed(1), height: +d.height.toFixed(1), type: d.type };
-    });
-    return { defects, truth };
-  }
+  // ------------------------------------------------------------------ trade test (§8.12, §15.8; v2 engine in 84-trade)
+  // The trade engine, its windows and the random practice live in 84-trade.js (always loaded, index.html). This file
+  // keeps the v1 status clock, the exam-lock rule (SPEC-v2 §4.2.3) and the late-bound delegates of SPEC-v2 §1 (2)(3);
+  // the delegates fail loudly (Error '[UT.modes] 84-trade.js is not loaded …') instead of running a second engine.
+  /** Remaining time of the running trade test as mm:ss for the v1 status line ('TRADE TEST 59:58'). */
   function tradeClock() {
     const tr = st().trade;
     if (!tr.active || !tr.startedAt || tr.practice) return '';
@@ -19036,234 +19085,62 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const mm = Math.floor(rem / 60), ss = rem % 60;
     return (mm < 10 ? '0' : '') + mm + ':' + (ss < 10 ? '0' : '') + ss;
   }
-  function stopTradeTimer() { if (tradeTimer && typeof clearInterval === 'function') clearInterval(tradeTimer); tradeTimer = null; }
-  function startTradeTimer() {
-    stopTradeTimer();
-    if (typeof setInterval !== 'function' || typeof document === 'undefined') return;
-    tradeTimer = setInterval(function () { if (ui.tClock) ui.tClock.textContent = t('Time left {t}', { t: tradeClock() }); }, 1000);
-  }
   /** True while a shared exam is locked (truth hidden, editor / HIDE / BEAM disabled) — SPEC-v2 §4.2.3. */
   function examLocked(state) {
     const tr = (state || st()).trade;
     return !!(tr && tr.exam && tr.exam.locked && !tr.revealed);
   }
+  /** Error thrown by a delegate whose owner module (82 / 84) is not loaded. */
+  function missingModule(file, what) { return new Error('[UT.modes] ' + file + ' is not loaded: ' + what + ' is unavailable'); }
+  /** UT.trade (84) or a clear error. */
+  function tradeEngine() { const e = has('trade'); if (e && typeof e.start === 'function') return e; throw missingModule('84-trade.js', 'the Trade Test engine (UT.trade)'); }
+  /** Late-bound trade engine (SPEC-v2 §1 (3)): start / truth / submit / reveal delegate to UT.trade. */
   const trade = {
-    /**
-     * Start a trade test with hidden seeded defects.
-     * @param {number} [seed]
-     */
-    start(seed) {
-      const sd = seed === undefined || seed === null ? Math.floor(Math.random() * 1e9) : (seed >>> 0);
-      if (defectEditor.isOpen()) defectEditor.close();
-      if (st().mode !== 'trade') enter('trade', { keepProbe: true, silentUI: quietUI || typeof document === 'undefined' });
-      const s = st();
-      const g = generateTruth(sd, s.specimen);
-      UT.set({
-        defects: g.defects,
-        trade: Object.assign({}, s.trade, { active: true, revealed: false, report: [], score: null, seed: sd, startedAt: Date.now(), truth: g.truth, result: null, practice: false }),
-        display: Object.assign({}, s.display, { hide: true }),
-        selectedDefect: 0,
-      });
-      startTradeTimer();
-      if (ui.tRows) { ui.tRows.textContent = ''; tradeAddRow(); }     // fresh report table with one empty row
-      tradeRefresh();
-      UT.status({ right: t('Trade Test started ({n} hidden defects). Fill in the report, then Submit', { n: g.truth.length }) });
-      return g.truth.map(function (q) { return Object.assign({}, q); });
-    },
-    /** Hidden truth rows [{n, zFrom, zTo, depth, height, type}] ([] while a shared exam is locked). */
-    truth() { if (examLocked()) return []; return (st().trade.truth || []).map(function (q) { return Object.assign({}, q); }); },
-    /**
-     * Score a report: rows [{n, z, length, depth, type}] → 0..100. Reveals the defects.
-     */
-    submit(rows) {
-      const s = st();
-      if (!s.trade.active || s.mode !== 'trade') return 0;      // no test running: nothing to score, state untouched
-      const truth = s.trade.truth || [];
-      const num = function (v) { const x = typeof v === 'string' && v.trim() === '' ? NaN : +v; return Number.isFinite(x) ? x : NaN; };
-      const report = (Array.isArray(rows) ? rows : []).filter(function (r) { return r && typeof r === 'object'; }).map(function (r, i) {
-        const n = num(r.n);
-        return { n: Number.isFinite(n) ? n : i + 1, z: num(r.z), length: num(r.length), depth: num(r.depth), type: typeof r.type === 'string' ? r.type : '' };
-      }).filter(function (r) { return Number.isFinite(r.z) && Number.isFinite(r.depth); });
-      const used = {};
-      let matched = 0, typeMatches = 0, falseCalls = 0;
-      const detail = [];
-      for (const r of report) {
-        let best = -1, bestD = Infinity;
-        truth.forEach(function (t, i) {
-          if (used[i]) return;
-          const dz = Math.abs(r.z - t.zFrom), dd = Math.abs(r.depth - t.depth);
-          if (dz <= 10 && dd <= 3 && dz + dd < bestD) { bestD = dz + dd; best = i; }
-        });
-        if (best >= 0) {
-          used[best] = true; matched++;
-          const tm = truth[best].type === r.type;
-          if (tm) typeMatches++;
-          detail.push({ row: r, truth: truth[best], hit: true, typeMatch: tm });
-        } else { falseCalls++; detail.push({ row: r, truth: null, hit: false, typeMatch: false }); }
-      }
-      const misses = truth.filter(function (t, i) { return !used[i]; });
-      const N = Math.max(1, truth.length);
-      const score = M.clamp(Math.round(100 * (matched + typeMatches / 2) / (1.5 * N)) - 10 * falseCalls, 0, 100);
-      UT.set({
-        trade: Object.assign({}, s.trade, { report, score, revealed: true, result: { matched, typeMatches, falseCalls, misses, detail } }),
-        display: Object.assign({}, s.display, { hide: false }),
-      });
-      stopTradeTimer();
-      tradeRefresh();
-      UT.status({ right: t('Trade Test score {score}% — {m}/{n} found, {f} false calls', { score, m: matched, n: truth.length, f: falseCalls }) });
-      return score;
-    },
-    /** Reveal the hidden defects without scoring. */
-    reveal() {
-      const s = st();
-      UT.set({ trade: Object.assign({}, s.trade, { revealed: true }), display: Object.assign({}, s.display, { hide: false }) });
-      tradeRefresh();
-    },
+    /** Start a trade test with hidden seeded defects → truth rows ([] while an exam is locked). */
+    start(seed) { return tradeEngine().start(seed); },
+    /** Hidden truth rows [{n, zFrom, zTo, depth, height, type, …}] ([] while a shared exam is locked, §4.2.3). */
+    truth() { if (examLocked()) return []; return tradeEngine().truth(); },
+    /** Score the report rows [{n, z, length, depth, height, type}] → 0..100. */
+    submit(rows) { return tradeEngine().submit(rows); },
+    /** Reveal the hidden defects (exams need the code). */
+    reveal(code) { return tradeEngine().reveal(code); },
   };
-  /** Legacy random practice (T5 fallback when 84-trade is absent): the v1 generator without a timer, reveal any time. */
-  const legacyPractice = {
-    start(seed) {
-      const truth = trade.start(seed);
-      stopTradeTimer();
-      UT.setIn('trade', { practice: true, hintsUsed: 0, revealedOne: [] });
-      UT.status({ right: t(HINTS.practice) });
-      return truth;
-    },
-    hint() {
-      const s = st(), tr = s.trade;
-      if (!tr.active || !tr.truth.length) return null;
-      const z = s.probe.z;
-      let best = null;
-      tr.truth.forEach(function (q) {
-        const zc = (q.zFrom + q.zTo) / 2;
-        const d = Math.abs(zc - z);
-        if (!best || d < best.d) best = { d, q, zc };
-      });
-      UT.setIn('trade', { hintsUsed: (tr.hintsUsed || 0) + 1 });
-      const msg = t('nearest hidden indication: {d} mm further along z, side {side}', { d: Math.round(best.d), side: best.zc >= z ? 'B' : 'A' });
-      UT.status({ right: msg });
-      return { dz: +(best.zc - z).toFixed(1), n: best.q.n };
-    },
-    revealOne() { trade.reveal(); return st().trade.truth[0] || null; },
-    checkRow(i) {
-      const tr = st().trade, r = (tr.report || [])[i];
-      if (!r) return null;
-      return tr.truth.some(function (q) { return Math.abs(r.z - q.zFrom) <= 10 && Math.abs(r.depth - q.depth) <= 3; });
-    },
-  };
-  /** Random practice entry (T5): UT.trade.practice when 84 is loaded, else the legacy fallback. */
+  /** UT.trade.practice (84) or a clear error. */
+  function practiceEngine() { const e = has('trade.practice'); if (e && typeof e.start === 'function') return e; throw missingModule('84-trade.js', 'Random practice (UT.trade.practice)'); }
+  /** Random practice entry (T5): delegates to UT.trade.practice / UT.trade.practiceWindow. */
   const practice = {
     /** Start a practice run (no timer, no lock). Returns the truth rows. */
-    start(seed) { const p = has('trade.practice.start'); return p ? UT.trade.practice.start(seed) : legacyPractice.start(seed); },
-    hint() { const p = has('trade.practice.hint'); return p ? UT.trade.practice.hint() : legacyPractice.hint(); },
-    revealOne() { const p = has('trade.practice.revealOne'); return p ? UT.trade.practice.revealOne() : legacyPractice.revealOne(); },
-    checkRow(i) { const p = has('trade.practice.checkRow'); return p ? UT.trade.practice.checkRow(i) : legacyPractice.checkRow(i); },
-    /** Open the practice window (84) or start a legacy practice run. */
-    open() { const w = has('trade.practiceWindow'); if (w && typeof (w.open || w.show) === 'function') return (w.open || w.show).call(w); return practice.start(); },
+    start(seed) { return practiceEngine().start(seed); },
+    hint() { return practiceEngine().hint(); },
+    revealOne() { return practiceEngine().revealOne(); },
+    checkRow(i, row) { return practiceEngine().checkRow(i, row); },
+    /** Open the practice window (84). */
+    open() { const w = has('trade.practiceWindow'); if (w && typeof (w.open || w.show) === 'function') return (w.open || w.show).call(w); throw missingModule('84-trade.js', 'the Random practice window (UT.trade.practiceWindow)'); },
     toggle() { const w = has('trade.practiceWindow'); if (w && typeof w.toggle === 'function') return w.toggle(); return practice.open(); },
   };
-  function tradeRows() {
-    if (!ui.tRows) return [];
-    return Array.from(ui.tRows.children).map(function (tr) {
-      const inp = tr.querySelectorAll('input, select');
-      return { n: +inp[0].value, z: parseFloat(inp[1].value), length: parseFloat(inp[2].value), depth: parseFloat(inp[3].value), type: inp[4].value };
-    });
-  }
-  function tradeAddRow(row) {
-    const dom = UT.dom;
-    const n = ui.tRows.children.length + 1;
-    const r = row || { n, z: '', length: '', depth: '', type: 'planar' };
-    const tr = dom.h('tr', {}, [
-      dom.h('td', {}, dom.h('input', { type: 'number', value: r.n, class: 'tt-n', min: 1, max: 16 })),
-      dom.h('td', {}, dom.h('input', { type: 'number', value: r.z, class: 'tt-in', step: 1 })),
-      dom.h('td', {}, dom.h('input', { type: 'number', value: r.length, class: 'tt-in', step: 1 })),
-      dom.h('td', {}, dom.h('input', { type: 'number', value: r.depth, class: 'tt-in', step: 0.5 })),
-      dom.h('td', {}, dom.h('select', { class: 'tt-sel' }, DEFECT_TYPES.map(function (t) { return dom.h('option', { value: t, selected: t === r.type ? true : null }, t); }))),
-      dom.h('td', {}, dom.button('✕', function () { tr.remove(); }, { class: 'btn tt-del', title: 'Remove row' })),
-    ]);
-    ui.tRows.appendChild(tr);
-    return tr;
-  }
-  function tradeRefresh() {
-    if (!tradeWin || !tradeWin.isOpen() || !ui.tResult) return;
-    const tr = st().trade;
-    ui.tClock.textContent = tr.active && tr.startedAt ? t('Time left {t}', { t: tradeClock() }) : t('Press Start');
-    ui.tSeed.textContent = tr.seed === null || tr.seed === undefined ? '' : t('Test #{seed}', { seed: tr.seed });
-    ui.tResult.textContent = '';
-    if (tr.score !== null && tr.score !== undefined && tr.result) {
-      const res = tr.result;
-      ui.tResult.appendChild(UT.dom.h('div', { class: 'tt-score' }, t('SCORE {score}%   ({m} of {n} found, {tm} type correct, {f} false calls)', { score: tr.score, m: res.matched, n: tr.truth.length, tm: res.typeMatches, f: res.falseCalls })));
-    }
-    if (tr.revealed && tr.truth && tr.truth.length) {
-      const tbl = UT.dom.h('table', { class: 'tt-truth' }, [
-        UT.dom.h('tr', {}, ['#', 'From z', 'Length', 'Depth', 'Height', 'Type'].map(function (h) { return UT.dom.h('th', { i18n: h }); })),
-      ].concat(tr.truth.map(function (d) {
-        return UT.dom.h('tr', {}, [d.n, d.zFrom, +(d.zTo - d.zFrom).toFixed(1), d.depth, d.height, d.type].map(function (v) { return UT.dom.h('td', {}, String(v)); }));
-      })));
-      ui.tResult.appendChild(UT.dom.h('div', { class: 'tt-sub', i18n: 'True defects' }));
-      ui.tResult.appendChild(tbl);
-      if (tr.result && tr.result.misses && tr.result.misses.length) ui.tResult.appendChild(UT.dom.h('div', { class: 'tt-miss' }, t('Missed: {list}', { list: tr.result.misses.map(function (m) { return '#' + m.n + ' (' + m.type + ' at z ' + m.zFrom + ')'; }).join(', ') })));
-    }
-  }
-  /** Owner window of the v2 trade test (84) when loaded: {open/show, close/hide, toggle, isOpen, win}. */
-  function tradeOwnerWin() { const w = has('trade.window'); return w && typeof w === 'object' ? w : null; }
-  const legacyTradeTest = {
-    open() {
-      if (typeof document === 'undefined') return null;
-      UT.dom.injectCss('modes', modes.css);
-      const dom = UT.dom;
-      if (!tradeWin) {
-        ui.tClock = dom.h('span', { class: 'tt-clock' }, 'Press Start');
-        ui.tSeed = dom.h('span', { class: 'tt-seed' }, '');
-        ui.tRows = dom.h('tbody', {});
-        ui.tResult = dom.h('div', { class: 'tt-result' });
-        const seedIn = dom.h('input', { type: 'number', class: 'tt-seedin', placeholder: 'seed', title: 'Optional seed (same seed = same test)' });
-        const table = dom.h('table', { class: 'tt-table' }, [
-          dom.h('thead', {}, dom.h('tr', {}, ['#', 'z start (mm)', 'Length (mm)', 'Depth (mm)', 'Type', ''].map(function (h) { return dom.h('th', {}, h); }))),
-          ui.tRows,
-        ]);
-        const body = dom.h('div', { class: 'tt' }, [
-          dom.h('div', { class: 'tt-head' }, [
-            dom.button('Start', function () { trade.start(seedIn.value === '' ? undefined : +seedIn.value); }, { class: 'btn primary' }),
-            seedIn,
-            dom.button('New test', function () { seedIn.value = ''; trade.start(); }),
-            ui.tClock, ui.tSeed,
-          ]),
-          dom.h('div', { class: 'tt-intro' }, 'Report every defect you find: start position along the weld (z), length, depth of the top of the defect and its type. Tolerance ±10 mm (z), ±3 mm (depth). 실기시험: 발견한 결함의 위치(z), 길이, 깊이, 종류를 기록하고 Submit을 누르세요.'),
-          table,
-          dom.h('div', { class: 'btn-row' }, [
-            dom.button('Add row', function () { tradeAddRow(); }),
-            dom.button('Submit', function () { if (!st().trade.truth.length) { UT.status({ right: t('Press Start first') }); return; } trade.submit(tradeRows()); }, { class: 'btn primary' }),
-            dom.button('Reveal', function () { trade.reveal(); }),
-          ]),
-          ui.tResult,
-        ]);
-        tradeWin = dom.win({ name: 'trade', title: 'Trade Test', x: 600, y: 110, w: 560, content: body, onClose: function () { if (st().mode === 'trade') exit(); } });
-      }
-      tradeWin.show();
-      if (!ui.tRows.children.length) tradeAddRow();
-      tradeRefresh();
-      return tradeWin;
-    },
-    close() { if (tradeWin) tradeWin.hide(); },
-    toggle() { return tradeWin && tradeWin.isOpen() ? legacyTradeTest.close() : legacyTradeTest.open(); },
-    isOpen() { return !!(tradeWin && tradeWin.isOpen()); },
-    get window() { return tradeWin; },
-  };
+  /** Owner window of the trade test (84): {open/show, close/hide, toggle, isOpen, win} or a clear error. */
+  function tradeOwnerWin() { const w = has('trade.window'); if (w && typeof w === 'object') return w; throw missingModule('84-trade.js', 'the Trade Test window (UT.trade.window)'); }
   /**
-   * Late-bound Trade Test window (SPEC-v2 §1): delegates to UT.trade.window (84) when loaded and NEVER creates the
-   * v1 dom.win 'trade' in that case; the legacy window is used only without 84.
+   * Late-bound Trade Test window (SPEC-v2 §1 (2)): delegates to UT.trade.window (84) and NEVER creates a dom.win
+   * 'trade' of its own. isOpen() / window are non-throwing (menu check marks).
    */
   const tradeTest = {
-    open() { const w = tradeOwnerWin(); if (w) return (w.open || w.show).call(w); return legacyTradeTest.open(); },
-    close() { const w = tradeOwnerWin(); if (w) return (w.close || w.hide).call(w); return legacyTradeTest.close(); },
-    toggle() { const w = tradeOwnerWin(); if (w) return w.toggle ? w.toggle() : (w.isOpen && w.isOpen() ? tradeTest.close() : tradeTest.open()); return legacyTradeTest.toggle(); },
-    isOpen() { const w = tradeOwnerWin(); if (w) return !!(w.isOpen && w.isOpen()); return legacyTradeTest.isOpen(); },
-    get window() { const w = tradeOwnerWin(); return w ? (w.win || w) : tradeWin; },
-    legacy: legacyTradeTest,
+    open() { const w = tradeOwnerWin(); return (w.open || w.show).call(w); },
+    close() { const w = tradeOwnerWin(); return (w.close || w.hide).call(w); },
+    toggle() { const w = tradeOwnerWin(); return w.toggle ? w.toggle() : (w.isOpen && w.isOpen() ? tradeTest.close() : tradeTest.open()); },
+    isOpen() { const w = has('trade.window'); return !!(w && typeof w.isOpen === 'function' && w.isOpen()); },
+    get window() { const w = has('trade.window'); return w ? (w.win || w) : null; },
   };
 
   // ------------------------------------------------------------------ TKY panel (§14.9)
+  /** Tooltips of the Plate / T-joint / Pipe buttons (i18n; refreshed on 'lang' — the labels relabel via data-i18n). */
+  function tkyKindTitles() {
+    (ui.tkyKind || []).forEach(function (b) {
+      const k = b.dataset.kind;
+      b.title = k === 'T-joint' ? t('T-joint: plate chord with an angled brace (modelled)') : t('{kind} joint is not modelled in this version — only the T-joint geometry is available', { kind: t(k) });
+    });
+  }
+  UT.bus.on('lang', tkyKindTitles);
   function tkyApply(patch) {
     const p = Object.assign({}, patch || {});
     if (p.kind !== undefined && p.kind !== 'T-joint') delete p.kind;   // only the T-joint geometry is modelled
@@ -19295,11 +19172,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
         // for fidelity (§14.9) but disabled, so the row never pretends to change the modelled geometry.
         ui.tkyKind = ['Plate', 'T-joint', 'Pipe'].map(function (k) {
           const modelled = k === 'T-joint';
-          return dom.button(k, function () { if (modelled) tkyApply({ kind: k }); }, {
-            class: 'btn tky-kind', dataset: { kind: k }, disabled: !modelled,
-            title: modelled ? 'T-joint: plate chord with an angled brace (modelled)' : k + ' joint is not modelled in this version — only the T-joint geometry is available',
-          });
+          return dom.button(k, function () { if (modelled) tkyApply({ kind: k }); }, { class: 'btn tky-kind', dataset: { kind: k }, disabled: !modelled });
         });
+        tkyKindTitles();
         ui.tkyPrec = dom.button('Precision 1°', function () { tkyApply({ precision: tkyOpts.precision === 1 ? 0.1 : 1 }); }, { class: 'btn tky-btn' });
         ui.fBraceT = dom.field('Brace T (mm)', { type: 'number', value: 12, min: 4, max: 60, step: 1, onchange: function (v) { if (v > 0) tkyApply({ braceT: v }); } });
         ui.fChordT = dom.field('Chord T (mm)', { type: 'number', value: 20, min: 6, max: 100, step: 1, onchange: function (v) { if (v > 0) tkyApply({ chordT: v }); } });
@@ -19445,68 +19320,20 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       setup() { lessonSetups[10].setup(); setInstr({ page: 2 }); },
       steps: ['Page 2: Gate 1 / Gate 2 softkeys', '2ND F + dB = reference gain', 'Auto Cal softkey'] },
   ];
-  function loadLesson(i) {
-    const l = lessonSetups[i];
-    if (!l) return null;
-    if (defectEditor.isOpen()) defectEditor.close();     // clean UI; lessons 10 / 16 reopen it in setup()
-    if (autoCalWin) autoCal.cancel();
-    try { l.setup(); } catch (e) { console.error('[UT.modes] lesson ' + l.n, e); }
-    UT.set({ lesson: i });
-    lessonsRefresh();
-    return l;
-  }
-  function lessonsRefresh() {
-    if (!lessonsWin || !ui.lSteps) return;
-    const i = st().lesson;
-    ui.lSteps.textContent = '';
-    if (i === null || i === undefined || !lessonSetups[i]) { ui.lSteps.appendChild(UT.dom.h('div', { class: 'ls-dim', i18n: 'Select a lesson and press Load' })); return; }
-    const l = lessonSetups[i];
-    ui.lSteps.appendChild(UT.dom.h('div', { class: 'ls-title' }, l.n + '. ' + l.title));
-    ui.lSteps.appendChild(UT.dom.h('div', { class: 'ls-ko' }, l.ko));
-    ui.lSteps.appendChild(UT.dom.h('ol', {}, l.steps.map(function (s) { return UT.dom.h('li', {}, s); })));
-    Array.from(ui.lList.children).forEach(function (row, k) { row.classList.toggle('active', k === i); });
-  }
-  const legacyLessonsWindow = {
-    open() {
-      if (typeof document === 'undefined') return null;
-      UT.dom.injectCss('modes', modes.css);
-      const dom = UT.dom;
-      if (!lessonsWin) {
-        ui.lList = dom.h('div', { class: 'ls-list' }, lessonSetups.map(function (l, i) {
-          return dom.h('div', { class: 'ls-row' }, [
-            dom.h('div', { class: 'ls-n' }, String(l.n)),
-            dom.h('div', { class: 'ls-txt' }, [dom.h('div', { class: 'ls-t' }, l.title), dom.h('div', { class: 'ls-d' }, l.ko + ' — ' + l.en)]),
-            dom.button('Load', function () { loadLesson(i); }, { class: 'btn ls-load' }),
-          ]);
-        }));
-        ui.lSteps = dom.h('div', { class: 'ls-steps' });
-        lessonsWin = dom.win({ name: 'lessons', title: 'Lessons', x: 300, y: 80, w: 620, content: dom.h('div', { class: 'ls' }, [ui.lList, ui.lSteps]) });
-      }
-      lessonsWin.show();
-      lessonsRefresh();
-      return lessonsWin;
-    },
-    close() { if (lessonsWin) lessonsWin.hide(); },
-    toggle() { return lessonsWin && lessonsWin.isOpen() ? legacyLessonsWindow.close() : legacyLessonsWindow.open(); },
-    isOpen() { return !!(lessonsWin && lessonsWin.isOpen()); },
-    load: loadLesson,
-    get window() { return lessonsWin; },
-  };
-  /** Owner window of the v2 lessons (82) when loaded. */
-  function lessonsOwnerWin() { const w = has('lessons.window'); return w && typeof w === 'object' ? w : null; }
+  /** Owner window of the v2 lessons (82) or a clear error. */
+  function lessonsOwnerWin() { const w = has('lessons.window'); if (w && typeof w === 'object') return w; throw missingModule('82-lessons.js', 'the Lessons window (UT.lessons.window)'); }
   /**
-   * Late-bound Lessons window (SPEC-v2 §1): UT.lessons.window.show() when 82 is loaded (the v1 dom.win 'lessons'
-   * is then never created); the legacy v1 list window otherwise. load(i) → UT.lessons.start(i + 1) | v1 loadLesson.
+   * Late-bound Lessons window (SPEC-v2 §1 (2)): UT.lessons.window.show() (82) — this file never creates a dom.win
+   * 'lessons'. load(i) → UT.lessons.start(i + 1) (0-based i, returns the lesson record). isOpen() / window are non-throwing.
    */
   const lessonsWindow = {
-    open() { const w = lessonsOwnerWin(); if (w) return (w.show || w.open).call(w); return legacyLessonsWindow.open(); },
-    close() { const w = lessonsOwnerWin(); if (w) return (w.hide || w.close).call(w); return legacyLessonsWindow.close(); },
-    toggle() { const w = lessonsOwnerWin(); if (w) return w.toggle ? w.toggle() : (w.isOpen && w.isOpen() ? lessonsWindow.close() : lessonsWindow.open()); return legacyLessonsWindow.toggle(); },
-    isOpen() { const w = lessonsOwnerWin(); if (w) return !!(w.isOpen && w.isOpen()); return legacyLessonsWindow.isOpen(); },
-    /** Load lesson i (0-based): v2 UT.lessons.start(n) when present, else the v1 setup. Returns the lesson record. */
-    load(i) { if (has('lessons.start')) { UT.lessons.start(i + 1); return modes.lessons[i] || null; } return loadLesson(i); },
-    get window() { const w = lessonsOwnerWin(); return w ? (w.win || w) : lessonsWin; },
-    legacy: legacyLessonsWindow,
+    open() { const w = lessonsOwnerWin(); return (w.show || w.open).call(w); },
+    close() { const w = lessonsOwnerWin(); return (w.hide || w.close).call(w); },
+    toggle() { const w = lessonsOwnerWin(); return w.toggle ? w.toggle() : (w.isOpen && w.isOpen() ? lessonsWindow.close() : lessonsWindow.open()); },
+    isOpen() { const w = has('lessons.window'); return !!(w && typeof w.isOpen === 'function' && w.isOpen()); },
+    /** Load lesson i (0-based) through UT.lessons.start(i + 1). Returns the lesson record. */
+    load(i) { if (!has('lessons.start')) throw missingModule('82-lessons.js', 'lesson loading (UT.lessons.start)'); UT.lessons.start(i + 1); return modes.lessons[i] || null; },
+    get window() { const w = has('lessons.window'); return w ? (w.win || w) : null; },
   };
 
   // ------------------------------------------------------------------ test API (§15.10)
@@ -19662,29 +19489,6 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     '.tky-kind.active{background:#00e000;color:#000;font-weight:bold}',
     '.tky-kind[disabled]{opacity:.5;cursor:not-allowed}',
     '.tky-btn.active{background:#00e000}',
-    '.tt{display:flex;flex-direction:column;gap:6px;max-height:70vh;overflow:auto}',
-    '.tt-head{display:flex;gap:6px;align-items:center}',
-    '.tt-seedin{width:70px}',
-    '.tt-clock{font-family:monospace;font-weight:bold;color:#a00;margin-left:auto}',
-    '.tt-seed{color:#555;font-size:11px}',
-    '.tt-intro{font-size:11px;color:#333}',
-    '.tt-table{border-collapse:collapse;width:100%;background:#fff}',
-    '.tt-table th,.tt-table td{border:1px solid #999;padding:2px 4px;font-size:11px;text-align:center}',
-    '.tt-n{width:34px}.tt-in{width:64px}.tt-sel{width:90px}.tt-del{padding:0 6px;font-size:10px}',
-    '.tt-score{font-size:15px;font-weight:bold;color:#0a246a}',
-    '.tt-sub{font-weight:bold;margin-top:4px}',
-    '.tt-truth{border-collapse:collapse;background:#fff}.tt-truth th,.tt-truth td{border:1px solid #999;padding:1px 6px;font-size:11px}',
-    '.tt-miss{color:#a00;font-size:11px;margin-top:3px}',
-    '.ls{display:flex;gap:6px;max-height:70vh}',
-    '.ls-list{width:340px;overflow:auto;background:#fff;border:1px solid #999}',
-    '.ls-row{display:flex;gap:6px;align-items:center;padding:3px 4px;border-bottom:1px solid #ddd}',
-    '.ls-row.active{background:#dbe7ff}',
-    '.ls-n{width:20px;text-align:right;font-weight:bold;color:#0a246a}',
-    '.ls-txt{flex:1;min-width:0}.ls-t{font-weight:bold;font-size:12px}.ls-d{font-size:11px;color:#444}',
-    '.ls-load{font-size:11px}',
-    '.ls-steps{flex:1;overflow:auto;background:#fdfbd8;border:1px solid #999;padding:6px;font-size:12px}',
-    '.ls-title{font-weight:bold;font-size:13px}.ls-ko{color:#444;margin:2px 0 4px}.ls-dim{color:#777}',
-    '.ls-steps ol{margin:0;padding-left:18px}.ls-steps li{margin:2px 0}',
   ].join('\n');
 
   // ------------------------------------------------------------------ enable helpers
@@ -19738,7 +19542,6 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     // module variables, so the checks below leave the app, the toolbar and the persisted record untouched.
     const saved = Object.assign({}, UT.state);
     const savedVars = { stash, lastAngle, savedAngle, savedGates, savedProbeMode, autoCalState };
-    quietUI = true;
     try {
       // pure helpers first
       const nz = normaliseZ([{ n: 1, type: 'crack', pts: [{ x: 0, y: 17 }, { x: 0, y: 20 }], zFrom: 200, zTo: 100 }], { L: 300 });
@@ -19773,15 +19576,25 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       enter('v1', { silentUI: true });
       if (st().probe.angle !== 0 || st().specimen.face !== 'narrow') f.push('explicit 0° before v1 must give the narrow face: ' + st().probe.angle + '/' + st().specimen.face);
       enter('weld', { silentUI: true });
-      const g1 = generateTruth(42, st().specimen), g2 = generateTruth(42, st().specimen);
-      if (JSON.stringify(g1.truth) !== JSON.stringify(g2.truth)) f.push('trade seed not deterministic');
-      if (g1.truth.length < 3 || g1.truth.length > 6) f.push('trade count ' + g1.truth.length);
-      trade.start(42);
-      const rows = trade.truth().map(function (t) { return { n: t.n, z: t.zFrom, length: t.zTo - t.zFrom, depth: t.depth, type: t.type }; });
-      if (trade.submit(rows) !== 100) f.push('trade score ' + st().trade.score);
-      if (trade.submit([]) !== 0) f.push('empty report should score 0');
+      if (has('trade.start') && typeof document === 'undefined') {
+        // the engine (determinism, scoring) is 84's and covered by its selftest; here: delegates + the exit rule
+        const truth = trade.start(42);
+        if (!Array.isArray(truth) || !truth.length || st().mode !== 'trade' || !st().trade.active) f.push('trade.start delegate');
+        const rows = truth.map(function (q) { return { n: q.n, z: q.zFrom, length: q.zTo - q.zFrom, depth: q.depth, height: q.height, type: q.type }; });
+        if (trade.submit(rows) !== 100) f.push('trade score ' + st().trade.score);
+        enter('weld', { silentUI: true });
+        if (st().trade.active || st().trade.truth.length) f.push('trade inactive after exit');
+      } else if (typeof UT.trade === 'undefined') {
+        let threw = false;
+        try { trade.start(1); } catch (e) { threw = /84-trade/.test(e.message); }
+        if (!threw) f.push('trade delegate must throw a clear error without 84');
+      }
+      // leaving trade mode abandons a shared exam: the lock and the forced display.hide go with it (SPEC-v2 §4.2.3)
+      enter('trade', { silentUI: true });
+      UT.setIn('trade', { active: true, exam: { v: 2, seed: 7, locked: true, codeHash: 'x' }, revealed: false }, { silent: true, noRender: true });
+      if (!examLocked() || !st().display.hide) f.push('exam lock inside trade');
       enter('weld', { silentUI: true });
-      if (st().trade.active) f.push('trade inactive after exit');
+      if (examLocked() || st().trade.exam !== null || st().display.hide || !isToolbarEnabled('tb-hide') || !isMenuEnabled('menu-defects')) f.push('exam lock must be released on mode exit');
       if (lessonSetups.length !== 22) f.push('lessons ' + lessonSetups.length);
       lessonSetups.forEach(function (l) { if (!l.title || !l.ko || !l.en || typeof l.setup !== 'function' || !l.steps.length) f.push('lesson ' + l.n + ' incomplete'); });
       if (!Array.isArray(modes.lessons) || modes.lessons.length < 22 || (UT.lessons && UT.lessons.list && modes.lessons !== UT.lessons.list)) f.push('lessons getter');
@@ -19863,7 +19676,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       if (!isToolbarEnabled('tb-45')) f.push('no procedure → angle buttons enabled');
       UT.setIn('trade', { exam: { v: 2, seed: 1, locked: true }, revealed: false }, { silent: true, noRender: true });
       if (!examLocked() || isToolbarEnabled('tb-hide') || isToolbarEnabled('tb-beam') || isToolbarEnabled('tb-defect') || isMenuEnabled('menu-defects')) f.push('exam lock');
-      if (trade.truth().length !== 0) f.push('legacy truth must be [] while exam-locked');
+      if (trade.truth().length !== 0) f.push('truth must be [] while exam-locked');
       UT.setIn('trade', { exam: null, active: false }, { silent: true, noRender: true });
       if (!isToolbarEnabled('tb-beam')) f.push('beam enabled without exam lock');
       // library-aware lesson setProbe
@@ -19874,8 +19687,6 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       if (typeOfPrep('nozzle') !== 'fillet' || typeOfPrep('none') !== 'none' || typeOfPrep('j') !== 'single-v') f.push('typeOfPrep');
     } catch (e) { f.push('exception ' + (e && e.message) + (e && e.stack ? ' @ ' + String(e.stack).split('\n')[1] : '')); }
     finally {
-      quietUI = false;
-      stopTradeTimer();
       if (rebuildTimer !== null && typeof clearTimeout === 'function') { clearTimeout(rebuildTimer); rebuildTimer = null; }
       stash = savedVars.stash; lastAngle = savedVars.lastAngle; savedAngle = savedVars.savedAngle;
       savedGates = savedVars.savedGates; savedProbeMode = savedVars.savedProbeMode; autoCalState = savedVars.autoCalState;
@@ -19928,7 +19739,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
  *   that advances per start so repeat runs alternate).
  * - Transition steps: `memo.was` is (re)set to false whenever the check is false, so a step that was already true at
  *   entry passes after the user makes it false and true again.
- * - start(n) first resets a small baseline (single crystal, PE, skew 0, freeze/peakMem off, reject/delay 0, HIDE off, BEAM on)
+ * - start(n) first resets the §4.1 baseline (gates/tcg/pulser/receiver/reject/delay/freeze/peakMem/damping, single crystal, PE,
+ *   skew 0, focus off, physics + damping points, weldOpts, material carbon, HIDE off, BEAM on); quiz.start() resets the whole
+ *   probe/instrument slices the same way so a shared seed gives the same items on every machine/session (§4.5)
  *   so lessons never inherit e.g. lesson 3's twin crystal (v1's loadLesson did not; the v1 setups assume these defaults).
  * - Manual 'Do it for me' force-advances when the check still fails after two renders (never leaves the user stuck);
  *   autoRun records such steps in `failedSteps` and continues so later steps are still exercised.
@@ -19962,7 +19775,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
 
   // module-level buffers (never written to state from a 'render' listener)
   const L = { win: null, ui: {}, hintTimer: null, evalTimer: null, lastEval: 0, uiSeen: 0, autoRunning: false, prevFrame: null, curFrame: null,
-    lastRefresh: 0, feedback: '', feedbackKind: '', hintShown: false, lastCompleted: null, cov: { 1: {}, '-1': {} }, drift: 0 };
+    lastRefresh: 0, feedback: '', feedbackKind: '', hintShown: false, lastCompleted: null, cov: { 1: {}, '-1': {} }, drift: 0, doingIt: false };
 
   // ------------------------------------------------------------------ action helpers used by doIt() (guarded + fallbacks)
   function emitUi(kind, id) { UT.bus.emit('ui', { kind, id, synthetic: true }); }
@@ -20593,7 +20406,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   function startHintTimer() {
     stopHintTimer();
     if (L.autoRunning || typeof setTimeout !== 'function') return;
-    L.hintTimer = setTimeout(function () { L.hintTimer = null; if (ls().active !== null && !L.hintShown) api.hint(); }, 30000);
+    // the automatic hint is only charged when the user can actually see it (§4.1 'hintsShown'): window open, or not at all
+    L.hintTimer = setTimeout(function () { L.hintTimer = null; if (ls().active !== null && !L.hintShown && api.window && api.window.isOpen()) api.hint(); }, 30000);
   }
   /** Enter step i of the active lesson: reset memo (keep set), record `was`, restart the hint timer. */
   function enterStep(n, i) {
@@ -20612,6 +20426,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   }
   function passStep(n, i, how) {
     const ln = lesson(n), step = ln.steps[i];
+    if (how === 'user' && L.doingIt) how = 'doIt';   // passed from inside 'Do it for me' (choice/numeric answer, synchronous check)
     const p = progOf(n);
     if (how === 'doIt') p.doIt = (p.doIt || 0) + 1;
     p.passed = Object.assign({}, p.passed || {}); p.passed[i] = how;
@@ -20657,6 +20472,22 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   }
 
   api.list = list;
+  /**
+   * §4.1 baseline applied before a lesson setup() and before a quiz (§4.5 'same seed → same sequence'): nothing an earlier
+   * lesson, test or the user left behind (twin crystal, 2.5 MHz, reject, delay, freeze, TCG, damping fingers, physics
+   * switches, austenitic material, a 30 mm weld, autocal zero …) may change what a step check or a quiz scenario sees.
+   * `full` (quiz) resets the whole probe/instrument slices (datalog/compare kept); lessons reset the keys listed in §4.1.
+   */
+  function baseline(full) {
+    const d = UT.defaultState(), s = st();
+    const instr = full
+      ? Object.assign({}, d.instrument, { datalog: s.instrument.datalog, compare: s.instrument.compare })
+      : { gates: d.instrument.gates, tcg: d.instrument.tcg, pulser: d.instrument.pulser, receiver: d.instrument.receiver, reject: 0, delay: 0, freeze: false, peakMem: false, damping: false };
+    UT.setIn('instrument', instr, { noRender: true });
+    UT.setIn('probe', full ? d.probe : { crystal: 'single', method: 'pe', skew: 0, focus: d.probe.focus }, { noRender: true });
+    UT.setIn('display', { hide: false, beam: true }, { noRender: true });
+    UT.set({ physics: d.physics, damping: d.damping, weldOpts: d.weldOpts, material: 'carbon' }, { noRender: true });
+  }
   /** Start lesson n (1…25): runs setup(), resets answers/memo, enters step 0. */
   api.start = function (n) {
     n = +n; const ln = lesson(n); if (!ln) return null;
@@ -20664,10 +20495,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     if (has('modes.defectEditor.isOpen') && UT.modes.defectEditor.isOpen()) UT.modes.defectEditor.close();
     if (has('modes.autoCal.cancel')) UT.modes.autoCal.cancel();
     L.cov = { 1: {}, '-1': {} };
-    // clean baseline so a lesson never inherits twin crystal / freeze / reject / hidden defects from the previous one
-    UT.setIn('instrument', { freeze: false, peakMem: false, reject: 0, delay: 0 }, { noRender: true });
-    UT.setIn('probe', { crystal: 'single', method: 'pe', skew: 0 }, { noRender: true });
-    UT.setIn('display', { hide: false, beam: true }, { noRender: true });
+    // clean baseline (§4.1) so a lesson never inherits twin crystal / freeze / reject / hidden defects from the previous one
+    baseline(false);
     let init = null;
     try { init = ln.setup(); } catch (e) { console.error('[UT.lessons] setup ' + n, e); }
     const memo = { ui: tally() };
@@ -20678,9 +20507,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     UT.set({ lesson: n - 1 }, { noRender: true });
     L.lastCompleted = null;
     announce('', '');
+    UT.status({ right: (ko() ? ln.ko : ln.en) });   // before enterStep: a hint fired from step 0 must stay visible in the status bar
     enterStep(n, 0);
     UT.renderNow();
-    UT.status({ right: (ko() ? ln.ko : ln.en) });
     return ln;
   };
   /** Stop the active lesson (keeps progress). */
@@ -20702,6 +20531,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     if (!L.hintShown) { L.hintShown = true; writeProg(l.active, { hints: progOf(l.active).hints + 1 }); }
     const text = ko() ? step.hintKo : step.hintEn;
     announce(text || t('No hint for this step'), 'hint');
+    UT.status({ right: t('Hint') + ': ' + (text || t('No hint for this step')) });
     refresh(true);
     return text;
   };
@@ -20709,7 +20539,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   api.doIt = function () {
     const l = ls(), step = curStep(); if (!step) return false;
     const n = l.active, i = l.step;
+    L.doingIt = true;
     try { if (step.doIt) step.doIt(ctx()); } catch (e) { console.error('[UT.lessons] doIt ' + n + '/' + (i + 1), e); }
+    L.doingIt = false;
     UT.renderNow();
     if (ls().active === n && ls().step === i) {
       let ok = safeCheck(step, ctx());
@@ -20717,7 +20549,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       passStep(n, i, 'doIt');
       return ok;
     }
-    writeProg(n, { doIt: progOf(n).doIt + 1 });
+    const p = progOf(n);
+    if (!(p.passed && p.passed[i] === 'doIt')) writeProg(n, { doIt: p.doIt + 1 });   // advanced inside doIt without passStep (already counted otherwise)
     return true;
   };
   /** Answer the current choice/numeric step. Returns true when the step passed. */
@@ -21084,6 +20917,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       const seed = o.seed === undefined || o.seed === null ? (Date.now() & 0xffff) : (+o.seed >>> 0);
       Q.rng = M.rng(seed); Q.seed = seed;
       if (ls().active !== null && ls().active !== undefined) api.stop();
+      baseline(true);   // same seed → same sequence on every machine/session, whatever probe/instrument/material was left behind
       quizWrite({ active: true, i: 0, n, seed, difficulty: ['basic', 'intermediate', 'advanced'].indexOf(o.difficulty) >= 0 ? o.difficulty : 'basic', correct: 0, wrong: 0, times: [], item: null });
       quizAnnounce('');
       return nextItem();
@@ -21258,10 +21092,22 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
 // - Procedure compliance (0…10): DAC recorded (≥ 2 points, +4), reference gain stored (dac.refDb set or refGain ≠ the
 //   default 30, +2), coverage ≥ 80 % on both sides (+4). Diagnostic only.
 // - Result token codeHash: exam → exam.codeHash; plain tests → fnv1a(':' + seed) (empty code). verifyResult(token, code?)
-//   tries the given code, then the loaded exam's codeHash (same seed), then the empty-code hash.
+//   checks ONE hash: the given code's, else the loaded exam's codeHash (same seed), else the empty-code hash — a token
+//   signed with another code (or without the exam code) is {ok:false}.
 // - makeExam({seed, code, difficulty, timeLimitMin, procedureId, revealOnSubmit, title, nameRequired}) and
-//   loadExam(exam) are provided for 94-scenario (URL → exam → start(seed)). nameRequired is enforced by the window's
-//   Start button only (the API never blocks a start). start(seed) with a seed different from a loaded exam drops the exam.
+//   loadExam(exam) are provided for 94-scenario (URL → exam → start(seed)). loadExam of a nameRequired exam without a
+//   candidate name (setCandidate) enters mode 'trade' and opens the window WITHOUT starting (the Start button gates
+//   the timer; returns null). start(seed) with a seed different from a loaded exam drops the exam.
+// - Seeded draws: start(seed) feeds the generator with M.rng(mix32(M.fnv1a('trade:' + seed))) (lowbias32 finaliser —
+//   the plain LCG's first draws are almost linear in a small seed); drawSpecimen() builds weldOpts from UT.defaultState() (L 300, every field
+//   fixed) so the exam URL (seed only) regenerates the same truth on every machine. A configured procedure with a
+//   `specimen` (45) fixes plate/pipe, T/OD/WT of the draw (the rng is consumed in the same order).
+// - The pre-exam {weldOpts, material} are snapshotted before the first seeded draw and restored (specimen rebuilt
+//   via UT.modes.enter(mode, {keepProbe, keepDefects, silentUI})) when mode 'trade' is left (v1: trade keeps the weld
+//   specimen, SPEC §15.8).
+// - submit() sets trade.active = false once the truth is revealed (so 90 can persist the history entry before the
+//   window closes; a locked exam stays active until reveal(code) so the hidden truth defects never reach localStorage);
+//   while the exam is locked, result.misses / result.detail[].truth carry only {n} (re-hydrated on reveal).
 // - 'Reveal one' cannot draw a single hidden defect (display.hide is global): it prints the truth row, pre-fills a
 //   report row and marks the defect non-scoring in trade.revealedOne.
 // - Advanced difficulty forces display.beam = false while the test is unrevealed (re-applied on every 'state' event).
@@ -21323,6 +21169,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   let cov = null;                  // coverage buffer (§4.2.1)
   let usedProbes = {};             // probes seen during the test (report)
   let lastCovKey = '';
+  let preTrade = null;             // {weldOpts, material} before the first seeded draw; restored when mode 'trade' is left
   const ui = {};                   // live DOM refs of the trade window
   const pui = {};                  // practice window refs
   const sui = {};                  // scoreboard refs
@@ -21414,6 +21261,16 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     return utf8Decode(out);
   }
   function codeHashOf(code, seed) { return M.fnv1a(String(code || '') + ':' + String(seed >>> 0)).toString(16); }
+  /** 32-bit finaliser (lowbias32): decorrelates the generator state of neighbouring classroom seeds. */
+  function mix32(x) {
+    x = (x ^ 0x9e3779b9) >>> 0;
+    x ^= x >>> 16; x = Math.imul(x, 0x7feb352d) >>> 0;
+    x ^= x >>> 15; x = Math.imul(x, 0x846ca68b) >>> 0;
+    x ^= x >>> 16;
+    return x >>> 0;
+  }
+  /** Seeded generator of a trade test: M.rng over a mixed seed (the plain LCG's first draws are ~linear in the seed). */
+  function tradeRng(seed) { return M.rng(mix32(M.fnv1a('trade:' + (seed >>> 0)))); }
   function payloadOf(o) { return { seed: o.seed, difficulty: o.difficulty, score: o.score, fail: !!o.fail, timeUsedSec: o.timeUsedSec, date: o.date, name: o.name || '' }; }
   function signPayload(payload, codeHash) { return M.fnv1a(JSON.stringify(payload) + ':' + codeHash).toString(16); }
   function tokenFor(res, codeHash) {
@@ -21433,21 +21290,30 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       if (!obj || typeof obj !== 'object' || typeof obj.sig !== 'string') return { ok: false };
       const payload = payloadOf(obj);
       const seed = obj.seed >>> 0;
-      const hashes = [];
-      if (typeof code === 'string' && code.length) hashes.push(codeHashOf(code, seed));
-      const ex = st().trade && st().trade.exam;
-      if (ex && ex.codeHash && (ex.seed >>> 0) === seed) hashes.push(ex.codeHash);
-      hashes.push(codeHashOf('', seed));
-      const ok = hashes.some(function (h) { return signPayload(payload, h) === obj.sig; });
-      if (!ok) return { ok: false };
+      // §4.2.3: exactly one codeHash is acceptable — the instructor's code, else the loaded exam's hash (same seed),
+      // else the empty code of a plain (non-exam) test. Never fall back to the empty-code hash for an exam.
+      let hash;
+      if (typeof code === 'string' && code.length) hash = codeHashOf(code, seed);
+      else {
+        const ex = st().trade && st().trade.exam;
+        hash = ex && ex.codeHash && (ex.seed >>> 0) === seed ? ex.codeHash : codeHashOf('', seed);
+      }
+      if (signPayload(payload, hash) !== obj.sig) return { ok: false };
       return { ok: true, score: obj.score, name: obj.name || '', seed: obj.seed, fail: !!obj.fail, difficulty: obj.difficulty, date: obj.date, timeUsedSec: obj.timeUsedSec };
     } catch (e) { return { ok: false }; }
   }
 
   // ------------------------------------------------------------------ generator (§4.2 difficulty table)
-  function drawSpecimen(rng, difficulty, cur) {
+  /**
+   * Draw the specimen options of a difficulty from a seeded rng. Every weldOpts field is fixed by the draw or by
+   * UT.defaultState() (L 300) — never by the current weldOpts (`cur` is accepted for API compatibility only), so the
+   * same seed yields the same specimen on every machine. `fixed` = a procedure's specimen {pipe, od, wt, T}: it
+   * overrides plate/pipe and T/OD/WT after the draw (the rng is consumed in the same order either way).
+   * @returns {{weldOpts: object, material: string, trapKind: string|null}}
+   */
+  function drawSpecimen(rng, difficulty, cur, fixed) {
     const D = DIFF[difficulty] || DIFF.intermediate;
-    const w = Object.assign({}, cur || {});
+    const w = Object.assign({}, UT.defaultState ? UT.defaultState().weldOpts : (cur || {}));
     const pipe = D.pipe && rng() < 0.4;
     const T = D.plate[0] === D.plate[1] ? D.plate[0] : Math.round(D.plate[0] + rng() * (D.plate[1] - D.plate[0]));
     const od = rng() < 0.5 ? 168.3 : 219.1;
@@ -21461,7 +21327,18 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     w.rootGap = 2; w.rootFace = 2; w.backing = false; w.weldMaterial = 'same';
     w.capWidth = trapKind === 'cap' ? 20 : 16; w.capHeight = trapKind === 'cap' ? 3.5 : 2; w.rootHeight = trapKind === 'root' ? 3 : 1.5;
     w.transferLossDb = transferLossDb;
-    if (!Number.isFinite(w.L)) w.L = 300;
+    w.L = 300;
+    if (fixed && typeof fixed === 'object') {
+      if (fixed.pipe) {
+        w.pipe = true;
+        if (Number.isFinite(fixed.od) && fixed.od > 0) w.od = fixed.od;
+        const wt = Number.isFinite(fixed.wt) ? fixed.wt : fixed.T;
+        if (Number.isFinite(wt) && wt > 0) { w.wt = wt; w.T = wt; }
+      } else {
+        w.pipe = false;
+        if (Number.isFinite(fixed.T) && fixed.T > 0) { w.T = fixed.T; w.wt = fixed.T; }
+      }
+    }
     return { weldOpts: w, material, trapKind };
   }
   function slagDefect(spec, o) {
@@ -21745,7 +21622,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   trade._now = function () { return Date.now() + vOffset; };
   function remainingSec() {
     const tr = st().trade;
-    if (!tr.active || tr.practice || !tr.startedAt) return null;
+    if (tr.practice || !tr.startedAt || !(tr.active || tr.score !== null)) return null;
     const lim = Math.max(0.05, Number.isFinite(tr.timeLimitMin) ? tr.timeLimitMin : 60) * 60;
     return lim - (trade._now() - tr.startedAt) / 1000;
   }
@@ -21758,6 +21635,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const rem = remainingSec();
     if (rem === null) { stopTimer(); return; }
     if (ui.clock) ui.clock.textContent = tr.revealed || tr.score !== null ? t('Time used {t}', { t: clock((trade._now() - tr.startedAt) / 1000) }) : t('Time left {t}', { t: clock(rem) });
+    if (tr.score !== null) return;
     for (const th of [600, 300, 60]) if (rem <= th && rem > 0 && !announced[th]) { announced[th] = true; announce(t('{m} minutes left', { m: th / 60 })); }
     if (rem <= 0 && tr.score === null && !announced[0]) {
       announced[0] = true;
@@ -21784,6 +21662,28 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   // ------------------------------------------------------------------ exam lock helpers
   function locked(tr) { tr = tr || st().trade; return !!(tr.exam && tr.exam.locked && !tr.revealed); }
   function codeHashCurrent(tr) { tr = tr || st().trade; return tr.exam && tr.exam.codeHash ? tr.exam.codeHash : codeHashOf('', tr.seed || 0); }
+  /** Result without truth rows (§4.2.3: while the exam is locked only {n} of a missed / matched defect is kept). */
+  function stripResult(res) {
+    return Object.assign({}, res, {
+      misses: (res.misses || []).map(function (m) { return { n: m.n }; }),
+      detail: (res.detail || []).map(function (d) { return Object.assign({}, d, { truth: d.truth ? { n: d.truth.n } : null }); }),
+    });
+  }
+  /** Put the truth rows back into a stripped result (reveal). */
+  function hydrateResult(res, truth) {
+    const byN = {};
+    (truth || []).forEach(function (q) { byN[q.n] = q; });
+    return Object.assign({}, res, {
+      misses: (res.misses || []).map(function (m) { return byN[m.n] || m; }),
+      detail: (res.detail || []).map(function (d) { return d.truth && byN[d.truth.n] ? Object.assign({}, d, { truth: byN[d.truth.n] }) : d; }),
+    });
+  }
+  /** Procedure specimen ({pipe, od, wt, T}) of the configured procedure, or null. */
+  function procedureSpecimen() {
+    const procs = cfg.procedureId ? has('standards.procedures') : null;
+    const p = procs && procs[cfg.procedureId];
+    return p && p.specimen && typeof p.specimen === 'object' ? p.specimen : null;
+  }
 
   // ------------------------------------------------------------------ public API
   /**
@@ -21830,9 +21730,12 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const timeLimitMin = exam && Number.isFinite(exam.timeLimitMin) ? Math.max(0.05, exam.timeLimitMin) : (Number.isFinite(s0.trade.timeLimitMin) ? s0.trade.timeLimitMin : DIFF[difficulty].time);
     const ed = has('modes.defectEditor');
     if (ed && ed.isOpen && ed.isOpen()) ed.close();
-    const rng = M.rng(sd);
+    // mixed seed: the plain LCG's first draws are almost linear in a small classroom seed (pipe/plate, T, …)
+    const rng = tradeRng(sd);
     if (cfg.specimen === 'auto') {
-      const draw = drawSpecimen(rng, difficulty, s0.weldOpts);
+      // keep the user's weld specimen for the return from mode 'trade' (v1: trade keeps the weld specimen)
+      if (!preTrade) preTrade = { weldOpts: Object.assign({}, s0.weldOpts), material: s0.material };
+      const draw = drawSpecimen(rng, difficulty, s0.weldOpts, procedureSpecimen());
       UT.set({ weldOpts: draw.weldOpts, material: draw.material }, { noRender: true });
     }
     if (has('modes.enter')) UT.modes.enter('trade', { keepProbe: true, silentUI: true });
@@ -21897,17 +21800,23 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const date = new Date(trade._now()).toISOString();
     const comp = compliance(covSum);
     const revealNow = tr.exam ? tr.exam.revealOnSubmit !== false : true;
-    const result = { seed: tr.seed, difficulty: tr.difficulty, score: res.score, fail: res.fail, pass: res.pass, timeUsedSec, date, name: tr.candidate || '',
+    let result = { seed: tr.seed, difficulty: tr.difficulty, score: res.score, fail: res.fail, pass: res.pass, timeUsedSec, date, name: tr.candidate || '',
       coverageA: covSum.sideA, coverageB: covSum.sideB, compliance: comp, matched: res.matched, typeMatches: res.typeMatches, falseCalls: res.falseCalls, duplicates: res.duplicates,
       misses: res.misses, detail: res.detail, perDefect: res.perDefect, kind: tr.practice ? 'practice' : 'trade' };
     result.token = tokenFor(result, codeHashCurrent(tr));
+    // §4.2.3: while the exam stays locked the score result must not carry the truth rows (UT.test.state() exports it)
+    const stillLocked = !!(tr.exam && tr.exam.locked && !revealNow);
+    if (stillLocked) result = stripResult(result);
     const entry = { date, seed: tr.seed, difficulty: tr.difficulty, kind: result.kind, score: res.score, fail: res.fail, timeUsedSec,
       specimen: { T: spec.T, pipe: !!spec.pipe, od: spec.pipe ? spec.pipe.od : null }, coverageA: covSum.sideA, coverageB: covSum.sideB, compliance: comp,
       perDefect: res.perDefect.map(function (p) { return { n: p.n, found: p.found, tFoundSec: p.tFoundSec }; }), name: tr.candidate || '' };
     const history = (tr.history || []).concat([entry]).slice(-HISTORY_CAP);
     const coverageState = { sideA: covSum.sideA, sideB: covSum.sideB, perAngle: covSum.perAngle, map: Array.from(covSum.map) };
+    // The test is over once the truth is revealed: trade.active = false lets 90 persist the history entry now (the
+    // 'not saved while trade.active' rule protects a running test). A locked exam stays active until reveal(code) so
+    // the hidden truth defects (state.defects) are never written to localStorage.
     UT.set({
-      trade: Object.assign({}, tr, { report: res.rows, score: res.score, revealed: revealNow, result, history, coverage: coverageState }),
+      trade: Object.assign({}, tr, { report: res.rows, score: res.score, revealed: revealNow, result, history, coverage: coverageState, active: stillLocked ? tr.active : false }),
       display: Object.assign({}, s.display, { hide: !revealNow }),
     });
     stopTimer();
@@ -21925,7 +21834,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     if (tr.exam && tr.exam.locked) {
       if (typeof code !== 'string' || code.length < 4 || code.length > 8) return false;
       if (codeHashOf(code, tr.seed) !== tr.exam.codeHash) return false;
-      UT.set({ trade: Object.assign({}, tr, { revealed: true, exam: Object.assign({}, tr.exam, { locked: false }) }), display: Object.assign({}, s.display, { hide: false }) });
+      const submitted = tr.score !== null && tr.score !== undefined && !!tr.result;
+      const result = submitted ? hydrateResult(tr.result, tr.truth || []) : tr.result;
+      UT.set({ trade: Object.assign({}, tr, { revealed: true, exam: Object.assign({}, tr.exam, { locked: false }), result, active: submitted ? false : tr.active }), display: Object.assign({}, s.display, { hide: false }) });
     } else UT.set({ trade: Object.assign({}, tr, { revealed: true }), display: Object.assign({}, s.display, { hide: false }) });
     if (!tr.practice) stopTimer();
     refreshAll();
@@ -21949,6 +21860,20 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     if (ex.procedureId) configure({ procedureId: ex.procedureId });
     if (DIFF[ex.difficulty]) configure({ difficulty: ex.difficulty, timeLimitMin: ex.timeLimitMin });
     UT.setIn('trade', { exam: ex, candidate: st().trade.candidate || '' }, { noRender: true });
+    if (ex.nameRequired && !String(st().trade.candidate || '').trim()) {
+      // 'candidate name required': the exam waits in mode 'trade' (locks apply, no truth, no timer) for the window's
+      // Start button — or setCandidate(name) + start(exam.seed) from the API.
+      if (has('modes.enter')) UT.modes.enter('trade', { keepProbe: true, silentUI: true });
+      stopTimer();
+      // a previous test of this trade session must not linger under the pending exam (truth, clock, defects)
+      UT.set({ defects: [], selectedDefect: 0, display: Object.assign({}, st().display, { hide: true }),
+        trade: Object.assign({}, st().trade, { truth: [], startedAt: null, score: null, result: null, revealed: false, report: [], seed: ex.seed, coverage: null, practice: false, hintsUsed: 0, revealedOne: [] }) }, { noRender: true });
+      resetRowsUi();
+      if (!quiet && typeof document !== 'undefined') tradeWin.open();
+      refreshAll();
+      UT.status({ right: t('Exam loaded — enter the candidate name and press Start') });
+      return null;
+    }
     return trade.start(ex.seed);
   };
   /** Set the candidate name (exam). */
@@ -22244,7 +22169,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   function refreshTrade() {
     if (!tradeWin.isOpen() || !ui.result) return;
     const s = st(), tr = s.trade;
-    const running = tr.active && tr.startedAt;
+    const running = tr.startedAt && (tr.active || tr.score !== null);
     if (!running) ui.clock.textContent = t('Press Start');
     else if (tr.practice) ui.clock.textContent = t('Practice (no timer)');
     else ui.clock.textContent = tr.score !== null || tr.revealed ? t('Time used {t}', { t: clock((trade._now() - tr.startedAt) / 1000) }) : t('Time left {t}', { t: clock(Math.max(0, remainingSec() || 0)) });
@@ -22383,6 +22308,14 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       cov = null;
       const tr = st().trade;
       if (tr.practice || tr.hintsUsed || (tr.revealedOne && tr.revealedOne.length)) UT.setIn('trade', { practice: false, hintsUsed: 0, revealedOne: [] }, { noRender: true });
+      if (preTrade) {
+        // v1 §15.8: the trade test keeps the user's weld specimen — put the pre-exam weldOpts / material back and
+        // rebuild the specimen of the mode just entered (defects and probe kept)
+        const snap = preTrade;
+        preTrade = null;
+        UT.set({ weldOpts: snap.weldOpts, material: snap.material }, { noRender: true });
+        if (has('modes.enter')) { try { UT.modes.enter(ev.mode, { keepProbe: true, silentUI: true, keepDefects: true }); } catch (e) { /* ignore */ } }
+      }
       refreshAll();
     }
   });
@@ -22451,7 +22384,12 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       if (verifyResult(tampered).ok) f.push('tampered token accepted');
       if (verifyResult('nope').ok || verifyResult(null).ok) f.push('garbage token');
       const tokC = tokenFor(res0, codeHashOf('1234', 7));
-      if (verifyResult(tokC).ok || !verifyResult(tokC, '1234').ok) f.push('token with code');
+      if (verifyResult(tokC).ok || !verifyResult(tokC, '1234').ok || verifyResult(tokC, '9999').ok) f.push('token with code');
+      if (verifyResult(tok, '1234').ok) f.push('empty-code token accepted with a code');
+      const strip = stripResult({ misses: [{ n: 2, zFrom: 5, type: 'crack' }], detail: [{ row: {}, truth: { n: 1, zFrom: 1 }, hit: true }, { row: {}, truth: null, hit: false }] });
+      if (Object.keys(strip.misses[0]).join() !== 'n' || Object.keys(strip.detail[0].truth).join() !== 'n' || strip.detail[1].truth !== null) f.push('stripResult');
+      const hyd = hydrateResult(strip, [{ n: 1, zFrom: 1 }, { n: 2, zFrom: 5, type: 'crack' }]);
+      if (hyd.misses[0].zFrom !== 5 || hyd.detail[0].truth.zFrom !== 1) f.push('hydrateResult');
       // pure scoring on a synthetic truth (plate, L 300)
       const truth = [
         { n: 1, zFrom: 20, zTo: 50, length: 30, depth: 17, yMin: 17, yMax: 21.5, height: 4.5, type: 'crack', recordable: true },
@@ -22492,6 +22430,11 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
         const ds = drawSpecimen(M.rng(11), 'advanced', UT.defaultState().weldOpts);
         if (!(ds.weldOpts.T >= 12 && ds.weldOpts.T <= 30) || DIFF.advanced.preps.indexOf(ds.weldOpts.prep) < 0 || !(ds.weldOpts.transferLossDb >= 0 && ds.weldOpts.transferLossDb <= 6)) f.push('drawSpecimen ' + JSON.stringify(ds.weldOpts));
         if (drawSpecimen(M.rng(5), 'basic').weldOpts.T !== 20) f.push('basic plate 20');
+        // the draw never inherits the current weldOpts (exam URL = seed only)
+        const dl = drawSpecimen(M.rng(11), 'advanced', Object.assign({}, UT.defaultState().weldOpts, { L: 420, webT: 99 }));
+        if (dl.weldOpts.L !== 300 || dl.weldOpts.webT === 99 || JSON.stringify(dl.weldOpts) !== JSON.stringify(ds.weldOpts)) f.push('drawSpecimen inherits weldOpts');
+        const dp = drawSpecimen(M.rng(5), 'basic', null, { pipe: true, od: 168.3, wt: 20 });
+        if (dp.weldOpts.pipe !== true || dp.weldOpts.od !== 168.3 || dp.weldOpts.wt !== 20 || dp.weldOpts.T !== 20) f.push('procedure specimen');
       }
       // coverage buffer
       covReset({ L: 300, T: 20, pipe: null, weld: { capWidth: 16 } });
@@ -22503,6 +22446,10 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       if (coverageMap().sides[1][30] !== 1) f.push('coverage keeps bins');
       cov = null;
       if (configure({ difficulty: 'nope' }) !== false) f.push('configure bad difficulty');
+      // seed mixing: neighbouring seeds must not share the first draw (pipe/plate) in lock-step
+      let pipes = 0;
+      for (let sd = 1; sd <= 40; sd++) if (tradeRng(sd)() < 0.4) pipes++;
+      if (pipes < 8 || pipes > 24 || tradeRng(3)() !== tradeRng(3)()) f.push('seed mixing ' + pipes);
       if (configure({ probes: ['not-a-probe'] }) !== false) f.push('configure bad probe');
     } catch (e) { f.push('exception ' + (e && e.stack || e)); }
     // live pipeline (state snapshot / restore like 80-modes)
@@ -22523,13 +22470,28 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
         if (trade.report({ withTruth: true }).indexOf('SCORE') < 0 || trade.report({ withTruth: false }).indexOf('True defects') >= 0) f.push('report html');
         trade.start(8);
         if (tick(4) !== 0 || st().trade.revealed !== true || st().trade.score === null) f.push('tick auto-submit');
+        // locked exam: verifyResult needs the exam code, the result carries no truth rows until reveal(code)
+        trade.loadExam(trade.makeExam({ seed: 9, code: 'abcd', revealOnSubmit: false }));
+        trade.submit([]);
+        const lockedRes = st().trade.result;
+        if (!lockedRes || !st().trade.active || (lockedRes.misses || []).some(function (m) { return 'zFrom' in m; }) || (lockedRes.detail || []).some(function (d) { return d.truth && 'zFrom' in d.truth; })) f.push('locked result carries truth');
+        if (verifyResult(lockedRes.token).ok !== true || verifyResult(lockedRes.token, 'zzzz').ok || verifyResult(tokenFor(lockedRes, codeHashOf('', 9)), 'abcd').ok || verifyResult(tokenFor(lockedRes, codeHashOf('', 9))).ok) f.push('exam token verification');
+        if (!trade.reveal('abcd') || st().trade.active || !(st().trade.result.misses || []).every(function (m) { return 'zFrom' in m; })) f.push('reveal hydrates the result');
+        // nameRequired exam waits for a name
+        UT.setIn('trade', { candidate: '' }, { noRender: true });
+        if (trade.loadExam(trade.makeExam({ seed: 10, code: 'abcd', nameRequired: true })) !== null || st().trade.startedAt || (st().trade.truth || []).length) f.push('nameRequired gate');
+        trade.setCandidate('A'); trade.start(10);
+        if (!st().trade.exam || !st().trade.startedAt) f.push('nameRequired start');
+        const drawn = JSON.stringify(st().weldOpts);
         UT.modes.enter('weld', { silentUI: true });
         if (st().trade.active) f.push('inactive after exit');
+        if (JSON.stringify(st().weldOpts) !== JSON.stringify(saved.weldOpts) || st().material !== saved.material || preTrade) f.push('weldOpts restored after trade ' + drawn);
       } catch (e) { f.push('live exception ' + (e && e.message)); }
       finally {
         quiet = false;
         stopTimer();
         cov = null;
+        preTrade = null;
         Object.assign(cfg, savedCfg);
         const modeBefore = st().mode;
         const patch = {};
@@ -22544,7 +22506,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   Object.assign(trade, {
     practice, window: tradeWin, scoreboard: scoreboardWin, reportWindow: reportWin, practiceWindow: practiceWin,
     open() { return tradeWin.open(); }, close() { return tradeWin.close(); }, toggle() { return tradeWin.toggle(); }, isOpen() { return tradeWin.isOpen(); },
-    css, normType, drawDefects, drawSpecimen, recordability, PASS_MARK, __selftest,
+    css, normType, drawDefects, drawSpecimen, recordability, tradeRng, PASS_MARK, __selftest,
   });
   UT.trade = trade;
 
@@ -23738,6 +23700,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     if (keys.indexOf('mode') >= 0 || keys.indexOf('display') >= 0) applyLayout();
     else if (keys.indexOf('probe') >= 0 && mem.els.main && mem.els.main.classList.contains('tt') !== (st().probe.method === 'tt' && currentMode() !== 'tofd')) applyLayout();
     if (keys.indexOf('trade') >= 0) refreshTouchBar();
+    if (keys.indexOf('trade') >= 0 || keys.indexOf('standards') >= 0) syncProbeLibLock();
     refreshToolbar();
     scheduleSave(keys);
   }
@@ -23896,7 +23859,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     if (o.unit) f.appendChild(h('span', { class: 'fld-unit' }, o.unit));
     return f;
   }
-  const DLG_CSS = '.fld-input.invalid { outline: 2px solid #e00000; background: #ffe6e6; } .dlg-msg { color: #b00000; min-height: 1.2em; margin: 2px 0; font-size: 12px; }';
+  const DLG_CSS = '.fld-input.invalid { outline: 2px solid #e00000; background: #ffe6e6; } .dlg-msg { color: #b00000; min-height: 1.2em; margin: 2px 0; font-size: 12px; } .probelib tr.locked td { color: #9a9a9a; background: #f3f3f3; } .probelib tr.locked .btn { opacity: 0.5; pointer-events: none; }';
   function inchOf(od) { for (const k of Object.keys(OD_INCH)) if (Math.abs(OD_INCH[k] - od) < 0.05) return k; return 'custom'; }
   function prepList() {
     const names = has('specimens.prepNames');
@@ -24223,36 +24186,71 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   }
 
   // ------------------------------------------------------------------ v2 windows: probe library, material, focus, glossary
+  /**
+   * Procedure lock (SPEC-v2 §4.3 T4): library ids outside UT.standards.allowedProbes(state) are not selectable
+   * while state.trade.active (null list = unrestricted; same rule 80-modes applies to the toolbar angle buttons).
+   */
+  function lockedProbeIds(state) {
+    const s = state || st();
+    if (!s.trade || !s.trade.active) return null;
+    const fn = has('standards.allowedProbes');
+    if (typeof fn !== 'function') return null;
+    let ids = null;
+    try { ids = fn(s); } catch (e) { ids = null; }
+    return Array.isArray(ids) ? ids : null;
+  }
+  function probeAllowed(id, state) {
+    const ids = lockedProbeIds(state);
+    return !ids || ids.indexOf(id) >= 0;
+  }
+  /** Key of the current lock set: the open library window is rebuilt when it changes (trade start / end). */
+  function probeLockKey(state) { const ids = lockedProbeIds(state); return ids ? ids.join(',') : ''; }
   /** Probes ▸ Probe library… (window 'probelib'): table of UT.probe.library with derived N / θ6 / θ20 and Select. */
   function openProbeLib() {
     dialog('probelib', 'Probe library', 760, function (win) {
       const lib = has('probe.library') || [];
       const cur = st().probe;
+      const locked = lockedProbeIds();
+      if (win && win.el) win.el.dataset.probeLock = probeLockKey();
       const rows = lib.map(function (p) {
         let d = null;
         try { d = has('probe.select') ? UT.probe.derive(Object.assign({}, cur, UT.probe.select(p.id), { method: 'pe' }), st().specimen) : null; } catch (e) { d = null; }
         const isCur = cur.libId === p.id;
-        const tr = h('tr', { class: isCur ? 'cur' : '' }, [
+        const isLocked = !!locked && locked.indexOf(p.id) < 0;
+        const tr = h('tr', { class: (isCur ? 'cur' : '') + (isLocked ? ' locked' : ''), 'aria-disabled': isLocked ? 'true' : null }, [
           h('td', { class: 'no-i18n' }, p.maker), h('td', { class: 'no-i18n' }, p.name), h('td', {}, p.angle + '°'), h('td', {}, p.freq + ' MHz'),
           h('td', { class: 'no-i18n' }, p.crystal.shape === 'rect' ? p.crystal.a + ' × ' + p.crystal.b : '⌀' + p.crystal.a),
           h('td', {}, d ? d.nearField.toFixed(1) : '–'), h('td', {}, d ? d.halfAngle6dB.toFixed(1) + '° / ' + d.halfAngle20dB.toFixed(1) + '°' : '–'),
-          h('td', {}, UT.dom.button(isCur ? 'Selected' : 'Select', function () { selectLibProbe(p.id); win.setContent(function () { return mem.winBuilders.probelib(win); }); }, { class: 'btn small' + (isCur ? ' pressed' : '') })),
+          h('td', {}, UT.dom.button(isCur ? 'Selected' : 'Select', function () { if (!isLocked) selectLibProbe(p.id); win.setContent(function () { return mem.winBuilders.probelib(win); }); }, { class: 'btn small' + (isCur ? ' pressed' : '') + (isLocked ? ' disabled' : ''), disabled: isLocked ? true : null, 'aria-disabled': isLocked ? 'true' : null })),
         ]);
-        tr.title = p.notes || '';
+        tr.title = isLocked ? t('Not allowed by the procedure while the trade test runs') : (p.notes || '');
         return tr;
       });
       return h('div', { class: 'probelib' }, [
         h('table', {}, [h('thead', {}, h('tr', {}, [tx('th', {}, 'Maker'), tx('th', {}, 'Name'), tx('th', {}, 'Angle'), tx('th', {}, 'Freq'), tx('th', {}, 'Crystal (mm)'), tx('th', {}, 'N (mm)'), 'θ6 / θ20'].map(function (c) { return typeof c === 'string' ? h('th', { class: 'no-i18n' }, c) : c; }).concat([h('th', {})]))), h('tbody', {}, rows)]),
+        locked ? tx('div', { class: 'dlg-note' }, 'Procedure lock: only the probes of the applied procedure can be selected while the trade test runs.') : null,
         tx('div', { class: 'dlg-note' }, 'N = near field of the selected wave mode; θ6 / θ20 = pulse-echo half angles (−6 / −20 dB). Custom angles: Probes ▸ Adjust Angle in Wedge (Shoe).'),
         h('div', { class: 'btn-row' }, [UT.dom.button('Close', function () { win.close(); }, { class: 'btn primary' })]),
       ]);
     });
   }
-  /** Select a library probe: UT.probe.select(id) patch (never built by hand) → probe. */
+  /** Rebuild the open probe library window when the procedure lock set changed (trade start / end, procedure change). */
+  function syncProbeLibLock() {
+    const w = winApi('probelib');
+    if (!w || !w.isOpen() || !mem.winBuilders.probelib) return;
+    const key = probeLockKey();
+    if (w.el && w.el.dataset.probeLock === key) return;
+    try { w.setContent(function () { return mem.winBuilders.probelib(w); }); } catch (e) { console.error('[UT.app] probelib lock', e); }
+  }
+  /**
+   * Select a library probe: UT.probe.select(id) patch (never built by hand) → probe. False (with a status
+   * message) for ids outside the active procedure's probe list while the trade test runs (§4.3 T4).
+   */
   function selectLibProbe(id) {
     if (!has('probe.select')) return false;
     const sel = UT.probe.select(id);
     if (!sel) return false;
+    if (!probeAllowed(id)) { UT.status({ right: t('Probe {id} is not allowed by the procedure while the trade test runs', { id }) }); return false; }
     const entry = has('probe.libEntry') ? UT.probe.libEntry(id) : null;
     const patch = Object.assign({}, sel);
     if (entry && entry.family === 'pa') patch.method = 'pa'; else if (st().probe.method === 'pa') patch.method = 'pe';
@@ -24628,6 +24626,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     v.backing = v.prep === 'single-v-backing';
     return clampPipeWall(v);
   }
+  /** Stored probe.angle accepted as-is (the wedge dialog writes 0…90); outside → library angle (patchFromRecord). */
+  const PROBE_ANGLE_VALID = [0, 90];
   const PROBE_RANGES = { angle: [0, 89.9], freq: [0.5, 20], diameter: [1, 50], wedgeVel: [1, 6], x: [-3000, 3000], z: [-5000, 5000], skew: [-360, 360], paFrom: [0, 89.9], paTo: [0, 89.9], paStep: [0.1, 10] };
   const PROBE_ENUMS = { mode: ['shear', 'comp'], crystal: ['single', 'twin'], method: ['pe', 'tt', 'tandem', 'pa'], surface: ['chord', 'brace', 'web'] };
   const DISPLAY_RANGES = { skips: [1, 12] };
@@ -24670,8 +24670,17 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     if (rec.probe && typeof rec.probe === 'object') {
       const pr = coerceLike(def.probe, rec.probe, Object.assign({ crystalDims: { a: [1, 50], b: [1, 50] }, focus: { F: [10, 150] } }, PROBE_RANGES), Object.assign({ crystalDims: { shape: ['round', 'rect'] } }, PROBE_ENUMS));
       pr.side = num(rec.probe.side, 1) < 0 ? -1 : 1;
-      if (pr.angle === 0) pr.mode = 'comp';
       if (!(has('probe.libEntry') && UT.probe.libEntry(pr.libId))) pr.libId = def.probe.libId;
+      // Angle provenance: toolbar (0/45/60/70), a library entry, or the wedge dialog (custom 0…90, 90 = beyond the 2nd
+      // critical angle). Anything else (NaN, 999, negative) is a corrupt record → the library entry's angle/mode via
+      // UT.probe.select (never a clamp: an 89.9° probe is meaningless and no dialog can produce it).
+      const rawAngle = num(rec.probe.angle, NaN);
+      if (!(rawAngle >= PROBE_ANGLE_VALID[0] && rawAngle <= PROBE_ANGLE_VALID[1])) {
+        const sel = has('probe.select') ? UT.probe.select(pr.libId) : null;
+        pr.angle = sel ? sel.angle : def.probe.angle;
+        pr.mode = sel ? sel.mode : def.probe.mode;
+      }
+      if (pr.angle === 0) pr.mode = 'comp';
       patch.probe = pr;
     }
     if (rec.instrument && typeof rec.instrument === 'object') {
@@ -24945,6 +24954,21 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
         if (bi.range !== 10 || bi.delay !== 0 || bi.reject !== 0 || bi.rectify !== 'full' || bi.gates.length !== 2 || bi.gates[0].start !== 10 || bi.gates[1].on !== false || bi.cal.vel !== null || bi.cal.zero !== 50) f.push('patchFromRecord instrument ' + JSON.stringify(bi));
         if (bi.pulser.energy !== 400 || bi.pulser.damping !== 150 || bi.receiver.filter !== 'broadband' || bi.autoPct !== 100 || bi.tcg.on !== false || bi.compare !== null || bi.datalog.length !== 0) f.push('patchFromRecord instrument v2 ' + JSON.stringify(bi.pulser));
         if (bp.angle !== 60 || bp.x !== 3000 || bp.side !== -1 || bp.method !== 'pe' || bp.libId !== 'gen-60-5-10' || bp.crystalDims.a !== 10 || bp.crystalDims.shape !== 'round' || bp.focus.on !== true || bp.focus.F !== 150) f.push('patchFromRecord probe ' + JSON.stringify(bp));
+        // corrupt angles fall back to the library entry (bug: 999 used to clamp to 89.9°), legit custom angles survive
+        const a999 = patchFromRecord({ v: 2, probe: { libId: 'nope', angle: 999 } }).probe;
+        if (a999.angle !== 60 || a999.mode !== 'shear' || a999.libId !== 'gen-60-5-10') f.push('patchFromRecord angle 999 ' + JSON.stringify(a999));
+        const aLib = patchFromRecord({ v: 2, probe: { libId: 'gen-45-5-10', angle: -7 } }).probe;
+        if (aLib.angle !== 45 || aLib.libId !== 'gen-45-5-10') f.push('patchFromRecord negative angle → library angle ' + JSON.stringify(aLib));
+        const aZero = patchFromRecord({ v: 2, probe: { libId: 'gen-0-5-10', angle: 'x', mode: 'shear' } }).probe;
+        if (aZero.angle !== 0 || aZero.mode !== 'comp') f.push('patchFromRecord NaN angle → 0° comp ' + JSON.stringify(aZero));
+        const aCustom = patchFromRecord({ v: 2, probe: { libId: 'gen-60-5-10', angle: 55.3 } }).probe;
+        if (aCustom.angle !== 55.3 || patchFromRecord({ v: 2, probe: { angle: 90 } }).probe.angle !== 89.9 || patchFromRecord({ v: 1, probe: { angle: 45 } }).probe.angle !== 45) f.push('patchFromRecord custom angle kept');
+        // procedure lock helpers (pure): no trade → unrestricted; the id test follows the allowed list
+        if (!probeAllowed('gen-45-5-10', { trade: { active: false } }) || probeLockKey({ trade: { active: false } }) !== '') f.push('probeAllowed unrestricted');
+        if (has('standards.procedures') && UT.standards.procedures['aws-d11-70']) {
+          const ls = { trade: { active: true }, standards: { procedure: 'aws-d11-70' } };
+          if (probeAllowed('gen-45-5-10', ls) || !probeAllowed('gen-70-5-10', ls) || !probeAllowed('mwb70-2', ls) || probeLockKey(ls).indexOf('gen-70-5-10') < 0) f.push('probeAllowed aws-d11-70');
+        }
         if (bd.skips !== 12 || bd.units !== 'mm' || bd.plan !== false || bd.scale !== 'auto' || bd.touchBar !== 'auto') f.push('patchFromRecord display ' + JSON.stringify(bd));
         if (bad.physics.fanRays !== 41 || bad.physics.modeConv !== false || bad.material !== undefined || bad.standards.lastEval !== null || bad.standards.rulesOverride !== null || bad.standards.procedure !== null) f.push('patchFromRecord physics/material/standards');
         if (Object.keys(bad.lessons.progress).length !== 1 || bad.lessons.progress[2].best !== 100 || bad.lessons.progress[2].done !== true || bad.lessons.answers[1][0] !== 'a') f.push('patchFromRecord lessons ' + JSON.stringify(bad.lessons));
@@ -25026,6 +25050,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     'Steps 5-25 mm (5 mm)': '스텝 5-25 mm (5 mm)', 'Steps 10-50 mm (10 mm)': '스텝 10-50 mm (10 mm)', 'Custom Steps...': '사용자 정의 스텝...',
     'Auto Cal': '자동 교정', 'Exit Step Wedge': '스텝 웨지 나가기', 'FBH block': '평저공 시험편',
     'Weld Settings...': '용접부 설정...', 'Weld…': '용접부…', 'Material…': '재질…', 'Presets': '프리셋', 'Pipe': '파이프', 'TKY Joint': 'TKY 이음',
+    'Plate': '평판', 'T-joint': 'T형 이음', 'T-joint: plate chord with an angled brace (modelled)': 'T형 이음: 평판 코드에 경사 브레이스 (모델링됨)',
+    '{kind} joint is not modelled in this version — only the T-joint geometry is available': '{kind} 이음은 이 버전에서 모델링되지 않습니다 — T형 이음 형상만 사용할 수 있습니다',
     'Defect Editor...': '결함 편집기...', 'Add Preset': '프리셋 추가', 'Delete All Defects': '모든 결함 삭제', 'Hide Defects': '결함 숨기기',
     'Import Defects...': '결함 가져오기...', 'Export Defects...': '결함 내보내기...', 'Lamination Check': '라미네이션 검사', 'Trade Test...': '실기 시험...', 'Trade Test…': '실기 시험…',
     'Random practice…': '무작위 연습…',

@@ -1008,7 +1008,23 @@
     let ov = Math.max(0, Math.min(hi, b) - Math.max(lo, a));
     if (wrap && L > 0) { ov += Math.max(0, Math.min(hi, b - L) - Math.max(lo, a - L)); ov += Math.max(0, Math.min(hi, b + L) - Math.max(lo, a + L)); }
     const r = ov / (2 * hz);
-    return r >= 1 ? 1 : r <= 0 ? 0 : Math.sqrt(r);
+    if (r >= 1) return 1;
+    if (r <= 0) return 0;
+    // SPEC-v2 §4.4 (lead decision): planar / lamination defects follow the piecewise-linear footprint law
+    //   Z = r (r ≥ 0.5)  |  Z = 0.1 + 0.8·r (r < 0.5)
+    // so the −6 dB point of a z-sweep falls exactly at the defect end (half the footprint on the defect → half amplitude,
+    // the 6 dB drop rationale) and the −20 dB point falls where the −20 dB beam edge reaches the end (the 20 dB drop
+    // rationale: the field at the footprint edge IS −20 dB). Volumetric clusters keep the v1 ^0.5 (incoherent) law (§6.7).
+    if (!zLinear(d)) return Math.sqrt(r);
+    return r >= 0.5 ? r : 0.1 + 0.8 * r;
+  }
+  /** True for defect types whose z-profile is linear (planar + lamination); volumetric → false. */
+  function zLinear(d) {
+    const type = d && d.type;
+    if (type === 'lamination') return true;
+    const sp = UT.specimens;
+    if (sp && typeof sp.isPlanar === 'function') return !!sp.isPlanar(type);
+    return type !== 'volumetric' && type !== 'porosity' && type !== 'slag';
   }
   /** Serialisable copy of a branch's z-factor chain (cached on the array: chains are shared by many echoes). */
   function zsOut(zs) {

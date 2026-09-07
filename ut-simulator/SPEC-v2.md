@@ -815,8 +815,11 @@ awsd11: { id:'awsd11', reference:'AWS D1.1/D1.1M Table 8.2 (6.3 in :2010) — st
 ### 4.4 T6 — sizing v2 (66)
 Sizing window methods (`sizing.method` ∈ '6dB' | '20dB' | 'max' | 'eval' | 'tip'); marks L/R taken at probe positions
 (`UT.views.sizing.markL()/markR()/setMethod(m)`), `sizing.result = {method, length, height, warning}`:
-- **6 dB drop** (z): `L = zR − zL` (v1 z-overlap exponent changes to `Z = clamp(overlap/(2·hz), 0, 1)` for planar/lamination
-  defects so the −6 dB points fall exactly at the ends; volumetric clusters keep `^0.5`). Warning when `L < 2·wz6`:
+- **6 dB drop** (z): `L = zR − zL`. **z-profile (lead decision, final):** for planar/lamination defects the tracer's z-overlap
+  factor is piecewise-linear in `r = overlap/(2·hz)`: `Z = r` for `r ≥ 0.5`, `Z = 0.1 + 0.8·r` for `0 < r < 0.5` (0 when the
+  footprint misses the defect). Half the footprint on the defect → half amplitude, so the −6 dB points fall exactly at the ends
+  (6 dB drop rationale), and the response is −20 dB when the −20 dB footprint edge reaches the end (20 dB drop rationale, so
+  `(zR − zL) − 2·wz20` is exact too). Volumetric clusters keep the v1 incoherent `^0.5` law. Warning when `L < 2·wz6`:
   "6 dB drop under-sizes reflectors smaller than the beam (width here ≈ 2·wz6 mm)", `wz6 = path·tan(asin(0.51λ/crystalB)) + crystalB/2`.
 - **20 dB drop** (z): `L = (zR − zL) − 2·wz20(path)`, `wz20 = path·tan(asin(0.87λ/crystalB)) + crystalB/2` (= `hz`); for
   `path < nearField` use `wz20 = crystalB/2`. 20 dB drop along x (plotter through-wall extent): edge ray projection

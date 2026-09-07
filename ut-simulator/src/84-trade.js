@@ -30,10 +30,22 @@
 // - Procedure compliance (0…10): DAC recorded (≥ 2 points, +4), reference gain stored (dac.refDb set or refGain ≠ the
 //   default 30, +2), coverage ≥ 80 % on both sides (+4). Diagnostic only.
 // - Result token codeHash: exam → exam.codeHash; plain tests → fnv1a(':' + seed) (empty code). verifyResult(token, code?)
-//   tries the given code, then the loaded exam's codeHash (same seed), then the empty-code hash.
+//   checks ONE hash: the given code's, else the loaded exam's codeHash (same seed), else the empty-code hash — a token
+//   signed with another code (or without the exam code) is {ok:false}.
 // - makeExam({seed, code, difficulty, timeLimitMin, procedureId, revealOnSubmit, title, nameRequired}) and
-//   loadExam(exam) are provided for 94-scenario (URL → exam → start(seed)). nameRequired is enforced by the window's
-//   Start button only (the API never blocks a start). start(seed) with a seed different from a loaded exam drops the exam.
+//   loadExam(exam) are provided for 94-scenario (URL → exam → start(seed)). loadExam of a nameRequired exam without a
+//   candidate name (setCandidate) enters mode 'trade' and opens the window WITHOUT starting (the Start button gates
+//   the timer; returns null). start(seed) with a seed different from a loaded exam drops the exam.
+// - Seeded draws: start(seed) feeds the generator with M.rng(mix32(M.fnv1a('trade:' + seed))) (lowbias32 finaliser —
+//   the plain LCG's first draws are almost linear in a small seed); drawSpecimen() builds weldOpts from UT.defaultState() (L 300, every field
+//   fixed) so the exam URL (seed only) regenerates the same truth on every machine. A configured procedure with a
+//   `specimen` (45) fixes plate/pipe, T/OD/WT of the draw (the rng is consumed in the same order).
+// - The pre-exam {weldOpts, material} are snapshotted before the first seeded draw and restored (specimen rebuilt
+//   via UT.modes.enter(mode, {keepProbe, keepDefects, silentUI})) when mode 'trade' is left (v1: trade keeps the weld
+//   specimen, SPEC §15.8).
+// - submit() sets trade.active = false once the truth is revealed (so 90 can persist the history entry before the
+//   window closes; a locked exam stays active until reveal(code) so the hidden truth defects never reach localStorage);
+//   while the exam is locked, result.misses / result.detail[].truth carry only {n} (re-hydrated on reveal).
 // - 'Reveal one' cannot draw a single hidden defect (display.hide is global): it prints the truth row, pre-fills a
 //   report row and marks the defect non-scoring in trade.revealedOne.
 // - Advanced difficulty forces display.beam = false while the test is unrevealed (re-applied on every 'state' event).
@@ -95,6 +107,7 @@
   let cov = null;                  // coverage buffer (§4.2.1)
   let usedProbes = {};             // probes seen during the test (report)
   let lastCovKey = '';
+  let preTrade = null;             // {weldOpts, material} before the first seeded draw; restored when mode 'trade' is left
   const ui = {};                   // live DOM refs of the trade window
   const pui = {};                  // practice window refs
   const sui = {};                  // scoreboard refs
@@ -186,6 +199,16 @@
     return utf8Decode(out);
   }
   function codeHashOf(code, seed) { return M.fnv1a(String(code || '') + ':' + String(seed >>> 0)).toString(16); }
+  /** 32-bit finaliser (lowbias32): decorrelates the generator state of neighbouring classroom seeds. */
+  function mix32(x) {
+    x = (x ^ 0x9e3779b9) >>> 0;
+    x ^= x >>> 16; x = Math.imul(x, 0x7feb352d) >>> 0;
+    x ^= x >>> 15; x = Math.imul(x, 0x846ca68b) >>> 0;
+    x ^= x >>> 16;
+    return x >>> 0;
+  }
+  /** Seeded generator of a trade test: M.rng over a mixed seed (the plain LCG's first draws are ~linear in the seed). */
+  function tradeRng(seed) { return M.rng(mix32(M.fnv1a('trade:' + (seed >>> 0)))); }
   function payloadOf(o) { return { seed: o.seed, difficulty: o.difficulty, score: o.score, fail: !!o.fail, timeUsedSec: o.timeUsedSec, date: o.date, name: o.name || '' }; }
   function signPayload(payload, codeHash) { return M.fnv1a(JSON.stringify(payload) + ':' + codeHash).toString(16); }
   function tokenFor(res, codeHash) {
@@ -205,21 +228,30 @@
       if (!obj || typeof obj !== 'object' || typeof obj.sig !== 'string') return { ok: false };
       const payload = payloadOf(obj);
       const seed = obj.seed >>> 0;
-      const hashes = [];
-      if (typeof code === 'string' && code.length) hashes.push(codeHashOf(code, seed));
-      const ex = st().trade && st().trade.exam;
-      if (ex && ex.codeHash && (ex.seed >>> 0) === seed) hashes.push(ex.codeHash);
-      hashes.push(codeHashOf('', seed));
-      const ok = hashes.some(function (h) { return signPayload(payload, h) === obj.sig; });
-      if (!ok) return { ok: false };
+      // §4.2.3: exactly one codeHash is acceptable — the instructor's code, else the loaded exam's hash (same seed),
+      // else the empty code of a plain (non-exam) test. Never fall back to the empty-code hash for an exam.
+      let hash;
+      if (typeof code === 'string' && code.length) hash = codeHashOf(code, seed);
+      else {
+        const ex = st().trade && st().trade.exam;
+        hash = ex && ex.codeHash && (ex.seed >>> 0) === seed ? ex.codeHash : codeHashOf('', seed);
+      }
+      if (signPayload(payload, hash) !== obj.sig) return { ok: false };
       return { ok: true, score: obj.score, name: obj.name || '', seed: obj.seed, fail: !!obj.fail, difficulty: obj.difficulty, date: obj.date, timeUsedSec: obj.timeUsedSec };
     } catch (e) { return { ok: false }; }
   }
 
   // ------------------------------------------------------------------ generator (§4.2 difficulty table)
-  function drawSpecimen(rng, difficulty, cur) {
+  /**
+   * Draw the specimen options of a difficulty from a seeded rng. Every weldOpts field is fixed by the draw or by
+   * UT.defaultState() (L 300) — never by the current weldOpts (`cur` is accepted for API compatibility only), so the
+   * same seed yields the same specimen on every machine. `fixed` = a procedure's specimen {pipe, od, wt, T}: it
+   * overrides plate/pipe and T/OD/WT after the draw (the rng is consumed in the same order either way).
+   * @returns {{weldOpts: object, material: string, trapKind: string|null}}
+   */
+  function drawSpecimen(rng, difficulty, cur, fixed) {
     const D = DIFF[difficulty] || DIFF.intermediate;
-    const w = Object.assign({}, cur || {});
+    const w = Object.assign({}, UT.defaultState ? UT.defaultState().weldOpts : (cur || {}));
     const pipe = D.pipe && rng() < 0.4;
     const T = D.plate[0] === D.plate[1] ? D.plate[0] : Math.round(D.plate[0] + rng() * (D.plate[1] - D.plate[0]));
     const od = rng() < 0.5 ? 168.3 : 219.1;
@@ -233,7 +265,18 @@
     w.rootGap = 2; w.rootFace = 2; w.backing = false; w.weldMaterial = 'same';
     w.capWidth = trapKind === 'cap' ? 20 : 16; w.capHeight = trapKind === 'cap' ? 3.5 : 2; w.rootHeight = trapKind === 'root' ? 3 : 1.5;
     w.transferLossDb = transferLossDb;
-    if (!Number.isFinite(w.L)) w.L = 300;
+    w.L = 300;
+    if (fixed && typeof fixed === 'object') {
+      if (fixed.pipe) {
+        w.pipe = true;
+        if (Number.isFinite(fixed.od) && fixed.od > 0) w.od = fixed.od;
+        const wt = Number.isFinite(fixed.wt) ? fixed.wt : fixed.T;
+        if (Number.isFinite(wt) && wt > 0) { w.wt = wt; w.T = wt; }
+      } else {
+        w.pipe = false;
+        if (Number.isFinite(fixed.T) && fixed.T > 0) { w.T = fixed.T; w.wt = fixed.T; }
+      }
+    }
     return { weldOpts: w, material, trapKind };
   }
   function slagDefect(spec, o) {
@@ -517,7 +560,7 @@
   trade._now = function () { return Date.now() + vOffset; };
   function remainingSec() {
     const tr = st().trade;
-    if (!tr.active || tr.practice || !tr.startedAt) return null;
+    if (tr.practice || !tr.startedAt || !(tr.active || tr.score !== null)) return null;
     const lim = Math.max(0.05, Number.isFinite(tr.timeLimitMin) ? tr.timeLimitMin : 60) * 60;
     return lim - (trade._now() - tr.startedAt) / 1000;
   }
@@ -530,6 +573,7 @@
     const rem = remainingSec();
     if (rem === null) { stopTimer(); return; }
     if (ui.clock) ui.clock.textContent = tr.revealed || tr.score !== null ? t('Time used {t}', { t: clock((trade._now() - tr.startedAt) / 1000) }) : t('Time left {t}', { t: clock(rem) });
+    if (tr.score !== null) return;
     for (const th of [600, 300, 60]) if (rem <= th && rem > 0 && !announced[th]) { announced[th] = true; announce(t('{m} minutes left', { m: th / 60 })); }
     if (rem <= 0 && tr.score === null && !announced[0]) {
       announced[0] = true;
@@ -556,6 +600,28 @@
   // ------------------------------------------------------------------ exam lock helpers
   function locked(tr) { tr = tr || st().trade; return !!(tr.exam && tr.exam.locked && !tr.revealed); }
   function codeHashCurrent(tr) { tr = tr || st().trade; return tr.exam && tr.exam.codeHash ? tr.exam.codeHash : codeHashOf('', tr.seed || 0); }
+  /** Result without truth rows (§4.2.3: while the exam is locked only {n} of a missed / matched defect is kept). */
+  function stripResult(res) {
+    return Object.assign({}, res, {
+      misses: (res.misses || []).map(function (m) { return { n: m.n }; }),
+      detail: (res.detail || []).map(function (d) { return Object.assign({}, d, { truth: d.truth ? { n: d.truth.n } : null }); }),
+    });
+  }
+  /** Put the truth rows back into a stripped result (reveal). */
+  function hydrateResult(res, truth) {
+    const byN = {};
+    (truth || []).forEach(function (q) { byN[q.n] = q; });
+    return Object.assign({}, res, {
+      misses: (res.misses || []).map(function (m) { return byN[m.n] || m; }),
+      detail: (res.detail || []).map(function (d) { return d.truth && byN[d.truth.n] ? Object.assign({}, d, { truth: byN[d.truth.n] }) : d; }),
+    });
+  }
+  /** Procedure specimen ({pipe, od, wt, T}) of the configured procedure, or null. */
+  function procedureSpecimen() {
+    const procs = cfg.procedureId ? has('standards.procedures') : null;
+    const p = procs && procs[cfg.procedureId];
+    return p && p.specimen && typeof p.specimen === 'object' ? p.specimen : null;
+  }
 
   // ------------------------------------------------------------------ public API
   /**
@@ -602,9 +668,12 @@
     const timeLimitMin = exam && Number.isFinite(exam.timeLimitMin) ? Math.max(0.05, exam.timeLimitMin) : (Number.isFinite(s0.trade.timeLimitMin) ? s0.trade.timeLimitMin : DIFF[difficulty].time);
     const ed = has('modes.defectEditor');
     if (ed && ed.isOpen && ed.isOpen()) ed.close();
-    const rng = M.rng(sd);
+    // mixed seed: the plain LCG's first draws are almost linear in a small classroom seed (pipe/plate, T, …)
+    const rng = tradeRng(sd);
     if (cfg.specimen === 'auto') {
-      const draw = drawSpecimen(rng, difficulty, s0.weldOpts);
+      // keep the user's weld specimen for the return from mode 'trade' (v1: trade keeps the weld specimen)
+      if (!preTrade) preTrade = { weldOpts: Object.assign({}, s0.weldOpts), material: s0.material };
+      const draw = drawSpecimen(rng, difficulty, s0.weldOpts, procedureSpecimen());
       UT.set({ weldOpts: draw.weldOpts, material: draw.material }, { noRender: true });
     }
     if (has('modes.enter')) UT.modes.enter('trade', { keepProbe: true, silentUI: true });
@@ -669,17 +738,23 @@
     const date = new Date(trade._now()).toISOString();
     const comp = compliance(covSum);
     const revealNow = tr.exam ? tr.exam.revealOnSubmit !== false : true;
-    const result = { seed: tr.seed, difficulty: tr.difficulty, score: res.score, fail: res.fail, pass: res.pass, timeUsedSec, date, name: tr.candidate || '',
+    let result = { seed: tr.seed, difficulty: tr.difficulty, score: res.score, fail: res.fail, pass: res.pass, timeUsedSec, date, name: tr.candidate || '',
       coverageA: covSum.sideA, coverageB: covSum.sideB, compliance: comp, matched: res.matched, typeMatches: res.typeMatches, falseCalls: res.falseCalls, duplicates: res.duplicates,
       misses: res.misses, detail: res.detail, perDefect: res.perDefect, kind: tr.practice ? 'practice' : 'trade' };
     result.token = tokenFor(result, codeHashCurrent(tr));
+    // §4.2.3: while the exam stays locked the score result must not carry the truth rows (UT.test.state() exports it)
+    const stillLocked = !!(tr.exam && tr.exam.locked && !revealNow);
+    if (stillLocked) result = stripResult(result);
     const entry = { date, seed: tr.seed, difficulty: tr.difficulty, kind: result.kind, score: res.score, fail: res.fail, timeUsedSec,
       specimen: { T: spec.T, pipe: !!spec.pipe, od: spec.pipe ? spec.pipe.od : null }, coverageA: covSum.sideA, coverageB: covSum.sideB, compliance: comp,
       perDefect: res.perDefect.map(function (p) { return { n: p.n, found: p.found, tFoundSec: p.tFoundSec }; }), name: tr.candidate || '' };
     const history = (tr.history || []).concat([entry]).slice(-HISTORY_CAP);
     const coverageState = { sideA: covSum.sideA, sideB: covSum.sideB, perAngle: covSum.perAngle, map: Array.from(covSum.map) };
+    // The test is over once the truth is revealed: trade.active = false lets 90 persist the history entry now (the
+    // 'not saved while trade.active' rule protects a running test). A locked exam stays active until reveal(code) so
+    // the hidden truth defects (state.defects) are never written to localStorage.
     UT.set({
-      trade: Object.assign({}, tr, { report: res.rows, score: res.score, revealed: revealNow, result, history, coverage: coverageState }),
+      trade: Object.assign({}, tr, { report: res.rows, score: res.score, revealed: revealNow, result, history, coverage: coverageState, active: stillLocked ? tr.active : false }),
       display: Object.assign({}, s.display, { hide: !revealNow }),
     });
     stopTimer();
@@ -697,7 +772,9 @@
     if (tr.exam && tr.exam.locked) {
       if (typeof code !== 'string' || code.length < 4 || code.length > 8) return false;
       if (codeHashOf(code, tr.seed) !== tr.exam.codeHash) return false;
-      UT.set({ trade: Object.assign({}, tr, { revealed: true, exam: Object.assign({}, tr.exam, { locked: false }) }), display: Object.assign({}, s.display, { hide: false }) });
+      const submitted = tr.score !== null && tr.score !== undefined && !!tr.result;
+      const result = submitted ? hydrateResult(tr.result, tr.truth || []) : tr.result;
+      UT.set({ trade: Object.assign({}, tr, { revealed: true, exam: Object.assign({}, tr.exam, { locked: false }), result, active: submitted ? false : tr.active }), display: Object.assign({}, s.display, { hide: false }) });
     } else UT.set({ trade: Object.assign({}, tr, { revealed: true }), display: Object.assign({}, s.display, { hide: false }) });
     if (!tr.practice) stopTimer();
     refreshAll();
@@ -721,6 +798,20 @@
     if (ex.procedureId) configure({ procedureId: ex.procedureId });
     if (DIFF[ex.difficulty]) configure({ difficulty: ex.difficulty, timeLimitMin: ex.timeLimitMin });
     UT.setIn('trade', { exam: ex, candidate: st().trade.candidate || '' }, { noRender: true });
+    if (ex.nameRequired && !String(st().trade.candidate || '').trim()) {
+      // 'candidate name required': the exam waits in mode 'trade' (locks apply, no truth, no timer) for the window's
+      // Start button — or setCandidate(name) + start(exam.seed) from the API.
+      if (has('modes.enter')) UT.modes.enter('trade', { keepProbe: true, silentUI: true });
+      stopTimer();
+      // a previous test of this trade session must not linger under the pending exam (truth, clock, defects)
+      UT.set({ defects: [], selectedDefect: 0, display: Object.assign({}, st().display, { hide: true }),
+        trade: Object.assign({}, st().trade, { truth: [], startedAt: null, score: null, result: null, revealed: false, report: [], seed: ex.seed, coverage: null, practice: false, hintsUsed: 0, revealedOne: [] }) }, { noRender: true });
+      resetRowsUi();
+      if (!quiet && typeof document !== 'undefined') tradeWin.open();
+      refreshAll();
+      UT.status({ right: t('Exam loaded — enter the candidate name and press Start') });
+      return null;
+    }
     return trade.start(ex.seed);
   };
   /** Set the candidate name (exam). */
@@ -1016,7 +1107,7 @@
   function refreshTrade() {
     if (!tradeWin.isOpen() || !ui.result) return;
     const s = st(), tr = s.trade;
-    const running = tr.active && tr.startedAt;
+    const running = tr.startedAt && (tr.active || tr.score !== null);
     if (!running) ui.clock.textContent = t('Press Start');
     else if (tr.practice) ui.clock.textContent = t('Practice (no timer)');
     else ui.clock.textContent = tr.score !== null || tr.revealed ? t('Time used {t}', { t: clock((trade._now() - tr.startedAt) / 1000) }) : t('Time left {t}', { t: clock(Math.max(0, remainingSec() || 0)) });
@@ -1155,6 +1246,14 @@
       cov = null;
       const tr = st().trade;
       if (tr.practice || tr.hintsUsed || (tr.revealedOne && tr.revealedOne.length)) UT.setIn('trade', { practice: false, hintsUsed: 0, revealedOne: [] }, { noRender: true });
+      if (preTrade) {
+        // v1 §15.8: the trade test keeps the user's weld specimen — put the pre-exam weldOpts / material back and
+        // rebuild the specimen of the mode just entered (defects and probe kept)
+        const snap = preTrade;
+        preTrade = null;
+        UT.set({ weldOpts: snap.weldOpts, material: snap.material }, { noRender: true });
+        if (has('modes.enter')) { try { UT.modes.enter(ev.mode, { keepProbe: true, silentUI: true, keepDefects: true }); } catch (e) { /* ignore */ } }
+      }
       refreshAll();
     }
   });
@@ -1223,7 +1322,12 @@
       if (verifyResult(tampered).ok) f.push('tampered token accepted');
       if (verifyResult('nope').ok || verifyResult(null).ok) f.push('garbage token');
       const tokC = tokenFor(res0, codeHashOf('1234', 7));
-      if (verifyResult(tokC).ok || !verifyResult(tokC, '1234').ok) f.push('token with code');
+      if (verifyResult(tokC).ok || !verifyResult(tokC, '1234').ok || verifyResult(tokC, '9999').ok) f.push('token with code');
+      if (verifyResult(tok, '1234').ok) f.push('empty-code token accepted with a code');
+      const strip = stripResult({ misses: [{ n: 2, zFrom: 5, type: 'crack' }], detail: [{ row: {}, truth: { n: 1, zFrom: 1 }, hit: true }, { row: {}, truth: null, hit: false }] });
+      if (Object.keys(strip.misses[0]).join() !== 'n' || Object.keys(strip.detail[0].truth).join() !== 'n' || strip.detail[1].truth !== null) f.push('stripResult');
+      const hyd = hydrateResult(strip, [{ n: 1, zFrom: 1 }, { n: 2, zFrom: 5, type: 'crack' }]);
+      if (hyd.misses[0].zFrom !== 5 || hyd.detail[0].truth.zFrom !== 1) f.push('hydrateResult');
       // pure scoring on a synthetic truth (plate, L 300)
       const truth = [
         { n: 1, zFrom: 20, zTo: 50, length: 30, depth: 17, yMin: 17, yMax: 21.5, height: 4.5, type: 'crack', recordable: true },
@@ -1264,6 +1368,11 @@
         const ds = drawSpecimen(M.rng(11), 'advanced', UT.defaultState().weldOpts);
         if (!(ds.weldOpts.T >= 12 && ds.weldOpts.T <= 30) || DIFF.advanced.preps.indexOf(ds.weldOpts.prep) < 0 || !(ds.weldOpts.transferLossDb >= 0 && ds.weldOpts.transferLossDb <= 6)) f.push('drawSpecimen ' + JSON.stringify(ds.weldOpts));
         if (drawSpecimen(M.rng(5), 'basic').weldOpts.T !== 20) f.push('basic plate 20');
+        // the draw never inherits the current weldOpts (exam URL = seed only)
+        const dl = drawSpecimen(M.rng(11), 'advanced', Object.assign({}, UT.defaultState().weldOpts, { L: 420, webT: 99 }));
+        if (dl.weldOpts.L !== 300 || dl.weldOpts.webT === 99 || JSON.stringify(dl.weldOpts) !== JSON.stringify(ds.weldOpts)) f.push('drawSpecimen inherits weldOpts');
+        const dp = drawSpecimen(M.rng(5), 'basic', null, { pipe: true, od: 168.3, wt: 20 });
+        if (dp.weldOpts.pipe !== true || dp.weldOpts.od !== 168.3 || dp.weldOpts.wt !== 20 || dp.weldOpts.T !== 20) f.push('procedure specimen');
       }
       // coverage buffer
       covReset({ L: 300, T: 20, pipe: null, weld: { capWidth: 16 } });
@@ -1275,6 +1384,10 @@
       if (coverageMap().sides[1][30] !== 1) f.push('coverage keeps bins');
       cov = null;
       if (configure({ difficulty: 'nope' }) !== false) f.push('configure bad difficulty');
+      // seed mixing: neighbouring seeds must not share the first draw (pipe/plate) in lock-step
+      let pipes = 0;
+      for (let sd = 1; sd <= 40; sd++) if (tradeRng(sd)() < 0.4) pipes++;
+      if (pipes < 8 || pipes > 24 || tradeRng(3)() !== tradeRng(3)()) f.push('seed mixing ' + pipes);
       if (configure({ probes: ['not-a-probe'] }) !== false) f.push('configure bad probe');
     } catch (e) { f.push('exception ' + (e && e.stack || e)); }
     // live pipeline (state snapshot / restore like 80-modes)
@@ -1295,13 +1408,28 @@
         if (trade.report({ withTruth: true }).indexOf('SCORE') < 0 || trade.report({ withTruth: false }).indexOf('True defects') >= 0) f.push('report html');
         trade.start(8);
         if (tick(4) !== 0 || st().trade.revealed !== true || st().trade.score === null) f.push('tick auto-submit');
+        // locked exam: verifyResult needs the exam code, the result carries no truth rows until reveal(code)
+        trade.loadExam(trade.makeExam({ seed: 9, code: 'abcd', revealOnSubmit: false }));
+        trade.submit([]);
+        const lockedRes = st().trade.result;
+        if (!lockedRes || !st().trade.active || (lockedRes.misses || []).some(function (m) { return 'zFrom' in m; }) || (lockedRes.detail || []).some(function (d) { return d.truth && 'zFrom' in d.truth; })) f.push('locked result carries truth');
+        if (verifyResult(lockedRes.token).ok !== true || verifyResult(lockedRes.token, 'zzzz').ok || verifyResult(tokenFor(lockedRes, codeHashOf('', 9)), 'abcd').ok || verifyResult(tokenFor(lockedRes, codeHashOf('', 9))).ok) f.push('exam token verification');
+        if (!trade.reveal('abcd') || st().trade.active || !(st().trade.result.misses || []).every(function (m) { return 'zFrom' in m; })) f.push('reveal hydrates the result');
+        // nameRequired exam waits for a name
+        UT.setIn('trade', { candidate: '' }, { noRender: true });
+        if (trade.loadExam(trade.makeExam({ seed: 10, code: 'abcd', nameRequired: true })) !== null || st().trade.startedAt || (st().trade.truth || []).length) f.push('nameRequired gate');
+        trade.setCandidate('A'); trade.start(10);
+        if (!st().trade.exam || !st().trade.startedAt) f.push('nameRequired start');
+        const drawn = JSON.stringify(st().weldOpts);
         UT.modes.enter('weld', { silentUI: true });
         if (st().trade.active) f.push('inactive after exit');
+        if (JSON.stringify(st().weldOpts) !== JSON.stringify(saved.weldOpts) || st().material !== saved.material || preTrade) f.push('weldOpts restored after trade ' + drawn);
       } catch (e) { f.push('live exception ' + (e && e.message)); }
       finally {
         quiet = false;
         stopTimer();
         cov = null;
+        preTrade = null;
         Object.assign(cfg, savedCfg);
         const modeBefore = st().mode;
         const patch = {};
@@ -1316,7 +1444,7 @@
   Object.assign(trade, {
     practice, window: tradeWin, scoreboard: scoreboardWin, reportWindow: reportWin, practiceWindow: practiceWin,
     open() { return tradeWin.open(); }, close() { return tradeWin.close(); }, toggle() { return tradeWin.toggle(); }, isOpen() { return tradeWin.isOpen(); },
-    css, normType, drawDefects, drawSpecimen, recordability, PASS_MARK, __selftest,
+    css, normType, drawDefects, drawSpecimen, recordability, tradeRng, PASS_MARK, __selftest,
   });
   UT.trade = trade;
 

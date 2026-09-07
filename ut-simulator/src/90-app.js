@@ -1177,6 +1177,7 @@
     if (keys.indexOf('mode') >= 0 || keys.indexOf('display') >= 0) applyLayout();
     else if (keys.indexOf('probe') >= 0 && mem.els.main && mem.els.main.classList.contains('tt') !== (st().probe.method === 'tt' && currentMode() !== 'tofd')) applyLayout();
     if (keys.indexOf('trade') >= 0) refreshTouchBar();
+    if (keys.indexOf('trade') >= 0 || keys.indexOf('standards') >= 0) syncProbeLibLock();
     refreshToolbar();
     scheduleSave(keys);
   }
@@ -1335,7 +1336,7 @@
     if (o.unit) f.appendChild(h('span', { class: 'fld-unit' }, o.unit));
     return f;
   }
-  const DLG_CSS = '.fld-input.invalid { outline: 2px solid #e00000; background: #ffe6e6; } .dlg-msg { color: #b00000; min-height: 1.2em; margin: 2px 0; font-size: 12px; }';
+  const DLG_CSS = '.fld-input.invalid { outline: 2px solid #e00000; background: #ffe6e6; } .dlg-msg { color: #b00000; min-height: 1.2em; margin: 2px 0; font-size: 12px; } .probelib tr.locked td { color: #9a9a9a; background: #f3f3f3; } .probelib tr.locked .btn { opacity: 0.5; pointer-events: none; }';
   function inchOf(od) { for (const k of Object.keys(OD_INCH)) if (Math.abs(OD_INCH[k] - od) < 0.05) return k; return 'custom'; }
   function prepList() {
     const names = has('specimens.prepNames');
@@ -1662,36 +1663,71 @@
   }
 
   // ------------------------------------------------------------------ v2 windows: probe library, material, focus, glossary
+  /**
+   * Procedure lock (SPEC-v2 §4.3 T4): library ids outside UT.standards.allowedProbes(state) are not selectable
+   * while state.trade.active (null list = unrestricted; same rule 80-modes applies to the toolbar angle buttons).
+   */
+  function lockedProbeIds(state) {
+    const s = state || st();
+    if (!s.trade || !s.trade.active) return null;
+    const fn = has('standards.allowedProbes');
+    if (typeof fn !== 'function') return null;
+    let ids = null;
+    try { ids = fn(s); } catch (e) { ids = null; }
+    return Array.isArray(ids) ? ids : null;
+  }
+  function probeAllowed(id, state) {
+    const ids = lockedProbeIds(state);
+    return !ids || ids.indexOf(id) >= 0;
+  }
+  /** Key of the current lock set: the open library window is rebuilt when it changes (trade start / end). */
+  function probeLockKey(state) { const ids = lockedProbeIds(state); return ids ? ids.join(',') : ''; }
   /** Probes ▸ Probe library… (window 'probelib'): table of UT.probe.library with derived N / θ6 / θ20 and Select. */
   function openProbeLib() {
     dialog('probelib', 'Probe library', 760, function (win) {
       const lib = has('probe.library') || [];
       const cur = st().probe;
+      const locked = lockedProbeIds();
+      if (win && win.el) win.el.dataset.probeLock = probeLockKey();
       const rows = lib.map(function (p) {
         let d = null;
         try { d = has('probe.select') ? UT.probe.derive(Object.assign({}, cur, UT.probe.select(p.id), { method: 'pe' }), st().specimen) : null; } catch (e) { d = null; }
         const isCur = cur.libId === p.id;
-        const tr = h('tr', { class: isCur ? 'cur' : '' }, [
+        const isLocked = !!locked && locked.indexOf(p.id) < 0;
+        const tr = h('tr', { class: (isCur ? 'cur' : '') + (isLocked ? ' locked' : ''), 'aria-disabled': isLocked ? 'true' : null }, [
           h('td', { class: 'no-i18n' }, p.maker), h('td', { class: 'no-i18n' }, p.name), h('td', {}, p.angle + '°'), h('td', {}, p.freq + ' MHz'),
           h('td', { class: 'no-i18n' }, p.crystal.shape === 'rect' ? p.crystal.a + ' × ' + p.crystal.b : '⌀' + p.crystal.a),
           h('td', {}, d ? d.nearField.toFixed(1) : '–'), h('td', {}, d ? d.halfAngle6dB.toFixed(1) + '° / ' + d.halfAngle20dB.toFixed(1) + '°' : '–'),
-          h('td', {}, UT.dom.button(isCur ? 'Selected' : 'Select', function () { selectLibProbe(p.id); win.setContent(function () { return mem.winBuilders.probelib(win); }); }, { class: 'btn small' + (isCur ? ' pressed' : '') })),
+          h('td', {}, UT.dom.button(isCur ? 'Selected' : 'Select', function () { if (!isLocked) selectLibProbe(p.id); win.setContent(function () { return mem.winBuilders.probelib(win); }); }, { class: 'btn small' + (isCur ? ' pressed' : '') + (isLocked ? ' disabled' : ''), disabled: isLocked ? true : null, 'aria-disabled': isLocked ? 'true' : null })),
         ]);
-        tr.title = p.notes || '';
+        tr.title = isLocked ? t('Not allowed by the procedure while the trade test runs') : (p.notes || '');
         return tr;
       });
       return h('div', { class: 'probelib' }, [
         h('table', {}, [h('thead', {}, h('tr', {}, [tx('th', {}, 'Maker'), tx('th', {}, 'Name'), tx('th', {}, 'Angle'), tx('th', {}, 'Freq'), tx('th', {}, 'Crystal (mm)'), tx('th', {}, 'N (mm)'), 'θ6 / θ20'].map(function (c) { return typeof c === 'string' ? h('th', { class: 'no-i18n' }, c) : c; }).concat([h('th', {})]))), h('tbody', {}, rows)]),
+        locked ? tx('div', { class: 'dlg-note' }, 'Procedure lock: only the probes of the applied procedure can be selected while the trade test runs.') : null,
         tx('div', { class: 'dlg-note' }, 'N = near field of the selected wave mode; θ6 / θ20 = pulse-echo half angles (−6 / −20 dB). Custom angles: Probes ▸ Adjust Angle in Wedge (Shoe).'),
         h('div', { class: 'btn-row' }, [UT.dom.button('Close', function () { win.close(); }, { class: 'btn primary' })]),
       ]);
     });
   }
-  /** Select a library probe: UT.probe.select(id) patch (never built by hand) → probe. */
+  /** Rebuild the open probe library window when the procedure lock set changed (trade start / end, procedure change). */
+  function syncProbeLibLock() {
+    const w = winApi('probelib');
+    if (!w || !w.isOpen() || !mem.winBuilders.probelib) return;
+    const key = probeLockKey();
+    if (w.el && w.el.dataset.probeLock === key) return;
+    try { w.setContent(function () { return mem.winBuilders.probelib(w); }); } catch (e) { console.error('[UT.app] probelib lock', e); }
+  }
+  /**
+   * Select a library probe: UT.probe.select(id) patch (never built by hand) → probe. False (with a status
+   * message) for ids outside the active procedure's probe list while the trade test runs (§4.3 T4).
+   */
   function selectLibProbe(id) {
     if (!has('probe.select')) return false;
     const sel = UT.probe.select(id);
     if (!sel) return false;
+    if (!probeAllowed(id)) { UT.status({ right: t('Probe {id} is not allowed by the procedure while the trade test runs', { id }) }); return false; }
     const entry = has('probe.libEntry') ? UT.probe.libEntry(id) : null;
     const patch = Object.assign({}, sel);
     if (entry && entry.family === 'pa') patch.method = 'pa'; else if (st().probe.method === 'pa') patch.method = 'pe';
@@ -2067,6 +2103,8 @@
     v.backing = v.prep === 'single-v-backing';
     return clampPipeWall(v);
   }
+  /** Stored probe.angle accepted as-is (the wedge dialog writes 0…90); outside → library angle (patchFromRecord). */
+  const PROBE_ANGLE_VALID = [0, 90];
   const PROBE_RANGES = { angle: [0, 89.9], freq: [0.5, 20], diameter: [1, 50], wedgeVel: [1, 6], x: [-3000, 3000], z: [-5000, 5000], skew: [-360, 360], paFrom: [0, 89.9], paTo: [0, 89.9], paStep: [0.1, 10] };
   const PROBE_ENUMS = { mode: ['shear', 'comp'], crystal: ['single', 'twin'], method: ['pe', 'tt', 'tandem', 'pa'], surface: ['chord', 'brace', 'web'] };
   const DISPLAY_RANGES = { skips: [1, 12] };
@@ -2109,8 +2147,17 @@
     if (rec.probe && typeof rec.probe === 'object') {
       const pr = coerceLike(def.probe, rec.probe, Object.assign({ crystalDims: { a: [1, 50], b: [1, 50] }, focus: { F: [10, 150] } }, PROBE_RANGES), Object.assign({ crystalDims: { shape: ['round', 'rect'] } }, PROBE_ENUMS));
       pr.side = num(rec.probe.side, 1) < 0 ? -1 : 1;
-      if (pr.angle === 0) pr.mode = 'comp';
       if (!(has('probe.libEntry') && UT.probe.libEntry(pr.libId))) pr.libId = def.probe.libId;
+      // Angle provenance: toolbar (0/45/60/70), a library entry, or the wedge dialog (custom 0…90, 90 = beyond the 2nd
+      // critical angle). Anything else (NaN, 999, negative) is a corrupt record → the library entry's angle/mode via
+      // UT.probe.select (never a clamp: an 89.9° probe is meaningless and no dialog can produce it).
+      const rawAngle = num(rec.probe.angle, NaN);
+      if (!(rawAngle >= PROBE_ANGLE_VALID[0] && rawAngle <= PROBE_ANGLE_VALID[1])) {
+        const sel = has('probe.select') ? UT.probe.select(pr.libId) : null;
+        pr.angle = sel ? sel.angle : def.probe.angle;
+        pr.mode = sel ? sel.mode : def.probe.mode;
+      }
+      if (pr.angle === 0) pr.mode = 'comp';
       patch.probe = pr;
     }
     if (rec.instrument && typeof rec.instrument === 'object') {
@@ -2384,6 +2431,21 @@
         if (bi.range !== 10 || bi.delay !== 0 || bi.reject !== 0 || bi.rectify !== 'full' || bi.gates.length !== 2 || bi.gates[0].start !== 10 || bi.gates[1].on !== false || bi.cal.vel !== null || bi.cal.zero !== 50) f.push('patchFromRecord instrument ' + JSON.stringify(bi));
         if (bi.pulser.energy !== 400 || bi.pulser.damping !== 150 || bi.receiver.filter !== 'broadband' || bi.autoPct !== 100 || bi.tcg.on !== false || bi.compare !== null || bi.datalog.length !== 0) f.push('patchFromRecord instrument v2 ' + JSON.stringify(bi.pulser));
         if (bp.angle !== 60 || bp.x !== 3000 || bp.side !== -1 || bp.method !== 'pe' || bp.libId !== 'gen-60-5-10' || bp.crystalDims.a !== 10 || bp.crystalDims.shape !== 'round' || bp.focus.on !== true || bp.focus.F !== 150) f.push('patchFromRecord probe ' + JSON.stringify(bp));
+        // corrupt angles fall back to the library entry (bug: 999 used to clamp to 89.9°), legit custom angles survive
+        const a999 = patchFromRecord({ v: 2, probe: { libId: 'nope', angle: 999 } }).probe;
+        if (a999.angle !== 60 || a999.mode !== 'shear' || a999.libId !== 'gen-60-5-10') f.push('patchFromRecord angle 999 ' + JSON.stringify(a999));
+        const aLib = patchFromRecord({ v: 2, probe: { libId: 'gen-45-5-10', angle: -7 } }).probe;
+        if (aLib.angle !== 45 || aLib.libId !== 'gen-45-5-10') f.push('patchFromRecord negative angle → library angle ' + JSON.stringify(aLib));
+        const aZero = patchFromRecord({ v: 2, probe: { libId: 'gen-0-5-10', angle: 'x', mode: 'shear' } }).probe;
+        if (aZero.angle !== 0 || aZero.mode !== 'comp') f.push('patchFromRecord NaN angle → 0° comp ' + JSON.stringify(aZero));
+        const aCustom = patchFromRecord({ v: 2, probe: { libId: 'gen-60-5-10', angle: 55.3 } }).probe;
+        if (aCustom.angle !== 55.3 || patchFromRecord({ v: 2, probe: { angle: 90 } }).probe.angle !== 89.9 || patchFromRecord({ v: 1, probe: { angle: 45 } }).probe.angle !== 45) f.push('patchFromRecord custom angle kept');
+        // procedure lock helpers (pure): no trade → unrestricted; the id test follows the allowed list
+        if (!probeAllowed('gen-45-5-10', { trade: { active: false } }) || probeLockKey({ trade: { active: false } }) !== '') f.push('probeAllowed unrestricted');
+        if (has('standards.procedures') && UT.standards.procedures['aws-d11-70']) {
+          const ls = { trade: { active: true }, standards: { procedure: 'aws-d11-70' } };
+          if (probeAllowed('gen-45-5-10', ls) || !probeAllowed('gen-70-5-10', ls) || !probeAllowed('mwb70-2', ls) || probeLockKey(ls).indexOf('gen-70-5-10') < 0) f.push('probeAllowed aws-d11-70');
+        }
         if (bd.skips !== 12 || bd.units !== 'mm' || bd.plan !== false || bd.scale !== 'auto' || bd.touchBar !== 'auto') f.push('patchFromRecord display ' + JSON.stringify(bd));
         if (bad.physics.fanRays !== 41 || bad.physics.modeConv !== false || bad.material !== undefined || bad.standards.lastEval !== null || bad.standards.rulesOverride !== null || bad.standards.procedure !== null) f.push('patchFromRecord physics/material/standards');
         if (Object.keys(bad.lessons.progress).length !== 1 || bad.lessons.progress[2].best !== 100 || bad.lessons.progress[2].done !== true || bad.lessons.answers[1][0] !== 'a') f.push('patchFromRecord lessons ' + JSON.stringify(bad.lessons));

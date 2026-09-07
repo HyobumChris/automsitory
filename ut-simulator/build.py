@@ -32,8 +32,7 @@ def main():
     def js_repl(m):
         src = m.group(1)
         if not os.path.exists(os.path.join(HERE, src)):
-            print('WARNING: %s missing, skipped' % src)
-            return '<!-- %s missing -->' % src
+            raise SystemExit('ERROR: %s is referenced by index.html but missing — refusing to write a partial build' % src)
         js = read(src)
         if '</script' in js.lower():
             raise SystemExit('ERROR: %s contains a literal </script> sequence; write it as <\\/script>' % src)

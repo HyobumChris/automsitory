@@ -47,10 +47,11 @@
 // - Late binding to 82/84: the v1 lesson array is UT.modes.lessonSetups; UT.modes.lessons is a getter returning
 //   UT.lessons.list when 82 is loaded (else lessonSetups). modes.lessonsWindow / modes.tradeTest delegate to
 //   UT.lessons.window / UT.trade.window when those modules exist and NEVER create dom.win 'lessons' / 'trade' then;
-//   the legacy v1 windows are created only in their absence. UT.test.trade = {start, truth, submit, practice} is
-//   created here with late-binding methods ((UT.trade || legacy).start …); 84 extends it with Object.assign.
-//   modes.trade stays the legacy (v1) engine; modes.practice.start(seed) → UT.trade.practice.start when present,
-//   else the legacy generator with trade.practice = true and no timer (reveal allowed any time).
+//   UT.test.trade = {start, truth, submit, practice} is created here with late-binding methods; 84 extends it
+//   with Object.assign. modes.trade / modes.practice / modes.tradeTest / modes.lessonsWindow are thin delegates to
+//   UT.trade / UT.trade.practice / UT.trade.window / UT.lessons.window: the v1 engine and windows were removed
+//   (E5, dead in the single file) and a delegate throws '[UT.modes] 8x … is not loaded' when its owner is absent.
+//   Leaving mode 'trade' also discards a shared exam (trade.exam = null): the §4.2.3 lock never outlives the exam.
 // - Mode 'fbh' (UT.specimens.fbhBlock, T from specimenOpts, default 60): forces the 0° probe like step/lamination
 //   (DGS applies to the 0° probe only) with the same savedAngle restore rule; MODE_OF.fbh = 'fbh'; DISABLED.fbh and
 //   'tools' in ALL_MENUS exactly per SPEC-v2 §8 (tools is enabled in every mode except with the editor open).
@@ -141,12 +142,10 @@
   let savedGates = null;       // instrument.gates before step mode reset gate 1 for the auto-cal, restored on exit
   let savedProbeMode = null;   // {angle, mode} before tofd forced the compression mode (§6.6), restored on exit
   const STEP_GATE1 = { on: true, start: 6, width: 40, level: 20, alarm: false };   // covers the 1st backwall of the 10 mm step under the wrong cal (8.4 mm)
-  let tradeTimer = null;
-  let quietUI = false;         // true while __selftest runs: trade.start must not open the Trade Test window
   let autoCalState = null;     // {step: 1|2, t1, d1, d2}
   let rebuildTimer = null;     // deferred specimen-vs-state check after a material / weldOpts change (v2)
   let dampingToolWas = false;  // last seen damping.tool (status hint edge, v2 P3)
-  let dacWin = null, tkyWin = null, tradeWin = null, lessonsWin = null, editorWin = null, autoCalWin = null;
+  let dacWin = null, tkyWin = null, editorWin = null, autoCalWin = null;
   const ui = {};               // live DOM refs of the windows (rebuilt lazily)
   const tkyOpts = { braceAngle: 60, braceT: 12, chordT: 20, braceOffset: 0, precision: 1, kind: 'T-joint' };   // §14.9 Default
 
@@ -302,9 +301,10 @@
         savedProbeMode = null;
       }
       if (prev === 'trade') {
-        stopTradeTimer();
-        // The exam is over: the hidden truth must not survive into another mode (§15.8), so submit() cannot score it
-        patch.trade = Object.assign({}, s.trade, { active: false, truth: [], seed: null, score: null, result: null, report: [], startedAt: null, revealed: false, practice: false });
+        // The exam is over: the hidden truth must not survive into another mode (§15.8), so submit() cannot score it.
+        // A shared exam (SPEC-v2 §4.2.3) is abandoned with it: the lock (HIDE/BEAM/editor, forced display.hide) applies
+        // only while the exam runs — the candidate must never stay locked out of the simulator without the code.
+        patch.trade = Object.assign({}, s.trade, { active: false, truth: [], seed: null, score: null, result: null, report: [], startedAt: null, revealed: false, practice: false, exam: null, hintsUsed: 0, revealedOne: [] });
         patch.display = Object.assign({}, s.display, { hide: false });
       }
     }
@@ -1092,33 +1092,11 @@
     fields: ed,
   };
 
-  // ------------------------------------------------------------------ trade test (§8.12, §15.8)
-  const TRADE_PRESETS = ['rootCrack', 'lof', 'porosity', 'slag', 'toeCrack', 'centrelineCrack', 'incompletePenetration'];
-  function generateTruth(seed, spec) {
-    const r = M.rng(seed);
-    const count = 3 + Math.floor(r() * 4);          // 3..6
-    const L = spec.L;
-    const slotLen = L / count;
-    const defects = [];
-    for (let i = 0; i < count; i++) {
-      const key = TRADE_PRESETS[Math.floor(r() * TRADE_PRESETS.length)];
-      const length = Math.round(15 + r() * 30);
-      const zFrom = Math.round(M.clamp(i * slotLen + 5 + r() * Math.max(1, slotLen - length - 10), 0, Math.max(0, L - length)));
-      const opts = { n: i + 1, zFrom, length, label: 'Defect ' + (i + 1) };
-      if (key === 'lof' || key === 'toeCrack') opts.side = r() < 0.5 ? -1 : 1;
-      if (key === 'rootCrack' || key === 'centrelineCrack') opts.height = Math.round(2 + r() * 4);
-      if (key === 'porosity') { opts.dia = +(2 + r() * 3).toFixed(1); opts.x = Math.round((r() - 0.5) * 6); opts.y = +(spec.T * (0.3 + r() * 0.4)).toFixed(1); }
-      if (key === 'slag') { opts.x = Math.round((r() - 0.5) * 6); opts.y = +(spec.T * (0.3 + r() * 0.4)).toFixed(1); }
-      const d = S.defectPresets[key](spec, opts);
-      d.n = i + 1; d.label = 'Defect ' + (i + 1); d.id = 1000 + i;
-      defects.push(d);
-    }
-    const truth = defects.map(function (d) {
-      const b = S.bbox(d.pts);
-      return { n: d.n, zFrom: +d.zFrom.toFixed(1), zTo: +d.zTo.toFixed(1), depth: +b.yMin.toFixed(1), height: +d.height.toFixed(1), type: d.type };
-    });
-    return { defects, truth };
-  }
+  // ------------------------------------------------------------------ trade test (§8.12, §15.8; v2 engine in 84-trade)
+  // The trade engine, its windows and the random practice live in 84-trade.js (always loaded, index.html). This file
+  // keeps the v1 status clock, the exam-lock rule (SPEC-v2 §4.2.3) and the late-bound delegates of SPEC-v2 §1 (2)(3);
+  // the delegates fail loudly (Error '[UT.modes] 84-trade.js is not loaded …') instead of running a second engine.
+  /** Remaining time of the running trade test as mm:ss for the v1 status line ('TRADE TEST 59:58'). */
   function tradeClock() {
     const tr = st().trade;
     if (!tr.active || !tr.startedAt || tr.practice) return '';
@@ -1129,234 +1107,62 @@
     const mm = Math.floor(rem / 60), ss = rem % 60;
     return (mm < 10 ? '0' : '') + mm + ':' + (ss < 10 ? '0' : '') + ss;
   }
-  function stopTradeTimer() { if (tradeTimer && typeof clearInterval === 'function') clearInterval(tradeTimer); tradeTimer = null; }
-  function startTradeTimer() {
-    stopTradeTimer();
-    if (typeof setInterval !== 'function' || typeof document === 'undefined') return;
-    tradeTimer = setInterval(function () { if (ui.tClock) ui.tClock.textContent = t('Time left {t}', { t: tradeClock() }); }, 1000);
-  }
   /** True while a shared exam is locked (truth hidden, editor / HIDE / BEAM disabled) — SPEC-v2 §4.2.3. */
   function examLocked(state) {
     const tr = (state || st()).trade;
     return !!(tr && tr.exam && tr.exam.locked && !tr.revealed);
   }
+  /** Error thrown by a delegate whose owner module (82 / 84) is not loaded. */
+  function missingModule(file, what) { return new Error('[UT.modes] ' + file + ' is not loaded: ' + what + ' is unavailable'); }
+  /** UT.trade (84) or a clear error. */
+  function tradeEngine() { const e = has('trade'); if (e && typeof e.start === 'function') return e; throw missingModule('84-trade.js', 'the Trade Test engine (UT.trade)'); }
+  /** Late-bound trade engine (SPEC-v2 §1 (3)): start / truth / submit / reveal delegate to UT.trade. */
   const trade = {
-    /**
-     * Start a trade test with hidden seeded defects.
-     * @param {number} [seed]
-     */
-    start(seed) {
-      const sd = seed === undefined || seed === null ? Math.floor(Math.random() * 1e9) : (seed >>> 0);
-      if (defectEditor.isOpen()) defectEditor.close();
-      if (st().mode !== 'trade') enter('trade', { keepProbe: true, silentUI: quietUI || typeof document === 'undefined' });
-      const s = st();
-      const g = generateTruth(sd, s.specimen);
-      UT.set({
-        defects: g.defects,
-        trade: Object.assign({}, s.trade, { active: true, revealed: false, report: [], score: null, seed: sd, startedAt: Date.now(), truth: g.truth, result: null, practice: false }),
-        display: Object.assign({}, s.display, { hide: true }),
-        selectedDefect: 0,
-      });
-      startTradeTimer();
-      if (ui.tRows) { ui.tRows.textContent = ''; tradeAddRow(); }     // fresh report table with one empty row
-      tradeRefresh();
-      UT.status({ right: t('Trade Test started ({n} hidden defects). Fill in the report, then Submit', { n: g.truth.length }) });
-      return g.truth.map(function (q) { return Object.assign({}, q); });
-    },
-    /** Hidden truth rows [{n, zFrom, zTo, depth, height, type}] ([] while a shared exam is locked). */
-    truth() { if (examLocked()) return []; return (st().trade.truth || []).map(function (q) { return Object.assign({}, q); }); },
-    /**
-     * Score a report: rows [{n, z, length, depth, type}] → 0..100. Reveals the defects.
-     */
-    submit(rows) {
-      const s = st();
-      if (!s.trade.active || s.mode !== 'trade') return 0;      // no test running: nothing to score, state untouched
-      const truth = s.trade.truth || [];
-      const num = function (v) { const x = typeof v === 'string' && v.trim() === '' ? NaN : +v; return Number.isFinite(x) ? x : NaN; };
-      const report = (Array.isArray(rows) ? rows : []).filter(function (r) { return r && typeof r === 'object'; }).map(function (r, i) {
-        const n = num(r.n);
-        return { n: Number.isFinite(n) ? n : i + 1, z: num(r.z), length: num(r.length), depth: num(r.depth), type: typeof r.type === 'string' ? r.type : '' };
-      }).filter(function (r) { return Number.isFinite(r.z) && Number.isFinite(r.depth); });
-      const used = {};
-      let matched = 0, typeMatches = 0, falseCalls = 0;
-      const detail = [];
-      for (const r of report) {
-        let best = -1, bestD = Infinity;
-        truth.forEach(function (t, i) {
-          if (used[i]) return;
-          const dz = Math.abs(r.z - t.zFrom), dd = Math.abs(r.depth - t.depth);
-          if (dz <= 10 && dd <= 3 && dz + dd < bestD) { bestD = dz + dd; best = i; }
-        });
-        if (best >= 0) {
-          used[best] = true; matched++;
-          const tm = truth[best].type === r.type;
-          if (tm) typeMatches++;
-          detail.push({ row: r, truth: truth[best], hit: true, typeMatch: tm });
-        } else { falseCalls++; detail.push({ row: r, truth: null, hit: false, typeMatch: false }); }
-      }
-      const misses = truth.filter(function (t, i) { return !used[i]; });
-      const N = Math.max(1, truth.length);
-      const score = M.clamp(Math.round(100 * (matched + typeMatches / 2) / (1.5 * N)) - 10 * falseCalls, 0, 100);
-      UT.set({
-        trade: Object.assign({}, s.trade, { report, score, revealed: true, result: { matched, typeMatches, falseCalls, misses, detail } }),
-        display: Object.assign({}, s.display, { hide: false }),
-      });
-      stopTradeTimer();
-      tradeRefresh();
-      UT.status({ right: t('Trade Test score {score}% — {m}/{n} found, {f} false calls', { score, m: matched, n: truth.length, f: falseCalls }) });
-      return score;
-    },
-    /** Reveal the hidden defects without scoring. */
-    reveal() {
-      const s = st();
-      UT.set({ trade: Object.assign({}, s.trade, { revealed: true }), display: Object.assign({}, s.display, { hide: false }) });
-      tradeRefresh();
-    },
+    /** Start a trade test with hidden seeded defects → truth rows ([] while an exam is locked). */
+    start(seed) { return tradeEngine().start(seed); },
+    /** Hidden truth rows [{n, zFrom, zTo, depth, height, type, …}] ([] while a shared exam is locked, §4.2.3). */
+    truth() { if (examLocked()) return []; return tradeEngine().truth(); },
+    /** Score the report rows [{n, z, length, depth, height, type}] → 0..100. */
+    submit(rows) { return tradeEngine().submit(rows); },
+    /** Reveal the hidden defects (exams need the code). */
+    reveal(code) { return tradeEngine().reveal(code); },
   };
-  /** Legacy random practice (T5 fallback when 84-trade is absent): the v1 generator without a timer, reveal any time. */
-  const legacyPractice = {
-    start(seed) {
-      const truth = trade.start(seed);
-      stopTradeTimer();
-      UT.setIn('trade', { practice: true, hintsUsed: 0, revealedOne: [] });
-      UT.status({ right: t(HINTS.practice) });
-      return truth;
-    },
-    hint() {
-      const s = st(), tr = s.trade;
-      if (!tr.active || !tr.truth.length) return null;
-      const z = s.probe.z;
-      let best = null;
-      tr.truth.forEach(function (q) {
-        const zc = (q.zFrom + q.zTo) / 2;
-        const d = Math.abs(zc - z);
-        if (!best || d < best.d) best = { d, q, zc };
-      });
-      UT.setIn('trade', { hintsUsed: (tr.hintsUsed || 0) + 1 });
-      const msg = t('nearest hidden indication: {d} mm further along z, side {side}', { d: Math.round(best.d), side: best.zc >= z ? 'B' : 'A' });
-      UT.status({ right: msg });
-      return { dz: +(best.zc - z).toFixed(1), n: best.q.n };
-    },
-    revealOne() { trade.reveal(); return st().trade.truth[0] || null; },
-    checkRow(i) {
-      const tr = st().trade, r = (tr.report || [])[i];
-      if (!r) return null;
-      return tr.truth.some(function (q) { return Math.abs(r.z - q.zFrom) <= 10 && Math.abs(r.depth - q.depth) <= 3; });
-    },
-  };
-  /** Random practice entry (T5): UT.trade.practice when 84 is loaded, else the legacy fallback. */
+  /** UT.trade.practice (84) or a clear error. */
+  function practiceEngine() { const e = has('trade.practice'); if (e && typeof e.start === 'function') return e; throw missingModule('84-trade.js', 'Random practice (UT.trade.practice)'); }
+  /** Random practice entry (T5): delegates to UT.trade.practice / UT.trade.practiceWindow. */
   const practice = {
     /** Start a practice run (no timer, no lock). Returns the truth rows. */
-    start(seed) { const p = has('trade.practice.start'); return p ? UT.trade.practice.start(seed) : legacyPractice.start(seed); },
-    hint() { const p = has('trade.practice.hint'); return p ? UT.trade.practice.hint() : legacyPractice.hint(); },
-    revealOne() { const p = has('trade.practice.revealOne'); return p ? UT.trade.practice.revealOne() : legacyPractice.revealOne(); },
-    checkRow(i) { const p = has('trade.practice.checkRow'); return p ? UT.trade.practice.checkRow(i) : legacyPractice.checkRow(i); },
-    /** Open the practice window (84) or start a legacy practice run. */
-    open() { const w = has('trade.practiceWindow'); if (w && typeof (w.open || w.show) === 'function') return (w.open || w.show).call(w); return practice.start(); },
+    start(seed) { return practiceEngine().start(seed); },
+    hint() { return practiceEngine().hint(); },
+    revealOne() { return practiceEngine().revealOne(); },
+    checkRow(i, row) { return practiceEngine().checkRow(i, row); },
+    /** Open the practice window (84). */
+    open() { const w = has('trade.practiceWindow'); if (w && typeof (w.open || w.show) === 'function') return (w.open || w.show).call(w); throw missingModule('84-trade.js', 'the Random practice window (UT.trade.practiceWindow)'); },
     toggle() { const w = has('trade.practiceWindow'); if (w && typeof w.toggle === 'function') return w.toggle(); return practice.open(); },
   };
-  function tradeRows() {
-    if (!ui.tRows) return [];
-    return Array.from(ui.tRows.children).map(function (tr) {
-      const inp = tr.querySelectorAll('input, select');
-      return { n: +inp[0].value, z: parseFloat(inp[1].value), length: parseFloat(inp[2].value), depth: parseFloat(inp[3].value), type: inp[4].value };
-    });
-  }
-  function tradeAddRow(row) {
-    const dom = UT.dom;
-    const n = ui.tRows.children.length + 1;
-    const r = row || { n, z: '', length: '', depth: '', type: 'planar' };
-    const tr = dom.h('tr', {}, [
-      dom.h('td', {}, dom.h('input', { type: 'number', value: r.n, class: 'tt-n', min: 1, max: 16 })),
-      dom.h('td', {}, dom.h('input', { type: 'number', value: r.z, class: 'tt-in', step: 1 })),
-      dom.h('td', {}, dom.h('input', { type: 'number', value: r.length, class: 'tt-in', step: 1 })),
-      dom.h('td', {}, dom.h('input', { type: 'number', value: r.depth, class: 'tt-in', step: 0.5 })),
-      dom.h('td', {}, dom.h('select', { class: 'tt-sel' }, DEFECT_TYPES.map(function (t) { return dom.h('option', { value: t, selected: t === r.type ? true : null }, t); }))),
-      dom.h('td', {}, dom.button('✕', function () { tr.remove(); }, { class: 'btn tt-del', title: 'Remove row' })),
-    ]);
-    ui.tRows.appendChild(tr);
-    return tr;
-  }
-  function tradeRefresh() {
-    if (!tradeWin || !tradeWin.isOpen() || !ui.tResult) return;
-    const tr = st().trade;
-    ui.tClock.textContent = tr.active && tr.startedAt ? t('Time left {t}', { t: tradeClock() }) : t('Press Start');
-    ui.tSeed.textContent = tr.seed === null || tr.seed === undefined ? '' : t('Test #{seed}', { seed: tr.seed });
-    ui.tResult.textContent = '';
-    if (tr.score !== null && tr.score !== undefined && tr.result) {
-      const res = tr.result;
-      ui.tResult.appendChild(UT.dom.h('div', { class: 'tt-score' }, t('SCORE {score}%   ({m} of {n} found, {tm} type correct, {f} false calls)', { score: tr.score, m: res.matched, n: tr.truth.length, tm: res.typeMatches, f: res.falseCalls })));
-    }
-    if (tr.revealed && tr.truth && tr.truth.length) {
-      const tbl = UT.dom.h('table', { class: 'tt-truth' }, [
-        UT.dom.h('tr', {}, ['#', 'From z', 'Length', 'Depth', 'Height', 'Type'].map(function (h) { return UT.dom.h('th', { i18n: h }); })),
-      ].concat(tr.truth.map(function (d) {
-        return UT.dom.h('tr', {}, [d.n, d.zFrom, +(d.zTo - d.zFrom).toFixed(1), d.depth, d.height, d.type].map(function (v) { return UT.dom.h('td', {}, String(v)); }));
-      })));
-      ui.tResult.appendChild(UT.dom.h('div', { class: 'tt-sub', i18n: 'True defects' }));
-      ui.tResult.appendChild(tbl);
-      if (tr.result && tr.result.misses && tr.result.misses.length) ui.tResult.appendChild(UT.dom.h('div', { class: 'tt-miss' }, t('Missed: {list}', { list: tr.result.misses.map(function (m) { return '#' + m.n + ' (' + m.type + ' at z ' + m.zFrom + ')'; }).join(', ') })));
-    }
-  }
-  /** Owner window of the v2 trade test (84) when loaded: {open/show, close/hide, toggle, isOpen, win}. */
-  function tradeOwnerWin() { const w = has('trade.window'); return w && typeof w === 'object' ? w : null; }
-  const legacyTradeTest = {
-    open() {
-      if (typeof document === 'undefined') return null;
-      UT.dom.injectCss('modes', modes.css);
-      const dom = UT.dom;
-      if (!tradeWin) {
-        ui.tClock = dom.h('span', { class: 'tt-clock' }, 'Press Start');
-        ui.tSeed = dom.h('span', { class: 'tt-seed' }, '');
-        ui.tRows = dom.h('tbody', {});
-        ui.tResult = dom.h('div', { class: 'tt-result' });
-        const seedIn = dom.h('input', { type: 'number', class: 'tt-seedin', placeholder: 'seed', title: 'Optional seed (same seed = same test)' });
-        const table = dom.h('table', { class: 'tt-table' }, [
-          dom.h('thead', {}, dom.h('tr', {}, ['#', 'z start (mm)', 'Length (mm)', 'Depth (mm)', 'Type', ''].map(function (h) { return dom.h('th', {}, h); }))),
-          ui.tRows,
-        ]);
-        const body = dom.h('div', { class: 'tt' }, [
-          dom.h('div', { class: 'tt-head' }, [
-            dom.button('Start', function () { trade.start(seedIn.value === '' ? undefined : +seedIn.value); }, { class: 'btn primary' }),
-            seedIn,
-            dom.button('New test', function () { seedIn.value = ''; trade.start(); }),
-            ui.tClock, ui.tSeed,
-          ]),
-          dom.h('div', { class: 'tt-intro' }, 'Report every defect you find: start position along the weld (z), length, depth of the top of the defect and its type. Tolerance ±10 mm (z), ±3 mm (depth). 실기시험: 발견한 결함의 위치(z), 길이, 깊이, 종류를 기록하고 Submit을 누르세요.'),
-          table,
-          dom.h('div', { class: 'btn-row' }, [
-            dom.button('Add row', function () { tradeAddRow(); }),
-            dom.button('Submit', function () { if (!st().trade.truth.length) { UT.status({ right: t('Press Start first') }); return; } trade.submit(tradeRows()); }, { class: 'btn primary' }),
-            dom.button('Reveal', function () { trade.reveal(); }),
-          ]),
-          ui.tResult,
-        ]);
-        tradeWin = dom.win({ name: 'trade', title: 'Trade Test', x: 600, y: 110, w: 560, content: body, onClose: function () { if (st().mode === 'trade') exit(); } });
-      }
-      tradeWin.show();
-      if (!ui.tRows.children.length) tradeAddRow();
-      tradeRefresh();
-      return tradeWin;
-    },
-    close() { if (tradeWin) tradeWin.hide(); },
-    toggle() { return tradeWin && tradeWin.isOpen() ? legacyTradeTest.close() : legacyTradeTest.open(); },
-    isOpen() { return !!(tradeWin && tradeWin.isOpen()); },
-    get window() { return tradeWin; },
-  };
+  /** Owner window of the trade test (84): {open/show, close/hide, toggle, isOpen, win} or a clear error. */
+  function tradeOwnerWin() { const w = has('trade.window'); if (w && typeof w === 'object') return w; throw missingModule('84-trade.js', 'the Trade Test window (UT.trade.window)'); }
   /**
-   * Late-bound Trade Test window (SPEC-v2 §1): delegates to UT.trade.window (84) when loaded and NEVER creates the
-   * v1 dom.win 'trade' in that case; the legacy window is used only without 84.
+   * Late-bound Trade Test window (SPEC-v2 §1 (2)): delegates to UT.trade.window (84) and NEVER creates a dom.win
+   * 'trade' of its own. isOpen() / window are non-throwing (menu check marks).
    */
   const tradeTest = {
-    open() { const w = tradeOwnerWin(); if (w) return (w.open || w.show).call(w); return legacyTradeTest.open(); },
-    close() { const w = tradeOwnerWin(); if (w) return (w.close || w.hide).call(w); return legacyTradeTest.close(); },
-    toggle() { const w = tradeOwnerWin(); if (w) return w.toggle ? w.toggle() : (w.isOpen && w.isOpen() ? tradeTest.close() : tradeTest.open()); return legacyTradeTest.toggle(); },
-    isOpen() { const w = tradeOwnerWin(); if (w) return !!(w.isOpen && w.isOpen()); return legacyTradeTest.isOpen(); },
-    get window() { const w = tradeOwnerWin(); return w ? (w.win || w) : tradeWin; },
-    legacy: legacyTradeTest,
+    open() { const w = tradeOwnerWin(); return (w.open || w.show).call(w); },
+    close() { const w = tradeOwnerWin(); return (w.close || w.hide).call(w); },
+    toggle() { const w = tradeOwnerWin(); return w.toggle ? w.toggle() : (w.isOpen && w.isOpen() ? tradeTest.close() : tradeTest.open()); },
+    isOpen() { const w = has('trade.window'); return !!(w && typeof w.isOpen === 'function' && w.isOpen()); },
+    get window() { const w = has('trade.window'); return w ? (w.win || w) : null; },
   };
 
   // ------------------------------------------------------------------ TKY panel (§14.9)
+  /** Tooltips of the Plate / T-joint / Pipe buttons (i18n; refreshed on 'lang' — the labels relabel via data-i18n). */
+  function tkyKindTitles() {
+    (ui.tkyKind || []).forEach(function (b) {
+      const k = b.dataset.kind;
+      b.title = k === 'T-joint' ? t('T-joint: plate chord with an angled brace (modelled)') : t('{kind} joint is not modelled in this version — only the T-joint geometry is available', { kind: t(k) });
+    });
+  }
+  UT.bus.on('lang', tkyKindTitles);
   function tkyApply(patch) {
     const p = Object.assign({}, patch || {});
     if (p.kind !== undefined && p.kind !== 'T-joint') delete p.kind;   // only the T-joint geometry is modelled
@@ -1388,11 +1194,9 @@
         // for fidelity (§14.9) but disabled, so the row never pretends to change the modelled geometry.
         ui.tkyKind = ['Plate', 'T-joint', 'Pipe'].map(function (k) {
           const modelled = k === 'T-joint';
-          return dom.button(k, function () { if (modelled) tkyApply({ kind: k }); }, {
-            class: 'btn tky-kind', dataset: { kind: k }, disabled: !modelled,
-            title: modelled ? 'T-joint: plate chord with an angled brace (modelled)' : k + ' joint is not modelled in this version — only the T-joint geometry is available',
-          });
+          return dom.button(k, function () { if (modelled) tkyApply({ kind: k }); }, { class: 'btn tky-kind', dataset: { kind: k }, disabled: !modelled });
         });
+        tkyKindTitles();
         ui.tkyPrec = dom.button('Precision 1°', function () { tkyApply({ precision: tkyOpts.precision === 1 ? 0.1 : 1 }); }, { class: 'btn tky-btn' });
         ui.fBraceT = dom.field('Brace T (mm)', { type: 'number', value: 12, min: 4, max: 60, step: 1, onchange: function (v) { if (v > 0) tkyApply({ braceT: v }); } });
         ui.fChordT = dom.field('Chord T (mm)', { type: 'number', value: 20, min: 6, max: 100, step: 1, onchange: function (v) { if (v > 0) tkyApply({ chordT: v }); } });
@@ -1538,68 +1342,20 @@
       setup() { lessonSetups[10].setup(); setInstr({ page: 2 }); },
       steps: ['Page 2: Gate 1 / Gate 2 softkeys', '2ND F + dB = reference gain', 'Auto Cal softkey'] },
   ];
-  function loadLesson(i) {
-    const l = lessonSetups[i];
-    if (!l) return null;
-    if (defectEditor.isOpen()) defectEditor.close();     // clean UI; lessons 10 / 16 reopen it in setup()
-    if (autoCalWin) autoCal.cancel();
-    try { l.setup(); } catch (e) { console.error('[UT.modes] lesson ' + l.n, e); }
-    UT.set({ lesson: i });
-    lessonsRefresh();
-    return l;
-  }
-  function lessonsRefresh() {
-    if (!lessonsWin || !ui.lSteps) return;
-    const i = st().lesson;
-    ui.lSteps.textContent = '';
-    if (i === null || i === undefined || !lessonSetups[i]) { ui.lSteps.appendChild(UT.dom.h('div', { class: 'ls-dim', i18n: 'Select a lesson and press Load' })); return; }
-    const l = lessonSetups[i];
-    ui.lSteps.appendChild(UT.dom.h('div', { class: 'ls-title' }, l.n + '. ' + l.title));
-    ui.lSteps.appendChild(UT.dom.h('div', { class: 'ls-ko' }, l.ko));
-    ui.lSteps.appendChild(UT.dom.h('ol', {}, l.steps.map(function (s) { return UT.dom.h('li', {}, s); })));
-    Array.from(ui.lList.children).forEach(function (row, k) { row.classList.toggle('active', k === i); });
-  }
-  const legacyLessonsWindow = {
-    open() {
-      if (typeof document === 'undefined') return null;
-      UT.dom.injectCss('modes', modes.css);
-      const dom = UT.dom;
-      if (!lessonsWin) {
-        ui.lList = dom.h('div', { class: 'ls-list' }, lessonSetups.map(function (l, i) {
-          return dom.h('div', { class: 'ls-row' }, [
-            dom.h('div', { class: 'ls-n' }, String(l.n)),
-            dom.h('div', { class: 'ls-txt' }, [dom.h('div', { class: 'ls-t' }, l.title), dom.h('div', { class: 'ls-d' }, l.ko + ' — ' + l.en)]),
-            dom.button('Load', function () { loadLesson(i); }, { class: 'btn ls-load' }),
-          ]);
-        }));
-        ui.lSteps = dom.h('div', { class: 'ls-steps' });
-        lessonsWin = dom.win({ name: 'lessons', title: 'Lessons', x: 300, y: 80, w: 620, content: dom.h('div', { class: 'ls' }, [ui.lList, ui.lSteps]) });
-      }
-      lessonsWin.show();
-      lessonsRefresh();
-      return lessonsWin;
-    },
-    close() { if (lessonsWin) lessonsWin.hide(); },
-    toggle() { return lessonsWin && lessonsWin.isOpen() ? legacyLessonsWindow.close() : legacyLessonsWindow.open(); },
-    isOpen() { return !!(lessonsWin && lessonsWin.isOpen()); },
-    load: loadLesson,
-    get window() { return lessonsWin; },
-  };
-  /** Owner window of the v2 lessons (82) when loaded. */
-  function lessonsOwnerWin() { const w = has('lessons.window'); return w && typeof w === 'object' ? w : null; }
+  /** Owner window of the v2 lessons (82) or a clear error. */
+  function lessonsOwnerWin() { const w = has('lessons.window'); if (w && typeof w === 'object') return w; throw missingModule('82-lessons.js', 'the Lessons window (UT.lessons.window)'); }
   /**
-   * Late-bound Lessons window (SPEC-v2 §1): UT.lessons.window.show() when 82 is loaded (the v1 dom.win 'lessons'
-   * is then never created); the legacy v1 list window otherwise. load(i) → UT.lessons.start(i + 1) | v1 loadLesson.
+   * Late-bound Lessons window (SPEC-v2 §1 (2)): UT.lessons.window.show() (82) — this file never creates a dom.win
+   * 'lessons'. load(i) → UT.lessons.start(i + 1) (0-based i, returns the lesson record). isOpen() / window are non-throwing.
    */
   const lessonsWindow = {
-    open() { const w = lessonsOwnerWin(); if (w) return (w.show || w.open).call(w); return legacyLessonsWindow.open(); },
-    close() { const w = lessonsOwnerWin(); if (w) return (w.hide || w.close).call(w); return legacyLessonsWindow.close(); },
-    toggle() { const w = lessonsOwnerWin(); if (w) return w.toggle ? w.toggle() : (w.isOpen && w.isOpen() ? lessonsWindow.close() : lessonsWindow.open()); return legacyLessonsWindow.toggle(); },
-    isOpen() { const w = lessonsOwnerWin(); if (w) return !!(w.isOpen && w.isOpen()); return legacyLessonsWindow.isOpen(); },
-    /** Load lesson i (0-based): v2 UT.lessons.start(n) when present, else the v1 setup. Returns the lesson record. */
-    load(i) { if (has('lessons.start')) { UT.lessons.start(i + 1); return modes.lessons[i] || null; } return loadLesson(i); },
-    get window() { const w = lessonsOwnerWin(); return w ? (w.win || w) : lessonsWin; },
-    legacy: legacyLessonsWindow,
+    open() { const w = lessonsOwnerWin(); return (w.show || w.open).call(w); },
+    close() { const w = lessonsOwnerWin(); return (w.hide || w.close).call(w); },
+    toggle() { const w = lessonsOwnerWin(); return w.toggle ? w.toggle() : (w.isOpen && w.isOpen() ? lessonsWindow.close() : lessonsWindow.open()); },
+    isOpen() { const w = has('lessons.window'); return !!(w && typeof w.isOpen === 'function' && w.isOpen()); },
+    /** Load lesson i (0-based) through UT.lessons.start(i + 1). Returns the lesson record. */
+    load(i) { if (!has('lessons.start')) throw missingModule('82-lessons.js', 'lesson loading (UT.lessons.start)'); UT.lessons.start(i + 1); return modes.lessons[i] || null; },
+    get window() { const w = has('lessons.window'); return w ? (w.win || w) : null; },
   };
 
   // ------------------------------------------------------------------ test API (§15.10)
@@ -1755,29 +1511,6 @@
     '.tky-kind.active{background:#00e000;color:#000;font-weight:bold}',
     '.tky-kind[disabled]{opacity:.5;cursor:not-allowed}',
     '.tky-btn.active{background:#00e000}',
-    '.tt{display:flex;flex-direction:column;gap:6px;max-height:70vh;overflow:auto}',
-    '.tt-head{display:flex;gap:6px;align-items:center}',
-    '.tt-seedin{width:70px}',
-    '.tt-clock{font-family:monospace;font-weight:bold;color:#a00;margin-left:auto}',
-    '.tt-seed{color:#555;font-size:11px}',
-    '.tt-intro{font-size:11px;color:#333}',
-    '.tt-table{border-collapse:collapse;width:100%;background:#fff}',
-    '.tt-table th,.tt-table td{border:1px solid #999;padding:2px 4px;font-size:11px;text-align:center}',
-    '.tt-n{width:34px}.tt-in{width:64px}.tt-sel{width:90px}.tt-del{padding:0 6px;font-size:10px}',
-    '.tt-score{font-size:15px;font-weight:bold;color:#0a246a}',
-    '.tt-sub{font-weight:bold;margin-top:4px}',
-    '.tt-truth{border-collapse:collapse;background:#fff}.tt-truth th,.tt-truth td{border:1px solid #999;padding:1px 6px;font-size:11px}',
-    '.tt-miss{color:#a00;font-size:11px;margin-top:3px}',
-    '.ls{display:flex;gap:6px;max-height:70vh}',
-    '.ls-list{width:340px;overflow:auto;background:#fff;border:1px solid #999}',
-    '.ls-row{display:flex;gap:6px;align-items:center;padding:3px 4px;border-bottom:1px solid #ddd}',
-    '.ls-row.active{background:#dbe7ff}',
-    '.ls-n{width:20px;text-align:right;font-weight:bold;color:#0a246a}',
-    '.ls-txt{flex:1;min-width:0}.ls-t{font-weight:bold;font-size:12px}.ls-d{font-size:11px;color:#444}',
-    '.ls-load{font-size:11px}',
-    '.ls-steps{flex:1;overflow:auto;background:#fdfbd8;border:1px solid #999;padding:6px;font-size:12px}',
-    '.ls-title{font-weight:bold;font-size:13px}.ls-ko{color:#444;margin:2px 0 4px}.ls-dim{color:#777}',
-    '.ls-steps ol{margin:0;padding-left:18px}.ls-steps li{margin:2px 0}',
   ].join('\n');
 
   // ------------------------------------------------------------------ enable helpers
@@ -1831,7 +1564,6 @@
     // module variables, so the checks below leave the app, the toolbar and the persisted record untouched.
     const saved = Object.assign({}, UT.state);
     const savedVars = { stash, lastAngle, savedAngle, savedGates, savedProbeMode, autoCalState };
-    quietUI = true;
     try {
       // pure helpers first
       const nz = normaliseZ([{ n: 1, type: 'crack', pts: [{ x: 0, y: 17 }, { x: 0, y: 20 }], zFrom: 200, zTo: 100 }], { L: 300 });
@@ -1866,15 +1598,25 @@
       enter('v1', { silentUI: true });
       if (st().probe.angle !== 0 || st().specimen.face !== 'narrow') f.push('explicit 0° before v1 must give the narrow face: ' + st().probe.angle + '/' + st().specimen.face);
       enter('weld', { silentUI: true });
-      const g1 = generateTruth(42, st().specimen), g2 = generateTruth(42, st().specimen);
-      if (JSON.stringify(g1.truth) !== JSON.stringify(g2.truth)) f.push('trade seed not deterministic');
-      if (g1.truth.length < 3 || g1.truth.length > 6) f.push('trade count ' + g1.truth.length);
-      trade.start(42);
-      const rows = trade.truth().map(function (t) { return { n: t.n, z: t.zFrom, length: t.zTo - t.zFrom, depth: t.depth, type: t.type }; });
-      if (trade.submit(rows) !== 100) f.push('trade score ' + st().trade.score);
-      if (trade.submit([]) !== 0) f.push('empty report should score 0');
+      if (has('trade.start') && typeof document === 'undefined') {
+        // the engine (determinism, scoring) is 84's and covered by its selftest; here: delegates + the exit rule
+        const truth = trade.start(42);
+        if (!Array.isArray(truth) || !truth.length || st().mode !== 'trade' || !st().trade.active) f.push('trade.start delegate');
+        const rows = truth.map(function (q) { return { n: q.n, z: q.zFrom, length: q.zTo - q.zFrom, depth: q.depth, height: q.height, type: q.type }; });
+        if (trade.submit(rows) !== 100) f.push('trade score ' + st().trade.score);
+        enter('weld', { silentUI: true });
+        if (st().trade.active || st().trade.truth.length) f.push('trade inactive after exit');
+      } else if (typeof UT.trade === 'undefined') {
+        let threw = false;
+        try { trade.start(1); } catch (e) { threw = /84-trade/.test(e.message); }
+        if (!threw) f.push('trade delegate must throw a clear error without 84');
+      }
+      // leaving trade mode abandons a shared exam: the lock and the forced display.hide go with it (SPEC-v2 §4.2.3)
+      enter('trade', { silentUI: true });
+      UT.setIn('trade', { active: true, exam: { v: 2, seed: 7, locked: true, codeHash: 'x' }, revealed: false }, { silent: true, noRender: true });
+      if (!examLocked() || !st().display.hide) f.push('exam lock inside trade');
       enter('weld', { silentUI: true });
-      if (st().trade.active) f.push('trade inactive after exit');
+      if (examLocked() || st().trade.exam !== null || st().display.hide || !isToolbarEnabled('tb-hide') || !isMenuEnabled('menu-defects')) f.push('exam lock must be released on mode exit');
       if (lessonSetups.length !== 22) f.push('lessons ' + lessonSetups.length);
       lessonSetups.forEach(function (l) { if (!l.title || !l.ko || !l.en || typeof l.setup !== 'function' || !l.steps.length) f.push('lesson ' + l.n + ' incomplete'); });
       if (!Array.isArray(modes.lessons) || modes.lessons.length < 22 || (UT.lessons && UT.lessons.list && modes.lessons !== UT.lessons.list)) f.push('lessons getter');
@@ -1956,7 +1698,7 @@
       if (!isToolbarEnabled('tb-45')) f.push('no procedure → angle buttons enabled');
       UT.setIn('trade', { exam: { v: 2, seed: 1, locked: true }, revealed: false }, { silent: true, noRender: true });
       if (!examLocked() || isToolbarEnabled('tb-hide') || isToolbarEnabled('tb-beam') || isToolbarEnabled('tb-defect') || isMenuEnabled('menu-defects')) f.push('exam lock');
-      if (trade.truth().length !== 0) f.push('legacy truth must be [] while exam-locked');
+      if (trade.truth().length !== 0) f.push('truth must be [] while exam-locked');
       UT.setIn('trade', { exam: null, active: false }, { silent: true, noRender: true });
       if (!isToolbarEnabled('tb-beam')) f.push('beam enabled without exam lock');
       // library-aware lesson setProbe
@@ -1967,8 +1709,6 @@
       if (typeOfPrep('nozzle') !== 'fillet' || typeOfPrep('none') !== 'none' || typeOfPrep('j') !== 'single-v') f.push('typeOfPrep');
     } catch (e) { f.push('exception ' + (e && e.message) + (e && e.stack ? ' @ ' + String(e.stack).split('\n')[1] : '')); }
     finally {
-      quietUI = false;
-      stopTradeTimer();
       if (rebuildTimer !== null && typeof clearTimeout === 'function') { clearTimeout(rebuildTimer); rebuildTimer = null; }
       stash = savedVars.stash; lastAngle = savedVars.lastAngle; savedAngle = savedVars.savedAngle;
       savedGates = savedVars.savedGates; savedProbeMode = savedVars.savedProbeMode; autoCalState = savedVars.autoCalState;

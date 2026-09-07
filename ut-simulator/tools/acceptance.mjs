@@ -313,9 +313,12 @@ check('V1-9 LOF second-leg maximum; 45° ≥ 6 dB below 60°', 'v1', async ({ pa
     const s45 = ACC.scanX(35, 60, 0.5, pick);
     return { xExp: mid.x + (40 - mid.y) * Math.tan(Math.PI / 3), mid, b60: s60.best && { x: s60.best.x, amp: s60.best.v.ampPct }, b45: s45.best && { x: s45.best.x, amp: s45.best.v.ampPct }, wo: UT.state.weldOpts };
   });
-  A.ok(!!r.b60, '60° LOF echo'); A.ok(!!r.b45, '45° LOF echo');
+  A.ok(!!r.b60, '60° LOF echo');
   if (r.b60) A.near(r.b60.x, r.xExp, 4, `60° max x (expected ≈ ${r.xExp.toFixed(1)})`);
+  // The 45° probe cannot return specularly from the 30° bevel: any LOF echo it shows must be ≥ 6 dB below the 60° maximum;
+  // no 45° echo at all (the v2 z-profile law removes the last weak leg-4 mode-converted artefact) satisfies this trivially.
   if (r.b60 && r.b45) A.le(dB(r.b45.amp, r.b60.amp), -6, '45° best vs 60° best (dB)');
+  else if (r.b60) A.note('no 45° LOF echo (≥ 6 dB below 60° trivially)');
   A.note(`bevel ${r.wo.bevel} gap ${r.wo.rootGap} face ${r.wo.rootFace}`);
   return A.result();
 });
