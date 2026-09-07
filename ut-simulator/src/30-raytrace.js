@@ -1962,5 +1962,19 @@
     return f;
   }
 
-  UT.rays = { trace, zFactor, describe, emission, dirAt, arcHit, mergeEchoes, modeConv: modeConvCoef, fanLayout, dirWeight: makeDirW, R_LS, R_SL, __selftest };
+  /**
+   * 0° backwall distance law at path s (relative units, e = S = 1): √(N/max(s, N)) near-field blend × two-way attenuation
+   * 10^(−2·αL·s/20) with αL = attenL5·(freq/5)^1.5 — the law makeEcho() applies to the backwall. 45-standards' DGS bwLaw()
+   * prefers this export over its own replica; keep both in step if the law ever changes.
+   * @param {number} s       sound path (mm)
+   * @param {object} derived UT.probe.derive() result (nearField, freq)
+   * @param {object} [specimen]
+   */
+  function ampBwLaw(s, derived, specimen) {
+    const N = (derived && derived.nearField) || 20;
+    const freq = derived && Number.isFinite(derived.freq) && derived.freq > 0 ? derived.freq : 5;
+    const alphaL = materialInfo(specimen || null, derived || {}).attenL5 * Math.pow(freq / 5, 1.5);
+    return Math.sqrt(N / Math.max(s, N)) * Math.pow(10, -2 * alphaL * s / 20);
+  }
+  UT.rays = { trace, zFactor, describe, emission, dirAt, arcHit, mergeEchoes, modeConv: modeConvCoef, fanLayout, dirWeight: makeDirW, ampBwLaw, R_LS, R_SL, __selftest };
 })(window.UT = window.UT || {});

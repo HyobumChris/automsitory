@@ -161,7 +161,7 @@
     };
   }
 
-  function visibleDefects(state) { return (state.defects || []).filter(function (d) { return d && d.visible !== false; }); }
+  function visibleDefects(state) { return UT.ascan.visibleDefects(state); }
 
   /** Gate copies for a scan: gates with index ≥ channels are forced off. */
   function scanGates(state) {
@@ -330,6 +330,13 @@
     if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(h); else clearTimeout(h);
   }
   function isScanning() { return !!anim; }
+  /** prefers-reduced-motion (SPEC-v2 §5.7): UT.app.reducedMotion() when 90 is loaded, else the media query. */
+  function reducedMotion() {
+    try {
+      if (UT.app && typeof UT.app.reducedMotion === 'function') return !!UT.app.reducedMotion();
+      return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch (e) { return false; }
+  }
 
   /**
    * Animated scan (aut.speed columns per frame): stores partial scans via UT.setIn('aut', {scan, map, running}),
@@ -340,6 +347,14 @@
     const state = UT.state;
     if (!state.specimen) return false;
     stopScan(true);
+    if (reducedMotion()) {
+      // §5.7: no animation — every column in one synchronous loop, a single store/render, isScanning() stays false
+      const full = runScan(state);
+      if (!full) return false;
+      UT.setIn('aut', { scan: full, map: mapOf(full), running: false, x: state.probe.x });
+      UT.bus.emit('scan:progress', { kind: 'aut', i: full.n, n: full.n });
+      return true;
+    }
     const cache = prepare(state);
     if (!cache) return false;
     const sc = scanShell(state);
@@ -410,7 +425,7 @@
 
   // ================================================================== panel (DOM)
   const css = [
-    '.win[data-win=aut] .win-body{padding:0;background:#000;color:#fff;overflow:hidden;font:12px "Segoe UI",Arial,sans-serif}',
+    '.win[data-win=aut] .win-body{padding:0;background:#000;color:#fff;overflow:hidden auto;font:12px "Segoe UI",Arial,sans-serif}',
     '.win[data-win=aut] .aut-panel{display:flex;align-items:flex-start;gap:4px;padding:3px;width:462px;box-sizing:border-box}',
     '.win[data-win=aut] .aut-strip-col{display:flex;flex-direction:column;gap:3px;width:186px}',
     '.win[data-win=aut] .aut-top{display:flex;align-items:stretch;height:34px}',

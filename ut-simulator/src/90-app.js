@@ -103,6 +103,8 @@
 
   // ------------------------------------------------------------------ small helpers
   function st() { return UT.state; }
+  /** SPEC-v2 §4.2.3 exam lock (80-modes): greys the Defects editor entries; 80's own guards remain the functional block. */
+  function examLocked() { return !!(has('modes.examLocked') && UT.modes.examLocked()); }
   function has(path) {
     let o = UT;
     for (const k of path.split('.')) { if (!o || o[k] === undefined || o[k] === null) return null; o = o[k]; }
@@ -564,10 +566,10 @@
         { key: 'TKY Joint', action: function () { toggleMode('tky'); }, check: function () { return currentMode() === 'tky'; } },
       ] },
       { id: 'menu-defects', key: 'Defects', items: [
-        { key: 'Defect Editor...', action: function () { toggleWindowOf('modes.defectEditor'); }, check: function () { return winOpen('defects'); } },
-        { key: 'Add Preset', sub: presetNames.map(function (p) { return { key: p.label, action: function () { addPresetDefect(p.key); } }; }), enabled: function () { return presetNames.length > 0; } },
+        { key: 'Defect Editor...', action: function () { toggleWindowOf('modes.defectEditor'); }, check: function () { return winOpen('defects'); }, enabled: function () { return !examLocked(); } },
+        { key: 'Add Preset', sub: presetNames.map(function (p) { return { key: p.label, action: function () { addPresetDefect(p.key); } }; }), enabled: function () { return presetNames.length > 0 && !examLocked(); } },
         { key: 'Delete All Defects', action: function () { confirmDlg(t('Delete all defects?'), { title: 'ERASE ALL DEFECTS' }).then(function (ok) { if (ok) UT.set({ defects: [] }); }); }, enabled: function () { return !st().trade.active; } },
-        { key: 'Hide Defects', action: function () { setDisplay({ hide: !st().display.hide }); }, check: function () { return !!st().display.hide; } },
+        { key: 'Hide Defects', action: function () { setDisplay({ hide: !st().display.hide }); }, check: function () { return !!st().display.hide; }, enabled: function () { return !examLocked(); } },
         sepItem(),
         { key: 'Import Defects...', action: openImportDefects, enabled: function () { return !st().trade.active; } },
         { key: 'Export Defects...', action: openExportDefects },
@@ -1508,6 +1510,8 @@
       const d0 = has('probe.derive') ? UT.probe.derive(p, st().specimen) : null;
       s.wedge = d0 ? +d0.wedgeAngle.toFixed(1) : 0;
       const readout = h('div', { class: 'wedge-readout no-i18n', style: { overflowX: 'auto' } }, '');
+      const limitNote = h('div', { class: 'dlg-msg dlg-warn no-i18n' }, '');
+      limitNote.hidden = true;
       const scale = h('div', { class: 'wedge-scale' });
       const slider = UT.dom.field('Angle in wedge (shoe)', { type: 'range', value: s.wedge, min: 0, max: 80, step: 0.1, event: 'input', onchange: function (v) { s.wedge = parseFloat(v); fromWedge(true); } });
       const refIn = UT.dom.field('Refracted angle in steel', { type: 'number', value: 0, min: 0, max: 89, step: 0.5, event: 'input', onchange: function (v) { if (Number.isFinite(v)) fromRefracted(v); } });
@@ -1538,6 +1542,13 @@
               : 'Shear wave angle       : ' + r.refracted.toFixed(1) + '°   (comp. wave totally reflected)\n')) +
           'sin(θ wedge)/v wedge = sin(θ steel)/v steel   (Snell)';
         readout.classList.toggle('dlg-warn', !!r.beyond);
+        // 20-probe clamps the refracted angle to the material's critical limit (derived.angleLimited): same warning
+        // treatment as 'F > near field' in openFocus (the status physics line already carries the note)
+        const dd = has('probe.derive') ? UT.probe.derive(st().probe, st().specimen) : null;
+        limitNote.textContent = dd && dd.angleLimited
+          ? t('{angle}° {mode} not possible in {mat} (limit {limit}°): refracted angle limited to {actual}°', { angle: dd.nominalAngle.toFixed(1), mode: dd.mode === 'comp' ? "comp' wave" : 'shear wave', mat: (st().specimen && st().specimen.material && st().specimen.material.name) || 'this material', limit: dd.angleLimit.toFixed(1), actual: dd.refracted.toFixed(1) })
+          : '';
+        limitNote.hidden = !limitNote.textContent;
       };
       const fromWedge = function (apply) {
         const r = wedgeToRefracted(s.wedge, s.vW, mat);
@@ -1557,7 +1568,7 @@
       const presetBtn = function (a) { return UT.dom.button(a + '°', function () { setAngle(a); s.wedge = +UT.probe.derive(st().probe, st().specimen).wedgeAngle.toFixed(1); fromWedge(false); }, { class: 'btn small' }); };
       fromWedge(false);
       return h('div', {}, [
-        matSel, slider, scale, refIn, readout,
+        matSel, slider, scale, refIn, readout, limitNote,
         tx('div', { class: 'dlg-note' }, 'Moving the slider changes the refracted angle and the wave mode (compression / shear) in steel by Snell\'s law. Watch the physics line in the status bar.'),
         h('div', { class: 'btn-row' }, [presetBtn(0), presetBtn(45), presetBtn(60), presetBtn(70), UT.dom.button('Close', function () { win.close(); }, { class: 'btn primary' })]),
       ]);

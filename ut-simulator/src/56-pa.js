@@ -93,11 +93,8 @@
     };
   }
 
-  function materialOf(spec) {
-    const m = spec && spec.material;
-    if (m && Number.isFinite(m.vShear) && Number.isFinite(m.vComp)) return m;
-    return { key: 'carbon', vComp: C.V_COMP_STEEL, vShear: C.V_SHEAR_STEEL };
-  }
+  /** Full material record of a specimen (UT.specimens.materialOf; carbon steel when spec/material is missing). */
+  function materialOf(spec) { return UT.specimens.materialOf(spec && spec.material); }
 
   /** Angle set of the sweep from probe.paFrom/paTo/paStep (SPEC NOTE 1, 9). */
   function sweepOf(state) {
@@ -112,7 +109,7 @@
     return { from: lo, to: hi, step, angles };
   }
 
-  function visibleDefects(state) { return ((state && state.defects) || []).filter(function (d) { return d && d.visible !== false; }); }
+  function visibleDefects(state) { return UT.ascan.visibleDefects(state || {}); }
 
   function ampPctOf(amp, inst, derived, path) {
     if (UT.ascan && typeof UT.ascan.ampPctOf === 'function') return UT.ascan.ampPctOf(amp, inst, derived, path);
@@ -1002,6 +999,7 @@
       return { kind: e.kind, path: e.path, ampPct: e.ampPct, leg: e.leg, x: e.x, y: e.y, tUs: Number.isFinite(e.tUs) ? e.tUs : null, mode: e.mode || null, angle: e.angle, defectId: e.defectId, tag: e.tag };
     });
   }
+  /** UT.test.pa.sscan(): run one S-scan sweep on the current focal law. @returns {{angles:number[], selected:number, maxPath:number, T:number, tcgDb:number[], from:number, to:number, step:number, columns:{angle:number, valid:boolean, tcgDb:number, aperture:object, nearField:number, echoes:object[], samples:number[]}[]}} */
   function testSscan() {
     ensurePa({ noRender: true });
     const frame = UT.renderNow();
@@ -1011,12 +1009,14 @@
       columns: ss.columns.map(function (c) { return { angle: c.angle, valid: c.valid, tcgDb: c.tcgDb, aperture: c.aperture, nearField: c.nearField, echoes: echoRows(c.echoes), samples: Array.from(c.samples) }; }),
     };
   }
+  /** UT.test.pa.escan(): run one E-scan (contact L probe, sliding 8-element aperture). @returns {{angle:number, sub:number, elements:number, maxPath:number, T:number, columns:{xOff:number, index:number, valid:boolean, echoes:object[]}[]}} */
   function testEscan() {
     ensurePa({ noRender: true });
     UT.renderNow();
     const es = escan(UT.state);
     return { angle: es.angle, sub: es.sub, elements: es.elements, maxPath: es.maxPath, T: es.T, columns: es.columns.map(function (c) { return { xOff: c.xOff, index: c.index, valid: c.valid, echoes: echoRows(c.echoes), samples: Array.from(c.samples) }; }) };
   }
+  /** UT.test.pa.runScan(): synchronous PA C-scan of the whole scan length (stored in state.pa.scan). @returns {{z0:number, z1:number, step:number, n:number, xBins:number, latMax:number, nonEmpty:number, max:number, map:number[]}|null} */
   function testRunScan() {
     ensurePa({ noRender: true });
     stopScan(true);
@@ -1029,6 +1029,7 @@
     for (let i = 0; i < sc.map.length; i++) { const v = sc.map[i]; if (Number.isFinite(v) && v > 0) { nonEmpty++; if (v > max) max = v; } }
     return { z0: sc.z0, z1: sc.z1, step: sc.step, n: sc.n, xBins: sc.xBins, latMax: sc.latMax, nonEmpty, max, map: Array.from(sc.map) };
   }
+  /** UT.test.pa.focalLaw(θ, {escan, focusDepth}): focal law of one steering angle (deg in steel) for the current state. @returns {{angle:number, delaysUs:number[], slope:number, valid:boolean, thetaW:number, thetaRel:number, vW:number, F:number, xEl:number[]}} */
   function testFocalLaw(theta, opts) {
     const law = focalLaw(theta, Object.assign({}, opts || {}, { state: UT.state }));
     return { angle: law.angle, delaysUs: law.delaysUs.slice(), slope: law.slope, valid: law.valid, thetaW: law.thetaW, thetaRel: law.thetaRel, vW: law.vW, F: law.F, xEl: law.xEl.slice() };

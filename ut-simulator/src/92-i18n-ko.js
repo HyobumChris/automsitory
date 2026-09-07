@@ -203,7 +203,7 @@
     'Reveal one': '하나 공개', 'Check row': '행 확인', 'Random practice': '무작위 연습', 'Difficulty:': '난이도:', 'Hint (−5 %)': '힌트 (−5 %)',
     'PASS': '합격', 'FAIL': '불합격', 'FAIL (below {p}%)': '불합격 ({p}% 미만)', 'FAIL (critical miss)': '불합격 (치명적 미검출)', 'SCORE {score}%': '점수 {score}%', 'Missed': '미검출', 'critical': '치명적', 'false call': '오검출', 'False calls': '오검출',
     'Trade Test score {score}% — {found}/{n} found, {fc} false calls': '실기 시험 점수 {score}% — {n}개 중 {found}개 검출, 오검출 {fc}건', '{found}/{n} found, {fc} false calls, time {t}': '{n}개 중 {found}개 검출, 오검출 {fc}건, 소요 시간 {t}',
-    'Time is up — the report has been submitted automatically': '시간 종료 — 보고서가 자동 제출되었습니다', 'Time used {t}': '소요 시간 {t}', '{m} minutes left': '{m}분 남음', '{m} minute left': '{m}분 남음', 'Mean time to first detection': '첫 검출까지 평균 시간', 'Procedure compliance': '절차서 준수',
+    'Time is up — the report has been submitted automatically': '시간 종료 — 보고서가 자동 제출되었습니다', 'Time used {t}': '소요 시간 {t}', '{m} minutes left': '{m}분 남음', '{m} minute left': '{m}분 남음', '{angle}° {mode} not possible in {mat} (limit {limit}°): refracted angle limited to {actual}°': '{mat}에서는 {angle}° {mode}가 불가능(한계 {limit}°): 굴절각을 {actual}°로 제한', 'Mean time to first detection': '첫 검출까지 평균 시간', 'Procedure compliance': '절차서 준수',
     'DAC block ({n} points, T {T} mm)': 'DAC 대비 시험편 ({n}점, T {T} mm)', 'ref {r} dB + {x} dB': '기준 {r} dB + {x} dB',
     // 90-app procedure lock while the trade exam runs (probe tooltips / status)
     'Not allowed by the procedure while the trade test runs': '실기 시험 중에는 절차서상 허용되지 않습니다', 'Probe {id} is not allowed by the procedure while the trade test runs': '탐촉자 {id}은(는) 실기 시험 중에 절차서상 허용되지 않습니다',
@@ -461,6 +461,44 @@
   ];
 
   // ------------------------------------------------------------------ registration (load time, no DOM)
+  // 70-instruments keypad tooltips (TIPS; title/aria-label of the skins, relabelled on 'lang'). Keep {pct}/{n}/{g}/{k} verbatim.
+  UT.i18n.add('ko', {
+    'Gain — select the gain (2ND F + dB = store / release the reference gain)': '게인 — 게인 선택 (2ND F + dB = 기준 게인 저장 / 해제)',
+    'Save the current readouts to the datalogger': '현재 판독값을 데이터로거에 저장',
+    'Step the selected parameter up (gain +0.5 dB; 2ND F + ▲ = +6 dB)': '선택한 파라미터 올리기 (게인 +0.5 dB; 2ND F + ▲ = +6 dB)',
+    'Step the selected parameter down (gain −0.5 dB; 2ND F + ▼ = −6 dB)': '선택한 파라미터 내리기 (게인 −0.5 dB; 2ND F + ▼ = −6 dB)',
+    'Coarse step down (gain −6 dB)': '큰 단계로 내리기 (게인 −6 dB)',
+    'Coarse step up (gain +6 dB)': '큰 단계로 올리기 (게인 +6 dB)',
+    'Enter — confirm (next Auto Cal step)': 'Enter — 확인 (다음 Auto Cal 단계)',
+    'Freeze the A-scan (2ND F + ❄ = Compare snapshot)': 'A-스캔 정지 (2ND F + ❄ = 비교 스냅샷)',
+    'Back — leave the sub-page, cancel 2ND F / Auto Cal': '뒤로 — 하위 페이지 나가기, 2ND F / Auto Cal 취소',
+    'Gates — select gate 1 / 2 and open its page (2ND F + GATES = AUTO {pct} %)': '게이트 — 게이트 1 / 2 선택 및 페이지 열기 (2ND F + GATES = AUTO {pct} %)',
+    'Range 50 → 100 → 200 → 400 mm (2ND F + RANGE = backwards)': '범위 50 → 100 → 200 → 400 mm (2ND F + RANGE = 역방향)',
+    'Second function — latch, then press dB, GATES, ❄, RANGE or ▲▼': '2차 기능 — 래치 후 dB, GATES, ❄, RANGE 또는 ▲▼ 누름',
+    'Peak memory on / off': '피크 메모리 켜기 / 끄기',
+    'Power (decorative LED)': '전원 (장식용 LED)',
+    'Next softkey page': '다음 소프트키 페이지',
+    'Softkey page {n}': '소프트키 페이지 {n}',
+    'Press softkey {n} of the current column': '현재 열의 소프트키 {n} 누름',
+    'Set the gain to {g} dB': '게인을 {g} dB로 설정',
+    'Gate 1 — select gate 1 (start)': '게이트 1 — 게이트 1 선택 (시작)',
+    'Gate 2 — select gate 2 (start)': '게이트 2 — 게이트 2 선택 (시작)',
+    'Pulser — damping on / off (2ND F + PULSER = receiver filter)': '펄서 — 댐핑 켜기 / 끄기 (2ND F + PULSER = 수신기 필터)',
+    'Display — cycle the rectification': '디스플레이 — 정류 방식 순환',
+    'Big readout: depth ↔ amplitude %': '큰 판독값: 깊이 ↔ 진폭 %',
+    'Auto Cal — two-point velocity / zero calibration': 'Auto Cal — 2점 음속 / 영점 교정',
+    'Select the zero offset': '영점 오프셋 선택',
+    'Select the range (2ND F + RANGE = 50 → 100 → 200 → 400 mm)': '범위 선택 (2ND F + RANGE = 50 → 100 → 200 → 400 mm)',
+    'Select the velocity': '음속 선택',
+    'Select the probe angle (2ND F + ANGLE = thickness)': '탐촉자 각도 선택 (2ND F + ANGLE = 두께)',
+    'Option (no function)': '옵션 (기능 없음)',
+    'ID (no function)': 'ID (기능 없음)',
+    'Erase the DAC curve': 'DAC 곡선 지우기',
+    'Close the USK 7 window': 'USK 7 창 닫기',
+    'Re-open the USK 7 window': 'USK 7 창 다시 열기',
+    'Turn {k} down': '{k} 낮추기',
+    'Turn {k} up': '{k} 높이기',
+  });
   UT.i18n.add('ko', KO);
   // 82-lessons and 84-trade pass an already-translated t(key) as the window title / button / field KEY (see hand-off), so
   // under 'ko' their data-i18n holds Korean text. Identity entries for every Korean value keep UT.i18n.has() true for them

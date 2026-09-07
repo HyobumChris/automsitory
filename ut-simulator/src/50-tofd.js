@@ -106,11 +106,8 @@
   const MODECONV_KINDS = { 'modeconv-backwall': 1, 'modeconv-backwall-ss': 1, 'modeconv-tip': 1 };
 
   // ================================================================== physics
-  function materialOf(spec) {
-    if (spec && spec.material && typeof spec.material === 'object') return spec.material;
-    const mats = UT.specimens && UT.specimens.materials;
-    return (mats && mats.carbon) || { key: 'carbon', vComp: C.V_COMP_STEEL, vShear: C.V_SHEAR_STEEL, grass: GRASS_MATERIAL_REF };
-  }
+  /** Full material record of a specimen (UT.specimens.materialOf; carbon steel when spec/material is missing). */
+  function materialOf(spec) { return UT.specimens.materialOf(spec && spec.material); }
 
   /**
    * TOFD geometry for the current state.
@@ -572,6 +569,7 @@
     return true;
   }
 
+  /** @returns {boolean} true while a TOFD scan is running (animated path only) */
   function isScanning() { return !!anim; }
 
   /** Per-column time shift (µs) that straightens the lateral wave (0 when the scan has no latUs). */
@@ -628,7 +626,7 @@
 
   // ================================================================== panel (DOM)
   const css = [
-    '.win[data-win=tofd] .win-body{padding:0;background:#000;overflow:hidden}',
+    '.win[data-win=tofd] .win-body{padding:0;background:#000;overflow:hidden auto}',
     '.win[data-win=tofd] .tofd-top{display:flex;align-items:stretch;height:36px;background:#000}',
     '.tofd-docked{visibility:hidden}',
     '.win[data-win=tofd] .tofd-run{width:140px;margin:0;padding:0;font:bold 17px "Segoe UI",Arial,sans-serif;color:#000;background:#ececec;border:2px outset #fff;cursor:pointer}',
@@ -1162,6 +1160,7 @@
   };
 
   // ================================================================== test API
+  /** UT.test.tofd(): the current TOFD result (frame.tofd or a fresh compute). @returns {{events:{kind:string, tUs:number, depth:number, defectId:(number|string|null), amp:number}[], lateralUs:number|null, backwallUs:number|null, wd:number, deadZones:{lateral:number, backwall:number}|null, modeConv:boolean}} */
   function testTofd() {
     let res = UT.frame && UT.frame.tofd;
     if (!res) res = compute(UT.state);
@@ -1173,6 +1172,7 @@
       modeConv: !!res.modeConv,
     };
   }
+  /** UT.test.runTofdScan(): synchronous D-scan of the whole scan length (stored in state.tofd.scan). @returns {{z0:number, z1:number, step:number, n:number}|null} */
   function testRunTofdScan() {
     stopScan(true);
     const sc = runScan(UT.state, { sync: true });
@@ -1180,11 +1180,13 @@
     UT.setIn('tofd', { scan: sc, running: false });
     return { z0: sc.z0, z1: sc.z1, step: sc.step, n: sc.n };
   }
+  /** UT.test.pcsOptimise(): set the PCS for a 2/3 T crossing (§3.9) and render. @returns {number} the new PCS (mm) */
   function testPcsOptimise() {
     const pcs = pcsOptimise();
     UT.renderNow();
     return pcs;
   }
+  /** UT.test.tofdCursor({z, depth} | {tUs}): place the D-scan cursor and render. @returns {{view:'dscan', z:number, depth:number, tUs:number}|null} */
   function testTofdCursor(p) {
     const c = cursorAt(p || {});
     UT.renderNow();

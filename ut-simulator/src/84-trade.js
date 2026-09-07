@@ -1141,7 +1141,7 @@
       if (res && res.misses && res.misses.length) ui.result.appendChild(dom.h('div', { class: 'tr-miss' }, t('Missed') + ': ' + res.misses.map(function (m) { return '#' + m.n + ' (' + (typeLabel(normType(m.type)) || m.type) + ' z ' + m.zFrom + ')'; }).join(', ')));
     }
   }
-  const tradeWin = winApi('trade', 'Trade Test', { x: 600, y: 110, w: 720 }, buildTrade, function () { if (st().mode === 'trade' && has('modes.exit')) UT.modes.exit(); });
+  const tradeWin = winApi('trade', 'Trade Test', { x: 600, y: 110, w: 720 }, buildTrade, function () { if (st().mode === 'trade' && !locked() && has('modes.exit')) UT.modes.exit(); /* an accidental ✕ never forfeits a locked exam: reopen via Defects ▸ Trade Test… */ });
   tradeWin.onRefresh = refreshTrade;
 
   // scoreboard

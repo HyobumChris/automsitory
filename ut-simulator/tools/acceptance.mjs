@@ -623,15 +623,17 @@ check('V2-9 DGS / ERS on the FBH block', 'v2', async ({ page }) => {
     const ref = UT.test.dgs({ record: 'backwall' });
     const fb = UT.state.specimen.fbhs;
     const ers = (d) => { const f = fb.find(h => h.d === d && h.y === 30); UT.test.setProbe({ x: f.x }); UT.test.setInstrument({ gates: [{ on: true, start: f.y - 6, width: 12, level: 2 }] }); UT.test.compute(); const c = UT.test.dgs(); return { ers: c.result && c.result.ersMm, echoPct: c.echo && c.echo.ampPct }; };
-    const e3 = ers(3), e6 = ers(6);
+    const e3 = ers(3), e6 = ers(6), e4 = ers(4), e2 = ers(2);
     const H = UT.standards.dgs.hDisc ? UT.standards.dgs.hDisc(3, 0.3) : null;
     const curves = UT.standards.dgs.curves ? UT.standards.dgs.curves(UT.frame.derived, [0.3]) : null;
     let Hc = null; if (curves && curves.A) { let bi = 0; curves.A.forEach((a, i) => { if (Math.abs(a - 3) < Math.abs(curves.A[bi] - 3)) bi = i; }); Hc = { A: curves.A[bi], H: curves.discs[0].H[bi] }; }
     UT.standards.dgs.setReference(null);
-    return { ref: ref && ref.ref, e3, e6, H, Hc };
+    return { ref: ref && ref.ref, e3, e6, e4, e2, H, Hc };
   });
   A.ok(!!r.ref, 'backwall reference recorded');
-  A.near(r.e3.ers, 3, 0.9, '⌀3 FBH ERS'); A.near(r.e6.ers, 6, 1.5, '⌀6 FBH ERS');
+  A.near(r.e3.ers, 3, 0.9, '⌀3 FBH ERS'); A.near(r.e6.ers, 6, 1.0, '⌀6 FBH ERS');
+  // §3.8 DGS round trip with the backwall reference (FBH law without the min(1, …) cap)
+  A.near(r.e4.ers, 4, 0.5, '⌀4 @ 30 FBH ERS'); A.near(r.e6.ers, 6, 0.5, '⌀6 @ 30 FBH ERS'); A.near(r.e2.ers, 2, 0.5, '⌀2 @ 30 FBH ERS');
   A.near(r.H, 0.0628, 0.0628 * 0.01, 'hDisc(3, 0.3)');
   if (r.Hc && Math.abs(r.Hc.A - 3) < 1e-6) A.near(r.Hc.H, 0.0628, 0.0628 * 0.01, 'dgs.curves disc 0.3 at A 3');
   return A.result();

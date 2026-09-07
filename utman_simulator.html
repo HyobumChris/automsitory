@@ -4304,7 +4304,21 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     return f;
   }
 
-  UT.rays = { trace, zFactor, describe, emission, dirAt, arcHit, mergeEchoes, modeConv: modeConvCoef, fanLayout, dirWeight: makeDirW, R_LS, R_SL, __selftest };
+  /**
+   * 0° backwall distance law at path s (relative units, e = S = 1): √(N/max(s, N)) near-field blend × two-way attenuation
+   * 10^(−2·αL·s/20) with αL = attenL5·(freq/5)^1.5 — the law makeEcho() applies to the backwall. 45-standards' DGS bwLaw()
+   * prefers this export over its own replica; keep both in step if the law ever changes.
+   * @param {number} s       sound path (mm)
+   * @param {object} derived UT.probe.derive() result (nearField, freq)
+   * @param {object} [specimen]
+   */
+  function ampBwLaw(s, derived, specimen) {
+    const N = (derived && derived.nearField) || 20;
+    const freq = derived && Number.isFinite(derived.freq) && derived.freq > 0 ? derived.freq : 5;
+    const alphaL = materialInfo(specimen || null, derived || {}).attenL5 * Math.pow(freq / 5, 1.5);
+    return Math.sqrt(N / Math.max(s, N)) * Math.pow(10, -2 * alphaL * s / 20);
+  }
+  UT.rays = { trace, zFactor, describe, emission, dirAt, arcHit, mergeEchoes, modeConv: modeConvCoef, fanLayout, dirWeight: makeDirW, ampBwLaw, R_LS, R_SL, __selftest };
 })(window.UT = window.UT || {});
 
 </script>
@@ -5643,6 +5657,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
 
   // ------------------------------------------------------------------ exports
   const ascan = {
+    /** Defects with visible !== false (shared by 55-aut / 56-pa). */
+    visibleDefects,
     N_SAMPLES, CLIP_PCT, GRASS_PCT, DAMP_DB, TCG_TARGET_PCT, TCG_MIN_DB, TCG_MAX_DB,
     ENERGIES, DAMPING_OHMS, PRF_LIST, FILTERS, ENERGY_DB, DAMPING_DB, ENERGY_WIDTH, DAMPING_WIDTH, FILTER_BANDS, ENERGY_LABELS,
     synth, evalGates, geometry, dacCurve, dacCurves, dacAt, dacAtRef, dacRecord, computeSscan, compute,
@@ -6222,7 +6238,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     out.push('ASME BPVC VIII-1 App. 12 (12-3) + ASME V Art. 4 — confidence HIGH: investigate all indications > 20 % of reference (compared in percent so −14 dB counts as 20 %); reject cracks / LOF / IP regardless; other indications reject when > 100 % DAC AND longer than 6 mm (t ≤ 19), t/3 (19 < t ≤ 57) or 19 mm (t > 57). Basic block SDH ⌀ 2.4 mm for t ≤ 25.');
     out.push('AWS D1.1 Table 8.2 (statically loaded, non-tubular) — confidence MEDIUM-HIGH (~75 %) on the class numbers, HIGH on structure: rating d = a − b − c with c = 2 dB per inch of sound path beyond 1 in (rounded, .5 up); classes A–D per thickness band and probe angle; for t ≤ 3/4 in only 70° is listed (45°/60° → n/a); the B/C isolation (spacing) rule is omitted; class D is accepted and not recorded.');
     out.push('DGS / ERS — normalised Krautkrämer diagram: backwall 1/A, disc 2π·G²/A² (lead decision), SDH √(2λd)/(a·A^1.5); far-field approximation (A ≥ 1); DGS applies to the 0° probe only; the transfer correction is added to the specimen echo. The reference echo is transported to the evaluated echo\'s path with the simulator\'s own backwall law (√(N/s) near-field blend plus material attenuation) before the diagram is entered, so the ERS inverts the tracer\'s FBH law exactly (identity for equal paths).');
-    out.push('Mode conversion — the S↔L conversion coefficients R_LS(φ) and R_SL(φ) of the ray tracer are closed-form fits, ±0.1; converted echoes are labelled "Mode-converted (L/S)". Switching Probes ▸ Mode conversion OFF also removes the conversion LOSS on specular echoes (the 1 − R split), so the 60° root-corner echo reads ≈ +5.5 dB higher with mode conversion off — compare readings only with the same setting.');
+    out.push('Mode conversion — the S↔L conversion coefficients R_LS(φ) and R_SL(φ) of the ray tracer are closed-form fits, ±0.1; converted echoes are labelled "Mode-converted (L/S)". Conversions with a coefficient R < 0.04 (L→S below ≈ 8°, S→L below ≈ 4.4° from the normal) are treated as no conversion, so e.g. the 0° plain-plate L-S-S-S satellite between backwall multiples 3 and 4 is deliberately absent (SPEC NOTE 30). Switching Probes ▸ Mode conversion OFF also removes the conversion LOSS on specular echoes (the 1 − R split), so the 60° root-corner echo reads ≈ +5.5 dB higher with mode conversion off — compare readings only with the same setting.');
     out.push('Exam sharing — an exam link contains no defects (only the seed, the code hash and the settings) and the result token is signed with FNV-1a. This is obfuscation for classroom use, not security: the browser devtools can still reach the generator.');
     out.push('Transfer correction — measured as the gain difference between the block and the specimen backwall (same path); ISO 17640: ignore < 2 dB, compensate 2…12 dB, investigate > 12 dB. Lesson 24 enters it in Evaluation ▸ Transfer.');
     return out;
@@ -6236,7 +6252,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       'ASME BPVC VIII-1 App. 12 (12-3) + ASME V Art. 4 — 신뢰도 높음: 기준의 20 %를 넘는 모든 지시를 조사(퍼센트로 비교하므로 −14 dB가 20 %에 해당); 균열 / 융합 불량 / 용입 부족은 무조건 불합격; 그 밖의 지시는 DAC 100 % 초과이면서 길이가 6 mm (t ≤ 19), t/3 (19 < t ≤ 57) 또는 19 mm (t > 57)를 넘을 때 불합격. t ≤ 25의 기본 시험편 횡공 ⌀ 2.4 mm.',
       'AWS D1.1 표 8.2 (정하중, 비관형) — 등급 수치는 신뢰도 보통-높음(약 75 %), 구조는 높음: 지시 등급 d = a − b − c, c = 빔 노정 1 in 초과분 1 in당 2 dB (반올림, .5는 올림); 두께 구간과 탐촉자 각도별 A–D 등급; t ≤ 3/4 in에서는 70°만 규정(45°/60° → 해당 없음); B/C 격리(간격) 규칙은 생략; D 등급은 합격이며 기록하지 않습니다.',
       'DGS / ERS — 정규화된 Krautkrämer 선도: 저면 1/A, 원판 2π·G²/A² (리드 결정), 횡공 √(2λd)/(a·A^1.5); 원거리 음장 근사 (A ≥ 1); DGS는 0° 탐촉자에만 적용; 전달 손실 보정은 시험체 에코에 더해집니다. 기준 에코는 선도에 넣기 전에 시뮬레이터 자체의 저면 거리 법칙(√(N/s) 근거리 음장 혼합 + 재질 감쇠)으로 평가 에코의 노정으로 옮겨지므로 ERS는 광선 추적기의 평저공 법칙을 정확히 역산합니다(노정이 같으면 항등).',
-      '모드 변환 — 광선 추적기의 S↔L 변환 계수 R_LS(φ), R_SL(φ)는 닫힌 형식 근사식(±0.1)이며, 변환된 에코는 "모드 변환 (L/S)"로 표시됩니다.',
+      '모드 변환 — 광선 추적기의 S↔L 변환 계수 R_LS(φ), R_SL(φ)는 닫힌 형식 근사식(±0.1)이며, 변환된 에코는 "모드 변환 (L/S)"로 표시됩니다. 변환 계수 R < 0.04인 변환(법선 기준 L→S 약 8° 미만, S→L 약 4.4° 미만)은 변환 없음으로 취급하므로, 예를 들어 0° 평판의 저면 3회·4회 다중 반사 사이 L-S-S-S 위성 에코는 의도적으로 나타나지 않습니다(SPEC NOTE 30).',
       '시험 공유 — 시험 링크에는 결함이 들어 있지 않고(시드, 코드 해시, 설정만) 결과 토큰은 FNV-1a로 서명됩니다. 이는 교실용 난독화이지 보안이 아닙니다: 브라우저 개발자 도구로 여전히 생성기에 접근할 수 있습니다.',
       '전달 손실 보정 — 대비 시험편과 시험체 저면 에코(같은 노정)의 게인 차이로 측정; ISO 17640: 2 dB 미만 무시, 2…12 dB 보정, 12 dB 초과 시 조사. 레슨 24에서 평가 ▸ 전달 손실에 입력합니다.',
     ];
@@ -6977,11 +6993,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   const MODECONV_KINDS = { 'modeconv-backwall': 1, 'modeconv-backwall-ss': 1, 'modeconv-tip': 1 };
 
   // ================================================================== physics
-  function materialOf(spec) {
-    if (spec && spec.material && typeof spec.material === 'object') return spec.material;
-    const mats = UT.specimens && UT.specimens.materials;
-    return (mats && mats.carbon) || { key: 'carbon', vComp: C.V_COMP_STEEL, vShear: C.V_SHEAR_STEEL, grass: GRASS_MATERIAL_REF };
-  }
+  /** Full material record of a specimen (UT.specimens.materialOf; carbon steel when spec/material is missing). */
+  function materialOf(spec) { return UT.specimens.materialOf(spec && spec.material); }
 
   /**
    * TOFD geometry for the current state.
@@ -7443,6 +7456,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     return true;
   }
 
+  /** @returns {boolean} true while a TOFD scan is running (animated path only) */
   function isScanning() { return !!anim; }
 
   /** Per-column time shift (µs) that straightens the lateral wave (0 when the scan has no latUs). */
@@ -7499,7 +7513,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
 
   // ================================================================== panel (DOM)
   const css = [
-    '.win[data-win=tofd] .win-body{padding:0;background:#000;overflow:hidden}',
+    '.win[data-win=tofd] .win-body{padding:0;background:#000;overflow:hidden auto}',
     '.win[data-win=tofd] .tofd-top{display:flex;align-items:stretch;height:36px;background:#000}',
     '.tofd-docked{visibility:hidden}',
     '.win[data-win=tofd] .tofd-run{width:140px;margin:0;padding:0;font:bold 17px "Segoe UI",Arial,sans-serif;color:#000;background:#ececec;border:2px outset #fff;cursor:pointer}',
@@ -8033,6 +8047,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   };
 
   // ================================================================== test API
+  /** UT.test.tofd(): the current TOFD result (frame.tofd or a fresh compute). @returns {{events:{kind:string, tUs:number, depth:number, defectId:(number|string|null), amp:number}[], lateralUs:number|null, backwallUs:number|null, wd:number, deadZones:{lateral:number, backwall:number}|null, modeConv:boolean}} */
   function testTofd() {
     let res = UT.frame && UT.frame.tofd;
     if (!res) res = compute(UT.state);
@@ -8044,6 +8059,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       modeConv: !!res.modeConv,
     };
   }
+  /** UT.test.runTofdScan(): synchronous D-scan of the whole scan length (stored in state.tofd.scan). @returns {{z0:number, z1:number, step:number, n:number}|null} */
   function testRunTofdScan() {
     stopScan(true);
     const sc = runScan(UT.state, { sync: true });
@@ -8051,11 +8067,13 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     UT.setIn('tofd', { scan: sc, running: false });
     return { z0: sc.z0, z1: sc.z1, step: sc.step, n: sc.n };
   }
+  /** UT.test.pcsOptimise(): set the PCS for a 2/3 T crossing (§3.9) and render. @returns {number} the new PCS (mm) */
   function testPcsOptimise() {
     const pcs = pcsOptimise();
     UT.renderNow();
     return pcs;
   }
+  /** UT.test.tofdCursor({z, depth} | {tUs}): place the D-scan cursor and render. @returns {{view:'dscan', z:number, depth:number, tUs:number}|null} */
   function testTofdCursor(p) {
     const c = cursorAt(p || {});
     UT.renderNow();
@@ -8338,7 +8356,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     };
   }
 
-  function visibleDefects(state) { return (state.defects || []).filter(function (d) { return d && d.visible !== false; }); }
+  function visibleDefects(state) { return UT.ascan.visibleDefects(state); }
 
   /** Gate copies for a scan: gates with index ≥ channels are forced off. */
   function scanGates(state) {
@@ -8507,6 +8525,13 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(h); else clearTimeout(h);
   }
   function isScanning() { return !!anim; }
+  /** prefers-reduced-motion (SPEC-v2 §5.7): UT.app.reducedMotion() when 90 is loaded, else the media query. */
+  function reducedMotion() {
+    try {
+      if (UT.app && typeof UT.app.reducedMotion === 'function') return !!UT.app.reducedMotion();
+      return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch (e) { return false; }
+  }
 
   /**
    * Animated scan (aut.speed columns per frame): stores partial scans via UT.setIn('aut', {scan, map, running}),
@@ -8517,6 +8542,14 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const state = UT.state;
     if (!state.specimen) return false;
     stopScan(true);
+    if (reducedMotion()) {
+      // §5.7: no animation — every column in one synchronous loop, a single store/render, isScanning() stays false
+      const full = runScan(state);
+      if (!full) return false;
+      UT.setIn('aut', { scan: full, map: mapOf(full), running: false, x: state.probe.x });
+      UT.bus.emit('scan:progress', { kind: 'aut', i: full.n, n: full.n });
+      return true;
+    }
     const cache = prepare(state);
     if (!cache) return false;
     const sc = scanShell(state);
@@ -8587,7 +8620,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
 
   // ================================================================== panel (DOM)
   const css = [
-    '.win[data-win=aut] .win-body{padding:0;background:#000;color:#fff;overflow:hidden;font:12px "Segoe UI",Arial,sans-serif}',
+    '.win[data-win=aut] .win-body{padding:0;background:#000;color:#fff;overflow:hidden auto;font:12px "Segoe UI",Arial,sans-serif}',
     '.win[data-win=aut] .aut-panel{display:flex;align-items:flex-start;gap:4px;padding:3px;width:462px;box-sizing:border-box}',
     '.win[data-win=aut] .aut-strip-col{display:flex;flex-direction:column;gap:3px;width:186px}',
     '.win[data-win=aut] .aut-top{display:flex;align-items:stretch;height:34px}',
@@ -9548,11 +9581,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     };
   }
 
-  function materialOf(spec) {
-    const m = spec && spec.material;
-    if (m && Number.isFinite(m.vShear) && Number.isFinite(m.vComp)) return m;
-    return { key: 'carbon', vComp: C.V_COMP_STEEL, vShear: C.V_SHEAR_STEEL };
-  }
+  /** Full material record of a specimen (UT.specimens.materialOf; carbon steel when spec/material is missing). */
+  function materialOf(spec) { return UT.specimens.materialOf(spec && spec.material); }
 
   /** Angle set of the sweep from probe.paFrom/paTo/paStep (SPEC NOTE 1, 9). */
   function sweepOf(state) {
@@ -9567,7 +9597,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     return { from: lo, to: hi, step, angles };
   }
 
-  function visibleDefects(state) { return ((state && state.defects) || []).filter(function (d) { return d && d.visible !== false; }); }
+  function visibleDefects(state) { return UT.ascan.visibleDefects(state || {}); }
 
   function ampPctOf(amp, inst, derived, path) {
     if (UT.ascan && typeof UT.ascan.ampPctOf === 'function') return UT.ascan.ampPctOf(amp, inst, derived, path);
@@ -10457,6 +10487,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       return { kind: e.kind, path: e.path, ampPct: e.ampPct, leg: e.leg, x: e.x, y: e.y, tUs: Number.isFinite(e.tUs) ? e.tUs : null, mode: e.mode || null, angle: e.angle, defectId: e.defectId, tag: e.tag };
     });
   }
+  /** UT.test.pa.sscan(): run one S-scan sweep on the current focal law. @returns {{angles:number[], selected:number, maxPath:number, T:number, tcgDb:number[], from:number, to:number, step:number, columns:{angle:number, valid:boolean, tcgDb:number, aperture:object, nearField:number, echoes:object[], samples:number[]}[]}} */
   function testSscan() {
     ensurePa({ noRender: true });
     const frame = UT.renderNow();
@@ -10466,12 +10497,14 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       columns: ss.columns.map(function (c) { return { angle: c.angle, valid: c.valid, tcgDb: c.tcgDb, aperture: c.aperture, nearField: c.nearField, echoes: echoRows(c.echoes), samples: Array.from(c.samples) }; }),
     };
   }
+  /** UT.test.pa.escan(): run one E-scan (contact L probe, sliding 8-element aperture). @returns {{angle:number, sub:number, elements:number, maxPath:number, T:number, columns:{xOff:number, index:number, valid:boolean, echoes:object[]}[]}} */
   function testEscan() {
     ensurePa({ noRender: true });
     UT.renderNow();
     const es = escan(UT.state);
     return { angle: es.angle, sub: es.sub, elements: es.elements, maxPath: es.maxPath, T: es.T, columns: es.columns.map(function (c) { return { xOff: c.xOff, index: c.index, valid: c.valid, echoes: echoRows(c.echoes), samples: Array.from(c.samples) }; }) };
   }
+  /** UT.test.pa.runScan(): synchronous PA C-scan of the whole scan length (stored in state.pa.scan). @returns {{z0:number, z1:number, step:number, n:number, xBins:number, latMax:number, nonEmpty:number, max:number, map:number[]}|null} */
   function testRunScan() {
     ensurePa({ noRender: true });
     stopScan(true);
@@ -10484,6 +10517,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     for (let i = 0; i < sc.map.length; i++) { const v = sc.map[i]; if (Number.isFinite(v) && v > 0) { nonEmpty++; if (v > max) max = v; } }
     return { z0: sc.z0, z1: sc.z1, step: sc.step, n: sc.n, xBins: sc.xBins, latMax: sc.latMax, nonEmpty, max, map: Array.from(sc.map) };
   }
+  /** UT.test.pa.focalLaw(θ, {escan, focusDepth}): focal law of one steering angle (deg in steel) for the current state. @returns {{angle:number, delaysUs:number[], slope:number, valid:boolean, thetaW:number, thetaRel:number, vW:number, F:number, xEl:number[]}} */
   function testFocalLaw(theta, opts) {
     const law = focalLaw(theta, Object.assign({}, opts || {}, { state: UT.state }));
     return { angle: law.angle, delaysUs: law.delaysUs.slice(), slope: law.slope, valid: law.valid, thetaW: law.thetaW, thetaRel: law.thetaRel, vW: law.vW, F: law.F, xEl: law.xEl.slice() };
@@ -21739,57 +21773,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   }
 
   // ------------------------------------------------------------------ base64url / token
-  const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
-  function utf8Encode(str) {
-    const out = [];
-    for (let i = 0; i < str.length; i++) {
-      let c = str.charCodeAt(i);
-      if (c >= 0xd800 && c < 0xdc00 && i + 1 < str.length) { const d = str.charCodeAt(i + 1); if (d >= 0xdc00 && d < 0xe000) { c = 0x10000 + ((c - 0xd800) << 10) + (d - 0xdc00); i++; } }
-      if (c < 0x80) out.push(c);
-      else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 63));
-      else if (c < 0x10000) out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
-      else out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
-    }
-    return out;
-  }
-  function utf8Decode(bytes) {
-    let s = '';
-    for (let i = 0; i < bytes.length; i++) {
-      const b = bytes[i];
-      let c;
-      if (b < 0x80) c = b;
-      else if (b < 0xe0) c = ((b & 31) << 6) | (bytes[++i] & 63);
-      else if (b < 0xf0) c = ((b & 15) << 12) | ((bytes[++i] & 63) << 6) | (bytes[++i] & 63);
-      else c = ((b & 7) << 18) | ((bytes[++i] & 63) << 12) | ((bytes[++i] & 63) << 6) | (bytes[++i] & 63);
-      if (c >= 0x10000) { c -= 0x10000; s += String.fromCharCode(0xd800 + (c >> 10), 0xdc00 + (c & 1023)); } else s += String.fromCharCode(c);
-    }
-    return s;
-  }
-  function b64urlEncode(str) {
-    const bytes = utf8Encode(str);
-    let s = '';
-    for (let i = 0; i < bytes.length; i += 3) {
-      const a = bytes[i], b = bytes[i + 1], c = bytes[i + 2];
-      const n = (a << 16) | ((b || 0) << 8) | (c || 0);
-      s += B64[(n >> 18) & 63] + B64[(n >> 12) & 63] + (b === undefined ? '' : B64[(n >> 6) & 63]) + (c === undefined ? '' : B64[n & 63]);
-    }
-    return s;
-  }
-  function b64urlDecode(s) {
-    const map = {};
-    for (let i = 0; i < 64; i++) map[B64[i]] = i;
-    map['+'] = 62; map['/'] = 63;
-    const clean = String(s).replace(/=+$/, '');
-    const out = [];
-    let buf = 0, bits = 0;
-    for (const ch of clean) {
-      const v = map[ch];
-      if (v === undefined) throw new Error('bad base64');
-      buf = ((buf << 6) | v) & 0xffffff; bits += 6;
-      if (bits >= 8) { bits -= 8; out.push((buf >> bits) & 255); }
-    }
-    return utf8Decode(out);
-  }
+  // The UTF-8 / base64url codec lives in 00-core (UT.core.b64url / b64urlDecode, shared with 94-scenario).
+  function b64urlEncode(str) { return UT.core.b64url(str); }
+  function b64urlDecode(s) { return UT.core.b64urlDecode(s); }
   function codeHashOf(code, seed) { return M.fnv1a(String(code || '') + ':' + String(seed >>> 0)).toString(16); }
   /** 32-bit finaliser (lowbias32): decorrelates the generator state of neighbouring classroom seeds. */
   function mix32(x) {
@@ -22183,7 +22169,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     if (rem === null) { stopTimer(); return; }
     if (ui.clock) ui.clock.textContent = tr.revealed || tr.score !== null ? t('Time used {t}', { t: clock((trade._now() - tr.startedAt) / 1000) }) : t('Time left {t}', { t: clock(rem) });
     if (tr.score !== null) return;
-    for (const th of [600, 300, 60]) if (rem <= th && rem > 0 && !announced[th]) { announced[th] = true; announce(t('{m} minutes left', { m: th / 60 })); }
+    for (const th of [600, 300, 60]) if (rem <= th && rem > 0 && !announced[th]) { announced[th] = true; announce(t(th === 60 ? '{m} minute left' : '{m} minutes left', { m: th / 60 })); }
     if (rem <= 0 && tr.score === null && !announced[0]) {
       announced[0] = true;
       stopTimer();
@@ -22773,7 +22759,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       if (res && res.misses && res.misses.length) ui.result.appendChild(dom.h('div', { class: 'tr-miss' }, t('Missed') + ': ' + res.misses.map(function (m) { return '#' + m.n + ' (' + (typeLabel(normType(m.type)) || m.type) + ' z ' + m.zFrom + ')'; }).join(', ')));
     }
   }
-  const tradeWin = winApi('trade', 'Trade Test', { x: 600, y: 110, w: 720 }, buildTrade, function () { if (st().mode === 'trade' && has('modes.exit')) UT.modes.exit(); });
+  const tradeWin = winApi('trade', 'Trade Test', { x: 600, y: 110, w: 720 }, buildTrade, function () { if (st().mode === 'trade' && !locked() && has('modes.exit')) UT.modes.exit(); /* an accidental ✕ never forfeits a locked exam: reopen via Defects ▸ Trade Test… */ });
   tradeWin.onRefresh = refreshTrade;
 
   // scoreboard
@@ -23199,6 +23185,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
 
   // ------------------------------------------------------------------ small helpers
   function st() { return UT.state; }
+  /** SPEC-v2 §4.2.3 exam lock (80-modes): greys the Defects editor entries; 80's own guards remain the functional block. */
+  function examLocked() { return !!(has('modes.examLocked') && UT.modes.examLocked()); }
   function has(path) {
     let o = UT;
     for (const k of path.split('.')) { if (!o || o[k] === undefined || o[k] === null) return null; o = o[k]; }
@@ -23660,10 +23648,10 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
         { key: 'TKY Joint', action: function () { toggleMode('tky'); }, check: function () { return currentMode() === 'tky'; } },
       ] },
       { id: 'menu-defects', key: 'Defects', items: [
-        { key: 'Defect Editor...', action: function () { toggleWindowOf('modes.defectEditor'); }, check: function () { return winOpen('defects'); } },
-        { key: 'Add Preset', sub: presetNames.map(function (p) { return { key: p.label, action: function () { addPresetDefect(p.key); } }; }), enabled: function () { return presetNames.length > 0; } },
+        { key: 'Defect Editor...', action: function () { toggleWindowOf('modes.defectEditor'); }, check: function () { return winOpen('defects'); }, enabled: function () { return !examLocked(); } },
+        { key: 'Add Preset', sub: presetNames.map(function (p) { return { key: p.label, action: function () { addPresetDefect(p.key); } }; }), enabled: function () { return presetNames.length > 0 && !examLocked(); } },
         { key: 'Delete All Defects', action: function () { confirmDlg(t('Delete all defects?'), { title: 'ERASE ALL DEFECTS' }).then(function (ok) { if (ok) UT.set({ defects: [] }); }); }, enabled: function () { return !st().trade.active; } },
-        { key: 'Hide Defects', action: function () { setDisplay({ hide: !st().display.hide }); }, check: function () { return !!st().display.hide; } },
+        { key: 'Hide Defects', action: function () { setDisplay({ hide: !st().display.hide }); }, check: function () { return !!st().display.hide; }, enabled: function () { return !examLocked(); } },
         sepItem(),
         { key: 'Import Defects...', action: openImportDefects, enabled: function () { return !st().trade.active; } },
         { key: 'Export Defects...', action: openExportDefects },
@@ -24604,6 +24592,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       const d0 = has('probe.derive') ? UT.probe.derive(p, st().specimen) : null;
       s.wedge = d0 ? +d0.wedgeAngle.toFixed(1) : 0;
       const readout = h('div', { class: 'wedge-readout no-i18n', style: { overflowX: 'auto' } }, '');
+      const limitNote = h('div', { class: 'dlg-msg dlg-warn no-i18n' }, '');
+      limitNote.hidden = true;
       const scale = h('div', { class: 'wedge-scale' });
       const slider = UT.dom.field('Angle in wedge (shoe)', { type: 'range', value: s.wedge, min: 0, max: 80, step: 0.1, event: 'input', onchange: function (v) { s.wedge = parseFloat(v); fromWedge(true); } });
       const refIn = UT.dom.field('Refracted angle in steel', { type: 'number', value: 0, min: 0, max: 89, step: 0.5, event: 'input', onchange: function (v) { if (Number.isFinite(v)) fromRefracted(v); } });
@@ -24634,6 +24624,13 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
               : 'Shear wave angle       : ' + r.refracted.toFixed(1) + '°   (comp. wave totally reflected)\n')) +
           'sin(θ wedge)/v wedge = sin(θ steel)/v steel   (Snell)';
         readout.classList.toggle('dlg-warn', !!r.beyond);
+        // 20-probe clamps the refracted angle to the material's critical limit (derived.angleLimited): same warning
+        // treatment as 'F > near field' in openFocus (the status physics line already carries the note)
+        const dd = has('probe.derive') ? UT.probe.derive(st().probe, st().specimen) : null;
+        limitNote.textContent = dd && dd.angleLimited
+          ? t('{angle}° {mode} not possible in {mat} (limit {limit}°): refracted angle limited to {actual}°', { angle: dd.nominalAngle.toFixed(1), mode: dd.mode === 'comp' ? "comp' wave" : 'shear wave', mat: (st().specimen && st().specimen.material && st().specimen.material.name) || 'this material', limit: dd.angleLimit.toFixed(1), actual: dd.refracted.toFixed(1) })
+          : '';
+        limitNote.hidden = !limitNote.textContent;
       };
       const fromWedge = function (apply) {
         const r = wedgeToRefracted(s.wedge, s.vW, mat);
@@ -24653,7 +24650,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       const presetBtn = function (a) { return UT.dom.button(a + '°', function () { setAngle(a); s.wedge = +UT.probe.derive(st().probe, st().specimen).wedgeAngle.toFixed(1); fromWedge(false); }, { class: 'btn small' }); };
       fromWedge(false);
       return h('div', {}, [
-        matSel, slider, scale, refIn, readout,
+        matSel, slider, scale, refIn, readout, limitNote,
         tx('div', { class: 'dlg-note' }, 'Moving the slider changes the refracted angle and the wave mode (compression / shear) in steel by Snell\'s law. Watch the physics line in the status bar.'),
         h('div', { class: 'btn-row' }, [presetBtn(0), presetBtn(45), presetBtn(60), presetBtn(70), UT.dom.button('Close', function () { win.close(); }, { class: 'btn primary' })]),
       ]);
@@ -25870,7 +25867,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     'Reveal one': '하나 공개', 'Check row': '행 확인', 'Random practice': '무작위 연습', 'Difficulty:': '난이도:', 'Hint (−5 %)': '힌트 (−5 %)',
     'PASS': '합격', 'FAIL': '불합격', 'FAIL (below {p}%)': '불합격 ({p}% 미만)', 'FAIL (critical miss)': '불합격 (치명적 미검출)', 'SCORE {score}%': '점수 {score}%', 'Missed': '미검출', 'critical': '치명적', 'false call': '오검출', 'False calls': '오검출',
     'Trade Test score {score}% — {found}/{n} found, {fc} false calls': '실기 시험 점수 {score}% — {n}개 중 {found}개 검출, 오검출 {fc}건', '{found}/{n} found, {fc} false calls, time {t}': '{n}개 중 {found}개 검출, 오검출 {fc}건, 소요 시간 {t}',
-    'Time is up — the report has been submitted automatically': '시간 종료 — 보고서가 자동 제출되었습니다', 'Time used {t}': '소요 시간 {t}', '{m} minutes left': '{m}분 남음', '{m} minute left': '{m}분 남음', 'Mean time to first detection': '첫 검출까지 평균 시간', 'Procedure compliance': '절차서 준수',
+    'Time is up — the report has been submitted automatically': '시간 종료 — 보고서가 자동 제출되었습니다', 'Time used {t}': '소요 시간 {t}', '{m} minutes left': '{m}분 남음', '{m} minute left': '{m}분 남음', '{angle}° {mode} not possible in {mat} (limit {limit}°): refracted angle limited to {actual}°': '{mat}에서는 {angle}° {mode}가 불가능(한계 {limit}°): 굴절각을 {actual}°로 제한', 'Mean time to first detection': '첫 검출까지 평균 시간', 'Procedure compliance': '절차서 준수',
     'DAC block ({n} points, T {T} mm)': 'DAC 대비 시험편 ({n}점, T {T} mm)', 'ref {r} dB + {x} dB': '기준 {r} dB + {x} dB',
     // 90-app procedure lock while the trade exam runs (probe tooltips / status)
     'Not allowed by the procedure while the trade test runs': '실기 시험 중에는 절차서상 허용되지 않습니다', 'Probe {id} is not allowed by the procedure while the trade test runs': '탐촉자 {id}은(는) 실기 시험 중에 절차서상 허용되지 않습니다',
@@ -26128,6 +26125,44 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   ];
 
   // ------------------------------------------------------------------ registration (load time, no DOM)
+  // 70-instruments keypad tooltips (TIPS; title/aria-label of the skins, relabelled on 'lang'). Keep {pct}/{n}/{g}/{k} verbatim.
+  UT.i18n.add('ko', {
+    'Gain — select the gain (2ND F + dB = store / release the reference gain)': '게인 — 게인 선택 (2ND F + dB = 기준 게인 저장 / 해제)',
+    'Save the current readouts to the datalogger': '현재 판독값을 데이터로거에 저장',
+    'Step the selected parameter up (gain +0.5 dB; 2ND F + ▲ = +6 dB)': '선택한 파라미터 올리기 (게인 +0.5 dB; 2ND F + ▲ = +6 dB)',
+    'Step the selected parameter down (gain −0.5 dB; 2ND F + ▼ = −6 dB)': '선택한 파라미터 내리기 (게인 −0.5 dB; 2ND F + ▼ = −6 dB)',
+    'Coarse step down (gain −6 dB)': '큰 단계로 내리기 (게인 −6 dB)',
+    'Coarse step up (gain +6 dB)': '큰 단계로 올리기 (게인 +6 dB)',
+    'Enter — confirm (next Auto Cal step)': 'Enter — 확인 (다음 Auto Cal 단계)',
+    'Freeze the A-scan (2ND F + ❄ = Compare snapshot)': 'A-스캔 정지 (2ND F + ❄ = 비교 스냅샷)',
+    'Back — leave the sub-page, cancel 2ND F / Auto Cal': '뒤로 — 하위 페이지 나가기, 2ND F / Auto Cal 취소',
+    'Gates — select gate 1 / 2 and open its page (2ND F + GATES = AUTO {pct} %)': '게이트 — 게이트 1 / 2 선택 및 페이지 열기 (2ND F + GATES = AUTO {pct} %)',
+    'Range 50 → 100 → 200 → 400 mm (2ND F + RANGE = backwards)': '범위 50 → 100 → 200 → 400 mm (2ND F + RANGE = 역방향)',
+    'Second function — latch, then press dB, GATES, ❄, RANGE or ▲▼': '2차 기능 — 래치 후 dB, GATES, ❄, RANGE 또는 ▲▼ 누름',
+    'Peak memory on / off': '피크 메모리 켜기 / 끄기',
+    'Power (decorative LED)': '전원 (장식용 LED)',
+    'Next softkey page': '다음 소프트키 페이지',
+    'Softkey page {n}': '소프트키 페이지 {n}',
+    'Press softkey {n} of the current column': '현재 열의 소프트키 {n} 누름',
+    'Set the gain to {g} dB': '게인을 {g} dB로 설정',
+    'Gate 1 — select gate 1 (start)': '게이트 1 — 게이트 1 선택 (시작)',
+    'Gate 2 — select gate 2 (start)': '게이트 2 — 게이트 2 선택 (시작)',
+    'Pulser — damping on / off (2ND F + PULSER = receiver filter)': '펄서 — 댐핑 켜기 / 끄기 (2ND F + PULSER = 수신기 필터)',
+    'Display — cycle the rectification': '디스플레이 — 정류 방식 순환',
+    'Big readout: depth ↔ amplitude %': '큰 판독값: 깊이 ↔ 진폭 %',
+    'Auto Cal — two-point velocity / zero calibration': 'Auto Cal — 2점 음속 / 영점 교정',
+    'Select the zero offset': '영점 오프셋 선택',
+    'Select the range (2ND F + RANGE = 50 → 100 → 200 → 400 mm)': '범위 선택 (2ND F + RANGE = 50 → 100 → 200 → 400 mm)',
+    'Select the velocity': '음속 선택',
+    'Select the probe angle (2ND F + ANGLE = thickness)': '탐촉자 각도 선택 (2ND F + ANGLE = 두께)',
+    'Option (no function)': '옵션 (기능 없음)',
+    'ID (no function)': 'ID (기능 없음)',
+    'Erase the DAC curve': 'DAC 곡선 지우기',
+    'Close the USK 7 window': 'USK 7 창 닫기',
+    'Re-open the USK 7 window': 'USK 7 창 다시 열기',
+    'Turn {k} down': '{k} 낮추기',
+    'Turn {k} up': '{k} 높이기',
+  });
   UT.i18n.add('ko', KO);
   // 82-lessons and 84-trade pass an already-translated t(key) as the window title / button / field KEY (see hand-off), so
   // under 'ko' their data-i18n holds Korean text. Identity entries for every Korean value keep UT.i18n.has() true for them
@@ -26330,83 +26365,15 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     standards: {},
   };
 
-  // ------------------------------------------------------------------ bytes / base64url / utf-8 (local fallbacks)
-  const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  function b64EncodeLocal(bin) {
-    let out = '';
-    for (let i = 0; i < bin.length; i += 3) {
-      const a = bin.charCodeAt(i), b = i + 1 < bin.length ? bin.charCodeAt(i + 1) : NaN, c = i + 2 < bin.length ? bin.charCodeAt(i + 2) : NaN;
-      const n = (a << 16) | ((b || 0) << 8) | (c || 0);
-      out += B64[(n >> 18) & 63] + B64[(n >> 12) & 63] + (Number.isNaN(b) ? '=' : B64[(n >> 6) & 63]) + (Number.isNaN(c) ? '=' : B64[n & 63]);
-    }
-    return out;
-  }
-  function b64DecodeLocal(s) {
-    let out = '';
-    let buf = 0, bits = 0;
-    for (let i = 0; i < s.length; i++) {
-      const ch = s[i];
-      if (ch === '=') break;
-      const v = B64.indexOf(ch);
-      if (v < 0) throw new Error('bad base64');
-      buf = (buf << 6) | v; bits += 6;
-      if (bits >= 8) { bits -= 8; out += String.fromCharCode((buf >> bits) & 255); buf &= (1 << bits) - 1; }
-    }
-    return out;
-  }
-  function bytesToBin(bytes) {
-    let bin = '';
-    for (let i = 0; i < bytes.length; i += 0x2000) bin += String.fromCharCode.apply(null, Array.prototype.slice.call(bytes, i, i + 0x2000));
-    return bin;
-  }
-  function binToBytes(bin) {
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 255;
-    return out;
-  }
+  // ------------------------------------------------------------------ bytes / base64url / utf-8 (thin aliases of UT.core)
   /** Uint8Array → base64url (no padding). */
-  function b64url(bytes) {
-    const bin = bytesToBin(bytes);
-    const b64 = typeof btoa === 'function' ? btoa(bin) : b64EncodeLocal(bin);
-    return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  }
-  /** base64url (with or without padding) → Uint8Array; throws on malformed input. */
-  function b64urlDecode(s) {
-    let b64 = String(s || '').replace(/-/g, '+').replace(/_/g, '/').replace(/\s+/g, '');
-    if (!/^[A-Za-z0-9+/]*=*$/.test(b64)) throw new Error('bad base64url');
-    while (b64.length % 4) b64 += '=';
-    const bin = typeof atob === 'function' ? atob(b64) : b64DecodeLocal(b64);
-    return binToBytes(bin);
-  }
-  /** string → UTF-8 bytes (TextEncoder when available). */
-  function utf8Encode(s) {
-    if (typeof TextEncoder === 'function') return new TextEncoder().encode(s);
-    const out = [];
-    for (let i = 0; i < s.length; i++) {
-      let c = s.charCodeAt(i);
-      if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) { const d = s.charCodeAt(i + 1); if (d >= 0xdc00 && d <= 0xdfff) { c = 0x10000 + ((c - 0xd800) << 10) + (d - 0xdc00); i++; } }
-      if (c < 0x80) out.push(c);
-      else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 63));
-      else if (c < 0x10000) out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
-      else out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
-    }
-    return new Uint8Array(out);
-  }
-  /** UTF-8 bytes → string (TextDecoder when available). */
-  function utf8Decode(bytes) {
-    if (typeof TextDecoder === 'function') return new TextDecoder('utf-8').decode(bytes);
-    let s = '';
-    for (let i = 0; i < bytes.length;) {
-      const b = bytes[i++];
-      let c;
-      if (b < 0x80) c = b;
-      else if ((b & 0xe0) === 0xc0) c = ((b & 31) << 6) | (bytes[i++] & 63);
-      else if ((b & 0xf0) === 0xe0) { c = ((b & 15) << 12) | ((bytes[i++] & 63) << 6); c |= bytes[i++] & 63; }
-      else { c = ((b & 7) << 18) | ((bytes[i++] & 63) << 12); c |= (bytes[i++] & 63) << 6; c |= bytes[i++] & 63; }
-      if (c >= 0x10000) { c -= 0x10000; s += String.fromCharCode(0xd800 + (c >> 10), 0xdc00 + (c & 0x3ff)); } else s += String.fromCharCode(c);
-    }
-    return s;
-  }
+  function b64url(bytes) { return UT.core.b64urlBytes(bytes); }
+  /** base64url (with or without padding) → Uint8Array; throws on malformed input (94's documented behaviour, kept). */
+  function b64urlDecode(s) { return UT.core.b64urlDecodeBytes(s); }
+  /** string → UTF-8 bytes (Uint8Array). */
+  function utf8Encode(s) { return UT.core.utf8Encode(s); }
+  /** UTF-8 bytes → string. */
+  function utf8Decode(bytes) { return UT.core.utf8Decode(bytes); }
   function concatChunks(chunks) {
     let n = 0;
     for (const c of chunks) n += c.length;
@@ -27085,8 +27052,6 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       let same = dec.length === 256;
       for (let i = 0; i < 256 && same; i++) same = dec[i] === i;
       if (!same) f.push('b64url round trip');
-      const locEnc = b64EncodeLocal(bytesToBin(all)), locDec = b64DecodeLocal(locEnc);
-      if (locEnc.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') !== enc || locDec !== bytesToBin(all)) f.push('local base64');
       const ko = '초음파 탐상 시뮬레이터 — ✓ 😀';
       if (utf8Decode(utf8Encode(ko)) !== ko) f.push('utf8 round trip');
       let bad = false;

@@ -1331,6 +1331,8 @@
 
   // ------------------------------------------------------------------ exports
   const ascan = {
+    /** Defects with visible !== false (shared by 55-aut / 56-pa). */
+    visibleDefects,
     N_SAMPLES, CLIP_PCT, GRASS_PCT, DAMP_DB, TCG_TARGET_PCT, TCG_MIN_DB, TCG_MAX_DB,
     ENERGIES, DAMPING_OHMS, PRF_LIST, FILTERS, ENERGY_DB, DAMPING_DB, ENERGY_WIDTH, DAMPING_WIDTH, FILTER_BANDS, ENERGY_LABELS,
     synth, evalGates, geometry, dacCurve, dacCurves, dacAt, dacAtRef, dacRecord, computeSscan, compute,

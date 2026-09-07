@@ -96,14 +96,12 @@
   // ------------------------------------------------------------------ bytes / base64url / utf-8 (thin aliases of UT.core)
   /** Uint8Array → base64url (no padding). */
   function b64url(bytes) { return UT.core.b64urlBytes(bytes); }
-  /** base64url (with or without padding) → Uint8Array; throws on malformed input (the public UT.scenario.b64urlDecode returns null). */
+  /** base64url (with or without padding) → Uint8Array; throws on malformed input (94's documented behaviour, kept). */
   function b64urlDecode(s) { return UT.core.b64urlDecodeBytes(s); }
   /** string → UTF-8 bytes (Uint8Array). */
   function utf8Encode(s) { return UT.core.utf8Encode(s); }
   /** UTF-8 bytes → string. */
   function utf8Decode(bytes) { return UT.core.utf8Decode(bytes); }
-  /** Public, documented-safe variant: null instead of a throw on malformed input. */
-  function b64urlDecodeSafe(s) { try { return b64urlDecode(s); } catch (e) { return null; } }
   function concatChunks(chunks) {
     let n = 0;
     for (const c of chunks) n += c.length;
@@ -852,7 +850,7 @@
   // ------------------------------------------------------------------ exports
   Object.assign(scenario, {
     capture, captureFrom, apply, save, load, remove, list, toText, fromText, toUrl, fromUrl, applyFromLocation, init,
-    sanitise, examify, encodeRaw, decodeRaw, parseHash, b64url, b64urlDecode: b64urlDecodeSafe, utf8Encode, utf8Decode, showToast, hideToast,
+    sanitise, examify, encodeRaw, decodeRaw, parseHash, b64url, b64urlDecode, utf8Encode, utf8Decode, showToast, hideToast,
     SLOTS, __selftest, selftest: __selftest,
   });
   UT.scenario = scenario;

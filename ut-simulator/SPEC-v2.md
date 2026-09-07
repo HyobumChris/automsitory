@@ -321,7 +321,9 @@ Library window `probelib` (90): table (maker, name, angle, freq, crystal, N, θ6
 ### 3.6 P6 — focused probes (30, 20)
 `probe.focus = {on, F}`: when on, **focus REPLACES the angular fan** (41 aperture rays uniformly across `[−a/2, +a/2]`
 along the surface tangent, each aimed at the focal point at distance `F` along the centre ray, no side lobes — never 41×41);
-weight of each ray = `D1` of its angle from the centre direction. Explicit focal gain applied to every echo amplitude
+weight of each ray = `D1` of its angle from the centre direction, where `D1` is that of the APERTURE ELEMENT the ray represents
+(crystal/41 wide — so all 41 rays carry ≈ 1.0 and the drawn beam shows the full converging/diverging hourglass; the full-crystal
+`D1` would silence every off-axis ray and contradict the divergence clause below). Explicit focal gain applied to every echo amplitude
 (pulse-echo, one factor): `Gf(path) = 1 + (min(N/F, 3) − 1)·exp(−((path − F)/(0.25·F))²)` (F = 26, N = 38.6 → +3.4 dB).
 Beyond F the geometric divergence from the aperture rays gives the wider beam. Constraints: `F ≤ N` (dialog clamps and
 shows 'F > near field: no focusing effect'), `refracted ≤ 70°`, `F ≥ 10`. `Probes ▸ Focus Beam…` opens window `focus`
@@ -398,7 +400,8 @@ higher than unfocused and its −6 dB x-width is 0.3–0.5× the unfocused width
   angle skipped), `θ_rel = θ_w − β` (0 for the contact E-scan L probe, where θ_rel = θ). Steering only:
   `τ_i = x_i·sin(θ_rel)/v_w`, then `τ_i −= min(τ)` so all delays are ≥ 0 (60° through the 36° wedge: θ_w = 47.1°,
   θ_rel = 11.1°, slope 0.0702 µs/mm). Steering + focus at distance F (along the beam from the aperture centre in the wedge
-  medium; for a focus in steel at depth Fd use `F = Fd/cosθ` and v_mat as an approximation):
+  medium; for a focus in steel at depth Fd use `F = Fd/cosθ` as an approximation — the delays τ_i = (max(d) − d_i)/v_w are wedge
+  travel times, so the focused law tends to the steering law as F → ∞):
   `d_i = √(F² + x_i² − 2·F·x_i·sin(θ_rel))`, `τ_i = (max(d) − d_i)/v_w`. Effective aperture for directivity:
   `a = A·cos(θ_rel)·cosθ/cos(θ_w)`. `UT.pa.focalLaw(θ, {escan}) → {delaysUs[], slope /* µs/mm */, valid}` shown as a bar chart.
 - `UT.pa.compute(state) → {view, sscan: {angles, columns:[{angle, echoes}], maxPath, T} | null, escan: {columns:[{xOff, echoes}], angle} | null, focalLaws: {delaysUs}, aperture: {x0, x1}}`.
@@ -1106,7 +1109,8 @@ to v1 for carbon (L 0.005 / S 0.010 one-way). #13 holds by the invariant of §4.
 - **V2-11 PA**: `pa.sscan()` returns 41 angle columns; the DAC-block T/2 SDH appears at the angle whose `path·sinθ` matches its
   position (±3°); E-scan has ≥ 8 columns; `pa.runScan()` map non-empty; with `pa.tcg` the SDH amplitude spread across angles
   ≤ 3 dB (measured ON-AXIS per angle, i.e. the probe placed so that each angle's centre ray hits the SDH — ACG-style angle-gain
-  calibration; a fixed probe reading the SDH in neighbouring columns is NOT the measure); `pa.focalLaw(60).slope` = 0.070 ± 0.003 µs/mm, `pa.focalLaw(0, {escan:true}).slope` = 0, all delays ≥ 0.
+  calibration; a fixed probe reading the SDH in neighbouring columns is NOT the measure); `pa.focalLaw(60).slope` = 0.070 ± 0.003 µs/mm, `pa.focalLaw(0, {escan:true}).slope` = 0, all delays ≥ 0;
+  `pa.focalLaw(60, {focusDepth: 5000}).delaysUs[15]` ≈ `pa.focalLaw(60).delaysUs[15]` ± 1 % (focused law → steering law as F → ∞).
 - **V2-12 AUT v2**: `channels 6` yields 6 strips; adaptive step on a 24-inch pipe → n ≤ 500 columns; sync scan ≤ 1.5 s.
 - **V2-13 B-scan**: lamination plate, 0°, drag x from −60 to 60 → `bscan().columns.length ≥ 100` with a thickness step where the
   lamination is (depth 10 vs 25); `state.bscan.columns === null` throughout (no render loop: `'render'` count per drag step ≤ 2).
