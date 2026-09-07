@@ -325,6 +325,12 @@
     '저면 에코': '저면 에코', '이면 비드(형상)': '이면 비드(형상)', '덧살(형상)': '덧살(형상)', '배킹 바 에지': '배킹 바 에지', '코너 에코(루트 결함)': '코너 에코(루트 결함)', '팁 회절': '팁 회절', '결함(융합면)': '결함(융합면)',
     '모드 변환 에코': '모드 변환 에코', '표면파': '표면파', '라미네이션': '라미네이션', '횡공': '횡공', '기록': '기록', '형상 에코로 메모': '형상 에코로 메모', '무시': '무시',
     'Note as geometry echo': '형상 에코로 메모', 'Ignore': '무시', 'Root bead (geometry)': '이면 비드(형상)', 'Cap (geometry)': '덧살(형상)', 'Backing bar edge': '배킹 바 에지', 'Corner echo (root defect)': '코너 에코(루트 결함)', 'Defect (fusion face)': '결함(융합면)', 'Mode-converted echo': '모드 변환 에코',
+    // ------------------------------------------------------------------ QA round 1 sweep (DAC window, defect editor, trade report, standards notes, sizing recommendation, USK7 dock)
+    'Hide Curves': '커브 숨기기', 'Select Defect': '결함 선택', 'lof': '융합 불량', 'Scanning sensitivity': '주사 감도', 'not-recordable': '기록 불요',
+    'General': '일반', 'Exam sharing': '시험 공유', 'ASME VIII-1 App. 12 / ASME V Art. 4': 'ASME VIII-1 부록 12 / ASME V 제4장', 'AWS D1.1 Table 8.2': 'AWS D1.1 표 8.2',
+    'ISO 11666:2018 Tables 2-4': 'ISO 11666:2018 표 2-4', 'ASME BPVC VIII-1 App.12 (12-3), ASME V Art.4': 'ASME BPVC VIII-1 부록 12 (12-3), ASME V 제4장',
+    'AWS D1.1/D1.1M Table 8.2 (6.3 in :2010) — statically loaded': 'AWS D1.1/D1.1M 표 8.2 (2010판 6.3) — 정하중', 'statically loaded': '정하중',
+    'UT SET: KRAUTKRÄMER USK 7 (analogue)': 'UT 세트: KRAUTKRÄMER USK 7 (아날로그)', '(analogue)': '(아날로그)', 'ASME text screen': 'ASME 텍스트 화면',
   };
 
   // ------------------------------------------------------------------ glossary (§5.6: {term, ko, en, defKo, defEn, see})

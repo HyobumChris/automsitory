@@ -967,10 +967,11 @@
     }
     if (!lengthMethod) lengthMethod = '6dB';
     if (evalDb === null) evalDb = -10;
-    const FB_NAMES = { 'eval-level': { ko: '평가 레벨 고정법', en: 'fixed evaluation level' }, '6dB': { ko: '6 dB 강하법', en: '6 dB drop' }, '50pct': { ko: '50 % 진폭법 (ASME)', en: '50 % amplitude (ASME)' } };
+    const FB_NAMES = { 'eval-level': { ko: '평가 레벨 고정법', en: 'fixed evaluation level' }, '6dB': { ko: '6 dB 드롭법', en: '6 dB drop' }, '50pct': { ko: '50 % 진폭법 (ASME)', en: '50 % amplitude (ASME)' } };
     let methodLabel = lengthMethod;
-    try { const nm = (UT.standards && UT.standards.lengthMethodNames && UT.standards.lengthMethodNames[lengthMethod]) || FB_NAMES[lengthMethod]; if (nm) methodLabel = (UT.i18n && UT.i18n.lang === 'ko' ? nm.ko : nm.en) || lengthMethod; } catch (e) { /* ignore */ }
-    return { ruleId: std, level, lengthMethod, sizingMethod: LENGTH_METHOD_TO_SIZING[lengthMethod] || '6dB', evalDb, label, methodLabel };
+    // the English name is the dictionary KEY (92 renders '6 dB drop' as '6 dB 드롭법', §5.3.6); the ko field is the fallback
+    try { const nm = (UT.standards && UT.standards.lengthMethodNames && UT.standards.lengthMethodNames[lengthMethod]) || FB_NAMES[lengthMethod]; if (nm) methodLabel = (UT.i18n && UT.i18n.lang === 'ko' && !UT.i18n.has(nm.en) ? nm.ko : t(nm.en)) || lengthMethod; } catch (e) { /* ignore */ }
+    return { ruleId: std, level, lengthMethod, sizingMethod: LENGTH_METHOD_TO_SIZING[lengthMethod] || '6dB', evalDb, label: t(label), methodLabel };
   }
   /** Reference echo height (% FSH) at the current gain: 80 % at refGain. */
   function refPctOf(instrument) {
@@ -1631,7 +1632,7 @@
   function buildBscan() {
     const h = UT.dom.h, els = {};
     const s = st();
-    const axis = UT.dom.field('Axis', { tag: 'select', type: 'text', value: (s.bscan && s.bscan.axis) || 'x', options: [{ value: 'x', label: 'x (across the weld)' }, { value: 'z', label: 'z (along the weld)' }], onchange: function (v) { bsClear(); UT.setIn('bscan', { axis: v === 'z' ? 'z' : 'x' }); } });
+    const axis = UT.dom.field('Axis', { tag: 'select', type: 'text', value: (s.bscan && s.bscan.axis) || 'x', options: [{ value: 'x', label: t('x (across the weld)') }, { value: 'z', label: t('z (along the weld)') }], onchange: function (v) { bsClear(); UT.setIn('bscan', { axis: v === 'z' ? 'z' : 'x' }); } });
     els.axis = axis.input;
     const rec = UT.dom.field('Record', { type: 'checkbox', value: !!(s.bscan && s.bscan.on), onchange: function (v) { UT.setIn('bscan', { on: !!v }); } });
     els.rec = rec.input;

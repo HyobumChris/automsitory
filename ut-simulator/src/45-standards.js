@@ -193,7 +193,7 @@
   /** Shared length-method labels (sizing window pre-selection, §4.3). */
   const lengthMethodNames = {
     'eval-level': { ko: '평가 레벨 고정법', en: 'fixed evaluation level' },
-    '6dB': { ko: '6 dB 강하법', en: '6 dB drop' },
+    '6dB': { ko: '6 dB 드롭법', en: '6 dB drop' },   // SPEC-v2 §5.3.6: 6 dB drop = 6 dB 드롭법
     '50pct': { ko: '50 % 진폭법 (ASME)', en: '50 % amplitude (ASME)' },
   };
 
@@ -512,6 +512,20 @@
     out.push('Exam sharing — an exam link contains no defects (only the seed, the code hash and the settings) and the result token is signed with FNV-1a. This is obfuscation for classroom use, not security: the browser devtools can still reach the generator.');
     out.push('Transfer correction — measured as the gain difference between the block and the specimen backwall (same path); ISO 17640: ignore < 2 dB, compensate 2…12 dB, investigate > 12 dB. Lesson 24 enters it in Evaluation ▸ Transfer.');
     return out;
+  }
+  /** Korean rendering of notes() (same order; UT.test.standardsNotes() stays English). */
+  function notesKo() {
+    return [
+      t(NOTE) + ' — 이 시뮬레이터의 모든 규칙 세트는 교육용 예시 데이터이며 규격을 대신하지 않습니다.',
+      'ISO 17640:2017 — 구조, 기법/기준 반사체, 품질 등급 매핑, 전달 손실 보정(2 dB 미만 무시, 12 dB까지 보정, 초과 시 조사)은 신뢰도 높음; 시험 레벨별 주사 범위, +6 dB 주사 게인, 4 dB 감도 재확인 한계는 신뢰도 보통(레슨 23/25에 "확인 필요" 표기). 기법 3(노치)과 4(탠덤 DSR)는 신뢰도 낮음이며 사용하지 않습니다.',
+      'ISO 11666:2018 — 신뢰도 높음: AL2 ↔ 품질 등급 B, AL3 ↔ 품질 등급 C, AL1 없음; AL2 = −4 dB (짧은 지시, l ≤ max(10, 0.5 t)) / −10 dB (긴 지시), 평가 레벨 −10 dB (DAC 33 %). AL3 = +4 dB (짧은 지시, l ≤ max(10, 1.0 t)) / −2 dB (긴 지시), 평가 레벨 −6 dB: 리드 결정, 신뢰도 보통 — 확인 필요(반증 시 대안: 0 / −6 dB). 면상 결함(균열 / 융합 불량 / 용입 부족) 불합격은 시뮬레이터 규칙 — ISO 11666에서 ISO 23279 특성 평가는 선택 사항입니다.',
+      'ASME BPVC VIII-1 App. 12 (12-3) + ASME V Art. 4 — 신뢰도 높음: 기준의 20 %를 넘는 모든 지시를 조사(퍼센트로 비교하므로 −14 dB가 20 %에 해당); 균열 / 융합 불량 / 용입 부족은 무조건 불합격; 그 밖의 지시는 DAC 100 % 초과이면서 길이가 6 mm (t ≤ 19), t/3 (19 < t ≤ 57) 또는 19 mm (t > 57)를 넘을 때 불합격. t ≤ 25의 기본 시험편 횡공 ⌀ 2.4 mm.',
+      'AWS D1.1 표 8.2 (정하중, 비관형) — 등급 수치는 신뢰도 보통-높음(약 75 %), 구조는 높음: 지시 등급 d = a − b − c, c = 빔 노정 1 in 초과분 1 in당 2 dB (반올림, .5는 올림); 두께 구간과 탐촉자 각도별 A–D 등급; t ≤ 3/4 in에서는 70°만 규정(45°/60° → 해당 없음); B/C 격리(간격) 규칙은 생략; D 등급은 합격이며 기록하지 않습니다.',
+      'DGS / ERS — 정규화된 Krautkrämer 선도: 저면 1/A, 원판 2π·G²/A² (리드 결정), 횡공 √(2λd)/(a·A^1.5); 원거리 음장 근사 (A ≥ 1); DGS는 0° 탐촉자에만 적용; 전달 손실 보정은 시험체 에코에 더해집니다.',
+      '모드 변환 — 광선 추적기의 S↔L 변환 계수 R_LS(φ), R_SL(φ)는 닫힌 형식 근사식(±0.1)이며, 변환된 에코는 "모드 변환 (L/S)"로 표시됩니다.',
+      '시험 공유 — 시험 링크에는 결함이 들어 있지 않고(시드, 코드 해시, 설정만) 결과 토큰은 FNV-1a로 서명됩니다. 이는 교실용 난독화이지 보안이 아닙니다: 브라우저 개발자 도구로 여전히 생성기에 접근할 수 있습니다.',
+      '전달 손실 보정 — 대비 시험편과 시험체 저면 에코(같은 노정)의 게인 차이로 측정; ISO 17640: 2 dB 미만 무시, 2…12 dB 보정, 12 dB 초과 시 조사. 레슨 24에서 평가 ▸ 전달 손실에 입력합니다.',
+    ];
   }
 
   // ================================================================== CSS (injected on open)
@@ -845,7 +859,7 @@
         dom.button('Procedures…', function () { proceduresWin.open(); }),
       ]),
       evUi.summary,
-      dom.h('div', { class: 'ev-ref' }, t('{note}. Standards notes: Help ▸ Standards notes', { note: rule.note })),
+      dom.h('div', { class: 'ev-ref' }, t('{note}. Standards notes: Help ▸ Standards notes', { note: t(rule.note) })),
       ovBox,
       evUi.live,
     ]);
@@ -971,9 +985,9 @@
   function snBuild() {
     const dom = UT.dom;
     const heads = ['General', 'ISO 17640:2017', 'ISO 11666:2018', 'ASME VIII-1 App. 12 / ASME V Art. 4', 'AWS D1.1 Table 8.2', 'DGS / ERS', 'Mode conversion', 'Exam sharing', 'Transfer correction'];
-    const list = notes();
+    const list = notes(), ko = isKo() ? notesKo() : null;
     return dom.h('div', {}, [dom.h('div', { class: 'sn-note', i18n: 'Confidence notes for the rule sets, the mode-conversion fits and the exam lock. Nothing here replaces the current edition of a standard.' })]
-      .concat(list.map(function (n, i) { return dom.h('div', { class: 'sn-item' }, [dom.h('b', {}, heads[i] || ''), t(n)]); })));
+      .concat(list.map(function (n, i) { return dom.h('div', { class: 'sn-item' }, [dom.h('b', { i18n: heads[i] || '' }), ko && ko[i] ? ko[i] : t(n)]); })));
   }
   const stdnotes = {
     notes,
@@ -1071,7 +1085,7 @@
     const ovr = evaluate({ ruleId: 'asme8', T: 20, transferDb: 0, rulesOverride: { asme8: { recordPct: 50 } }, indication: { ampDbVsRef: -10, lengthMm: 5 } });
     if (ovr.disposition !== 'not-recordable' || ruleSet('asme8', { asme8: { recordPct: 50 } }).recordPct !== 50 || ruleSet('asme8', { asme8: { recordPct: 50 } }).planarReject.length !== 3) f.push('rulesOverride merge');
     if (typeof ruleSet('iso11666', { iso11666: { levels: { AL2: { shortLimitDb: -6 } } } }).levels.AL2.shortMaxMm !== 'function') f.push('override keeps functions');
-    if (Object.keys(lengthMethodNames).join(',') !== 'eval-level,6dB,50pct' || lengthMethodNames['6dB'].ko !== '6 dB 강하법') f.push('lengthMethodNames');
+    if (Object.keys(lengthMethodNames).join(',') !== 'eval-level,6dB,50pct' || lengthMethodNames['6dB'].ko !== '6 dB 드롭법') f.push('lengthMethodNames');
     if (normaliseType('Lack of fusion') !== 'lof' || normaliseType('incompletePenetration') !== 'ip' || normaliseType('root') !== 'ip' || normaliseType('rootCrack') !== 'crack') f.push('type synonyms');
     // procedures / allowedProbes / applyProcedure on the live store (snapshot + restore)
     if (Object.keys(procedures).length !== 3 || procedureList().map(function (p) { return p.id; }).join(',') !== 'iso-B-plate20,asme-pipe-6in,aws-d11-70') f.push('procedures table');

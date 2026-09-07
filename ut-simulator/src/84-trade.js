@@ -598,7 +598,8 @@
   }
 
   // ------------------------------------------------------------------ exam lock helpers
-  function locked(tr) { tr = tr || st().trade; return !!(tr.exam && tr.exam.locked && !tr.revealed); }
+  /** Exam lock in force: only while a test is ACTIVE (a loaded exam that is not running never forces display.hide). */
+  function locked(tr) { tr = tr || st().trade; return !!(tr.active && tr.exam && tr.exam.locked && !tr.revealed); }
   function codeHashCurrent(tr) { tr = tr || st().trade; return tr.exam && tr.exam.codeHash ? tr.exam.codeHash : codeHashOf('', tr.seed || 0); }
   /** Result without truth rows (§4.2.3: while the exam is locked only {n} of a missed / matched defect is kept). */
   function stripResult(res) {
