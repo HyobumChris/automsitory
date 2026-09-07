@@ -1253,22 +1253,43 @@
   function armSoundIfOn() { if (st().display.sound && UT.audio && !UT.audio.ctx) armSoundUnlock(); }
 
   // ------------------------------------------------------------------ status bar
+  /**
+   * Is the cursor depth worth reporting? Depth is only defined inside the specimen, so a point above the
+   * scanning surface (probe body, air) or below the backwall gets no `Depth` cell instead of an impossible
+   * negative/over-thickness number. Two exceptions keep documented behaviour: the TOFD D-scan cursor carries
+   * its own depth (view 'dscan', always ≥ 0 — 50-tofd clamps it) and the defect editor keeps v1's signed
+   * readout `Pos: 96 mm | Depth = -4.0mm | LEFT mouse button/drag to draw defect.` (SPEC §14.3).
+   */
+  function depthCellShown(s, c) {
+    if (c.view === 'dscan') return true;
+    if (s.editing && s.editing.defect) return true;
+    const sp = s.specimen;
+    if (!sp || !(c.y >= 0)) return false;
+    let T = typeof sp.thicknessAt === 'function' && Number.isFinite(c.x) ? sp.thicknessAt(c.x) : sp.T;
+    if (!Number.isFinite(T)) T = sp.extents && Number.isFinite(sp.extents.yMax) ? sp.extents.yMax : NaN;
+    return !Number.isFinite(T) || c.y <= T + 0.05;                       // 0.05 = cursor rounding (0.1 mm)
+  }
+  /**
+   * Middle status segments (§14.10). Every cell is a t() template with the numbers as params (SPEC-v2 §5.3.2)
+   * so the readout follows the UI language; the English keys reproduce the v1 formats verbatim.
+   */
   function midParts(frame) {
     const s = st(), p = s.probe, ins = s.instrument;
     const inch = s.display.units === 'inch';
     const parts = [];
-    parts.push(inch ? 'Pos: ' + (p.x / 25.4).toFixed(2) + ' in' : 'Pos: ' + UT.fmtNum(p.x, 'auto') + ' mm');
-    parts.push(inch ? 'Range ' + (ins.range / 25.4).toFixed(2) + 'in' : 'Range ' + (+ins.range).toFixed(1) + 'mm');
-    parts.push('AMP= ' + UT.fmtNum(s.mode === 'tofd' && s.tofd && Number.isFinite(s.tofd.gainDb) ? s.tofd.gainDb : ins.gain, 'auto') + 'dB');
+    parts.push(inch ? t('Pos: {x} in', { x: (p.x / 25.4).toFixed(2) }) : t('Pos: {x} mm', { x: UT.fmtNum(p.x, 'auto') }));
+    parts.push(inch ? t('Range {r}in', { r: (ins.range / 25.4).toFixed(2) }) : t('Range {r}mm', { r: (+ins.range).toFixed(1) }));
+    parts.push(t('AMP= {g}dB', { g: UT.fmtNum(s.mode === 'tofd' && s.tofd && Number.isFinite(s.tofd.gainDb) ? s.tofd.gainDb : ins.gain, 'auto') }));
     let extra = '';
     if (has('modes.statusMid')) { try { extra = UT.modes.statusMid() || ''; } catch (e) { extra = ''; } }
     else if (s.specimen && s.specimen.pipe) extra = 'WT ' + s.specimen.pipe.wt + 'mm  Dia ' + s.specimen.pipe.odInch + 'inch';
     for (const seg of String(extra).split(/\s{3,}|\s\|\s/)) if (seg.trim()) parts.push(seg.trim());
     const c = s.cursor;
-    if (c && typeof c.y === 'number' && !Number.isNaN(c.y)) {
-      parts.push(s.mode === 'tofd' ? 'Depth: ' + c.y.toFixed(1) : (inch ? 'Depth = ' + (c.y / 25.4).toFixed(3) + 'in' : 'Depth = ' + c.y.toFixed(1) + 'mm'));
+    if (c && typeof c.y === 'number' && !Number.isNaN(c.y) && depthCellShown(s, c)) {
+      parts.push(s.mode === 'tofd' ? t('Depth: {d}', { d: c.y.toFixed(1) })
+        : (inch ? t('Depth = {d}in', { d: (c.y / 25.4).toFixed(3) }) : t('Depth = {d}mm', { d: c.y.toFixed(1) })));
     } else if (c && c.view === 'dscan' && typeof c.depth === 'number' && !Number.isNaN(c.depth)) {
-      parts.push('Depth: ' + c.depth.toFixed(1));
+      parts.push(t('Depth: {d}', { d: c.depth.toFixed(1) }));
     }
     void frame;
     return parts;
@@ -2134,6 +2155,8 @@
       if (w && w.isOpen()) { try { w.setContent(function () { return mem.winBuilders[name](w); }); } catch (e) { console.error('[UT.app] relabel ' + name, e); } }
     }
     if (mem.tour.open) renderTour();
+    mem.lastMid = '';           // the mid cells are t() templates with params — rebuild them in the new language
+    updateMid();
     renderStatus(st().status);
   }
 
@@ -2577,6 +2600,13 @@
         if (OD_INCH[6] !== 168.3 || inchOf(219.1) !== '8' || inchOf(200) !== 'custom') f.push('OD table');
         const mid = midParts(null);
         if (!/^Pos: /.test(mid[0]) || !/^Range /.test(mid[1]) || !/^AMP= /.test(mid[2])) f.push('midParts ' + mid.join('|'));
+        // depth cell only inside the specimen (no negative air-side depth) — editor and D-scan keep theirs
+        const dSpec = { specimen: { T: 20 }, editing: { defect: false } };
+        if (depthCellShown(dSpec, { x: 40, y: -19.3, view: 'cross' })) f.push('depth cell above surface');
+        if (depthCellShown(dSpec, { x: 40, y: 24, view: 'cross' })) f.push('depth cell below backwall');
+        if (!depthCellShown(dSpec, { x: 40, y: 12.5, view: 'cross' })) f.push('depth cell inside specimen');
+        if (!depthCellShown({ specimen: { T: 20 }, editing: { defect: true } }, { x: 96, y: -4, view: 'cross' })) f.push('depth cell in defect editor');
+        if (!depthCellShown(dSpec, { x: null, y: 8, view: 'dscan' })) f.push('depth cell on D-scan');
         if (TOUR_STEPS.length !== 8 || TOUR_STEPS.some(function (s) { return !s.ko || !s.en || !s.target; })) f.push('tour steps');
         if (GLOSSARY_FALLBACK.length !== 20 || Object.keys(PREP_ICONS).length !== 8) f.push('glossary fallback / prep icons');
         if (typeof UT.test.lang !== 'function' || typeof UT.test.click !== 'function' || typeof UT.test.menu !== 'function') f.push('test api');

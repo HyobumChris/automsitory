@@ -29,8 +29,13 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   min-width: 1024px;
   background: #fdfbd8;
 }
-/* 1280 × 760 design box transformed by k = clamp(min(innerW/1280, innerH/760), 0.6, 1.6) (90 sets the transform) */
-#app.scaled { position: fixed; left: 0; top: 0; width: 1280px; height: 760px; min-width: 0; transform-origin: 0 0; overflow: hidden; }
+/* 1280 × 760 design box transformed by k = clamp(min(innerW/1280, innerH/760), 0.6, 1.6) (90 sets the transform).
+ * The box is letterboxed in BOTH axes: 90 centres it horizontally with an inline `left`, and the vertical
+ * leftover is halved here so the status bar is never left floating above a bare strip of page background.
+ * CSS can re-derive the scaled height without knowing k, because the clamp survives the multiplication:
+ *   760·k = clamp(760·0.6, min(760·100vw/1280, 100vh), 760·1.6) = clamp(456px, min(59.375vw, 100vh), 1216px)
+ * (`max(0px, …)` mirrors 90's `Math.max(0, …)`: below the k = 0.6 floor the box overflows and stays anchored). */
+#app.scaled { position: fixed; left: 0; top: max(0px, (100vh - clamp(456px, min(59.375vw, 100vh), 1216px)) / 2); width: 1280px; height: 760px; min-width: 0; transform-origin: 0 0; overflow: hidden; }
 #app.scaled .win-body { max-height: calc(760px - 132px); } /* 760 − toolbar bottom (≈102) − title bar − padding: tall windows clamp under the toolbar without spilling out of the design box */
 #titlebar {
   display: flex; align-items: center; gap: 10px; flex: none;
@@ -346,7 +351,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   #menubar, #toolbar, #statusbar, #touchbar, #tour, .win, .win-backdrop { display: none !important; }
   body { min-width: 0; overflow: visible; }
   html.scaled, html.scaled body { overflow: visible; height: auto; }
-  #app.scaled { transform: none !important; margin-left: 0 !important; width: auto; height: auto; }
+  /* `top` is vh-based on screen (letterboxing); on paper 100vh is the page box, so pin the untransformed app to its top-left */
+  #app.scaled { transform: none !important; margin-left: 0 !important; top: 0 !important; width: auto; height: auto; }
   body.print-report #app { display: none !important; }
   body:has(#print-root:not(:empty)) #app { display: none !important; }
   body.print-report #print-root, #print-root:not(:empty) { display: block; }

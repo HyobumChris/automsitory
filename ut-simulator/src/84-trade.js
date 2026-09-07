@@ -69,6 +69,11 @@
 // - QA3 #4/#5/#6: timer announcements skip thresholds ≥ the configured limit; the report's reference level and
 //   calibration block follow the applied procedure/rule (refReflector/refBlock, fallback '3 mm SDH'/'none
 //   recorded'); a practice hint with nothing left to reveal costs nothing.
+// - QA3 #7: the report (and Print report) renders ids with the labels the rest of the UI uses — rule set via
+//   UT.standards.ruleNames ('iso11666' → 'ISO 11666 (acceptance)'), weld preparation via UT.specimens.prepNames
+//   ('single-v' → 'Single-V', Korean from the same table as the Weld dialog) and probes via UT.probe.libEntry(id).name
+//   ('gen-60-5-10' → 'Generic 60° 5 MHz ⌀10 (UTman default)'); the raw id stays as the fallback when a table is absent.
+//   The procedure line keeps the id (§4.2.2 'procedure id') and the acceptance/testing levels keep their code (AL2 / B).
 (function (UT) {
   'use strict';
   const M = UT.math;
@@ -154,6 +159,32 @@
       if (m) return m[1];
     }
     return t(o.label);
+  }
+  /**
+   * QA3 #7 (§4.2.2): the report is a document, so every id is rendered with the label the rest of the UI uses.
+   * Weld preparation ('single-v' → 'Single-V' / '단면 V형', UT.specimens.prepNames as in the Weld dialog).
+   */
+  function prepLabel(key) {
+    const k = key ? String(key) : '';
+    if (!k) return '';
+    const list = has('specimens.prepNames');
+    const e = Array.isArray(list) ? list.find(function (q) { return q.key === k; }) : null;
+    if (!e) return k;
+    return UT.i18n && UT.i18n.lang === 'ko' && e.ko ? e.ko : t(e.label);
+  }
+  /** Rule set ('iso11666' → 'ISO 11666 (acceptance)' / 'ISO 11666 (허용 수준)', UT.standards.ruleNames as in the Evaluation window). */
+  function stdLabel(id) {
+    const k = id ? String(id) : '';
+    if (!k) return '';
+    const names = has('standards.ruleNames');
+    return names && names[k] ? t(names[k]) : k;
+  }
+  /** Probe ('gen-60-5-10' → 'Generic 60° 5 MHz ⌀10 (UTman default)', UT.probe.libEntry as in the probe library). */
+  function probeLabel(id) {
+    const k = id ? String(id) : '';
+    if (!k) return '';
+    const e = has('probe.libEntry') ? UT.probe.libEntry(k) : null;
+    return (e && e.name) || k;
   }
   /** 'A' | 'B' | 'CL' for a truth/report side (+1 | −1 | 0). */
   function sideLabel(side) { return side === -1 ? 'B' : (side === 1 ? 'A' : 'CL'); }
@@ -901,7 +932,7 @@
   function probeLines() {
     const keys = Object.keys(usedProbes);
     if (!keys.length) { const p = st().probe; usedProbesRecord(st()); }
-    return Object.keys(usedProbes).map(function (k) { const p = usedProbes[k]; return (p.libId || '—') + ' · ' + p.angle + '° · ' + p.freq + ' MHz · ' + p.crystal + (Number.isFinite(p.wedgeAngle) ? ' · ' + t('wedge') + ' ' + p.wedgeAngle.toFixed(1) + '°' : ''); });
+    return Object.keys(usedProbes).map(function (k) { const p = usedProbes[k]; return (probeLabel(p.libId) || '—') + ' · ' + p.angle + '° · ' + p.freq + ' MHz · ' + p.crystal + (Number.isFinite(p.wedgeAngle) ? ' · ' + t('wedge') + ' ' + p.wedgeAngle.toFixed(1) + '°' : ''); });
   }
   /**
    * Report HTML (§4.2.2). {withTruth} adds the truth table (never while the exam is locked).
@@ -917,7 +948,7 @@
     const L = function (k, p) { return esc(t(k, p)); };
     const kv = function (k, v) { return '<tr><th>' + L(k) + '</th><td>' + v + '</td></tr>'; };
     const mat = spec.material || {};
-    const specTxt = (UT.i18n && UT.i18n.lang === 'ko' && mat.nameKo ? mat.nameKo : (mat.name || s.material || 'carbon')) + ' · ' + esc(spec.prep || (spec.weld && spec.weld.prep) || '—') + ' · ' +
+    const specTxt = (UT.i18n && UT.i18n.lang === 'ko' && mat.nameKo ? mat.nameKo : (mat.name || s.material || 'carbon')) + ' · ' + esc(prepLabel(spec.prep || (spec.weld && spec.weld.prep)) || '—') + ' · ' +
       (spec.pipe ? 'OD ' + spec.pipe.od + ' mm / WT ' + spec.pipe.wt + ' mm' : 'T ' + (spec.T || '—') + ' mm') + ' · ' + L('datum: z 0 mark') + ' · ' + L('surfaces A (side +) / B (side −)');
     const dac = inst.dac || {};
     // QA3 #5 (§4.2.2): reference reflector / calibration block follow the procedure or rule set in force
@@ -938,7 +969,7 @@
     html += kv('Job / exam title', tr.exam && tr.exam.title ? esc(tr.exam.title) : L('Trade Test') + ' #' + esc(tr.seed === null ? '—' : tr.seed) + ' (' + L(diffOf(tr)) + (tr.practice ? ', ' + L('practice') : '') + ')');
     html += kv('Candidate', esc(tr.candidate || (res && res.name) || '—'));
     html += kv('Date / time', esc(res ? res.date : new Date(trade._now()).toISOString()));
-    html += kv('Standard / acceptance level / testing level', esc(std.standard || '—') + ' / ' + esc(std.level || '—') + ' / ' + esc(std.testingLevel || '—'));
+    html += kv('Standard / acceptance level / testing level', esc(stdLabel(std.standard) || '—') + ' / ' + esc(std.level || '—') + ' / ' + esc(std.testingLevel || '—'));
     html += kv('Procedure', esc(std.procedure || cfg.procedureId || '—'));
     html += kv('Specimen', specTxt);
     html += kv('Probes used', probeLines().map(esc).join('<br>') || '—');
@@ -1477,6 +1508,11 @@
       for (let sd = 1; sd <= 40; sd++) if (tradeRng(sd)() < 0.4) pipes++;
       if (pipes < 8 || pipes > 24 || tradeRng(3)() !== tradeRng(3)()) f.push('seed mixing ' + pipes);
       if (configure({ probes: ['not-a-probe'] }) !== false) f.push('configure bad probe');
+      // QA3 #7 (§4.2.2): the report renders labels, never the raw ids (unknown ids stay as they are)
+      if (has('specimens.prepNames') && prepLabel('single-v') === 'single-v') f.push('prepLabel raw id');
+      if (has('standards.ruleNames') && stdLabel('iso11666').indexOf('ISO 11666') !== 0) f.push('stdLabel ' + stdLabel('iso11666'));
+      if (has('probe.libEntry') && probeLabel('gen-60-5-10') !== UT.probe.libEntry('gen-60-5-10').name) f.push('probeLabel ' + probeLabel('gen-60-5-10'));
+      if (prepLabel('') || prepLabel('odd-prep') !== 'odd-prep' || stdLabel('nope') !== 'nope' || probeLabel('nope') !== 'nope') f.push('label fallbacks');
     } catch (e) { f.push('exception ' + (e && e.stack || e)); }
     // live pipeline (state snapshot / restore like 80-modes)
     if (has('modes.enter') && has('rays.trace') && has('ascan.ampPctOf')) {
@@ -1502,6 +1538,14 @@
         if (!st().trade.result || !st().trade.result.token || !verifyResult(st().trade.result.token).ok) f.push('live token');
         if (!st().trade.history.length || st().trade.history[st().trade.history.length - 1].score !== 100) f.push('history entry');
         if (trade.report({ withTruth: true }).indexOf('SCORE') < 0 || trade.report({ withTruth: false }).indexOf('True defects') >= 0) f.push('report html');
+        // QA3 #7 (§4.2.2): the rendered report carries the specimen / rule-set labels, not 'single-v' / 'iso11666'
+        const repL = trade.report({ withTruth: false });
+        const prepNow = (st().specimen || {}).prep, prepTable = has('specimens.prepNames') || [];
+        if (prepTable.some(function (q) { return q.key === prepNow; }) &&
+          (repL.indexOf(' · ' + esc(prepNow) + ' · ') >= 0 || repL.indexOf(' · ' + esc(prepLabel(prepNow)) + ' · ') < 0)) f.push('report prep label ' + prepNow);
+        const stdNow = (st().standards || {}).standard, ruleNames = has('standards.ruleNames');
+        if (ruleNames && ruleNames[stdNow] &&
+          (repL.indexOf('>' + esc(stdNow) + ' /') >= 0 || repL.indexOf(esc(stdLabel(stdNow))) < 0)) f.push('report standard label ' + stdNow);
         // QA3 #5 (§4.2.2): reference level (reflector) and calibration block follow the procedure in force
         const procMap = has('standards.procedures');
         const pAws = procMap ? procMap['aws-d11-70'] : null;

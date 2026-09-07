@@ -1178,10 +1178,15 @@
       if (args && (args.ref || args.echo)) return ers(args);
       return dgsCurrent();
     },
+    /** evaluate({ruleId, level, T, probeAngle, transferDb, rulesOverride, indication:{ampDbVsRef, lengthMm, type, soundPath, depth}}) → one evaluation row {disposition, recordable, class, pct, ruleText, ruleTextKo, numbers, ruleId, lengthMethod, reference} (+ level for the ISO sets); @see evaluate(). */
     evaluate(args) { return evaluate(args); },
+    /** applyProcedure(id | null) → boolean — apply a T4 procedure preset (null clears it) in ONE UT.set; false for an unknown id; @see applyProcedure(). */
     applyProcedure(id) { return applyProcedure(id); },
+    /** rules() → {iso17640, iso11666, asme8, awsd11} rule sets, each merged with state.standards.rulesOverride; @see ruleSet(). */
     rules() { const out = {}; RULE_IDS.forEach(function (id) { out[id] = ruleSet(id); }); return out; },
+    /** allowedProbes() → string[] of probe library ids allowed by the active procedure, or null when unrestricted; @see allowedProbes(). */
     allowedProbes() { return allowedProbes(); },
+    /** standardsNotes() → string[] — the English confidence/caveat notes of the 'stdnotes' window (Korean stays in notesKo()); @see notes(). */
     standardsNotes() { return notes(); },
   });
 })(window.UT = window.UT || {});

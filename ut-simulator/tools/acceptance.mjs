@@ -8,9 +8,9 @@
 // v1 acceptance check of SPEC §11.1 (#1–#14) and every v2 check of SPEC-v2 §9 (V2-1 … V2-27), prints a
 // table, writes a JSON report and exits 1 when any check fails.
 //
-// Every check is a small named async function returning {name, pass, detail}; a check that throws is
-// reported as failed with the exception text. Checks that need a fresh page (scenario URL loading,
-// viewport scaling) launch a second browser through launch(). Timing budgets (SPEC-v2 §6.4) are relaxed
+// Every check is a small named async function returning {pass, detail} (plus an optional `info` object
+// copied into the JSON report); a check that throws is reported as failed with the exception text.
+// Checks that need a fresh page (scenario URL loading, viewport scaling) launch a second browser through launch(). Timing budgets (SPEC-v2 §6.4) are relaxed
 // ×2 when process.env.CI is set. playwright is resolved from NODE_PATH, /opt/node22/lib/node_modules or
 // `npm root -g` (see resolvePlaywright) so the runner works both locally and in the CI job of §6.2.
 import fs from 'node:fs';
@@ -143,7 +143,7 @@ window.ACC = {
 async function installHelpers(page) { await page.evaluate(PAGE_HELPERS); }
 
 // ---------------------------------------------------------------------------------------------- checks
-/** @type {{name:string, group:'v1'|'v2', timeout?:number, fn:(ctx)=>Promise<{pass:boolean, detail:string}>}[]} */
+/** @type {{name:string, group:'v1'|'v2', timeout?:number, fn:(ctx)=>Promise<{pass:boolean, detail:string, info?:object}>}[]} */
 const CHECKS = [];
 function check(name, group, fn, opts) { CHECKS.push(Object.assign({ name, group, fn }, opts || {})); }
 
@@ -1245,17 +1245,195 @@ check('V2-25 runner lists ≥ 40 checks and writes JSON', 'v2', async ({ jsonOut
   return A.result();
 });
 
+// ------------------------------------------------------------------------------- YAML subset (V2-26)
+// V2-26 must evaluate its structural assertions everywhere, including inside the §6.2 CI job: there
+// `actions/setup-python@v5` puts a bare CPython without PyYAML first on PATH, so shelling out to
+// python is not a dependable parser. The runner therefore carries its own parser for the YAML subset
+// the workflow uses and only consults an external YAML implementation as a cross-check.
+/**
+ * Parse the YAML subset used by `.github/workflows/*.yml`: block mappings, block sequences, literal
+ * and folded block scalars, quoted/plain scalars, comments and blank lines. Deliberately strict —
+ * anything outside the subset (flow collections, anchors/aliases/tags, multiple documents, tabs in
+ * indentation, duplicate keys, missing `key: value`) throws instead of being silently mis-read.
+ * @param {string} text file contents
+ * @returns {*} the parsed document (plain objects/arrays/scalars)
+ */
+function parseYamlSubset(text) {
+  const src = text.replace(/^\uFEFF/, '').split(/\r?\n/).map((raw, k) => ({ n: k + 1, raw }));
+  let i = 0;
+  const fail = (msg, ln) => { throw new Error(`${msg} (line ${ln == null ? '?' : ln})`); };
+  const skippable = (s) => s.trim() === '' || /^\s*#/.test(s);
+  const indentOf = (ln) => { const m = /^[ \t]*/.exec(ln.raw)[0]; if (m.indexOf('\t') >= 0) fail('tab in indentation', ln.n); return m.length; };
+  /** next significant line (blank/comment lines skipped), leaving `i` on it; null at EOF. */
+  const peek = () => { while (i < src.length && skippable(src[i].raw)) i++; return i < src.length ? src[i] : null; };
+  /** walk a line outside quotes, calling back at every unquoted character. */
+  const scan = (s, at) => {
+    let q = null;
+    for (let k = 0; k < s.length; k++) {
+      const c = s[k];
+      if (q === "'") { if (c === "'") { if (s[k + 1] === "'") k++; else q = null; } continue; }
+      if (q === '"') { if (c === '\\') { k++; continue; } if (c === '"') q = null; continue; }
+      if (c === "'" || c === '"') { q = c; continue; }
+      const r = at(c, k); if (r !== undefined) return r;
+    }
+    return undefined;
+  };
+  const stripComment = (s) => { const k = scan(s, (c, k2) => (c === '#' && (k2 === 0 || /\s/.test(s[k2 - 1])) ? k2 : undefined)); return k === undefined ? s : s.slice(0, k); };
+  /** "key: value" → [key, value] (value '' when the line ends after the colon); null when not a mapping entry. */
+  const splitKey = (s) => scan(s, (c, k) => (c === ':' && (k + 1 >= s.length || /\s/.test(s[k + 1])) ? [s.slice(0, k), s.slice(k + 1).trim()] : undefined)) || null;
+  const scalar = (s, ln) => {
+    const v = s.trim();
+    if (v === '') return null;
+    if (/^[[{&*!]/.test(v)) fail('unsupported YAML construct "' + v.slice(0, 24) + '"', ln);
+    if (v[0] === "'") { if (v.length < 2 || v[v.length - 1] !== "'") fail('unterminated single-quoted scalar', ln); return v.slice(1, -1).replace(/''/g, "'"); }
+    if (v[0] === '"') { if (v.length < 2 || v[v.length - 1] !== '"') fail('unterminated double-quoted scalar', ln); return v.slice(1, -1).replace(/\\(.)/g, (m, c) => (c === 'n' ? '\n' : c === 't' ? '\t' : c)); }
+    if (/^(null|Null|NULL|~)$/.test(v)) return null;
+    if (/^(true|True|TRUE)$/.test(v)) return true;
+    if (/^(false|False|FALSE)$/.test(v)) return false;
+    if (/^[-+]?\d+$/.test(v)) return parseInt(v, 10);
+    if (/^[-+]?(\d+\.\d*|\.\d+)([eE][-+]?\d+)?$/.test(v)) return parseFloat(v);
+    return v;
+  };
+  /** literal (|) / folded (>) block scalar; `i` sits on the header line and ends past the body. */
+  const blockScalar = (header, keyIndent, ln) => {
+    const m = /^([|>])([-+]?)(\d*)\s*$/.exec(header);
+    if (!m) fail('unsupported block scalar header "' + header + '"', ln.n);
+    const literal = m[1] === '|', chomp = m[2];
+    let base = m[3] ? keyIndent + parseInt(m[3], 10) : -1;
+    i++;
+    const body = [];
+    while (i < src.length) {
+      const l = src[i];
+      if (l.raw.trim() === '') { body.push(''); i++; continue; }
+      const ind = indentOf(l);
+      if (ind <= keyIndent) break;
+      if (base < 0) base = ind;
+      if (ind < base) break;
+      body.push(l.raw.slice(base));
+      i++;
+    }
+    let trailing = 0;
+    while (body.length && body[body.length - 1] === '') { body.pop(); trailing++; }
+    let out = literal ? body.join('\n') : body.reduce((acc, s, k) => (k === 0 ? s : acc + (s === '' || body[k - 1] === '' ? '\n' : ' ') + s), '');
+    if (chomp === '+') out += '\n'.repeat(trailing + (body.length ? 1 : 0));
+    else if (chomp !== '-' && body.length) out += '\n';
+    return out;
+  };
+  const parseNode = (indent) => {
+    const ln = peek();
+    if (!ln) fail('unexpected end of file');
+    if (indentOf(ln) !== indent) fail('unexpected indentation', ln.n);
+    const body = stripComment(ln.raw.slice(indent));
+    if (/^-(\s|$)/.test(body)) return parseSeq(indent);
+    if (splitKey(body)) return parseMap(indent);
+    i++;
+    return scalar(body, ln.n);
+  };
+  const parseMap = (indent) => {
+    const out = {};
+    for (;;) {
+      const ln = peek();
+      if (!ln) break;
+      const ind = indentOf(ln);
+      if (ind < indent) break;
+      if (ind > indent) fail('unexpected indentation in mapping', ln.n);
+      const body = stripComment(ln.raw.slice(ind));
+      if (/^-(\s|$)/.test(body)) break;                                // sequence of the enclosing key
+      const kv = splitKey(body);
+      if (!kv) fail('expected "key: value"', ln.n);
+      const key = String(scalar(kv[0], ln.n));
+      if (Object.prototype.hasOwnProperty.call(out, key)) fail('duplicate key "' + key + '"', ln.n);
+      if (kv[1] === '') {
+        i++;
+        const nxt = peek();
+        const nind = nxt ? indentOf(nxt) : -1;
+        if (nxt && nind > ind) out[key] = parseNode(nind);
+        else if (nxt && nind === ind && /^-(\s|$)/.test(stripComment(nxt.raw.slice(nind)))) out[key] = parseSeq(ind);
+        else out[key] = null;
+      } else if (/^[|>]/.test(kv[1])) out[key] = blockScalar(kv[1], ind, ln);
+      else { i++; out[key] = scalar(kv[1], ln.n); }
+    }
+    return out;
+  };
+  const parseSeq = (indent) => {
+    const out = [];
+    for (;;) {
+      const ln = peek();
+      if (!ln) break;
+      const ind = indentOf(ln);
+      if (ind < indent) break;
+      if (ind > indent) fail('unexpected indentation in sequence', ln.n);
+      const body = stripComment(ln.raw.slice(ind));
+      if (!/^-(\s|$)/.test(body)) break;
+      const rest = body.slice(1);
+      const pad = /^ */.exec(rest)[0].length;
+      if (rest.trim() === '') {
+        i++;
+        const nxt = peek();
+        if (nxt && indentOf(nxt) > ind) out.push(parseNode(indentOf(nxt))); else out.push(null);
+      } else {                                                          // "- key: v" → re-indent so the item is an ordinary block
+        src[i] = { n: ln.n, raw: ' '.repeat(ind + 1 + pad) + rest.slice(pad) };
+        out.push(parseNode(ind + 1 + pad));
+      }
+    }
+    return out;
+  };
+  const first = peek();
+  if (!first) return null;
+  if (/^(---|\.\.\.)/.test(first.raw)) fail('multi-document YAML is outside the supported subset', first.n);
+  const doc = parseNode(indentOf(first));
+  const tail = peek();
+  if (tail) fail('unexpected content after the document', tail.n);
+  return doc;
+}
+
+/**
+ * Cross-check parser: a real YAML implementation when the machine happens to have one
+ * (python3 + PyYAML, then ruby's Psych — present on ubuntu-latest). null when neither is usable.
+ * @returns {{tool:string, doc:*}|null}
+ */
+function parseYamlExternal(file) {
+  const tries = [
+    ['python3+yaml', 'python3 -c "import sys,json,yaml; print(json.dumps(yaml.safe_load(open(sys.argv[1]).read())))" ' + JSON.stringify(file)],
+    ['ruby+psych', "ruby -ryaml -rjson -e 'puts JSON.dump(YAML.safe_load(File.read(ARGV[0])))' " + JSON.stringify(file)],
+  ];
+  for (const [tool, cmd] of tries) {
+    try { return { tool, doc: JSON.parse(execSync(cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })) }; } catch (e) { /* not installed / not parseable by it */ }
+  }
+  return null;
+}
+
+/** Deep key-sorted clone with the YAML 1.1 `on:` → `true` boolean key normalised, for parser comparison. */
+function canonYaml(v, top) {
+  if (Array.isArray(v)) return v.map(x => canonYaml(x, false));
+  if (v && typeof v === 'object') {
+    const o = {};
+    for (const k of Object.keys(v).sort()) o[top && (k === 'true' || k === 'True') ? 'on' : k] = canonYaml(v[k], false);
+    return o;
+  }
+  return v;
+}
+
 check('V2-26 CI workflow YAML (§6.2), build outputs identical, size < 2.5 MB', 'v2', async ({ file }) => {
   const A = checker();
   const wf = path.join(REPO, '.github', 'workflows', 'utsim-ci.yml');
   A.ok(fs.existsSync(wf), 'workflow file exists');
+  let parser = 'none';
   if (fs.existsSync(wf)) {
-    let doc = null;
-    try {
-      const out = execSync('python3 -c "import sys,json,yaml; print(json.dumps(yaml.safe_load(open(sys.argv[1]).read())))" ' + JSON.stringify(wf), { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-      doc = JSON.parse(out);
-    } catch (e) { A.note('python yaml unavailable (' + String(e.message).split('\n')[0].slice(0, 60) + '), textual check only'); }
     const text = fs.readFileSync(wf, 'utf8');
+    let builtin = null, builtinErr = '';
+    try { builtin = parseYamlSubset(text); } catch (e) { builtinErr = String(e && e.message || e); }
+    // The built-in parser is what runs in CI (no PyYAML there), so failing to read the workflow with it
+    // is itself a failure — otherwise the structural assertions below would silently degrade on GitHub.
+    A.ok(builtin && typeof builtin === 'object', 'workflow parses with the runner\'s built-in YAML parser' + (builtinErr ? ': ' + builtinErr : ''));
+    const ext = parseYamlExternal(wf);
+    if (ext && builtin) {                                                        // keep the built-in parser honest wherever a real one exists
+      const mine = JSON.stringify(canonYaml(builtin, true)), theirs = JSON.stringify(canonYaml(ext.doc, true));
+      A.ok(mine === theirs, 'built-in YAML parse agrees with ' + ext.tool + (mine === theirs ? '' : ': builtin ' + mine.slice(0, 200) + ' vs ' + theirs.slice(0, 200)));
+    }
+    const doc = builtin || (ext && ext.doc) || null;
+    parser = builtin ? 'builtin' : (ext ? ext.tool : 'none');
+    A.note('YAML parsed by ' + parser + (ext ? (builtin ? ' (cross-checked against ' + ext.tool + ')' : '') : ' (no external YAML parser available)'));
     const paths = ['ut-simulator/**', 'utman_simulator.html', '.github/workflows/utsim-ci.yml'];
     if (doc) {
       const on = doc.on || doc[true];
@@ -1277,6 +1455,9 @@ check('V2-26 CI workflow YAML (§6.2), build outputs identical, size < 2.5 MB', 
       const upPaths = up && up.with && String(up.with.path).split('\n').map(s => s.trim()).filter(Boolean);
       A.ok(upPaths && JSON.stringify(upPaths) === JSON.stringify(['utman_simulator.html', 'docs/utman_simulator.html', 'ut-simulator/acceptance.json']), 'upload-artifact paths: ' + JSON.stringify(upPaths));
     } else {
+      // Nothing could parse the file: the assertions above already failed, the substrings are the
+      // residual (strictly weaker) evidence and the JSON report carries structural:false.
+      A.note('structural assertions NOT evaluated — substring evidence only');
       for (const s of ['playwright@1.56.0', 'NODE_PATH=$(npm root -g)', 'GITHUB_ENV', 'node tools/node-load.mjs --selftest', 'python3 build.py', 'node tools/acceptance.mjs --json acceptance.json', 'actions/upload-artifact@v4', "CI: 'true'"]) A.ok(text.indexOf(s) >= 0, 'workflow contains ' + s);
     }
   }
@@ -1286,7 +1467,7 @@ check('V2-26 CI workflow YAML (§6.2), build outputs identical, size < 2.5 MB', 
   const size = fs.statSync(file).size; A.le(size, 2.5 * 1024 * 1024 - 1, `size ${(size / 1024 / 1024).toFixed(2)} MB`);
   const deploy = path.join(REPO, '.github', 'workflows', 'deploy-pages.yml');
   A.ok(!fs.existsSync(deploy) || !/utsim|acceptance/.test(fs.readFileSync(deploy, 'utf8')), 'deploy-pages.yml untouched by the UTsim job');
-  return A.result();
+  return Object.assign(A.result(), { info: { yamlParser: parser, structural: parser !== 'none' } });
 });
 
 check('V2-27 performance budgets (§6.4)', 'v2', async ({ page, budget }) => {
@@ -1350,6 +1531,7 @@ async function main() {
     }
     const newErrors = errors.slice(k);
     const row = { name: c.name, group: c.group, pass: !!res.pass, detail: res.detail || '', ms: Date.now() - start };
+    if (res && res.info && typeof res.info === 'object') row.info = res.info;   // machine-readable extras (e.g. V2-26 {yamlParser, structural})
     if (newErrors.length) row.consoleErrors = newErrors.slice(0, 5);
     results.push(row);
     const mark = row.pass ? 'PASS' : 'FAIL';

@@ -82,7 +82,9 @@
  *   cells are clickable and cycle their option (ENERGY → energy, DAMPING → Ω list, FILTER → band). 2ND F + PULSER
  *   cycles the filter (caption FILTER). USK7: a small magenta line under the CRT text shows `P 200V 150Ω  F BB`.
  * - PA: drawSscan draws `frame.sscan` (from UT.pa when present — 40 already prefers `frame.pa.sscan`) and marks the
- *   selected angle (`frame.paSelected.angle`) with a thin dashed radial line.
+ *   selected angle (`frame.paSelected.angle`) with a thin dashed radial line. The sector replaces the A-scan on the
+ *   EPOCH screens only (§6.9 "the EPOCH screen shows S-SCAN"): the analogue single-channel USK 7 has no sector
+ *   display, so its CRT keeps the A-scan of the active focal law (and its text line reads that law's angle).
  * - Tooltips / aria-labels (§5.7): every hard key, dB cell, P/F key and USK7 button carries title + aria-label from the
  *   TIPS table (English keys, params for P{n}/F{n}/dB cells/knobs), stored in data-tip and re-applied by relabelTips()
  *   on 'lang' and when autoPct changes (GATES tip reads '2ND F + GATES = AUTO 80 %' live). KO entries live in 92.
@@ -464,7 +466,6 @@
   /** Gain cell text while a reference gain is locked (2ND F + dB): `Ref 30.2 + 2.0 dB` (§7.1 / §1.1 #22). */
   function fmtRefGain(ins) { const I = ins || inst(); const d = I.gain - I.refGain; return 'Ref ' + I.refGain.toFixed(1) + ' ' + (d < 0 ? '−' : '+') + ' ' + Math.abs(d).toFixed(1) + ' dB'; }
   function valueOf(name, ins) { const p = PARAMS[name]; if (!p) return ''; if (name === 'gain' && refLocked(ins)) return fmtRefGain(ins); return p.fmt(p.get(ins)); }
-  function calVel() { return PARAMS.velocity.get(); }
   const PAGES = {
     1: function () { return [pk('Gain', 'gain'), pk('Range', 'range'), pk('Delay', 'delay'), sub('Basic'), sub('Pulsar'), sub('Rcvr'), sub('Trig'), act('Auto Cal', keys.autoCal)]; },
     2: function () { return [pk('Gain', 'gain'), pk('Range', 'range'), pk('G1Level', 'g1level'), sub('Gate1'), sub('Gate2'), sub('Gate Setup')]; },
@@ -989,10 +990,13 @@
       tip(UT.dom.button('Show USK 7', function () { mem.focused = true; emitUi('softkey', 'Show USK 7'); win.show(); }, { class: 'ik uskdock-btn' }), TIPS['Show USK 7']),
     ]));
   }
-  function updateUsk7() {
+  function updateUsk7(frame) {
     const R = mem.refs; if (!R.crtText) return;
     const I = inst();
-    setText(R.crtText, 'AMP ' + Math.round(I.gain) + ' dB  Suppr ' + (I.reject > 0 ? I.reject + '%' : 'OFF') + '  ANGLE ' + Math.round(I.trig.angle) + '°');
+    // ANGLE = instrument.trig.angle, except with a PA probe where the CRT shows the A-scan of the selected focal
+    // law (drawCanvas) — then the law's angle is what the trace belongs to.
+    const paSel = st().probe.method === 'pa' && frame && frame.paSelected && Number.isFinite(frame.paSelected.angle) ? frame.paSelected.angle : null;
+    setText(R.crtText, 'AMP ' + Math.round(I.gain) + ' dB  Suppr ' + (I.reject > 0 ? I.reject + '%' : 'OFF') + '  ANGLE ' + Math.round(paSel === null ? I.trig.angle : paSel) + '°');
     const flt = filterOf(I);
     if (R.crtPulser) setText(R.crtPulser, 'P ' + energyV(I) + 'V ' + dampingOhms(I) + 'Ω  F ' + (flt === 'broadband' ? 'BB' : flt));
     if (document.activeElement !== R.amp && Math.abs(parseFloat(R.amp.value) - I.gain) > 1e-6) R.amp.value = I.gain;
@@ -1167,9 +1171,8 @@
     const depthMax = Math.min(maxPath, Math.max(T * 1.05, maxPath * Math.cos(M.deg2rad(aMax)) * 1.05));
     const xMax = maxPath * Math.sin(M.deg2rad(aMax)) * 1.02;
     const side = (state && state.probe && state.probe.side) || 1;
-    // USK7: the magenta CRT text line (.usk-text DOM overlay, ~canvas y 6..19) sits at the top-left, so
-    // start the sector lower there; the caption goes on a second bottom row (never at the top-left).
-    const mL = 18, mT = mem.skin === 'usk7' ? 26 : 18, mB = 24, mR = 6;
+    // Margins are skin-independent (the analogue USK 7 never shows the sector — drawCanvas keeps its A-scan).
+    const mL = 18, mT = 18, mB = 24, mR = 6;
     const scale = Math.min((W - mL - mR) / Math.max(1, xMax), (H - mT - mB) / Math.max(1, depthMax));
     const ox = side > 0 ? W - mR : mL, oy = mT;
     const toX = function (lat) { return ox - side * lat * scale; };
@@ -1205,7 +1208,7 @@
     for (let d = 0; d <= depthMax + 1e-9; d += 10) { ctx.fillText(String(d), mL - 2, toY(d)); }
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     ctx.fillText('0', ox, H - mB + 1); ctx.fillText(Math.round(xMax) + ' mm', toX(xMax * 0.9), H - mB + 1);
-    // caption: bottom-left, under the mm scale (the top-left is the USK7 CRT text line)
+    // caption: bottom-left, under the mm scale
     ctx.font = 'bold 11px Segoe UI, Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
     ctx.fillText('S-SCAN ' + aMin.toFixed(0) + '°–' + aMax.toFixed(0) + '°', 3, H - 1);
     ctx.restore();
@@ -1224,7 +1227,10 @@
     const cv = mem.canvas; if (!cv || !cv.isConnected) return;
     const ctx = UT.dom.fitCanvas(cv);
     const s = st();
-    if (frame && frame.sscan && s.probe.method === 'pa') drawSscan(ctx, frame, s);
+    // §6.9: the sector image replaces the A-scan on the EPOCH screens. The USK 7 is an analogue single-channel set
+    // with no sector display, so its CRT keeps the A-scan of the active focal law (40 puts the selected column's
+    // trace in frame.ascan and its angle in frame.paSelected).
+    if (frame && frame.sscan && s.probe.method === 'pa' && mem.skin !== 'usk7') drawSscan(ctx, frame, s);
     else drawAscan(ctx, frame, s, liveTheme());
   }
   /**
@@ -1557,7 +1563,9 @@
     '.e4-brand{font:italic bold 11px Segoe UI,Arial,sans-serif;color:#ddd;align-self:flex-start;padding-left:6px;}',
     /* USK7 window */
     '.win-usk7 .win-body{padding:0;}',
-    '.skin-usk7{display:flex;width:484px;height:200px;background:#0d0d0d;border:1px solid #333;}',
+    // width:100% (border-box) = the win body's content width — the win is 484 px wide INCLUDING its 1 px borders,
+    // so a hard-coded 484 px skin was 2 px wider than the 482 px body and the body grew a horizontal scrollbar.
+    '.skin-usk7{display:flex;width:100%;height:200px;background:#0d0d0d;border:1px solid #333;}',
     '.usk-crtwrap{position:relative;width:200px;flex:0 0 200px;background:#0b0b0b;padding:6px;}',
     '.usk-crt{display:block;width:188px;height:188px;}',
     '.usk-text{position:absolute;left:14px;top:12px;font:bold 11px Segoe UI,Arial,sans-serif;color:#ff40ff;white-space:nowrap;pointer-events:none;}',
