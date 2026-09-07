@@ -63,11 +63,15 @@
   const DISPLAY_KEYS = ['beam', 'skips', 'colourCode', 'singleLine', 'hide', 'plan', 'pipe3d', 'mirror', 'units', 'legend', 'grid', 'convRays', 'autoTrig'];
   const UT_SETS = ['epoch600', 'epoch4', 'usk7'];
   const DIFFICULTIES = ['basic', 'intermediate', 'advanced'];
+  // Ranges are [lo, hi] (finite numbers outside are clamped — the SPEC §11 setProbe/setInstrument contract) or
+  // [lo, hi, true] = STRICT: a finite number outside the range is as invalid as garbage and falls back to the default
+  // (probe / trig angles: an 89.9° "probe" has no shear-wave physics and no dialog produces it — QA round 2 #1).
+  const PROBE_ANGLE_VALID = [0, 90];   // toolbar / library / wedge dialog write 0…90 (90 = beyond the 2nd critical angle), as 90-app's restore
   const RANGES = {
-    probe: { angle: [0, 89.9], freq: [0.5, 20], diameter: [1, 50], wedgeVel: [1, 6], x: [-3000, 3000], z: [-5000, 5000], skew: [-360, 360], paFrom: [0, 89.9], paTo: [0, 89.9], paStep: [0.1, 10],
+    probe: { angle: [0, 90, true], freq: [0.5, 20], diameter: [1, 50], wedgeVel: [1, 6], x: [-3000, 3000], z: [-5000, 5000], skew: [-360, 360], paFrom: [0, 89.9], paTo: [0, 89.9], paStep: [0.1, 10],
       crystalDims: { a: [1, 50], b: [1, 50] }, focus: { F: [1, 1000] } },
     instrument: { gain: [0, 110], refGain: [0, 110], range: [10, 1000], delay: [-50, 1000], reject: [0, 80], activeGate: [0, 5], page: [1, 5], autoPct: [1, 100],
-      gates: { start: [-50, 1000], width: [0, 1000], level: [0, 100] }, cal: { zero: [-50, 50] }, trig: { angle: [0, 89.9], thick: [1, 1000], xValue: [-3000, 3000] },
+      gates: { start: [-50, 1000], width: [0, 1000], level: [0, 100] }, cal: { zero: [-50, 50] }, trig: { angle: [0, 89.9, true], thick: [1, 1000], xValue: [-3000, 3000] },
       pulser: { energy: [100, 400], damping: [50, 400], prf: [1, 5000] } },
     weldOpts: { T: [3, 100], L: [50, 2000], bevel: [0, 60], rootGap: [0, 10], rootFace: [0, 10], capWidth: [0, 60], capHeight: [0, 10], rootHeight: [0, 10], od: [25, 2000], wt: [3, 100], webT: [1, 100], branchOd: [10, 2000], transferLossDb: [0, 8] },
     display: { skips: [1, 12] },
@@ -199,9 +203,11 @@
   async function inflateRaw(bytes) { return pumpStream(new DecompressionStream('deflate-raw'), bytes); }
 
   // ------------------------------------------------------------------ coercion onto the default state shapes
-  function isRange(r) { return Array.isArray(r) && r.length === 2 && typeof r[0] === 'number'; }
+  function isRange(r) { return Array.isArray(r) && (r.length === 2 || r.length === 3) && typeof r[0] === 'number'; }
+  function inRange(r, n) { return n >= r[0] && n <= r[1]; }
   /**
-   * Coerce `src` onto the shape of `def`: booleans → !!, numbers → finite (clamped by ranges[k]), strings → enum-checked,
+   * Coerce `src` onto the shape of `def`: booleans → !!, numbers → finite (clamped by ranges[k]; a strict range
+   * [lo, hi, true] rejects out-of-range numbers → default), strings → enum-checked,
    * null defaults accept null | number | string | object, arrays of objects are coerced element-wise to def's length,
    * other arrays are cloned (≤ 400 entries), unknown keys are dropped.
    */
@@ -215,7 +221,9 @@
       if (typeof d === 'boolean') out[k] = v === undefined ? d : !!v;
       else if (typeof d === 'number') {
         const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
-        out[k] = typeof n === 'number' && Number.isFinite(n) ? (isRange(R[k]) ? M.clamp(n, R[k][0], R[k][1]) : n) : d;
+        if (!(typeof n === 'number' && Number.isFinite(n))) out[k] = d;
+        else if (!isRange(R[k])) out[k] = n;
+        else out[k] = R[k][2] ? (inRange(R[k], n) ? n : d) : M.clamp(n, R[k][0], R[k][1]);
       } else if (typeof d === 'string') out[k] = typeof v === 'string' && (!Array.isArray(E[k]) || E[k].indexOf(v) >= 0) ? v.slice(0, 200) : d;
       else if (d === null) out[k] = v === undefined || typeof v === 'boolean' || typeof v === 'function' ? null : (typeof v === 'number' && !Number.isFinite(v) ? null : clone(v));
       else if (Array.isArray(d)) {
@@ -330,6 +338,16 @@
     if (o.probe && typeof o.probe === 'object') {
       const p = coerce(def.probe, o.probe, RANGES.probe, ENUMS.probe);
       p.side = Number(o.probe.side) < 0 ? -1 : 1;
+      if (has('probe.libEntry') && !UT.probe.libEntry(p.libId)) p.libId = def.probe.libId;
+      // Angle provenance (as 90-app's restore): toolbar (0/45/60/70), a library entry or the wedge dialog (custom 0…90).
+      // Anything else (NaN, 999, −5, missing) is a corrupt record → the library entry's angle/mode via UT.probe.select
+      // (never a clamp: an 89.9° probe is meaningless and no dialog can produce it), else the defaults.
+      const rawAngle = typeof o.probe.angle === 'string' && o.probe.angle.trim() !== '' ? Number(o.probe.angle) : o.probe.angle;
+      if (!(typeof rawAngle === 'number' && inRange(PROBE_ANGLE_VALID, rawAngle))) {
+        const sel = has('probe.select') ? UT.probe.select(p.libId) : null;
+        p.angle = sel ? sel.angle : def.probe.angle;
+        p.mode = sel ? sel.mode : def.probe.mode;
+      }
       if (p.angle === 0) p.mode = 'comp';
       out.probe = p;
     }
@@ -866,6 +884,15 @@
       if (sz.weldOpts.T !== 100 || sz.weldOpts.type !== 'single-v' || sz.weldOpts.pipe !== true || sz.weldOpts.wt !== 11.5) f.push('sanitise weldOpts ' + JSON.stringify(sz.weldOpts));
       if (sz.display.skips !== 12 || sz.display.units !== 'mm' || 'sound' in sz.display || sz.mode !== 'weld' || sz.material !== 'carbon' || sz.lesson !== null || sz.noteKo.length !== NOTE_MAX) f.push('sanitise misc');
       if (sanitise({ weldOpts: { type: 'double-v' } }).weldOpts.prep !== 'double-v') f.push('sanitise prep from type');
+      // QA round 2 #1: out-of-range probe / trig angles and unknown libIds are rejected (defaults), never clamped to 89.9°
+      const bad1 = sanitise({ v: 2, probe: { angle: 999, x: 'NaN', libId: 'nope' }, instrument: { gain: 1e9, trig: { angle: 999 } } });
+      if (bad1.probe.angle !== 60 || bad1.probe.mode !== 'shear' || bad1.probe.libId !== 'gen-60-5-10' || bad1.probe.x !== 40) f.push('sanitise angle 999 ' + JSON.stringify(bad1.probe));
+      if (bad1.instrument.trig.angle !== 60 || bad1.instrument.gain !== 110) f.push('sanitise trig 999 / gain ' + JSON.stringify([bad1.instrument.trig, bad1.instrument.gain]));
+      const bad2 = sanitise({ v: 2, probe: { angle: -5, libId: 'mwb45-2' } }).probe, bad3 = sanitise({ v: 2, probe: { angle: 'x', libId: 'gen-0-5-10' } }).probe;
+      if (has('probe.select') && (bad2.angle !== 45 || bad2.mode !== 'shear' || bad3.angle !== 0 || bad3.mode !== 'comp')) f.push('sanitise angle → library ' + JSON.stringify([bad2, bad3]));
+      const ok1 = sanitise({ v: 2, probe: { angle: 85.5, mode: 'shear' }, instrument: { trig: { angle: 85.5 } } });
+      if (ok1.probe.angle !== 85.5 || ok1.instrument.trig.angle !== 85.5) f.push('sanitise custom angle kept ' + JSON.stringify([ok1.probe.angle, ok1.instrument.trig.angle]));
+      if (sanitise({ v: 2, probe: { angle: 90.5 } }).probe.angle !== 60 || sanitise({ v: 2, probe: { angle: 90 } }).probe.angle !== 90) f.push('sanitise angle window');
       // JSON text + raw URL round trip (sync 'r:' path)
       const txt = JSON.stringify(c);
       const back = fromText(txt);

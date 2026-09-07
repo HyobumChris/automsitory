@@ -860,7 +860,15 @@
     mem.uskWin = UT.dom.win({
       name: 'usk7', title: 'USK 7', x: 460, y: 100, w: 484, class: 'win-usk7',
       onClose: function () { UT.status({ right: 'USK 7 switched off — Options ▸ UT Set or "Show USK 7" to restore' }); },
-      onShow: function (api) { positionUsk(api); },
+      onShow: function (api) {
+        const m = st().mode;
+        if (m === 'v1' || m === 'v2') {
+          // shown while on a block screen (§14.8): park bottom-right; remember the way back (default placement when never positioned)
+          if (!mem.uskParked) mem.uskParked = mem.uskPositioned ? { left: api.el.style.left, top: api.el.style.top } : { left: '', top: '' };
+          mem.uskPositioned = true;
+          parkUsk(api, false);
+        } else positionUsk(api);
+      },
     });
     return mem.uskWin;
   }
@@ -875,7 +883,7 @@
     mem.uskPositioned = true;
     const place = function () {
       const plan = document.getElementById('cv-plan');
-      const r = plan ? plan.getBoundingClientRect() : null;
+      const r = plan ? designRect(plan) : null;
       if (!r || !(r.width > 0)) return;
       const hWin = api.el.offsetHeight || 230;
       const top = Math.max(r.top + 4, Math.round(r.bottom - Math.min(0.4 * r.height, hWin - 60)));
@@ -883,6 +891,41 @@
     };
     place();
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(function () { if (mem.uskWin === api && api.isOpen()) place(); });
+  }
+  /**
+   * Bounding rect of an element in DESIGN px relative to the #app box (SPEC-v2 §5.4: window positions are style px inside
+   * the scaled design box, so screen rects must be divided by UT.dom.scale() and offset by #app's own rect).
+   */
+  function designRect(el) {
+    const r = el.getBoundingClientRect();
+    const app = document.getElementById('app');
+    const a = app && app !== el ? app.getBoundingClientRect() : { left: 0, top: 0 };
+    const k = UT.dom.scale ? (UT.dom.scale() || 1) : 1;
+    return { left: (r.left - a.left) / k, top: (r.top - a.top) / k, width: r.width / k, height: r.height / k, right: (r.left - a.left + r.width) / k, bottom: (r.top - a.top + r.height) / k };
+  }
+  /**
+   * Pure §14.8 parking arithmetic (design px): bottom-right of the W×H app box with the v1 margins (16 px right, 37 px
+   * bottom = above the status bar), never negative. v1 used `innerWidth − 500` / `innerHeight − 260` for the 484×223 window.
+   * @param {number} W app width  @param {number} H app height  @param {number} w window width  @param {number} h window height
+   * @returns {{left:number, top:number}}
+   */
+  function uskParkPos(W, H, w, h) {
+    const ww = w > 0 ? w : 484, hh = h > 0 ? h : 223;
+    return { left: Math.max(0, Math.round(W - ww - 16)), top: Math.max(0, Math.round(H - hh - 37)) };
+  }
+  /**
+   * Park the USK7 bottom-right of the (unscaled) #app design box — SPEC §14.8 V1/V2 block screens. Uses #app.offsetWidth/Height
+   * (design px, SPEC-v2 §5.4) so the window stays fully inside the box at every display.scale; re-run on bus 'resize'.
+   * @param {object} api  dom.win api  @param {boolean} [remember]  store the current position in mem.uskParked for the way back
+   */
+  function parkUsk(api, remember) {
+    const el = api.el;
+    if (remember && !mem.uskParked) mem.uskParked = { left: el.style.left, top: el.style.top };
+    const app = document.getElementById('app');
+    const W = app && app.offsetWidth > 0 ? app.offsetWidth : (typeof window !== 'undefined' ? window.innerWidth : 1280);
+    const H = app && app.offsetHeight > 0 ? app.offsetHeight : (typeof window !== 'undefined' ? window.innerHeight : 760);
+    const pos = uskParkPos(W, H, el.offsetWidth, el.offsetHeight);
+    el.style.left = pos.left + 'px'; el.style.top = pos.top + 'px';
   }
   /** USK7 rotary knob: ◀ ▶ buttons, mouse wheel and a scale-aware vertical pointer drag on the dial (6 design px per step). */
   function knob(label, opts) {
@@ -1238,7 +1281,7 @@
     c.textContent = '';
     mem.refs = {}; mem.canvas = null; mem.iconCanvas = null; mem.subPage = null; setSecondF(false);
     mem.touch = wantTouch();
-    if (mem.uskWin && name !== 'usk7') { mem.uskWin.setContent(null); mem.uskWin.hide(); mem.uskParked = null; }
+    if (mem.uskWin && name !== 'usk7') { mem.uskWin.setContent(null); mem.uskWin.hide(); }   // mem.uskParked survives a skin switch (way back from v1/v2)
     mem.skin = name;
     if (name === 'epoch4') buildEpoch4(c);
     else if (name === 'usk7') buildUsk7(c);
@@ -1275,18 +1318,22 @@
       try { if (!mem.mq && typeof matchMedia === 'function') mem.mq = matchMedia('(pointer: coarse)'); if (mem.mq && mem.mq.addEventListener) mem.mq.addEventListener('change', applyTouch); } catch (e) { /* ignore */ }
       UT.bus.on('lang', function () { rebuildSoftkeys(); relabelTips(); refreshDatalogWindow(true); if (mem.skin) onRender(UT.frame); });
       UT.bus.on('mode', function (p) {
-        if (mem.skin !== 'usk7' || !mem.uskWin || !p) return;
-        const el = mem.uskWin.el;
+        if (!mem.uskWin || !p) return;
+        const el = mem.uskWin.el, visible = mem.skin === 'usk7' && mem.uskWin.isOpen();
         if (p.mode === 'v1' || p.mode === 'v2') {
-          // §14.8: the USK7 floats bottom-right on the block screens; remember where it was so it can go back.
-          if (!mem.uskParked) mem.uskParked = { left: el.style.left, top: el.style.top };
-          const app = document.getElementById('app'); const r = app ? app.getBoundingClientRect() : { right: window.innerWidth, bottom: window.innerHeight };
-          el.style.left = Math.max(0, r.right - 500) + 'px'; el.style.top = Math.max(0, r.bottom - 260) + 'px';
+          // §14.8: the USK7 floats bottom-right on the block screens (design px, inside #app); remember where it was so it can go back.
+          if (visible) parkUsk(mem.uskWin, true);   // a hidden window is parked (and remembered) by onShow when it comes back
         } else if (mem.uskParked) {
           const prev = mem.uskParked; mem.uskParked = null;
           if (prev.left && prev.top) { el.style.left = prev.left; el.style.top = prev.top; }
-          else { mem.uskPositioned = false; positionUsk(mem.uskWin); }   // default: lower-left of the plan view (reference EGQxpCOD_xA.jpg)
+          else { mem.uskPositioned = false; if (visible) positionUsk(mem.uskWin); }   // default: lower-left of the plan view (reference EGQxpCOD_xA.jpg)
         }
+      });
+      // a scale/viewport change while parked on a block screen: keep the USK7 bottom-right inside the design box (§14.8)
+      UT.bus.on('resize', function () {
+        if (mem.skin !== 'usk7' || !mem.uskWin || !mem.uskParked || !mem.uskWin.isOpen()) return;
+        const m = st().mode;
+        if (m === 'v1' || m === 'v2') parkUsk(mem.uskWin, false);
       });
     }
     buildSkin(st().utSet || 'epoch600');
@@ -1595,7 +1642,7 @@
     auto, storeRef, wheel, compare, save, datalog,
     fmtLen: function (mm, dp) { return UT.fmtLen(mm, dp); },
     /** Internals exposed for tests / other modules (read-only use). */
-    _: { PARAMS, LEGAL_PARAMS, THEMES, keys, adjust, selectParam, softkeyItems, nextRange, foldDepth, ampColour, dacPolyline, dacAt, tcgFlatPolyline, compareOf, alarmActive, checkAlarms, energyV, dampingOhms, filterOf, prfOf, tcgActive, wantTouch, mem, TIPS, tip, relabelTips },
+    _: { PARAMS, LEGAL_PARAMS, THEMES, keys, adjust, selectParam, softkeyItems, nextRange, foldDepth, ampColour, dacPolyline, dacAt, tcgFlatPolyline, compareOf, alarmActive, checkAlarms, energyV, dampingOhms, filterOf, prfOf, tcgActive, wantTouch, uskParkPos, mem, TIPS, tip, relabelTips },
     get window() { return ensureUskWindow(); },
     __selftest() {
       const f = [];
@@ -1633,6 +1680,12 @@
       if (!datalog || typeof datalog.open !== 'function' || typeof datalog.toggle !== 'function' || typeof datalog.close !== 'function') f.push('datalog window API');
       if (!/\.hc /.test(css) || !/\.skin\.touch /.test(css) || !/win-datalog/.test(css)) f.push('v2 css blocks');
       if (fmtTime(0).length !== 8) f.push('fmtTime');
+      // §14.8 / SPEC-v2 §5.4: USK7 parking in design px — the window rect must lie inside the W×H app box, above the 37 px status margin
+      [[1280, 760], [1400, 831], [1024, 608], [1869, 1080], [400, 200]].forEach(function (d) {
+        const pp = uskParkPos(d[0], d[1], 484, 223);
+        if (pp.left < 0 || pp.top < 0 || (d[0] >= 500 && pp.left + 484 + 16 > d[0] + 0.5) || (d[1] >= 260 && pp.top + 223 + 37 > d[1] + 0.5)) f.push('uskParkPos ' + d.join('x') + ' → ' + JSON.stringify(pp));
+      });
+      if (uskParkPos(1280, 760, 484, 223).left !== 780 || uskParkPos(1280, 760, 484, 223).top !== 500 || uskParkPos(1280, 760, 0, 0).left !== 780) f.push('uskParkPos v1 numbers');
       if (ENERGY_E4[300] !== 'MED+' || filterLabel('broadband') !== 'Broadband' || filterLabel('5-15') !== '5-15 MHz') f.push('labels');
       // ---- v1 invariants
       // legal parameter list ↔ PARAMS

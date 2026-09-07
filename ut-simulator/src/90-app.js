@@ -80,7 +80,25 @@
   const RANGE_PRESETS = [50, 100, 200, 400];
   // fallback copy of §14.7 (used only when UT.modes is missing)
   const HIDDEN_FALLBACK = { v1: ['plan', 'ruler', 'compass'], v2: ['plan', 'ruler', 'compass'], tky: ['plan', 'ruler', 'compass'], iow: ['plan', 'compass'], fbh: ['compass'] };
-  const MENU_ALIASES = { 'Weld…': 'Weld Settings...', 'Weld...': 'Weld Settings...', 'Weld': 'Weld Settings...', 'Phased Array Probe…': 'Phased Array Probe', 'Focus Beam…': 'Focus Beam', 'Lessons…': 'Lessons...', 'Lessons': 'Lessons...', 'Standards notes': 'Standards notes…', 'Trade Test…': 'Trade Test...' };
+  const MENU_ALIASES = { 'Weld…': 'Weld Settings...', 'Weld...': 'Weld Settings...', 'Weld': 'Weld Settings...', 'Phased Array Probe…': 'Phased Array Probe', 'Focus Beam…': 'Focus Beam', 'Lessons…': 'Lessons...', 'Lessons': 'Lessons...', 'Standards notes': 'Standards notes…', 'Trade Test…': 'Trade Test...', 'Centreline crack': 'Centreline crack (중심선 균열)' };
+  // The 73 v1 menu label paths (SPEC §15.9 'keys stay English'; task contract): every one must keep resolving in the
+  // v2 menu model, so a data-key rename fails the self test. Checked by __selftest via resolveMenuPath(path, true).
+  const V1_MENU_PATHS = ['File/New', 'File/Save Setup', 'File/Load Setup', 'File/Export A-scan PNG', 'File/Print',
+    'Probes/Adjust Angle in Wedge (Shoe)', 'Probes/Zero Probe - Twin or Single Crystal/Single Crystal', 'Probes/Zero Probe - Twin or Single Crystal/Twin Crystal',
+    'Probes/Pulse Echo', 'Probes/Through Transmission', 'Probes/Tandem (pitch catch)', 'Probes/2.5 MHz Frequency', 'Probes/5 MHz Frequency',
+    'Probes/Probe Diameter 10mm', 'Probes/Probe Diameter 5mm', 'Probes/Phased Array Probe', 'Probes/Colour Code Display/Mode Propagation',
+    'Probes/Colour Code Display/Geometry', 'Probes/Number of Skips/1', 'Probes/Number of Skips/2', 'Probes/Number of Skips/3', 'Probes/Number of Skips/4',
+    'Probes/Single Line Beam', 'Probes/Focus Beam', 'Step Wedge/Steps 5-25 mm (5 mm)', 'Step Wedge/Steps 10-50 mm (10 mm)', 'Step Wedge/Custom Steps...',
+    'Step Wedge/Auto Cal', 'Step Wedge/Exit Step Wedge', 'Weld/Weld Settings...', 'Weld/Presets/Plate 12 mm Single-V', 'Weld/Presets/Plate 20 mm Single-V',
+    'Weld/Presets/Plate 25 mm Double-V', 'Weld/Presets/Plate 40 mm Double-V', 'Weld/Presets/Pipe 6 inch WT 20', 'Weld/Presets/Pipe 8 inch WT 25',
+    'Weld/Presets/Pipe 12 inch WT 30', 'Weld/Pipe', 'Weld/TKY Joint', 'Defects/Defect Editor...', 'Defects/Add Preset/Root crack (균열)',
+    'Defects/Add Preset/Incomplete penetration (용입 부족)', 'Defects/Add Preset/Lack of side-wall fusion (융합 불량)', 'Defects/Add Preset/Porosity (기공)',
+    'Defects/Add Preset/Slag inclusion (슬래그)', 'Defects/Add Preset/Toe crack (토우 균열)', 'Defects/Add Preset/Centreline crack', 'Defects/Add Preset/Lamination (라미네이션)',
+    'Defects/Delete All Defects', 'Defects/Hide Defects', 'Defects/Import Defects...', 'Defects/Export Defects...', 'Defects/Lamination Check', 'Defects/Trade Test...',
+    'Options/UT Set/EPOCH 600', 'Options/UT Set/EPOCH 4', 'Options/UT Set/USK7', 'Options/Units/mm', 'Options/Units/inch', 'Options/Colour Code/None',
+    'Options/Colour Code/Mode Propagation', 'Options/Colour Code/Geometry', 'Options/Show Plan View', 'Options/Show 3D Window', 'Options/Show Legend',
+    'Options/Language/English', 'Options/Language/Korean (한국어)', 'Options/Options...', 'Options/Reset Layout', 'Help/About UTsim...', 'Help/Quick Guide...',
+    'Help/Keyboard Shortcuts...', 'Help/Lessons...'];
   const ALT_MENU = { f: 'menu-file', p: 'menu-probes', s: 'menu-stepwedge', w: 'menu-weld', d: 'menu-defects', t: 'menu-tools', o: 'menu-options', h: 'menu-help' };
 
   // ------------------------------------------------------------------ small helpers
@@ -737,24 +755,31 @@
       try { if (ret && ret.focus && doc() && doc().contains(ret)) ret.focus(); } catch (e) { /* ignore */ }
     } else if (!keepReturn) { try { item.blur(); } catch (e) { /* ignore */ } }
   }
-  /** Tolerant label comparison for UT.test.menu: trailing '…'/'...' ignored, §8 spellings aliased to v1 keys. */
+  /**
+   * Tolerant label comparison for UT.test.menu: trailing '…'/'...' ignored, §8 spellings aliased to v1 keys, and a
+   * key carrying a trailing Korean gloss in parentheses ('Centreline crack (중심선 균열)') also matches the bare
+   * English v1 label ('Centreline crack') so localised data-keys never break v1 automation/lesson paths.
+   */
   function keyMatches(key, seg) {
     if (key === seg) return true;
     const strip = function (x) { return String(x).replace(/(\.\.\.|…)\s*$/, '').trim(); };
     if (strip(key) === strip(seg)) return true;
     const alias = MENU_ALIASES[seg];
-    return !!alias && (alias === key || strip(alias) === strip(key));
+    if (alias && (alias === key || strip(alias) === strip(key))) return true;
+    const unglossed = String(key).replace(/\s*\([^()]*[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af][^()]*\)\s*$/, '');
+    return unglossed !== String(key) && strip(unglossed) === strip(seg);
   }
   /**
-   * Resolve a label path ('Probes/Number of Skips/2') in the menu model and run its action synchronously.
+   * Resolve a label path ('Probes/Number of Skips/2') in the menu model without running it.
    * @param {string} path exact English labels (data-key), '/'-separated
-   * @returns {boolean} false when missing or disabled
+   * @param {boolean} [ignoreEnabled] true → existence only (self test), else disabled menus/entries resolve to null
+   * @returns {object|null} the leaf entry (has .action) or null when missing (or disabled)
    */
-  function menuByPath(path) {
+  function resolveMenuPath(path, ignoreEnabled) {
     const parts = String(path || '').split('/').map(function (s) { return s.trim(); }).filter(Boolean);
-    if (!parts.length) return false;
+    if (!parts.length) return null;
     const top = menuModel().find(function (m) { return m.key === parts[0]; });
-    if (!top || !menuEnabled(top.id)) return false;
+    if (!top || (!ignoreEnabled && !menuEnabled(top.id))) return null;
     let items = top.items, it = null;
     for (let i = 1; i < parts.length; i++) {
       it = (items || []).find(function (x) { return !x.sep && keyMatches(x.key, parts[i]); });
@@ -764,11 +789,20 @@
         it = (items || []).find(function (x) { return !x.sep && (keyMatches(x.key, joined) || keyMatches(x.key, parts.slice(i, j + 1).join('/'))); });
         if (it) i = j;
       }
-      if (!it) return false;
-      if (it.enabled && !it.enabled()) return false;
+      if (!it) return null;
+      if (!ignoreEnabled && it.enabled && !it.enabled()) return null;
       items = it.sub;
     }
-    if (!it || typeof it.action !== 'function') return false;
+    return it && typeof it.action === 'function' ? it : null;
+  }
+  /**
+   * Resolve a label path ('Probes/Number of Skips/2') in the menu model and run its action synchronously.
+   * @param {string} path exact English labels (data-key), '/'-separated
+   * @returns {boolean} false when missing or disabled
+   */
+  function menuByPath(path) {
+    const it = resolveMenuPath(path, false);
+    if (!it) return false;
     closeMenus();
     try { it.action(); } catch (e) { console.error('[UT.app] menu ' + path, e); return false; }
     refreshToolbar();
@@ -2425,6 +2459,11 @@
         if (keysOf('menu-weld').indexOf('Material…') < 0 || keysOf('menu-weld').indexOf('Weld Settings...') < 0) f.push('Weld menu');
         if (keysOf('menu-defects').indexOf('Random practice…') < 0 || keysOf('menu-stepwedge').indexOf('FBH block') < 0) f.push('Defects/Step Wedge v2 items');
         if (!keyMatches('Weld Settings...', 'Weld…') || !keyMatches('DGS diagram…', 'DGS diagram...') || !keyMatches('Focus Beam', 'Focus Beam…') || keyMatches('Pipe', 'TKY Joint')) f.push('keyMatches');
+        if (!keyMatches('Centreline crack (중심선 균열)', 'Centreline crack') || !keyMatches('Toe crack (토우 균열)', 'Toe crack') || keyMatches('Fillet toe crack (필릿 토우 균열)', 'Toe crack') || keyMatches('Steps 5-25 mm (5 mm)', 'Steps 5-25 mm')) f.push('keyMatches gloss');
+        // every v1 menu label path must still resolve (SPEC §15.9: keys stay English; a data-key rename fails here)
+        const missingV1 = V1_MENU_PATHS.filter(function (p) { return !resolveMenuPath(p, true); });
+        if (V1_MENU_PATHS.length !== 73 || missingV1.length) f.push('v1 menu paths missing: ' + missingV1.join(', '));
+        if (resolveMenuPath('Defects/Add Preset/No such preset', true) || resolveMenuPath('Nope/New', true)) f.push('resolveMenuPath false positive');
         if (TB_IDS.length !== 19 || TB_IDS[0] !== 'tb-0' || TB_IDS[18] !== 'tb-aut') f.push('toolbar ids ' + TB_IDS.join(','));
         // touch bar model: 10 listed buttons + 3 contextual (Mark L/R, Row+) + the Step button
         const td = touchDefs();
