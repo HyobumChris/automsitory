@@ -726,6 +726,31 @@
   /** Copy of the module configuration (specimen, procedureId, probes, next = difficulty/time deferred until the next start). */
   function config() { return { specimen: cfg.specimen, procedureId: cfg.procedureId, probes: cfg.probes ? cfg.probes.slice() : null, next: cfg.next ? Object.assign({}, cfg.next) : null }; }
 
+  /**
+   * Move the probe onto a procedure-compliant library probe at the moment a test starts, so the candidate the
+   * examinee is handed is one the procedure actually allows (the recordability sweep already uses that set via
+   * allowedProbePatches()). Same precedence as allowedProbePatches(): a non-empty cfg.probes narrows the
+   * candidates first (configure() rejects a cfg.probes the procedure excludes, so the intersection is cfg.probes).
+   * No procedure (allowedProbes() → null) means no restriction: the user's free default probe stays.
+   * Prefers a candidate of the SAME angle, then the first conventional (non-PA, non-TOFD) one.
+   */
+  function startOnCompliantProbe() {
+    if (!has('standards.allowedProbes')) return;
+    let allowed = null;
+    try { allowed = UT.standards.allowedProbes(st()); } catch (e) { allowed = null; }
+    if (!Array.isArray(allowed) || !allowed.length) return;
+    const cand = Array.isArray(cfg.probes) && cfg.probes.length ? cfg.probes : allowed;
+    if (!cand.length || cand.indexOf(st().probe.libId) >= 0) return;
+    const ent = function (id) { return UT.probe && UT.probe.libEntry ? UT.probe.libEntry(id) : null; };
+    const ang = st().probe.angle;
+    const conv = cand.filter(function (id) { const e = ent(id); return e && e.family !== 'pa' && e.family !== 'tofd'; });
+    const pick = conv.find(function (id) { return ent(id).angle === ang; }) || conv[0] || cand[0];
+    const sel = pick && UT.probe && UT.probe.select ? UT.probe.select(pick) : null;
+    if (!sel) return;
+    // a phased-array probe cannot stay in method 'pa' on a conventional library entry
+    UT.setIn('probe', st().probe.method === 'pa' ? Object.assign({}, sel, { method: 'pe' }) : sel, { noRender: true });
+  }
+
   function startInternal(seed, o) {
     const practice = !!(o && o.practice);
     applyPending();   // difficulty / time limit configured while the previous test was running apply to THIS start
@@ -761,6 +786,7 @@
       trade: Object.assign({}, s.trade, { active: true, revealed: false, report: [], score: null, seed: sd, startedAt: trade._now(), truth: g.truth, result: null,
         difficulty, timeLimitMin, exam, coverage: null, practice, hintsUsed: 0, revealedOne: [] }),
     });
+    startOnCompliantProbe();
     if (practice) stopTimer(); else startTimer();
     resetRowsUi();
     if (!quiet && typeof document !== 'undefined') { tradeWin.open(); if (practice) practiceWin.open(); }

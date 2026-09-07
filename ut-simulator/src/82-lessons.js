@@ -1311,10 +1311,15 @@
 
   // ------------------------------------------------------------------ test API (§7) + selftest
   Object.assign(UT.test, {
+    /** lessons() → string[] — the 25 lesson titles in order (SPEC-v2 §7, last line); replaces 80-modes' shell member. */
     lessons() { return list.map(function (l) { return l.title; }); },
+    /** lessonAutoRun(n) → Promise<{completed, failedSteps}> — drive lesson n to the end by performing each step's own action; @see api.autoRun(). */
     lessonAutoRun(n) { return api.autoRun(n); },
+    /** lessonState() → {n, step, done, answers, progress} — a clone of the running lesson's position and the per-lesson progress flags; @see api.current(). */
     lessonState() { const c = api.current(); const l = ls(); return { n: c.n, step: c.step, done: c.done, answers: UT.clone(l.answers || {}), progress: UT.clone(l.progress || {}) }; },
+    /** lessonAnswer(value) → boolean — submit an answer to the current step (wrong answers bump progress[n].wrong); @see api.answer(). */
     lessonAnswer(value) { return api.answer(value); },
+    /** quiz = {start(seed), answer(value), answerAction(id), state() → {active, i, n, correct, wrong, times[], seed, difficulty, item}, skip()} — the echo quiz (Help ▸ Echo quiz…); @see quiz. */
     quiz: { start: quiz.start, answer: quiz.answer, answerAction: quiz.answerAction, state: quiz.state, skip: quiz.skip },
   });
 

@@ -69,6 +69,14 @@
     'Sizing: mark the left drop point': '크기 측정: 왼쪽 드롭 지점 표시', 'Sizing: mark the right drop point': '크기 측정: 오른쪽 드롭 지점 표시',
     'Trade test: add a report row from the readouts': '실기 시험: 판독값으로 보고서 행 추가', 'Step {n} mm': '스텝 {n} mm', 'Step size for ◀ ▶ ▲ ▼': '◀ ▶ ▲ ▼ 이동 간격',
 
+    // status bar mid row, built by 90's midParts() (§5.3.6: range = 측정 범위, gain = 게인, depth = 깊이).
+    // The {x}/{r}/{g}/{d} placeholders must survive verbatim (core's t() substitutes them) and no value may
+    // contain ' | ' — 90 joins and splits the mid segments on that separator.
+    'Pos: {x} mm': '위치: {x} mm', 'Pos: {x} in': '위치: {x} in',
+    'Range {r}mm': '측정 범위 {r}mm', 'Range {r}in': '측정 범위 {r}in',
+    'AMP= {g}dB': '게인= {g}dB',
+    'Depth = {d}mm': '깊이 = {d}mm', 'Depth = {d}in': '깊이 = {d}in', 'Depth: {d}': '깊이: {d}',
+
     // ------------------------------------------------------------------ status hints (core / 80 / 90)
     'LEFT mouse button/drag to move the UT Probe': '마우스 왼쪽 버튼 드래그로 탐촉자를 이동하세요',
     'LEFT mouse button/drag to draw defect.': '마우스 왼쪽 버튼 드래그로 결함을 그리세요.',

@@ -616,7 +616,9 @@
   // ================================================================== panel (window 'pa')
   const css = [
     '.win[data-win=pa] .win-body{padding:6px;background:#1c1f26;color:#e8e8e8;font:12px "Segoe UI",Arial,sans-serif}',
-    '.win[data-win=pa] .pa-panel{width:328px;display:flex;flex-direction:column;gap:5px}',
+    // width:100% (not a fixed 328px) so the panel tracks the body content box in BOTH skins: Options ▸ High
+    // contrast gives .win a 2px border, which shrank the content box to 326px and made 328px overflow (scrollbar).
+    '.win[data-win=pa] .pa-panel{width:100%;display:flex;flex-direction:column;gap:5px}',
     '.win[data-win=pa] .pa-tabs{display:flex;gap:4px;align-items:center}',
     '.win[data-win=pa] .pa-tab{min-width:34px;font-weight:bold}',
     '.win[data-win=pa] .pa-tab.active{background:#ff8800;color:#000;border-color:#ffc070 #804000 #804000 #ffc070}',
@@ -1123,8 +1125,11 @@
     panel, css,
     /** Window-registry alias (§8: menu → UT.<owner>.<win>.toggle()). */
     pa: panel,
+    /** open() → the 'pa' window api — build (first call) and show the phased-array panel; @see panel.open(). */
     open() { return panel.open(); },
+    /** close() → void — hide the 'pa' window (keeps the built content, the sweep and any scan data); @see panel.close(). */
     close() { return panel.close(); },
+    /** toggle() → the 'pa' window api or null — open when closed, close when open (Probes ▸ Phased Array Probe…); @see panel.toggle(). */
     toggle() { return panel.toggle(); },
     /** The 'pa' window api (null until first open()). */
     get window() { return panel.window; },

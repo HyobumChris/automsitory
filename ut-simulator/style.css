@@ -352,7 +352,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   body { min-width: 0; overflow: visible; }
   html.scaled, html.scaled body { overflow: visible; height: auto; }
   /* `top` is vh-based on screen (letterboxing); on paper 100vh is the page box, so pin the untransformed app to its top-left */
-  #app.scaled { transform: none !important; margin-left: 0 !important; top: 0 !important; width: auto; height: auto; }
+  /* 90 centres the box with an inline `left` (not margin-left), so `left` needs neutralising too or a raw
+     Ctrl-P of the app prints it shifted right by up to 176 px. */
+  #app.scaled { transform: none !important; margin-left: 0 !important; left: 0 !important; top: 0 !important; width: auto; height: auto; }
   body.print-report #app { display: none !important; }
   body:has(#print-root:not(:empty)) #app { display: none !important; }
   body.print-report #print-root, #print-root:not(:empty) { display: block; }

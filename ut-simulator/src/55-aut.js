@@ -1276,9 +1276,13 @@
     colourFor, prepare, scanColumn, scanShell, runScan, aboveLevel, mapOf, startScan, stopScan, isScanning,
     channelsOf, speedOf, stepFor, stripLayout, traceOpts: traceOptsOf, snapshot,
     panel, css,
+    /** open() → the 'aut' window api — build (first call) and show the AUT panel; @see panel.open(). */
     open() { return panel.open(); },
+    /** close() → void — hide the 'aut' window (keeps the built content and any scan data); @see panel.close(). */
     close() { return panel.close(); },
+    /** toggle() → the 'aut' window api or null — open when closed, close when open; @see panel.toggle(). */
     toggle() { return panel.toggle(); },
+    /** setTab(name) → the selected tab id — select a panel tab ('chart' | 'strips' | 'map'); an unknown name leaves the current tab; @see panel.setTab(). */
     setTab(name) { return panel.setTab(name); },
     /** The 'aut' window api (null until first open()). */
     get window() { return panel.window; },

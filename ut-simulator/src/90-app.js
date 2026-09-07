@@ -1092,7 +1092,7 @@
     ];
   }
   function buildTouchBar() {
-    const bar = h('div', { id: 'touchbar', role: 'toolbar', 'aria-label': 'Touch bar' });
+    const bar = h('div', { id: 'touchbar', role: 'toolbar', 'aria-label': t('Touch bar') });
     mem.touch.els = {};
     for (const def of touchDefs()) {
       const btn = h('button', { id: 'tbar-' + def.id, class: 'tbar-btn' + (def.ctx ? ' ctx-' + def.ctx : ''), type: 'button', title: t(def.title), 'aria-label': t(def.title), dataset: { i18n: def.title }, 'aria-pressed': def.active ? 'false' : null }, t(def.label));
@@ -2149,7 +2149,15 @@
     for (const def of TOOLBAR) if (!def.gap && mem.tb['tb-' + def.id]) mem.tb['tb-' + def.id].title = tbTitle(def);
     closeMenus();
     for (const def of touchDefs()) { const el = mem.touch.els[def.id]; if (el) { el.title = t(def.title); el.setAttribute('aria-label', t(def.title)); el.textContent = t(def.label); } }
-    if (mem.touch.els.step) mem.touch.els.step.textContent = t('Step {n} mm', { n: mem.touch.step });
+    // the step button is built outside touchDefs(), so its title/aria-label need relabelling here too
+    if (mem.touch.els.step) {
+      const sb = mem.touch.els.step;
+      sb.textContent = t('Step {n} mm', { n: mem.touch.step });
+      sb.title = t('Step size for ◀ ▶ ▲ ▼');
+      sb.setAttribute('aria-label', t('Step size for ◀ ▶ ▲ ▼'));
+    }
+    // buildTouchBar() runs once at boot, so the toolbar's own accessible name is relabelled here as well
+    if (mem.els.touchbar) mem.els.touchbar.setAttribute('aria-label', t('Touch bar'));
     for (const name of Object.keys(mem.winBuilders)) {
       const w = winApi(name);
       if (w && w.isOpen()) { try { w.setContent(function () { return mem.winBuilders[name](w); }); } catch (e) { console.error('[UT.app] relabel ' + name, e); } }

@@ -1470,11 +1470,15 @@
     loadSpecimen,
     setDefects,
     addPreset,
+    /** enterMode(name, opts) → the mode's status hint — enter one of MODES ('weld' | 'v1' | 'v2' | 'step' | 'iow' | 'dac' | 'tky' | 'tofd' | 'aut' | 'trade' | 'lamination' | 'fbh'); THROWS on an unknown name; opts {keepProbe, silentUI}; @see enter(). */
     enterMode: enter,
+    /** lessons() → string[] of lesson titles — 82-lessons overwrites this member with its own 25-title getter when it loads (SPEC-v2 §1 (3)). */
     lessons() { return modes.lessons.map(function (l) { return l.title; }); },
     // SPEC-v2 §7: test helpers are state helpers + renderNow, so UT.frame is current when the call returns
+    /** setMaterial(key) → boolean — set state.material and re-enter the current mode keeping the probe; false for an unknown key; @see setMaterial(). */
     setMaterial(key) { const r = setMaterial(key); try { UT.renderNow(); } catch (e) { /* logged by core */ } return r; },
     // §1 (3): late-binding shell — 84-trade extends it with Object.assign(UT.test.trade, {...})
+    /** trade = {start(seed) → truth rows, truth() → truth rows, submit(rows) → score, practice:{start(seed)}} — delegates to UT.trade once 84-trade has loaded, else to 80's own shell. */
     trade: {
       start(seed) { return (UT.trade || trade).start(seed); },
       truth() { return (UT.trade || trade).truth(); },
