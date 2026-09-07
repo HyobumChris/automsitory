@@ -112,8 +112,19 @@
   //     D(path) rewards the −0.4° fan ray's shorter path more than w(δ) penalises it. Volumetric groups
   //     keep their loudest scatterer point. A corner pair keeps the MEAN path (out + back)/2 like every
   //     other specular return: a monostatic set displays half the round trip, and for the right-angle pair
-  //     that is T/cosθ (40 mm for T 20 at 60°) — NOT the outgoing leg |E→V| to the vertex, which is the
-  //     shorter √(x² + T²) and was measured wrong by a QA round-3 proposal (see selftest o).
+  //     that is T/cosθ (40 mm for T 20 at 60°, selftest o).
+  //     Corner walk (QA round 3, verified, KNOWN DEVIATION): every fan ray of a right-angle pair retro-reflects,
+  //     so member δ reads (out + back)/2 = T/cos(θ+δ) and its return lands 2·|T·tan(θ+δ) − a| from the index
+  //     point (a = stand-off from the corner vertex). The member that really comes back INTO the crystal is
+  //     therefore the vertex-aimed one, whose mean path is √(a² + T²) = the plane-wave arrival a·sinθ + T·cosθ —
+  //     i.e. the displayed corner echo should WALK with the stand-off, while this rule reports the beam-axis
+  //     member and pins it at T/cosθ (58.5 mm for x 48…60 at 70°). Reporting the member with the smallest return
+  //     offset instead reproduces the walk exactly (70° T 20: x 48/54/60 → 52.1/57.6/63.4, ±0.4 mm of √(a² + T²))
+  //     and leaves every module selftest — o included — green, BUT §11.1 #8 pins the DEFAULT weld (crack through
+  //     the 1.5 mm root bead: corner vertex at y 20…21.5) to path 40 ± 2 with the probe at x = 38, where the walk
+  //     reads 43.8 (V1-8 red). The walk therefore needs SPEC §11.1 #8 + V1-8 (and the L10 lesson answer, which is
+  //     stated at the half-skip x ≈ 34.6 and unaffected) amended first; until then the beam-axis representative
+  //     stays and off-peak corner readings are ≈ (a − T·tanθ)·sinθ short.
   // 23. Coverage symmetry of specular planar returns (kinds 'defect' with a planar type, 'lamination'):
   //     the merged amplitude is multiplied by Σ_members w(δ)² / Σ_window w(δ)², where the window is the
   //     fan interval of the same angular width centred on the strongest member's δ (clamped ≤ 1). A face
@@ -261,8 +272,9 @@
   //     60 mm backwall by 0.4/0.7/1.1/2.2 dB. The 'fbh' echo of §3.8 is emitted AT the crossing from the specular
   //     retro direction (same aperture/direction gates and amplitude law as the 2d return test, so the DGS law of
   //     NOTE 35 is unchanged); the up-going crossing after the backwall bounce points the retro away from the
-  //     probe and emits nothing. Side-lobe/converted/TT/tandem rays only get the shadow. 'interface' reflectors
-  //     keep the specular v2 behaviour.
+  //     probe and emits nothing. Converted/TT/tandem rays only get the shadow; side-lobe rays emit the same
+  //     (≥ 30 dB down, never the merge representative) echo the 2d return test gives them off any other
+  //     specular surface. 'interface' reflectors keep the specular v2 behaviour.
 
   const M = UT.math;
   const DEG = Math.PI / 180;

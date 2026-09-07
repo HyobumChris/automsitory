@@ -1484,16 +1484,36 @@
       const savedCfg = Object.assign({}, cfg);
       quiet = true;
       try {
-        configure({ difficulty: 'basic', timeLimitMin: 0.05 });
+        configure({ difficulty: 'basic', timeLimitMin: 3 });
         const t1 = trade.start(7), t2 = trade.start(7);
         if (JSON.stringify(t1) !== JSON.stringify(t2) || !t1.length) f.push('start(7) not deterministic');
         if (!t1.every(function (q) { return typeof q.recordable === 'boolean' && Number.isFinite(q.bestDb); })) f.push('recordability fields');
+        // QA3 #3 (§4.2 difficulty table): every basic defect is findable — seed 7 draws toe cracks that the
+        // recordability filter rejects, so this fails as soon as ensureRecordable() stops replacing them
+        if (t1.some(function (q) { return !q.recordable && !q.tiny; }) || t1.some(function (q) { return q.height < 4 - 1e-9; })) {
+          f.push('basic defects not findable ' + JSON.stringify(t1.map(function (q) { return [q.type, q.height, q.bestDb]; })));
+        }
+        // QA3 #4 (§4.2 timer): thresholds at or above the configured limit can never be crossed — a 3 min test
+        // must not announce '10/5 minutes left' on its first tick (60 s stays live)
+        if (!announced[600] || !announced[300] || announced[60]) f.push('timer thresholds ' + JSON.stringify(announced));
         if (st().mode !== 'trade' || !st().trade.active || !st().display.hide) f.push('trade mode state');
         const rows = trade.truth().map(function (q) { return { n: q.n, z: q.zFrom, length: q.zTo - q.zFrom, depth: q.depth, type: q.type }; });
         if (trade.submit(rows) !== 100) f.push('live truth rows score ' + st().trade.score);
         if (!st().trade.result || !st().trade.result.token || !verifyResult(st().trade.result.token).ok) f.push('live token');
         if (!st().trade.history.length || st().trade.history[st().trade.history.length - 1].score !== 100) f.push('history entry');
         if (trade.report({ withTruth: true }).indexOf('SCORE') < 0 || trade.report({ withTruth: false }).indexOf('True defects') >= 0) f.push('report html');
+        // QA3 #5 (§4.2.2): reference level (reflector) and calibration block follow the procedure in force
+        const procMap = has('standards.procedures');
+        const pAws = procMap ? procMap['aws-d11-70'] : null;
+        if (pAws && pAws.refReflector) {
+          const procBefore = st().standards.procedure;
+          UT.setIn('standards', { procedure: 'aws-d11-70' }, { noRender: true });
+          const rep = trade.report({ withTruth: false });
+          const noDac = ((st().instrument.dac || {}).points || []).length < 2;
+          if (rep.indexOf(esc(pAws.refReflector)) < 0 || (noDac && pAws.refBlock === 'iiw' && rep.indexOf('IIW (V1)') < 0)) f.push('report reference level / calibration block');
+          UT.setIn('standards', { procedure: procBefore }, { noRender: true });
+        }
+        configure({ difficulty: 'basic', timeLimitMin: 0.05 });   // tick(4) must run the test out
         trade.start(8);
         if (tick(4) !== 0 || st().trade.revealed !== true || st().trade.score === null) f.push('tick auto-submit');
         // locked exam: verifyResult needs the exam code, the result carries no truth rows until reveal(code)
