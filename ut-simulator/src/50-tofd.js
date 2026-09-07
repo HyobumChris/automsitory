@@ -63,7 +63,8 @@
 //   the scan object) and are resampled to the current Range/X-Shift when drawn with a signed peak hold per
 //   pixel (the 512-sample wavelets are shorter than one screen pixel otherwise). runScan() is pure
 //   and synchronous (opts.sync is accepted and ignored); startScan()/stopScan() animate 8 columns per
-//   frame, store partial scans via UT.setIn('tofd', {scan, running}) and emit 'scan:progress'.
+//   frame, store partial scans via UT.setIn('tofd', {scan, running}) and emit 'scan:progress';
+//   prefers-reduced-motion (UT.app.reducedMotion()) → startScan() builds every column synchronously.
 // - D-scan canvas 280 × 450: left 140 px = the scan image (z top→bottom, wedge-zeroed time left→right),
 //   top-right 140 × 140 = 2× magnifier around the crosshair, rest black. Red crosshair: horizontal at
 //   probe.z, vertical at the hovered time (lateral-wave time when the pointer is elsewhere). Click sets
@@ -522,11 +523,29 @@
     if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(h); else clearTimeout(h);
   }
 
-  /** Animated D-scan (8 columns per frame); stores partial scans into state and emits 'scan:progress'. */
+  /** prefers-reduced-motion (SPEC-v2 §5.7): UT.app.reducedMotion() when 90 is loaded, else the media query. */
+  function reducedMotion() {
+    try {
+      if (UT.app && typeof UT.app.reducedMotion === 'function') return !!UT.app.reducedMotion();
+      return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch (e) { return false; }
+  }
+
+  /**
+   * Animated D-scan (8 columns per frame); stores partial scans into state and emits 'scan:progress'.
+   * prefers-reduced-motion → all columns are built synchronously (one store, one 'scan:progress', isScanning() stays false).
+   */
   function startScan() {
     const state = UT.state;
     if (!state.specimen) return false;
     stopScan(true);
+    if (reducedMotion()) {
+      const full = runScan(state);
+      if (!full) return false;
+      UT.setIn('tofd', { scan: full, running: false });
+      UT.bus.emit('scan:progress', { kind: 'tofd', i: full.n, n: full.n });
+      return true;
+    }
     const sc = scanShell(state);
     anim = { sc, i: 0, handle: null };
     UT.setIn('tofd', { scan: stripPrivate(sc), running: true });

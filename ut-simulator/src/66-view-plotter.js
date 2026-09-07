@@ -1285,6 +1285,10 @@
     ctx.restore();
   }
 
+  /** Label of the recommendation row: 'Recommended by <standard>: <method>' (+ the evaluation level for 'eval'). */
+  function recText(rec) {
+    return t('Recommended by {std}: {method}', { std: rec.label, method: rec.methodLabel }) + (rec.sizingMethod === 'eval' ? ' (' + rec.evalDb + ' dB)' : '');
+  }
   function buildSizing() {
     const h = UT.dom.h;
     const els = {};
@@ -1292,7 +1296,7 @@
     const rec = ruleInfo(s);
     const method = UT.dom.field('Method', { tag: 'select', type: 'text', value: (s.sizing && s.sizing.method) || '6dB', options: METHODS.map(function (m) { return { value: m, label: t(METHOD_LABELS[m]) }; }), onchange: function (v) { setMethod(v); } });
     els.method = method.input;
-    els.rec = h('div', { class: 'sz-rec' }, t('Recommended by {std}: {method}', { std: rec.label, method: rec.methodLabel }));
+    els.rec = h('div', { class: 'sz-rec' }, recText(rec));
     els.useRec = UT.dom.button('Use', function () { setMethod(ruleInfo(st()).sizingMethod); }, { class: 'btn sz-mini', title: 'apply the recommended method' });
     els.amp = h('span', { class: 'sz-val' }, '--');
     els.thr = h('span', { class: 'sz-val' }, '--');
@@ -1357,9 +1361,16 @@
     /** Open (create lazily) the Sizing window; pre-selects the standard's method until the user chose one. */
     open() {
       const w = sizingEnsure();
+      const info = ruleInfo(st());
       if (!Z.userChose) {
-        const rec = ruleInfo(st()).sizingMethod;
+        const rec = info.sizingMethod;
         if (rec !== ((st().sizing && st().sizing.method) || '6dB')) { const s = st(); UT.setIn('sizing', { method: rec, result: computeResult((s.sizing && s.sizing.marks) || [], rec, resultCtx(UT.frame, s)) }); }
+      }
+      // the recommendation label is built once; refresh it so an open after a standard change shows the current rule (§4.4)
+      if (Z.els) {
+        Z.els.rec.textContent = recText(info);
+        const m = (st().sizing && st().sizing.method) || '6dB';
+        if (Z.els.method.value !== m) Z.els.method.value = m;
       }
       w.show();
       return sizing;
@@ -1379,7 +1390,7 @@
         const e = Z.els;
         if (e.method.value !== info.method) e.method.value = info.method;
         const rec = ruleInfo(s);
-        e.rec.textContent = t('Recommended by {std}: {method}', { std: rec.label, method: rec.methodLabel }) + (rec.sizingMethod === 'eval' ? ' (' + rec.evalDb + ' dB)' : '');
+        e.rec.textContent = recText(rec);
         const pct = info.r ? info.r.peakPct : 0;
         if (pct > Z.maxPct) Z.maxPct = pct;
         const ctx = { maxPct: Z.maxPct, refPct: refPctOf(s.instrument), evalDb: rec.evalDb };

@@ -1090,7 +1090,16 @@
   // ------------------------------------------------------------------ global events
   function bindGlobalEvents() {
     const d = doc(), w = win_();
-    d.addEventListener('mousedown', function (e) { if (mem.openMenu && !mem.openMenu.contains(e.target)) closeMenus(); });
+    // Outside press closes an open dropdown (Windows/UTman): capture-phase pointerdown, because the canvas owners
+    // (60/62) preventDefault() their pointerdown, which suppresses the compatibility mousedown. The dismissing press
+    // is swallowed so the canvas does not also start a probe drag. mousedown stays as a no-Pointer-Events fallback.
+    const outsidePress = function (e) {
+      if (!mem.openMenu || mem.openMenu.contains(e.target)) return;
+      closeMenus();
+      if (e.type === 'pointerdown') { e.stopPropagation(); e.preventDefault(); }
+    };
+    d.addEventListener('pointerdown', outsidePress, true);
+    d.addEventListener('mousedown', outsidePress);
     d.addEventListener('keydown', onKey);
     d.addEventListener('keyup', onKeyUp);
     if (typeof ResizeObserver === 'function') {
@@ -1363,7 +1372,7 @@
       const set = function (k) { return function (v) { o[k] = v; }; };
       const nf = function (k, label, opts) { fields[k] = numField(label, Object.assign({ value: o[k], min: WELD_RANGES[k][0], max: WELD_RANGES[k][1], onchange: set(k) }, opts || {})); return fields[k]; };
       const odMm = nf('od', 'OD (mm)', { step: 0.1, onchange: function (v) { o.od = v; odIn.input.value = inchOf(v); } });
-      const odIn = UT.dom.field('OD (inch)', { tag: 'select', type: 'text', value: inchOf(o.od), options: [4, 6, 8, 10, 12].map(function (i) { return { value: String(i), label: i + ' inch (' + OD_INCH[i] + ' mm)' }; }).concat([{ value: 'custom', label: 'custom (mm)' }]), onchange: function (v) { if (OD_INCH[v]) { o.od = OD_INCH[v]; odMm.input.value = o.od; } } });
+      const odIn = UT.dom.field('OD (inch)', { tag: 'select', type: 'text', value: inchOf(o.od), options: [4, 6, 8, 10, 12].map(function (i) { return { value: String(i), label: i + ' inch (' + OD_INCH[i] + ' mm)' }; }).concat([{ value: 'custom', label: t('custom (mm)') }]), onchange: function (v) { if (OD_INCH[v]) { o.od = OD_INCH[v]; odMm.input.value = o.od; } } });
       const wt = nf('wt', 'Wall thickness WT', { step: 0.5, unit: 'mm' });
       const pipeChk = UT.dom.field('Pipe (circumferential weld)', { type: 'checkbox', value: !!o.pipe, onchange: function (v) { o.pipe = v; pipeBox.classList.toggle('disabled', !v); } });
       const pipeBox = h('div', { class: 'dlg-section' + (o.pipe ? '' : ' disabled') }, [h('span', { class: 'dlg-legend', i18n: 'Pipe' }), odIn, odMm, wt]);
@@ -1376,7 +1385,7 @@
       const webT = nf('webT', 'Web thickness (fillet / nozzle)', { step: 0.5, unit: 'mm' });
       const branch = nf('branchOd', 'Branch OD (nozzle)', { step: 0.1, unit: 'mm' });
       const loss = nf('transferLossDb', 'Transfer loss (two-way)', { step: 0.5, unit: 'dB' });
-      const wm = UT.dom.field('Weld metal', { tag: 'select', type: 'text', value: o.weldMaterial || 'same', options: [{ value: 'same', label: 'same as parent (carbon)' }, { value: 'austenitic', label: 'austenitic (attenuating, coarse grain)' }], onchange: set('weldMaterial') });
+      const wm = UT.dom.field('Weld metal', { tag: 'select', type: 'text', value: o.weldMaterial || 'same', options: [{ value: 'same', label: t('same as parent (carbon)') }, { value: 'austenitic', label: t('austenitic (attenuating, coarse grain)') }], onchange: set('weldMaterial') });
       const iconBtns = {};
       const refreshPrepUi = function () {
         for (const k of Object.keys(iconBtns)) { iconBtns[k].classList.toggle('active', o.prep === k); iconBtns[k].setAttribute('aria-checked', o.prep === k ? 'true' : 'false'); }

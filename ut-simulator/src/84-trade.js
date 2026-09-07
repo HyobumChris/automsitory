@@ -48,6 +48,11 @@
 //   while the exam is locked, result.misses / result.detail[].truth carry only {n} (re-hydrated on reveal).
 // - 'Reveal one' cannot draw a single hidden defect (display.hide is global): it prints the truth row, pre-fills a
 //   report row and marks the defect non-scoring in trade.revealedOne.
+// - configure({difficulty, timeLimitMin}) during a RUNNING test (trade.active && score === null, practice and a
+//   pending exam included) is deferred to the next start() (cfg.next, exposed by config().next) — a running test,
+//   above all a locked exam whose descriptor fixes difficulty and time, is never reconfigured; remainingSec()/submit()/
+//   report() read the exam descriptor (diffOf/timeLimitOf) and the windows disable the difficulty select / time
+//   input while a test runs or an exam is loaded. loadExam() applies the exam's values directly (it replaces any test).
 // - Advanced difficulty forces display.beam = false while the test is unrevealed (re-applied on every 'state' event).
 // - HTML report strings are escaped with a local esc(); report() never reads the truth while the exam is locked.
 // - Practice runs in mode 'trade' (trade.active = true, trade.practice = true) without a timer; the practice window
@@ -98,7 +103,7 @@
   const DISPOSITIONS = ['', 'accept', 'reject', 'record', 'not-recordable'];
 
   // ------------------------------------------------------------------ module buffers
-  const cfg = { specimen: 'auto', procedureId: null, probes: null };
+  const cfg = { specimen: 'auto', procedureId: null, probes: null, next: null /* {difficulty?, timeLimitMin?} deferred while a test runs (§4.2: NEXT start) */ };
   const reportMeta = { couplant: 'gel', surface: 'as welded', remarks: '' };
   let quiet = false;               // selftest: never open windows
   let vOffset = 0;                 // virtual clock offset (ms) advanced by tick()
@@ -137,6 +142,10 @@
     }
     return t(o.label);
   }
+  /** 'A' | 'B' | 'CL' for a truth/report side (+1 | −1 | 0). */
+  function sideLabel(side) { return side === -1 ? 'B' : (side === 1 ? 'A' : 'CL'); }
+  /** Hint side (§4.6): the side of a centreline defect is the side it is best detected from, e.g. 'B (CL)'. */
+  function hintSide(q) { return q.side === -1 || q.side === 1 ? sideLabel(q.side) : (q.bestSide === -1 || q.bestSide === 1 ? sideLabel(q.bestSide) + ' (CL)' : 'CL'); }
   function circDist(a, b, L, pipe) { let d = Math.abs(a - b); if (pipe && L > 0) { d = d % L; d = Math.min(d, L - d); } return d; }
   function overlapLen(a0, a1, b0, b1, L, pipe) {
     if (!pipe || !(L > 0)) return M.overlap(a0, a1, b0, b1);
@@ -557,10 +566,27 @@
   const trade = {};
   /** Injectable clock (ms); tick() advances a virtual offset. */
   trade._now = function () { return Date.now() + vOffset; };
+  /** A test is running: active and not yet scored (practice and a pending exam included). */
+  function running(tr) { tr = tr || st().trade; return !!(tr.active && (tr.score === null || tr.score === undefined)); }
+  /** Difficulty of the CURRENT test: a loaded exam descriptor fixes it (§4.2.3), else the value captured at start. */
+  function diffOf(tr) { tr = tr || st().trade; return tr.exam && DIFF[tr.exam.difficulty] ? tr.exam.difficulty : (DIFF[tr.difficulty] ? tr.difficulty : 'intermediate'); }
+  /** Time limit (min) of the CURRENT test: the exam descriptor's, else the value captured at start. */
+  function timeLimitOf(tr) {
+    tr = tr || st().trade;
+    const v = tr.exam && Number.isFinite(num(tr.exam.timeLimitMin)) ? num(tr.exam.timeLimitMin) : tr.timeLimitMin;
+    return Math.max(0.05, Number.isFinite(v) ? v : 60);
+  }
+  /** Apply a difficulty / time limit deferred by configure() during a running test (called once the test is over). */
+  function applyPending() {
+    if (!cfg.next) return;
+    const patch = cfg.next;
+    cfg.next = null;
+    UT.setIn('trade', patch, { noRender: true });
+  }
   function remainingSec() {
     const tr = st().trade;
     if (tr.practice || !tr.startedAt || !(tr.active || tr.score !== null)) return null;
-    const lim = Math.max(0.05, Number.isFinite(tr.timeLimitMin) ? tr.timeLimitMin : 60) * 60;
+    const lim = timeLimitOf(tr) * 60;
     return lim - (trade._now() - tr.startedAt) / 1000;
   }
   function announce(msg) {
@@ -627,7 +653,8 @@
   /**
    * Configure the next test. Returns false (no throw) when `probes` contains an id the active procedure excludes
    * or when `difficulty` is unknown; otherwise true. Setting `difficulty` resets timeLimitMin to the table value
-   * unless timeLimitMin is passed too.
+   * unless timeLimitMin is passed too. While a test is running (active, not yet scored — above all a locked exam)
+   * difficulty / timeLimitMin are NOT applied to it: they are kept for the NEXT start() (§4.2, `config().next`).
    * @param {{difficulty?:string, timeLimitMin?:number, specimen?:string, procedureId?:string, probes?:string[]}} o
    */
   function configure(o) {
@@ -652,15 +679,20 @@
     }
     if (o.specimen !== undefined) cfg.specimen = o.specimen === 'auto' ? 'auto' : (typeof o.specimen === 'string' ? o.specimen : 'auto');
     if (o.probes !== undefined) cfg.probes = Array.isArray(o.probes) && o.probes.length ? o.probes.slice() : null;
-    if (Object.keys(patch).length) UT.setIn('trade', patch, { noRender: true });
+    if (Object.keys(patch).length) {
+      // a running test keeps the difficulty / time limit captured at start (a locked exam fixes both): defer to the next start()
+      if (running()) cfg.next = Object.assign(cfg.next || {}, patch);
+      else UT.setIn('trade', patch, { noRender: true });
+    }
     refreshAll();
     return true;
   }
-  /** Copy of the module configuration (specimen, procedureId, probes). */
-  function config() { return { specimen: cfg.specimen, procedureId: cfg.procedureId, probes: cfg.probes ? cfg.probes.slice() : null }; }
+  /** Copy of the module configuration (specimen, procedureId, probes, next = difficulty/time deferred until the next start). */
+  function config() { return { specimen: cfg.specimen, procedureId: cfg.procedureId, probes: cfg.probes ? cfg.probes.slice() : null, next: cfg.next ? Object.assign({}, cfg.next) : null }; }
 
   function startInternal(seed, o) {
     const practice = !!(o && o.practice);
+    applyPending();   // difficulty / time limit configured while the previous test was running apply to THIS start
     const s0 = st();
     const sd = seed === undefined || seed === null || seed === '' ? Math.floor(Math.random() * 1e9) : (Number(seed) >>> 0);
     const exam = !practice && s0.trade.exam && (s0.trade.exam.seed >>> 0) === sd ? Object.assign({}, s0.trade.exam, { locked: true }) : null;
@@ -732,20 +764,21 @@
     if (!tr.active || s.mode !== 'trade') return 0;
     const list = rows === undefined ? rowsFromUi() : rows;
     const spec = s.specimen || {};
-    const res = scoreReport(list, tr.truth || [], { difficulty: tr.difficulty, L: spec.L, pipe: !!spec.pipe, hintsUsed: tr.practice ? tr.hintsUsed : 0, revealedOne: tr.revealedOne, standards: s.standards, T: spec.T });
+    const difficulty = diffOf(tr);   // captured at start; a locked exam's descriptor fixes it (§4.2.3)
+    const res = scoreReport(list, tr.truth || [], { difficulty, L: spec.L, pipe: !!spec.pipe, hintsUsed: tr.practice ? tr.hintsUsed : 0, revealedOne: tr.revealedOne, standards: s.standards, T: spec.T });
     const covSum = coverage();
     const timeUsedSec = Math.max(0, Math.round((trade._now() - (tr.startedAt || trade._now())) / 1000));
     const date = new Date(trade._now()).toISOString();
     const comp = compliance(covSum);
     const revealNow = tr.exam ? tr.exam.revealOnSubmit !== false : true;
-    let result = { seed: tr.seed, difficulty: tr.difficulty, score: res.score, fail: res.fail, pass: res.pass, timeUsedSec, date, name: tr.candidate || '',
+    let result = { seed: tr.seed, difficulty, score: res.score, fail: res.fail, pass: res.pass, timeUsedSec, date, name: tr.candidate || '',
       coverageA: covSum.sideA, coverageB: covSum.sideB, compliance: comp, matched: res.matched, typeMatches: res.typeMatches, falseCalls: res.falseCalls, duplicates: res.duplicates,
       misses: res.misses, detail: res.detail, perDefect: res.perDefect, kind: tr.practice ? 'practice' : 'trade' };
     result.token = tokenFor(result, codeHashCurrent(tr));
     // §4.2.3: while the exam stays locked the score result must not carry the truth rows (UT.test.state() exports it)
     const stillLocked = !!(tr.exam && tr.exam.locked && !revealNow);
     if (stillLocked) result = stripResult(result);
-    const entry = { date, seed: tr.seed, difficulty: tr.difficulty, kind: result.kind, score: res.score, fail: res.fail, timeUsedSec,
+    const entry = { date, seed: tr.seed, difficulty, kind: result.kind, score: res.score, fail: res.fail, timeUsedSec,
       specimen: { T: spec.T, pipe: !!spec.pipe, od: spec.pipe ? spec.pipe.od : null }, coverageA: covSum.sideA, coverageB: covSum.sideB, compliance: comp,
       perDefect: res.perDefect.map(function (p) { return { n: p.n, found: p.found, tFoundSec: p.tFoundSec }; }), name: tr.candidate || '' };
     const history = (tr.history || []).concat([entry]).slice(-HISTORY_CAP);
@@ -758,6 +791,7 @@
       display: Object.assign({}, s.display, { hide: !revealNow }),
     });
     stopTimer();
+    if (!running()) applyPending();
     refreshAll();
     UT.status({ right: t('Trade Test score {score}% — {found}/{n} found, {fc} false calls', { score: res.score, found: res.matched, n: (tr.truth || []).length, fc: res.falseCalls }) + (res.fail ? ' — ' + t('FAIL (critical miss)') : '') });
     return res.score;
@@ -777,6 +811,7 @@
       UT.set({ trade: Object.assign({}, tr, { revealed: true, exam: Object.assign({}, tr.exam, { locked: false }), result, active: submitted ? false : tr.active }), display: Object.assign({}, s.display, { hide: false }) });
     } else UT.set({ trade: Object.assign({}, tr, { revealed: true }), display: Object.assign({}, s.display, { hide: false }) });
     if (!tr.practice) stopTimer();
+    if (!running()) applyPending();
     refreshAll();
     return true;
   };
@@ -796,7 +831,11 @@
     if (!exam || typeof exam !== 'object' || !Number.isFinite(num(exam.seed))) return null;
     const ex = Object.assign({}, exam, { seed: num(exam.seed) >>> 0, locked: true });
     if (ex.procedureId) configure({ procedureId: ex.procedureId });
-    if (DIFF[ex.difficulty]) configure({ difficulty: ex.difficulty, timeLimitMin: ex.timeLimitMin });
+    if (DIFF[ex.difficulty]) {
+      // the exam replaces any running test, so its difficulty / time limit are applied now (never deferred)
+      cfg.next = null;
+      UT.setIn('trade', { difficulty: ex.difficulty, timeLimitMin: Number.isFinite(num(ex.timeLimitMin)) ? Math.max(0.05, num(ex.timeLimitMin)) : DIFF[ex.difficulty].time }, { noRender: true });
+    }
     UT.setIn('trade', { exam: ex, candidate: st().trade.candidate || '' }, { noRender: true });
     if (ex.nameRequired && !String(st().trade.candidate || '').trim()) {
       // 'candidate name required': the exam waits in mode 'trade' (locks apply, no truth, no timer) for the window's
@@ -873,7 +912,7 @@
     let html = '<div class="tr-report">';
     html += '<h2>' + (tr.exam && tr.exam.title ? esc(tr.exam.title) : L('Ultrasonic examination report')) + '</h2>';
     html += '<table class="tr-kv">';
-    html += kv('Job / exam title', tr.exam && tr.exam.title ? esc(tr.exam.title) : L('Trade Test') + ' #' + esc(tr.seed === null ? '—' : tr.seed) + ' (' + L(tr.difficulty || '') + (tr.practice ? ', ' + L('practice') : '') + ')');
+    html += kv('Job / exam title', tr.exam && tr.exam.title ? esc(tr.exam.title) : L('Trade Test') + ' #' + esc(tr.seed === null ? '—' : tr.seed) + ' (' + L(diffOf(tr)) + (tr.practice ? ', ' + L('practice') : '') + ')');
     html += kv('Candidate', esc(tr.candidate || (res && res.name) || '—'));
     html += kv('Date / time', esc(res ? res.date : new Date(trade._now()).toISOString()));
     html += kv('Standard / acceptance level / testing level', esc(std.standard || '—') + ' / ' + esc(std.level || '—') + ' / ' + esc(std.testingLevel || '—'));
@@ -914,7 +953,7 @@
     if (withTruth) {
       html += '<h3>' + L('True defects') + '</h3><table class="tr-truth"><tr>' + ['No', 'From z', 'Length', 'Depth', 'Height', 'Type', 'x', 'Side', 'Best dB'].map(function (k) { return '<th>' + L(k) + '</th>'; }).join('') + '</tr>';
       tr.truth.forEach(function (q) {
-        html += '<tr class="' + (q.recordable === false ? 'tr-dim' : '') + '"><td>' + q.n + '</td><td>' + q.zFrom + '</td><td>' + UT.fmtNum(q.zTo - q.zFrom, 1) + '</td><td>' + q.depth + '</td><td>' + q.height + '</td><td>' + esc(typeLabel(normType(q.type)) || q.type) + '</td><td>' + UT.fmtNum(q.x, 1) + '</td><td>' + (q.side === -1 ? 'B' : (q.side === 1 ? 'A' : 'CL')) + '</td><td>' + UT.fmtNum(q.bestDb, 1) + (q.recordable === false ? ' (' + L('below recording level') + ')' : '') + '</td></tr>';
+        html += '<tr class="' + (q.recordable === false ? 'tr-dim' : '') + '"><td>' + q.n + '</td><td>' + q.zFrom + '</td><td>' + UT.fmtNum(q.zTo - q.zFrom, 1) + '</td><td>' + q.depth + '</td><td>' + q.height + '</td><td>' + esc(typeLabel(normType(q.type)) || q.type) + '</td><td>' + UT.fmtNum(q.x, 1) + '</td><td>' + sideLabel(q.side) + '</td><td>' + UT.fmtNum(q.bestDb, 1) + (q.recordable === false ? ' (' + L('below recording level') + ')' : '') + '</td></tr>';
       });
       html += '</table>';
     }
@@ -936,7 +975,7 @@
   function nearestHidden(rows) {
     const s = st(), tr = s.trade, spec = s.specimen || {};
     if (!tr.active || !(tr.truth || []).length) return null;
-    const res = scoreReport(rows, tr.truth, { difficulty: tr.difficulty, L: spec.L, pipe: !!spec.pipe, revealedOne: tr.revealedOne });
+    const res = scoreReport(rows, tr.truth, { difficulty: diffOf(tr), L: spec.L, pipe: !!spec.pipe, revealedOne: tr.revealedOne });
     let best = null;
     res.perDefect.forEach(function (p, j) {
       if (p.found || !p.scoring) return;
@@ -960,7 +999,7 @@
       if (!near) msg = t('No hidden indication left — every recordable defect is already reported');
       else {
         const d = Math.round(Math.abs(near.dz));
-        msg = t('nearest hidden indication: {d} mm {dir} along z, side {side}', { d, dir: near.dz >= 0 ? t('further') : t('back'), side: near.truth.side === -1 ? 'B' : 'A' });
+        msg = t('nearest hidden indication: {d} mm {dir} along z, side {side}', { d, dir: near.dz >= 0 ? t('further') : t('back'), side: hintSide(near.truth) });
       }
       UT.setIn('trade', { hintsUsed: (tr.hintsUsed || 0) + 1 }, { noRender: true });
       practiceMsg(msg);
@@ -974,7 +1013,7 @@
       if (!near) { practiceMsg(t('No hidden indication left — every recordable defect is already reported')); return null; }
       const q = near.truth;
       UT.setIn('trade', { revealedOne: (tr.revealedOne || []).concat([near.j]) }, { noRender: true });
-      const msg = t('Revealed defect {n}: {type}, z {z0}–{z1} mm, depth {d} mm, height {h} mm, side {side}', { n: q.n, type: typeLabel(normType(q.type)) || q.type, z0: q.zFrom, z1: q.zTo, d: q.depth, h: q.height, side: q.side === -1 ? 'B' : (q.side === 1 ? 'A' : 'CL') });
+      const msg = t('Revealed defect {n}: {type}, z {z0}–{z1} mm, depth {d} mm, height {h} mm, side {side}', { n: q.n, type: typeLabel(normType(q.type)) || q.type, z0: q.zFrom, z1: q.zTo, d: q.depth, h: q.height, side: sideLabel(q.side) });
       if (ui.rows) addRowUi({ n: ui.rows.children.length + 1, z: q.zFrom, length: r1(q.zTo - q.zFrom), depth: q.depth, height: q.height, type: normType(q.type) || 'planar', angle: st().probe.angle, side: q.side || 1 });
       practiceMsg(msg);
       refreshAll();
@@ -988,7 +1027,7 @@
       const idx = Number.isFinite(num(i)) ? num(i) : 0;
       if (row && typeof row === 'object') rows[idx] = row;
       if (!rows[idx]) return null;
-      const res = scoreReport(rows, tr.truth || [], { difficulty: tr.difficulty, L: spec.L, pipe: !!spec.pipe, revealedOne: tr.revealedOne });
+      const res = scoreReport(rows, tr.truth || [], { difficulty: diffOf(tr), L: spec.L, pipe: !!spec.pipe, revealedOne: tr.revealedOne });
       const d = res.detail.find(function (q) { return q.row === res.rows[res.rows.findIndex(function (rr) { return rr.n === normRow(rows[idx], idx).n && rr.z === normRow(rows[idx], idx).z; })]; });
       const ok = !!(d && d.hit);
       const out = { ok, status: d ? d.status : 'ignored', n: d && d.truth ? d.truth.n : null };
@@ -1074,6 +1113,7 @@
     const timeIn = dom.h('input', { type: 'number', class: 'tr-time', value: tr.timeLimitMin, min: 0.05, step: 1, title: t('Time limit (min)'), onchange: function () { configure({ timeLimitMin: timeIn.value }); } });
     ui.timeIn = timeIn;
     const diffSel = difficultySelect(tr.difficulty, function (v) { configure({ difficulty: v }); timeIn.value = st().trade.timeLimitMin; });
+    ui.diffSel = diffSel;
     ui.nameIn = dom.h('input', { type: 'text', class: 'tr-name', placeholder: t('Candidate name'), value: tr.candidate || '', onchange: function () { trade.setCandidate(ui.nameIn.value); } });
     const startFn = function () {
       const ex = st().trade.exam;
@@ -1107,12 +1147,15 @@
   function refreshTrade() {
     if (!tradeWin.isOpen() || !ui.result) return;
     const s = st(), tr = s.trade;
-    const running = tr.startedAt && (tr.active || tr.score !== null);
-    if (!running) ui.clock.textContent = t('Press Start');
+    const started = tr.startedAt && (tr.active || tr.score !== null);
+    if (!started) ui.clock.textContent = t('Press Start');
     else if (tr.practice) ui.clock.textContent = t('Practice (no timer)');
     else ui.clock.textContent = tr.score !== null || tr.revealed ? t('Time used {t}', { t: clock((trade._now() - tr.startedAt) / 1000) }) : t('Time left {t}', { t: clock(Math.max(0, remainingSec() || 0)) });
-    ui.seedLbl.textContent = tr.seed === null || tr.seed === undefined ? '' : t('Test #{seed}', { seed: tr.seed }) + ' · ' + t(tr.difficulty || '');
-    if (ui.timeIn && document.activeElement !== ui.timeIn) ui.timeIn.value = tr.timeLimitMin;
+    ui.seedLbl.textContent = tr.seed === null || tr.seed === undefined ? '' : t('Test #{seed}', { seed: tr.seed }) + ' · ' + t(diffOf(tr));
+    // §4.2: difficulty / time limit configure the NEXT test — locked while one runs (and while an exam descriptor is loaded)
+    const cfgLocked = running(tr) || !!(tr.exam && tr.exam.locked);
+    if (ui.diffSel) { ui.diffSel.disabled = cfgLocked; const dv = cfgLocked ? diffOf(tr) : (DIFF[tr.difficulty] ? tr.difficulty : ui.diffSel.value); if (ui.diffSel.value !== dv) ui.diffSel.value = dv; }
+    if (ui.timeIn) { ui.timeIn.disabled = cfgLocked; if (document.activeElement !== ui.timeIn || cfgLocked) ui.timeIn.value = cfgLocked ? timeLimitOf(tr) : tr.timeLimitMin; }
     ui.examBox.textContent = '';
     if (tr.exam) {
       ui.codeIn = dom.h('input', { type: 'password', class: 'tr-code', placeholder: t('exam code'), maxlength: 8 });
@@ -1140,7 +1183,7 @@
       ui.result.appendChild(tx('div', 'True defects', null, { class: 'tr-sub' }));
       ui.result.appendChild(dom.h('table', { class: 'tr-truth' }, [dom.h('tr', {}, ['#', 'From z', 'Length', 'Depth', 'Height', 'Type', 'Side', 'Best dB'].map(function (k) { return k === '#' ? dom.h('th', {}, '#') : tx('th', k); }))]
         .concat(tr.truth.map(function (q) {
-          const cells = [q.n, q.zFrom, r1(q.zTo - q.zFrom), q.depth, q.height, typeLabel(normType(q.type)) || q.type, q.side === -1 ? 'B' : (q.side === 1 ? 'A' : 'CL'), UT.fmtNum(q.bestDb, 1) + (q.recordable === false ? ' (' + t('below recording level') + ')' : '')];
+          const cells = [q.n, q.zFrom, r1(q.zTo - q.zFrom), q.depth, q.height, typeLabel(normType(q.type)) || q.type, sideLabel(q.side), UT.fmtNum(q.bestDb, 1) + (q.recordable === false ? ' (' + t('below recording level') + ')' : '')];
           return dom.h('tr', { class: q.recordable === false ? 'tr-dim' : '' }, cells.map(function (c) { return dom.h('td', {}, String(c)); }));
         }))));
       if (res && res.misses && res.misses.length) ui.result.appendChild(dom.h('div', { class: 'tr-miss' }, t('Missed') + ': ' + res.misses.map(function (m) { return '#' + m.n + ' (' + (typeLabel(normType(m.type)) || m.type) + ' z ' + m.zFrom + ')'; }).join(', ')));
@@ -1159,7 +1202,7 @@
     return dom.h('div', { class: 'tr' }, [
       sui.list,
       dom.h('div', { class: 'btn-row' }, [
-        btn('Copy JSON', function () { json.value = JSON.stringify(trade.history(), null, 1); json.hidden = false; json.select(); try { if (typeof navigator !== 'undefined' && navigator.clipboard) navigator.clipboard.writeText(json.value); } catch (e) { /* ignore */ } }),
+        btn('Copy JSON', function () { json.value = JSON.stringify(trade.history(), null, 1); json.hidden = false; json.select(); try { if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) { const p = navigator.clipboard.writeText(json.value); if (p && typeof p.catch === 'function') p.catch(function () { /* best effort: the textarea stays selected for manual copy */ }); } } catch (e) { /* ignore */ } }),
         btn('Clear history', function () { dom.confirm(t('Clear the trade test history?')).then(function (ok) { if (ok) { UT.setIn('trade', { history: [] }, { noRender: true }); refreshAll(); } }); }),
       ]),
       json,
@@ -1222,6 +1265,7 @@
     const seedIn = dom.h('input', { type: 'number', class: 'tr-seedin', placeholder: t('seed') });
     const rowIn = dom.h('input', { type: 'number', class: 'tr-rowin', value: 1, min: 1, title: t('Row number') });
     const diffSel = difficultySelect(tr.difficulty, function (v) { configure({ difficulty: v }); });
+    pui.diffSel = diffSel;
     return dom.h('div', { class: 'tr' }, [
       tx('div', 'Random practice: the trade-test generator without timer or lock. Hint costs 5 % of the practice score; Reveal one shows the nearest hidden defect (non-scoring); Check row confirms a detection only.', null, { class: 'tr-intro' }),
       dom.h('div', { class: 'tr-head' }, [btn('Start practice', function () { practice.start(seedIn.value === '' ? undefined : +seedIn.value); }, { class: 'btn primary' }), seedIn, diffSel]),
@@ -1230,7 +1274,13 @@
     ]);
   }
   const practiceWin = winApi('practice', 'Random practice', { x: 560, y: 60, w: 520 }, buildPractice, null);
-  practiceWin.onRefresh = function () { /* nothing dynamic */ };
+  practiceWin.onRefresh = function () {
+    if (!pui.diffSel) return;
+    const tr = st().trade;
+    pui.diffSel.disabled = running(tr);   // the difficulty applies to the next start (§4.2)
+    const dv = running(tr) ? diffOf(tr) : (DIFF[tr.difficulty] ? tr.difficulty : pui.diffSel.value);
+    if (pui.diffSel.value !== dv) pui.diffSel.value = dv;
+  };
 
   function refreshAll() { tradeWin.refresh(); scoreboardWin.refresh(); reportWin.refresh(); practiceWin.refresh(); }
   Object.assign(practice, { open() { return practiceWin.open(); }, close() { return practiceWin.close(); }, toggle() { return practiceWin.toggle(); }, show() { return practiceWin.open(); }, hide() { return practiceWin.close(); }, isOpen() { return practiceWin.isOpen(); } });
@@ -1246,6 +1296,7 @@
       cov = null;
       const tr = st().trade;
       if (tr.practice || tr.hintsUsed || (tr.revealedOne && tr.revealedOne.length)) UT.setIn('trade', { practice: false, hintsUsed: 0, revealedOne: [] }, { noRender: true });
+      if (!running()) applyPending();
       if (preTrade) {
         // v1 §15.8: the trade test keeps the user's weld specimen — put the pre-exam weldOpts / material back and
         // rebuild the specimen of the mode just entered (defects and probe kept)
@@ -1263,7 +1314,7 @@
     const s = st(), tr = s.trade;
     if (!tr) return;
     if (locked(tr) && !s.display.hide) { UT.setIn('display', { hide: true }); return; }
-    if (tr.active && !tr.revealed && !tr.practice && tr.difficulty === 'advanced' && s.mode === 'trade' && s.display.beam) UT.setIn('display', { beam: false });
+    if (tr.active && !tr.revealed && !tr.practice && diffOf(tr) === 'advanced' && s.mode === 'trade' && s.display.beam) UT.setIn('display', { beam: false });
   });
   UT.bus.on('lang', function () { tradeWin.relabel(); scoreboardWin.relabel(); reportWin.relabel(); practiceWin.relabel(); });
 

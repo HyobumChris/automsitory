@@ -167,7 +167,13 @@
   //     (the fan smears it over ≈ 37…41 µs because each ray meets the face at a different depth).
   //     Converted branches ignore opts.maxLegs (only their own cap and maxLen). Diffuse captures on a converted
   //     branch (holes only — volumetric/tip sampling is skipped for speed) are 'modeconv' echoes too (retrace, ×0.5
-  //     when the branch mode ≠ probe mode).
+  //     when the branch mode ≠ probe mode). Spawn floor (QA round 2): a reflection is eligible only when
+  //     R ≥ CONV_MIN_R (0.04: L→S for φ < 8°, S→L for φ < 4.4° never spawn). Under the spec's literal e × R such a
+  //     branch would already sit ≥ 28 dB below the primary, while the √R amplitude convention lifts weak
+  //     conversions by 10·log10(1/R) dB — enough to turn the beam-edge L→S conversion of a 0° probe on a plain
+  //     plate (φ = θ20 = 5.9°, R_LS 0.021) into a visible −33…−37 dB 'modeconv' satellite between backwall
+  //     multiples 3 and 4 (path 3.23·T). The floor removes it; every required trap (R 0.26…0.73) is unaffected
+  //     and the specular branch keeps its full e when no branch is spawned (as before).
   // 31. Attenuation (§3.4): per-mode ONE-WAY coefficients attenL5/attenS5 are read from
   //     UT.specimens.materials[spec.material.key] (spec.material itself only carries the v1 fields), scaled by
   //     (f/5)^1.5, accumulated over every travelled segment (out and back) with the segment's own mode:
@@ -193,11 +199,26 @@
   //     for crack reflectors. RayResult.surface = {pts, reflectors, dampers} or null (60 draws it).
   // 34. Focus (§3.6): when derived.focus.on the angular fan is replaced by nAp aperture rays (41 for fanCount ≥ 21,
   //     else fanCount) spread over ±crystalA/2 along the surface tangent, all aimed at the focal point E + u0·F with
-  //     F clamped to [10, nearField] (F > N would make Gf < 1); weight = pure piston D1 of the ray's angle from
-  //     u0 (no floor, no null truncation); fan[i].pts[0] is the aperture point, edge20 = the two outermost aperture
-  //     rays, RayResult.focus = {F, x, y}. The diffuse capture distance of focused rays is scaled by FOCUS_CAPTURE
-  //     (0.4, floor 0.3 mm): the v1 fan is already a point-source fan, so without a tighter capture kernel the SDH
-  //     response width would not narrow at the focus (V2-6 wants ≤ 0.7×). Gf(lenMm) multiplies every echo.
+  //     F clamped to [10, nearField] (F > N would make Gf < 1); weight = piston D1 of the ray's angle from u0
+  //     evaluated for the APERTURE STRIP the ray stands for (width crystalA/nAp, no floor, no null truncation;
+  //     QA round 2): each aperture point radiates broadly, so the weights are ≈ 1 across the whole cone and the
+  //     beam beyond F really diverges as §3.6 requires ("the geometric divergence from the aperture rays gives
+  //     the wider beam") — the full-crystal D1 zeroed every ray more than ≈ 0.8·F/10 mm off the axis (null 4.5°)
+  //     and left a pencil beam everywhere. All aperture rays are main-lobe rays (they may convert); fan[i].pts[0]
+  //     is the aperture point, edge20 = the two outermost aperture rays, RayResult.focus = {F, x, y}. The diffuse
+  //     capture distance of focused rays is scaled by FOCUS_CAPTURE (0.4, floor 0.3 mm) AT the focus and returns
+  //     linearly to the v1 kernel as the geometric beam width |len − F|/F·a reaches the aperture width (scale =
+  //     0.4 + 0.6·min(1, |len − F|/F)): the rays converge to a point at F, so without a tighter kernel there the
+  //     SDH response width would not narrow (V2-6 wants ≤ 0.7×), while away from F the kernel must not stay
+  //     narrower than the unfocused one. Both the kernel scale and Gf of a diffuse capture are evaluated at
+  //     len + (F − lenF), lenF = |focal point − aperture point| of the capturing ray, i.e. the focal zone is measured
+  //     along each ray from its own focal crossing (an outer ray of the F 10 cone crosses the focus at 6.2 mm, so a
+  //     reflector it meets at 12.4 mm is 6 mm past the focus, not 2.4) — otherwise reflectors far from the focal
+  //     POINT but at path ≈ F would collect the focal gain. Amplitude: Gf is the ONE focus factor of §3.6 — beyond ≈ 1.5·F it
+  //     is 1, so an on-axis reflector there reads the same as with the unfocused fan (the central aperture ray
+  //     has weight 1 like the v1 centre ray); only the response WIDTH grows with the divergence. Note that the
+  //     aperture lies along the surface tangent, so for an angle probe the cone is asymmetric (60°, F 10:
+  //     −23.8°…+9.9°) and the SDH response beyond F spans ≈ 25 mm of x at path 30.
   // 35. FBH / reflectors (§3.8): spec.reflectors segments are two-sided specular planar reflectors outside the
   //     outline with tip scatter (0.12) at ends that are not on the outline. tag 'fbh' → kind 'fbh' (tag 'fbh',
   //     label from the reflector), S = π·d²/(2·λ·max(lenMm, N)) WITHOUT a min(1, …) cap (§3.8 lead decision: the
@@ -244,13 +265,14 @@
   const CORNER_MERGE = 6;     // mm: merge window for corner echoes of one defect and leg (SPEC NOTE 27)
   const SIDELOBE_FLOOR = Math.pow(10, -30 / 20);   // §3.1: −30 dB floor beyond the first null when physics.sideLobes
   const CONV_MIN_E = 0.01;    // §3.2: converted rays below this running energy are dropped
+  const CONV_MIN_R = 0.04;    // SPEC NOTE 30: no spawn below this energy fraction (L: φ < 8°, S: φ < 4.4°)
   const CONV_MIN_W = 0.02;    // SPEC NOTE 30: no conversion on rays with a smaller fan weight
   const CONV_BACK = 0.5;      // SPEC NOTE 30: converted branch re-converts when R' ≥ this
   const CONV_LEGS = 2;        // §3.2: converted branch traces ≤ 2 further legs
   const SIDE_LEGS = 2;        // §3.1: side-lobe rays trace ≤ 2 legs
   const CONV_DRAW_MAX = 40;   // §3.13: RayResult.converted entries (by weight)
   const CONV_DRAW_MIN = 1e-3; // weight floor for drawn converted polylines
-  const FOCUS_CAPTURE = 0.4;  // SPEC NOTE 34
+  const FOCUS_CAPTURE = 0.4;  // SPEC NOTE 34: capture-kernel scale AT the focus
   const FOCUS_CAPTURE_MIN = 0.3;
   const WELD_AUST_DB = 0.15;  // §3.4: austenitic weld metal extra one-way dB/mm at 5 MHz
   const NOTCH_GAP = 12;       // SPEC NOTE 33
@@ -569,7 +591,10 @@
     const sideLobe = !!R.side;
     const legLimit = sideLobe ? Math.min(C.maxLegs, SIDE_LEGS) : C.maxLegs;
     const canConvert = C.modeConv && R.main && w >= CONV_MIN_W && !C.tt && !C.tandem;
-    const capScale = R.focused ? FOCUS_CAPTURE : 1;
+    const focused = !!R.focused;
+    // SPEC NOTE 34: focal zone measured along THIS aperture ray from its own focal crossing (lenF), so the focus
+    // gain and the tightened capture kernel apply near the focal point only (the central ray has lenF = F)
+    const fOff = focused && Number.isFinite(R.lenF) ? C.F - R.lenF : 0;
     // Branch stack (SPEC NOTE 19): a ray meeting a planar defect segment whose z-overlap is partial
     // splits into a reflected branch (weight Z) and a transmitted branch (weight sqrt(1 − Z²)).
     // Mode conversion (SPEC NOTE 30) spawns one converted branch per fan ray.
@@ -653,7 +678,7 @@
             const d = Math.abs(rx * dy - ry * dx);
             const c = 0.5 + 0.03 * (len + u);
             let cap = Math.max(c, P.cap);
-            if (capScale !== 1) cap = Math.max(FOCUS_CAPTURE_MIN, cap * capScale);
+            if (focused) cap = Math.max(FOCUS_CAPTURE_MIN, cap * C.focusCapScale(len + u + fOff));
             if (d > cap) continue;
             const lenMm = Math.max(0, len + u - (P.back || 0));
             const taper = Math.cos(Math.PI / 2 * d / cap);
@@ -666,11 +691,11 @@
               cur = C.volBest.get(key);
               if (cur) {
                 const qq = C.nearField / Math.max(lenMm, C.nearField);
-                const bound = w * w * e * P.S * qq * qq * taper * Math.pow(10, -attP / 20) * C.transferLin * C.Gf(lenMm) * C.nearBoost(lenMm) * (isConv && mode !== C.probeMode ? 0.5 : 1);
+                const bound = w * w * e * P.S * qq * qq * taper * Math.pow(10, -attP / 20) * C.transferLin * C.Gf(lenMm + fOff) * C.nearBoost(lenMm) * (isConv && mode !== C.probeMode ? 0.5 : 1);
                 if (bound * tw <= cur.amp && bound <= cur.ampNoZ) continue;
               }
             }
-            const ec = makeEcho(C, { lenMm, tUs: 2 * (tUs + u / v), att: attP, mode, conv: isConv ? conv.first : null,
+            const ec = makeEcho(C, { lenMm, gfLen: lenMm + fOff, tUs: 2 * (tUs + u / v), att: attP, mode, conv: isConv ? conv.first : null,
               kind: isConv ? 'modeconv' : P.kind, leg, x: P.x, y: P.y, w, wReturn: w * (isConv && mode !== C.probeMode ? 0.5 : 1), e, S: P.S, dExp: P.dExp,
               defect: P.defect, tag: isConv ? (P.tag || P.kind) : P.tag, label: P.label, angleDev: delta, extra: taper, zs, tw });
             if (P.vol) {
@@ -816,7 +841,7 @@
                 // R is an ENERGY fraction; e is an amplitude factor → √R converted, √(1 − R) specular (SPEC NOTE 30)
                 const aR = Math.sqrt(Rc), aK = Math.sqrt(1 - Rc);
                 if (!conv) {
-                  if (!convDone && e * aR >= CONV_MIN_E) {
+                  if (!convDone && Rc >= CONV_MIN_R && e * aR >= CONV_MIN_E) {
                     convDone = true;
                     const other = mode === 'L' ? 'S' : 'L';
                     const poly = { mode: other, kindTag: other, pts: [{ x: hp.x, y: hp.y, leg }], weight: w * e * aR * tw };
@@ -960,7 +985,7 @@
     return { kind: tagKind(last.tag), S: 1, dExp: 0.5, tag: last.tag, x: last.x, y: last.y, leg: last.leg };
   }
 
-  /** Assemble one raw (unmerged) echo with the §6.1 rule-4 amplitude (v2: per-leg attenuation, tUs, focus gain). */
+  /** Assemble one raw (unmerged) echo with the §6.1 rule-4 amplitude (v2: per-leg attenuation, tUs, focus gain at o.gfLen — lenMm unless the capture lies on an off-centre aperture ray, SPEC NOTE 34). */
   function makeEcho(C, o) {
     const lenMm = o.lenMm;
     const q = C.nearField / Math.max(lenMm, C.nearField);
@@ -968,7 +993,7 @@
     const Mf = Math.pow(10, -o.att / 20);
     let S = o.S;
     if (o.fbhD) S *= Math.PI * o.fbhD * o.fbhD / (2 * C.lambda * Math.max(lenMm, C.nearField));   // FBH law (§3.8): NO min(1, …) cap (DGS round-trip)
-    const base = o.w * o.wReturn * o.e * S * D * Mf * (o.extra === undefined ? 1 : o.extra) * C.transferLin * C.Gf(lenMm) * C.nearBoost(lenMm);
+    const base = o.w * o.wReturn * o.e * S * D * Mf * (o.extra === undefined ? 1 : o.extra) * C.transferLin * C.Gf(o.gfLen === undefined ? lenMm : o.gfLen) * C.nearBoost(lenMm);
     const hz = lenMm * C.tan20z + C.crystalB / 2;
     const vol = !!o.defect && !UT.specimens.isPlanar(o.defect.type);   // volumetric scatterers: ×1 (§6.7)
     const skewed = !vol && (o.kind === 'defect' || o.kind === 'corner' || o.kind === 'geometry' || o.kind === 'lamination') && C.theta > 0;
@@ -1351,6 +1376,7 @@
       modeConv, sideLobes, surfaceWave: surfOn, dirW,
       devMax: Math.max(2 * (derived.halfAngle20dB || 4), fanMaxA),
       Gf: focusOn ? function (len) { const g = Math.min(N / F, 3) - 1; const r = (len - F) / (0.25 * F); return 1 + g * Math.exp(-r * r); } : function () { return 1; },
+      F, focusCapScale: function (len) { return FOCUS_CAPTURE + (1 - FOCUS_CAPTURE) * Math.min(1, Math.abs(len - F) / F); },   // SPEC NOTE 34
       twin, nearBoost: twin ? function (len) { return len >= TWIN_NEAR ? 1 : 1 + (TWIN_BOOST - 1) * M.clamp((TWIN_NEAR - len) / (TWIN_NEAR - TWIN_ROLL), 0, 1); } : function () { return 1; },
       maxLegs, maxLen: Math.max(2 * maxPath + 100, 700), retroSlot: !!specimen.retroSlot,
       probeZ: probe.z || 0, skew: fold180(probe.skew || 0), L: specimen.L || 0, wrap: !!specimen.pipe,
@@ -1385,6 +1411,7 @@
       // SPEC NOTE 34: aperture rays aimed at the focal point
       const nAp = n >= 21 ? 41 : Math.max(1, n);
       const half = (derived.crystalA || C.diameter) / 2;
+      const aEl = 2 * half / nAp;   // width of the aperture strip each ray stands for (SPEC NOTE 34)
       const Fp = { x: C.E.x + C.u0.x * F, y: C.E.y + C.u0.y * F };
       focus = { F, x: Fp.x, y: Fp.y };
       rayList = [];
@@ -1394,7 +1421,7 @@
         const d = norm(Fp.x - Ex, Fp.y - Ey);
         const cross = C.u0.x * d.y - C.u0.y * d.x;
         const ang = M.angleBetween(d.x, d.y, C.u0.x, C.u0.y) * (cross * C.side < 0 ? -1 : 1);
-        rayList.push({ delta: ang, w: typeof derived.directivity === 'function' ? derived.directivity(ang) : dirW(ang), dir0: d, off: s, main: Math.abs(ang) <= (derived.nullAngle || 90), side: false, focused: true });
+        rayList.push({ delta: ang, w: M.pistonDirectivity(ang, aEl, lambda), dir0: d, off: s, main: true, side: false, focused: true, lenF: M.dist(Ex, Ey, Fp.x, Fp.y) });
       }
     } else {
       rayList = fanLayout(derived, n, sideLobes, dirW).map(function (r) { return Object.assign(r, { dir0: dirAt(C.ss, C.side, theta + r.delta), off: 0, focused: false }); });
@@ -1696,7 +1723,39 @@
         if (!(wf.w <= 0.7 * wu.w)) f.push('focus width ' + wf.w + ' vs ' + wu.w);
         const rf = run(iow, { angle: 60, x: x0, focus: { on: true, F: 26 } }, { skips: 3 }, [], 100);
         if (!rf.focus || Math.abs(rf.focus.F - 26) > 1e-9 || !rf.fan.length || rf.fan.length !== 41) f.push('focus result shape');
+        if (rf.fan.some(function (r) { return r.weight < 0.9; })) f.push('focused aperture rays under-weighted');
       }
+    }
+    // (e2) QA round 2 — beyond the focus the aperture rays diverge: DAC block T 20, 60°, F 10, hole at path 30 →
+    // −6 dB x-width of the hole's own echo (any path) ≥ 0.9× the unfocused width; at the focus (path 10) ≤ 0.7×
+    if (typeof S.dacBlock === 'function') {
+      const dac = S.dacBlock({ T: 20 });
+      const holeW = function (hole, focus) {
+        const x0 = hole.x + hole.y * Math.tan(60 * DEG);
+        const amps = [];
+        for (let dx = -16; dx <= 16; dx += 0.5) {
+          const es = run(dac, { angle: 60, x: x0 + dx, focus }, { skips: 3 }, [], 100).echoes;
+          let a = 0; for (const e of es) if (e.kind === 'sdh' && e.leg === 1 && Math.abs(e.x - hole.x) < 1e-6 && Math.abs(e.y - hole.y) < 1e-6 && e.amp > a) a = e.amp;
+          amps.push([dx, a]);
+        }
+        let mx = 0; for (const a of amps) if (a[1] > mx) mx = a[1];
+        let lo = null, hi = null;
+        for (const a of amps) if (a[1] >= mx / 2) { if (lo === null) lo = a[0]; hi = a[0]; }
+        return { mx, w: hi - lo };
+      };
+      const far = dac.holes[2], nearH = dac.holes[0];
+      const fu = holeW(far, { on: false, F: 10 }), ff = holeW(far, { on: true, F: 10 });
+      if (!(ff.w >= 0.9 * fu.w)) f.push('focus F 10 width beyond F ' + ff.w + ' vs unfocused ' + fu.w);
+      if (Math.abs(dB(ff.mx, fu.mx)) > 1) f.push('focus F 10 amplitude at 3F differs from unfocused by ' + dB(ff.mx, fu.mx).toFixed(2) + ' dB (Gf → 1 beyond the focal zone)');
+      const nu = holeW(nearH, { on: false, F: 10 }), nf = holeW(nearH, { on: true, F: 10 });
+      if (!(nf.w <= 0.7 * nu.w) || !(dB(nf.mx, nu.mx) >= 3)) f.push('focus F 10 at the focus width ' + nf.w + ' vs ' + nu.w + ', gain ' + dB(nf.mx, nu.mx).toFixed(2));
+    }
+    // (e3) QA round 2 — 0° L probe on a plain plate: no 'modeconv' satellite between the backwall multiples
+    {
+      const plain = S.plateWeld({ T: 25 });
+      const r0 = run(plain, { angle: 0, x: 60 }, { skips: 3 }, [], 100, { fanCount: 41, physics: { modeConv: true, surfaceWave: true, sideLobes: true } });
+      if (r0.echoes.some(function (e) { return e.kind === 'modeconv'; })) f.push('0° plain plate modeconv satellite');
+      if (r0.echoes.filter(function (e) { return e.kind === 'backwall'; }).length < 3) f.push('0° plain plate backwall multiples');
     }
     // (f) lamination: echo + backwall ≥ 6 dB down
     const lp = S.laminationPlate({ T: 25 });

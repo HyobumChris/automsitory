@@ -223,7 +223,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   font-size: 11px; font-weight: bold; cursor: pointer;
 }
 .win-close:active { border-color: #404040 #fff #fff #404040; }
-.win-body { padding: 8px; overflow: auto; max-height: calc(100vh - 60px); }
+.win-body { padding: 8px; overflow: auto; max-height: calc(100vh - 132px); } /* 100vh − toolbar bottom (≈102, 90 keeps floating windows below it) − title bar − padding: the whole body stays scrollable inside the viewport in 'fixed' mode (mirrors #app.scaled below) */
 .win.modal { z-index: 101; }
 .win-backdrop { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.25); z-index: 100; }
 .win-close:focus-visible { outline: 2px solid #ffd21e; }
@@ -349,6 +349,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
 .print-report .print-kv { border-collapse: collapse; margin: 6px 0; }
 .print-report .print-kv th, .print-report .print-kv td { border: 1px solid #666; padding: 2px 6px; text-align: left; vertical-align: top; }
 @media print {
+  html, body { background: #fff !important; color: #000; } /* white page behind the report (the cream app ground is only painted by #app itself) */
+  @page { margin: 12mm; }
   #menubar, #toolbar, #statusbar, #touchbar, #tour, .win, .win-backdrop { display: none !important; }
   body { min-width: 0; overflow: visible; }
   html.scaled, html.scaled body { overflow: visible; height: auto; }
@@ -779,8 +781,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       const closeBtn = dom.h('button', { class: 'win-close', type: 'button', title: 'Close' }, '✕');
       const titleBar = dom.h('div', { class: 'win-title' }, [titleEl, closeBtn]);
       const body = dom.h('div', { class: 'win-body' });
-      const el = dom.h('div', { class: 'win' + (o.modal ? ' modal' : '') + (o.class ? ' ' + o.class : ''), dataset: { win: name }, style: { left: (o.x === undefined ? 200 : o.x) + 'px', top: (o.y === undefined ? 120 : o.y) + 'px', width: o.w ? o.w + 'px' : null, height: o.h ? o.h + 'px' : null, display: 'none' } }, [titleBar, body]);
+      const el = dom.h('div', { class: 'win' + (o.modal ? ' modal' : '') + (o.class ? ' ' + o.class : ''), role: 'dialog', 'aria-modal': o.modal ? 'true' : null, dataset: { win: name }, style: { left: (o.x === undefined ? 200 : o.x) + 'px', top: (o.y === undefined ? 120 : o.y) + 'px', width: o.w ? o.w + 'px' : null, height: o.h ? o.h + 'px' : null, display: 'none' } }, [titleBar, body]);
       let backdrop = null;
+      let prevFocus = null;
       const api = {
         el, body, name,
         isOpen() { return el.style.display !== 'none'; },
@@ -799,15 +802,57 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
           if (el.offsetLeft + el.offsetWidth > bw) el.style.left = Math.max(0, bw - el.offsetWidth - 8) + 'px';
           if (el.offsetTop + el.offsetHeight > bh) el.style.top = Math.max(0, bh - el.offsetHeight - 8) + 'px';
           if (o.onShow) o.onShow(api);
+          // modal dialogs take the keyboard focus (SPEC-v2 §5.7): primary button first, else the first focusable control
+          if (o.modal || o.autofocus) {
+            const active = document.activeElement;
+            if (active && active !== document.body && !el.contains(active)) prevFocus = active;
+            const target = el.querySelector('.btn.primary') || api.focusables()[0];
+            if (target && typeof target.focus === 'function') { try { target.focus(); } catch (e) { /* ignore */ } }
+          }
           UT.bus.emit('win:show', api);
           return api;
         },
-        hide() { el.style.display = 'none'; if (backdrop) backdrop.style.display = 'none'; UT.bus.emit('win:hide', api); return api; },
+        /** Keyboard-reachable controls inside the window (title-bar ✕ last), in DOM order. */
+        focusables() {
+          const list = Array.prototype.slice.call(el.querySelectorAll('button, [href], input, select, textarea, [tabindex]'));
+          return list.filter(function (n) { return n !== closeBtn && !n.disabled && n.tabIndex >= 0 && n.getAttribute('aria-hidden') !== 'true' && (n.offsetWidth > 0 || n.offsetHeight > 0 || n.getClientRects().length > 0); }).concat([closeBtn]);
+        },
+        hide() {
+          el.style.display = 'none'; if (backdrop) backdrop.style.display = 'none';
+          // give the focus back to the control that opened a modal dialog (focus trap released)
+          const active = document.activeElement;
+          if (prevFocus && (!active || active === document.body || el.contains(active))) { try { if (prevFocus.isConnected !== false) prevFocus.focus(); } catch (e) { /* ignore */ } }
+          prevFocus = null;
+          UT.bus.emit('win:hide', api); return api;
+        },
         toggle() { return api.isOpen() ? api.hide() : api.show(); },
         close() { api.hide(); if (o.onClose) o.onClose(api); UT.bus.emit('win:close', api); return api; },
         destroy() { if (api.isOpen()) api.hide(); if (el.parentNode) el.parentNode.removeChild(el); if (backdrop && backdrop.parentNode) backdrop.parentNode.removeChild(backdrop); delete dom.wins[name]; },
       };
       closeBtn.addEventListener('click', function (e) { e.stopPropagation(); api.close(); });
+      // keyboard (SPEC-v2 §5.7): while a modal dialog is up, Tab/Shift+Tab cycle inside it and Enter activates the primary button
+      // (Esc stays with 90's document handler → closeTopWindow). Listener on the window itself, so it runs before the app's handlers.
+      if (o.modal) {
+        el.addEventListener('keydown', function (e) {
+          if (e.ctrlKey || e.altKey || e.metaKey) return;
+          if (e.key === 'Tab') {
+            const list = api.focusables();
+            if (!list.length) { e.preventDefault(); return; }
+            let i = list.indexOf(document.activeElement);
+            if (i < 0) i = e.shiftKey ? 0 : list.length - 1;
+            const next = list[(i + (e.shiftKey ? -1 : 1) + list.length) % list.length];
+            e.preventDefault(); e.stopPropagation();
+            try { next.focus(); } catch (err) { /* ignore */ }
+          } else if (e.key === 'Enter') {
+            const t = e.target, tag = t && t.tagName ? t.tagName.toLowerCase() : '';
+            if (tag === 'textarea' || tag === 'button' || tag === 'a' || tag === 'select' || (t && t.isContentEditable)) return;   // native activation / multi-line input
+            const primary = el.querySelector('.btn.primary');
+            if (!primary || primary.disabled) return;
+            e.preventDefault(); e.stopPropagation();
+            primary.click();
+          }
+        });
+      }
       el.addEventListener('mousedown', function () { api.raise(); });
       // drag by title bar
       let drag = null;
@@ -2072,11 +2117,18 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
    */
   function derive(probe, specimen) {
     const mat = (specimen && specimen.material) || { vShear: C.V_SHEAR_STEEL, vComp: C.V_COMP_STEEL };
-    const angle = probe.method === 'pa' ? probe.paFrom : (probe.angle || 0);
-    const isZero = angle === 0;
+    const nominal = probe.method === 'pa' ? probe.paFrom : (probe.angle || 0);   // requested refracted angle (deg)
+    const isZero = nominal === 0;
     const mode = isZero ? 'comp' : (probe.mode === 'comp' ? 'comp' : 'shear');
     const vel = mode === 'comp' ? mat.vComp : mat.vShear;
     const vWedge = probe.wedgeVel || C.V_PERSPEX;
+    // Critical limit of the refracted angle (QA round 2 #1): Snell gives sin(wedge) = sin(refracted)·vWedge/vel, so when
+    // the material is slower than the wedge (copper vS 2.33, perspex vS 1.43 < 2.74) no wedge angle can produce a
+    // refracted angle above asin(vel/vWedge) (copper 58.3°, perspex 31.5°). The nominal angle is clamped 0.1° below that
+    // limit (same physics as the PA focal-law validity in 56-pa) instead of reporting an impossible 90° wedge.
+    const angleLimit = !isZero && vWedge > vel ? M.rad2deg(Math.asin(vel / vWedge)) : 90;
+    const angleLimited = !isZero && nominal > angleLimit - 0.1;
+    const angle = angleLimited ? angleLimit - 0.1 : nominal;
     const freq = probe.freq || 5;                 // MHz
     const dims = probe.crystalDims || { a: probe.diameter || 10, b: probe.diameter || 10, shape: 'round' };
     const a = dims.a || probe.diameter || 10;     // crystal size in the beam plane (mm)
@@ -2094,15 +2146,26 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const halfAngle20dB = M.rad2deg(Math.asin(s20));
     const nullAngle = M.rad2deg(Math.asin(sNull));
     const fanMax = M.rad2deg(Math.asin(sMax));
-    const preset = presetFor(angle);
+    const preset = presetFor(nominal);
     const lib = libById[probe.libId] || null;
     const wedgeAngle = isZero ? 0 : wedgeAngleFor(angle, mode, vWedge, mat);
     const wedgePath = isZero ? 0 : ((lib && lib.wedgePath) || preset.wedgePath || 12);
     const wedgeDelayUs = 2 * wedgePath / vWedge;  // two-way
     const crit = criticalAngles(vWedge, mat);
     const focus = probe.focus && probe.focus.on && angle <= 70 ? { on: true, F: M.clamp(probe.focus.F || 30, 10, 150) } : { on: false, F: (probe.focus && probe.focus.F) || 30 };
+    const limitNote = angleLimited
+      ? '   ** ' + UT.i18n.t('{angle}° {mode} not possible in {mat} (limit {limit}°): refracted angle limited to {actual}°', {
+        angle: nominal.toFixed(1), mode: mode === 'comp' ? "comp' wave" : 'shear wave', mat: mat.name || mat.key || 'this material', limit: angleLimit.toFixed(1), actual: angle.toFixed(1),
+      }) + ' **'
+      : '';
     return {
       refracted: angle,
+      /** Requested refracted angle (probe.angle / paFrom); equals `refracted` unless `angleLimited`. */
+      nominalAngle: nominal,
+      /** Largest refracted angle this wedge can generate in the material (asin(vel/vWedge); 90 when unlimited). */
+      angleLimit,
+      /** true when the nominal angle exceeds the critical limit and `refracted` was clamped to angleLimit − 0.1°. */
+      angleLimited,
       mode,
       wedgeAngle,
       vel,
@@ -2122,7 +2185,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       indexOffset: isZero ? preset.shoeWidth / 2 : 12,
       shoeWidth: preset.shoeWidth,
       shoeHeight: preset.shoeHeight,
-      colour: probe.method === 'pa' ? C.PROBE_COLOURS.pa : (C.PROBE_COLOURS[angle] || presetFor(angle).colour || '#00c000'),
+      colour: probe.method === 'pa' ? C.PROBE_COLOURS.pa : (C.PROBE_COLOURS[nominal] || preset.colour || '#00c000'),
       crystal: probe.crystal || 'single',
       freq,
       diameter: D,
@@ -2139,7 +2202,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       /** One-way piston directivity weight at an angle offset from the beam axis (deg). */
       directivity(deltaDeg) { return M.pistonDirectivity(deltaDeg, a, lambda); },
       /** Human readable physics line for the status bar. */
-      statusLine: `Angle of Sound Transmission in Perspex Shoe=${wedgeAngle.toFixed(1)}°  Velocity in Wedge (Shoe) = ${Math.round(vWedge * 1000)} m/s   [ Shear Wave Angle=${(mode === 'shear' ? angle : 0).toFixed(1)}°   Velocity=${mode === 'shear' ? Math.round(vel * 1000) : 0} m/s]   [ Comp' Wave Angle=${(mode === 'comp' ? angle : 0).toFixed(1)}°   Velocity=${mode === 'comp' ? Math.round(vel * 1000) : 0} m/s]`,
+      statusLine: `Angle of Sound Transmission in Perspex Shoe=${wedgeAngle.toFixed(1)}°  Velocity in Wedge (Shoe) = ${Math.round(vWedge * 1000)} m/s   [ Shear Wave Angle=${(mode === 'shear' ? angle : 0).toFixed(1)}°   Velocity=${mode === 'shear' ? Math.round(vel * 1000) : 0} m/s]   [ Comp' Wave Angle=${(mode === 'comp' ? angle : 0).toFixed(1)}°   Velocity=${mode === 'comp' ? Math.round(vel * 1000) : 0} m/s]${limitNote}`,
     };
   }
 
@@ -2184,6 +2247,19 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       const d55 = derive({ angle: 55, freq: 5, diameter: 10, wedgeVel: 2.74, side: 1 }, null);
       if (!(d55.wedgeAngle > 40 && d55.wedgeAngle < 47.1)) f.push('custom 55° wedge ' + d55.wedgeAngle);
       if (Math.abs(d60.vRayleigh - 0.926 * 3.24) > 0.02) f.push('vRayleigh ' + d60.vRayleigh);
+      if (d60.angleLimited || d60.nominalAngle !== 60 || d60.angleLimit !== 90) f.push('steel 60° must not be limited');
+      // QA round 2 #1: refracted angle above the critical limit of a slow material is clamped (never a 90° wedge)
+      const cu = { key: 'copper', name: 'Copper', vComp: 4.66, vShear: 2.33 };
+      const dCu = derive({ angle: 60, freq: 5, diameter: 10, wedgeVel: 2.74, side: 1 }, { material: cu });
+      const cuLimit = M.rad2deg(Math.asin(2.33 / 2.74));   // 58.26°
+      if (!dCu.angleLimited || Math.abs(dCu.refracted - (cuLimit - 0.1)) > 1e-6 || dCu.nominalAngle !== 60) f.push('copper 60° limit ' + dCu.refracted);
+      if (!(dCu.wedgeAngle < 90) || !Number.isFinite(dCu.wedgeAngle) || Math.abs(Math.sin(M.deg2rad(dCu.wedgeAngle)) / 2.74 - Math.sin(M.deg2rad(dCu.refracted)) / 2.33) > 1e-6) f.push('copper wedge (Snell) ' + dCu.wedgeAngle);
+      if (dCu.statusLine.indexOf('not possible in Copper') < 0 || dCu.statusLine.indexOf('Shear Wave Angle=' + dCu.refracted.toFixed(1)) < 0) f.push('copper statusLine ' + dCu.statusLine);
+      if (Math.abs(dCu.dir.x + Math.sin(M.deg2rad(dCu.refracted))) > 1e-9) f.push('copper dir uses the limited angle');
+      const dCu45 = derive({ angle: 45, freq: 5, diameter: 10, wedgeVel: 2.74, side: 1 }, { material: cu });
+      if (dCu45.angleLimited || dCu45.refracted !== 45 || Math.abs(dCu45.wedgeAngle - M.rad2deg(Math.asin(Math.sin(M.deg2rad(45)) * 2.74 / 2.33))) > 1e-6) f.push('copper 45° must stay 45°');
+      const dPx = derive({ angle: 60, freq: 5, diameter: 10, wedgeVel: 2.74, side: 1 }, { material: { key: 'perspex', name: 'Perspex (PMMA)', vComp: 2.74, vShear: 1.43 } });
+      if (!dPx.angleLimited || Math.abs(dPx.refracted - (M.rad2deg(Math.asin(1.43 / 2.74)) - 0.1)) > 1e-6 || !(dPx.wedgeAngle < 90)) f.push('perspex 60° limit ' + dPx.refracted + ' wedge ' + dPx.wedgeAngle);
       return f;
     },
   };
@@ -2361,7 +2437,13 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   //     (the fan smears it over ≈ 37…41 µs because each ray meets the face at a different depth).
   //     Converted branches ignore opts.maxLegs (only their own cap and maxLen). Diffuse captures on a converted
   //     branch (holes only — volumetric/tip sampling is skipped for speed) are 'modeconv' echoes too (retrace, ×0.5
-  //     when the branch mode ≠ probe mode).
+  //     when the branch mode ≠ probe mode). Spawn floor (QA round 2): a reflection is eligible only when
+  //     R ≥ CONV_MIN_R (0.04: L→S for φ < 8°, S→L for φ < 4.4° never spawn). Under the spec's literal e × R such a
+  //     branch would already sit ≥ 28 dB below the primary, while the √R amplitude convention lifts weak
+  //     conversions by 10·log10(1/R) dB — enough to turn the beam-edge L→S conversion of a 0° probe on a plain
+  //     plate (φ = θ20 = 5.9°, R_LS 0.021) into a visible −33…−37 dB 'modeconv' satellite between backwall
+  //     multiples 3 and 4 (path 3.23·T). The floor removes it; every required trap (R 0.26…0.73) is unaffected
+  //     and the specular branch keeps its full e when no branch is spawned (as before).
   // 31. Attenuation (§3.4): per-mode ONE-WAY coefficients attenL5/attenS5 are read from
   //     UT.specimens.materials[spec.material.key] (spec.material itself only carries the v1 fields), scaled by
   //     (f/5)^1.5, accumulated over every travelled segment (out and back) with the segment's own mode:
@@ -2387,11 +2469,26 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   //     for crack reflectors. RayResult.surface = {pts, reflectors, dampers} or null (60 draws it).
   // 34. Focus (§3.6): when derived.focus.on the angular fan is replaced by nAp aperture rays (41 for fanCount ≥ 21,
   //     else fanCount) spread over ±crystalA/2 along the surface tangent, all aimed at the focal point E + u0·F with
-  //     F clamped to [10, nearField] (F > N would make Gf < 1); weight = pure piston D1 of the ray's angle from
-  //     u0 (no floor, no null truncation); fan[i].pts[0] is the aperture point, edge20 = the two outermost aperture
-  //     rays, RayResult.focus = {F, x, y}. The diffuse capture distance of focused rays is scaled by FOCUS_CAPTURE
-  //     (0.4, floor 0.3 mm): the v1 fan is already a point-source fan, so without a tighter capture kernel the SDH
-  //     response width would not narrow at the focus (V2-6 wants ≤ 0.7×). Gf(lenMm) multiplies every echo.
+  //     F clamped to [10, nearField] (F > N would make Gf < 1); weight = piston D1 of the ray's angle from u0
+  //     evaluated for the APERTURE STRIP the ray stands for (width crystalA/nAp, no floor, no null truncation;
+  //     QA round 2): each aperture point radiates broadly, so the weights are ≈ 1 across the whole cone and the
+  //     beam beyond F really diverges as §3.6 requires ("the geometric divergence from the aperture rays gives
+  //     the wider beam") — the full-crystal D1 zeroed every ray more than ≈ 0.8·F/10 mm off the axis (null 4.5°)
+  //     and left a pencil beam everywhere. All aperture rays are main-lobe rays (they may convert); fan[i].pts[0]
+  //     is the aperture point, edge20 = the two outermost aperture rays, RayResult.focus = {F, x, y}. The diffuse
+  //     capture distance of focused rays is scaled by FOCUS_CAPTURE (0.4, floor 0.3 mm) AT the focus and returns
+  //     linearly to the v1 kernel as the geometric beam width |len − F|/F·a reaches the aperture width (scale =
+  //     0.4 + 0.6·min(1, |len − F|/F)): the rays converge to a point at F, so without a tighter kernel there the
+  //     SDH response width would not narrow (V2-6 wants ≤ 0.7×), while away from F the kernel must not stay
+  //     narrower than the unfocused one. Both the kernel scale and Gf of a diffuse capture are evaluated at
+  //     len + (F − lenF), lenF = |focal point − aperture point| of the capturing ray, i.e. the focal zone is measured
+  //     along each ray from its own focal crossing (an outer ray of the F 10 cone crosses the focus at 6.2 mm, so a
+  //     reflector it meets at 12.4 mm is 6 mm past the focus, not 2.4) — otherwise reflectors far from the focal
+  //     POINT but at path ≈ F would collect the focal gain. Amplitude: Gf is the ONE focus factor of §3.6 — beyond ≈ 1.5·F it
+  //     is 1, so an on-axis reflector there reads the same as with the unfocused fan (the central aperture ray
+  //     has weight 1 like the v1 centre ray); only the response WIDTH grows with the divergence. Note that the
+  //     aperture lies along the surface tangent, so for an angle probe the cone is asymmetric (60°, F 10:
+  //     −23.8°…+9.9°) and the SDH response beyond F spans ≈ 25 mm of x at path 30.
   // 35. FBH / reflectors (§3.8): spec.reflectors segments are two-sided specular planar reflectors outside the
   //     outline with tip scatter (0.12) at ends that are not on the outline. tag 'fbh' → kind 'fbh' (tag 'fbh',
   //     label from the reflector), S = π·d²/(2·λ·max(lenMm, N)) WITHOUT a min(1, …) cap (§3.8 lead decision: the
@@ -2438,13 +2535,14 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   const CORNER_MERGE = 6;     // mm: merge window for corner echoes of one defect and leg (SPEC NOTE 27)
   const SIDELOBE_FLOOR = Math.pow(10, -30 / 20);   // §3.1: −30 dB floor beyond the first null when physics.sideLobes
   const CONV_MIN_E = 0.01;    // §3.2: converted rays below this running energy are dropped
+  const CONV_MIN_R = 0.04;    // SPEC NOTE 30: no spawn below this energy fraction (L: φ < 8°, S: φ < 4.4°)
   const CONV_MIN_W = 0.02;    // SPEC NOTE 30: no conversion on rays with a smaller fan weight
   const CONV_BACK = 0.5;      // SPEC NOTE 30: converted branch re-converts when R' ≥ this
   const CONV_LEGS = 2;        // §3.2: converted branch traces ≤ 2 further legs
   const SIDE_LEGS = 2;        // §3.1: side-lobe rays trace ≤ 2 legs
   const CONV_DRAW_MAX = 40;   // §3.13: RayResult.converted entries (by weight)
   const CONV_DRAW_MIN = 1e-3; // weight floor for drawn converted polylines
-  const FOCUS_CAPTURE = 0.4;  // SPEC NOTE 34
+  const FOCUS_CAPTURE = 0.4;  // SPEC NOTE 34: capture-kernel scale AT the focus
   const FOCUS_CAPTURE_MIN = 0.3;
   const WELD_AUST_DB = 0.15;  // §3.4: austenitic weld metal extra one-way dB/mm at 5 MHz
   const NOTCH_GAP = 12;       // SPEC NOTE 33
@@ -2763,7 +2861,10 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const sideLobe = !!R.side;
     const legLimit = sideLobe ? Math.min(C.maxLegs, SIDE_LEGS) : C.maxLegs;
     const canConvert = C.modeConv && R.main && w >= CONV_MIN_W && !C.tt && !C.tandem;
-    const capScale = R.focused ? FOCUS_CAPTURE : 1;
+    const focused = !!R.focused;
+    // SPEC NOTE 34: focal zone measured along THIS aperture ray from its own focal crossing (lenF), so the focus
+    // gain and the tightened capture kernel apply near the focal point only (the central ray has lenF = F)
+    const fOff = focused && Number.isFinite(R.lenF) ? C.F - R.lenF : 0;
     // Branch stack (SPEC NOTE 19): a ray meeting a planar defect segment whose z-overlap is partial
     // splits into a reflected branch (weight Z) and a transmitted branch (weight sqrt(1 − Z²)).
     // Mode conversion (SPEC NOTE 30) spawns one converted branch per fan ray.
@@ -2847,7 +2948,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
             const d = Math.abs(rx * dy - ry * dx);
             const c = 0.5 + 0.03 * (len + u);
             let cap = Math.max(c, P.cap);
-            if (capScale !== 1) cap = Math.max(FOCUS_CAPTURE_MIN, cap * capScale);
+            if (focused) cap = Math.max(FOCUS_CAPTURE_MIN, cap * C.focusCapScale(len + u + fOff));
             if (d > cap) continue;
             const lenMm = Math.max(0, len + u - (P.back || 0));
             const taper = Math.cos(Math.PI / 2 * d / cap);
@@ -2860,11 +2961,11 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
               cur = C.volBest.get(key);
               if (cur) {
                 const qq = C.nearField / Math.max(lenMm, C.nearField);
-                const bound = w * w * e * P.S * qq * qq * taper * Math.pow(10, -attP / 20) * C.transferLin * C.Gf(lenMm) * C.nearBoost(lenMm) * (isConv && mode !== C.probeMode ? 0.5 : 1);
+                const bound = w * w * e * P.S * qq * qq * taper * Math.pow(10, -attP / 20) * C.transferLin * C.Gf(lenMm + fOff) * C.nearBoost(lenMm) * (isConv && mode !== C.probeMode ? 0.5 : 1);
                 if (bound * tw <= cur.amp && bound <= cur.ampNoZ) continue;
               }
             }
-            const ec = makeEcho(C, { lenMm, tUs: 2 * (tUs + u / v), att: attP, mode, conv: isConv ? conv.first : null,
+            const ec = makeEcho(C, { lenMm, gfLen: lenMm + fOff, tUs: 2 * (tUs + u / v), att: attP, mode, conv: isConv ? conv.first : null,
               kind: isConv ? 'modeconv' : P.kind, leg, x: P.x, y: P.y, w, wReturn: w * (isConv && mode !== C.probeMode ? 0.5 : 1), e, S: P.S, dExp: P.dExp,
               defect: P.defect, tag: isConv ? (P.tag || P.kind) : P.tag, label: P.label, angleDev: delta, extra: taper, zs, tw });
             if (P.vol) {
@@ -3010,7 +3111,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
                 // R is an ENERGY fraction; e is an amplitude factor → √R converted, √(1 − R) specular (SPEC NOTE 30)
                 const aR = Math.sqrt(Rc), aK = Math.sqrt(1 - Rc);
                 if (!conv) {
-                  if (!convDone && e * aR >= CONV_MIN_E) {
+                  if (!convDone && Rc >= CONV_MIN_R && e * aR >= CONV_MIN_E) {
                     convDone = true;
                     const other = mode === 'L' ? 'S' : 'L';
                     const poly = { mode: other, kindTag: other, pts: [{ x: hp.x, y: hp.y, leg }], weight: w * e * aR * tw };
@@ -3154,7 +3255,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     return { kind: tagKind(last.tag), S: 1, dExp: 0.5, tag: last.tag, x: last.x, y: last.y, leg: last.leg };
   }
 
-  /** Assemble one raw (unmerged) echo with the §6.1 rule-4 amplitude (v2: per-leg attenuation, tUs, focus gain). */
+  /** Assemble one raw (unmerged) echo with the §6.1 rule-4 amplitude (v2: per-leg attenuation, tUs, focus gain at o.gfLen — lenMm unless the capture lies on an off-centre aperture ray, SPEC NOTE 34). */
   function makeEcho(C, o) {
     const lenMm = o.lenMm;
     const q = C.nearField / Math.max(lenMm, C.nearField);
@@ -3162,7 +3263,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const Mf = Math.pow(10, -o.att / 20);
     let S = o.S;
     if (o.fbhD) S *= Math.PI * o.fbhD * o.fbhD / (2 * C.lambda * Math.max(lenMm, C.nearField));   // FBH law (§3.8): NO min(1, …) cap (DGS round-trip)
-    const base = o.w * o.wReturn * o.e * S * D * Mf * (o.extra === undefined ? 1 : o.extra) * C.transferLin * C.Gf(lenMm) * C.nearBoost(lenMm);
+    const base = o.w * o.wReturn * o.e * S * D * Mf * (o.extra === undefined ? 1 : o.extra) * C.transferLin * C.Gf(o.gfLen === undefined ? lenMm : o.gfLen) * C.nearBoost(lenMm);
     const hz = lenMm * C.tan20z + C.crystalB / 2;
     const vol = !!o.defect && !UT.specimens.isPlanar(o.defect.type);   // volumetric scatterers: ×1 (§6.7)
     const skewed = !vol && (o.kind === 'defect' || o.kind === 'corner' || o.kind === 'geometry' || o.kind === 'lamination') && C.theta > 0;
@@ -3545,6 +3646,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       modeConv, sideLobes, surfaceWave: surfOn, dirW,
       devMax: Math.max(2 * (derived.halfAngle20dB || 4), fanMaxA),
       Gf: focusOn ? function (len) { const g = Math.min(N / F, 3) - 1; const r = (len - F) / (0.25 * F); return 1 + g * Math.exp(-r * r); } : function () { return 1; },
+      F, focusCapScale: function (len) { return FOCUS_CAPTURE + (1 - FOCUS_CAPTURE) * Math.min(1, Math.abs(len - F) / F); },   // SPEC NOTE 34
       twin, nearBoost: twin ? function (len) { return len >= TWIN_NEAR ? 1 : 1 + (TWIN_BOOST - 1) * M.clamp((TWIN_NEAR - len) / (TWIN_NEAR - TWIN_ROLL), 0, 1); } : function () { return 1; },
       maxLegs, maxLen: Math.max(2 * maxPath + 100, 700), retroSlot: !!specimen.retroSlot,
       probeZ: probe.z || 0, skew: fold180(probe.skew || 0), L: specimen.L || 0, wrap: !!specimen.pipe,
@@ -3579,6 +3681,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       // SPEC NOTE 34: aperture rays aimed at the focal point
       const nAp = n >= 21 ? 41 : Math.max(1, n);
       const half = (derived.crystalA || C.diameter) / 2;
+      const aEl = 2 * half / nAp;   // width of the aperture strip each ray stands for (SPEC NOTE 34)
       const Fp = { x: C.E.x + C.u0.x * F, y: C.E.y + C.u0.y * F };
       focus = { F, x: Fp.x, y: Fp.y };
       rayList = [];
@@ -3588,7 +3691,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
         const d = norm(Fp.x - Ex, Fp.y - Ey);
         const cross = C.u0.x * d.y - C.u0.y * d.x;
         const ang = M.angleBetween(d.x, d.y, C.u0.x, C.u0.y) * (cross * C.side < 0 ? -1 : 1);
-        rayList.push({ delta: ang, w: typeof derived.directivity === 'function' ? derived.directivity(ang) : dirW(ang), dir0: d, off: s, main: Math.abs(ang) <= (derived.nullAngle || 90), side: false, focused: true });
+        rayList.push({ delta: ang, w: M.pistonDirectivity(ang, aEl, lambda), dir0: d, off: s, main: true, side: false, focused: true, lenF: M.dist(Ex, Ey, Fp.x, Fp.y) });
       }
     } else {
       rayList = fanLayout(derived, n, sideLobes, dirW).map(function (r) { return Object.assign(r, { dir0: dirAt(C.ss, C.side, theta + r.delta), off: 0, focused: false }); });
@@ -3890,7 +3993,39 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
         if (!(wf.w <= 0.7 * wu.w)) f.push('focus width ' + wf.w + ' vs ' + wu.w);
         const rf = run(iow, { angle: 60, x: x0, focus: { on: true, F: 26 } }, { skips: 3 }, [], 100);
         if (!rf.focus || Math.abs(rf.focus.F - 26) > 1e-9 || !rf.fan.length || rf.fan.length !== 41) f.push('focus result shape');
+        if (rf.fan.some(function (r) { return r.weight < 0.9; })) f.push('focused aperture rays under-weighted');
       }
+    }
+    // (e2) QA round 2 — beyond the focus the aperture rays diverge: DAC block T 20, 60°, F 10, hole at path 30 →
+    // −6 dB x-width of the hole's own echo (any path) ≥ 0.9× the unfocused width; at the focus (path 10) ≤ 0.7×
+    if (typeof S.dacBlock === 'function') {
+      const dac = S.dacBlock({ T: 20 });
+      const holeW = function (hole, focus) {
+        const x0 = hole.x + hole.y * Math.tan(60 * DEG);
+        const amps = [];
+        for (let dx = -16; dx <= 16; dx += 0.5) {
+          const es = run(dac, { angle: 60, x: x0 + dx, focus }, { skips: 3 }, [], 100).echoes;
+          let a = 0; for (const e of es) if (e.kind === 'sdh' && e.leg === 1 && Math.abs(e.x - hole.x) < 1e-6 && Math.abs(e.y - hole.y) < 1e-6 && e.amp > a) a = e.amp;
+          amps.push([dx, a]);
+        }
+        let mx = 0; for (const a of amps) if (a[1] > mx) mx = a[1];
+        let lo = null, hi = null;
+        for (const a of amps) if (a[1] >= mx / 2) { if (lo === null) lo = a[0]; hi = a[0]; }
+        return { mx, w: hi - lo };
+      };
+      const far = dac.holes[2], nearH = dac.holes[0];
+      const fu = holeW(far, { on: false, F: 10 }), ff = holeW(far, { on: true, F: 10 });
+      if (!(ff.w >= 0.9 * fu.w)) f.push('focus F 10 width beyond F ' + ff.w + ' vs unfocused ' + fu.w);
+      if (Math.abs(dB(ff.mx, fu.mx)) > 1) f.push('focus F 10 amplitude at 3F differs from unfocused by ' + dB(ff.mx, fu.mx).toFixed(2) + ' dB (Gf → 1 beyond the focal zone)');
+      const nu = holeW(nearH, { on: false, F: 10 }), nf = holeW(nearH, { on: true, F: 10 });
+      if (!(nf.w <= 0.7 * nu.w) || !(dB(nf.mx, nu.mx) >= 3)) f.push('focus F 10 at the focus width ' + nf.w + ' vs ' + nu.w + ', gain ' + dB(nf.mx, nu.mx).toFixed(2));
+    }
+    // (e3) QA round 2 — 0° L probe on a plain plate: no 'modeconv' satellite between the backwall multiples
+    {
+      const plain = S.plateWeld({ T: 25 });
+      const r0 = run(plain, { angle: 0, x: 60 }, { skips: 3 }, [], 100, { fanCount: 41, physics: { modeConv: true, surfaceWave: true, sideLobes: true } });
+      if (r0.echoes.some(function (e) { return e.kind === 'modeconv'; })) f.push('0° plain plate modeconv satellite');
+      if (r0.echoes.filter(function (e) { return e.kind === 'backwall'; }).length < 3) f.push('0° plain plate backwall multiples');
     }
     // (f) lamination: echo + backwall ≥ 6 dB down
     const lp = S.laminationPlate({ T: 25 });
@@ -5482,11 +5617,21 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
 // - ers(): transferDb is added to the ECHO amplitude only (the reference is recorded on the block; the
 //   specimen echo is weaker by the transfer loss, so the correction adds it back). gain fields default to 0.
 //   ampPct ≤ 0, missing reference or N ≤ 0 → null.
+// - ers() distance-law transport (§3.8 round-trip MUST, QA round 2): the tracer's 0° backwall falls with
+//   D = q^0.5 = √(N/max(s, N)) times the one-way L attenuation 10^(−2·α·s/20) (α = attenL5·(f/5)^1.5, 30's
+//   materialInfo/makeEcho), NOT with the diagram's 1/A — so a backwall reference at 60 mm predicted 6.0 dB
+//   where the tracer gives 3.75 dB and ⌀6 at 30 mm read 5.27 mm. The reference is therefore transported to the
+//   echo's path with the simulator law before the diagram is entered: H_ref' = H_ref(A_ref) ·
+//   [H_bw(A_echo)/H_bw(A_ref)] · [bwLaw(s_ref)/bwLaw(s_echo)] (= 1 for equal paths or a 1/A law); the spec's
+//   H_echo = H_ref·10^(ΔdB/20) is otherwise unchanged and the ERS inverts the tracer's FBH law exactly
+//   (result.distCorrDb reports the transport). bwLaw() is a replica of 30's law (UT.rays.ampBwLaw(s, derived,
+//   specimen) is preferred when 30 exports it) — if 30 changes its 0° distance law, update bwLaw() here.
 // - The DGS reference (backwall/FBH) is a module-level record (not state; the spec defines no state field):
 //   UT.standards.dgs.recordReference(kind, fbhMm) reads frame.readouts.primary; UT.test.dgs({record:'backwall'})
 //   does the same headlessly. UT.test.dgs() without args returns the live computation {ref, echo, result}.
-// - The FBH tracer law (30-raytrace) and the backwall distance law (D = q^0.5) are NOT this module's; with the
-//   tracer's q^0.5 backwall the ⌀6 FBH of V2-9 reads ≈ 4.0 mm ERS (bound 4.5) while ⌀3 reads ≈ 2.5 — see risks.
+// - The FBH tracer law and the backwall distance law (D = q^0.5) live in 30-raytrace; ers() mirrors the latter
+//   (bwLaw) only for the reference transport. A constant ≈ +0.45 dB of the tracer's specular FBH sum over the fan
+//   (independent of d and s) remains and reads as ≈ +2.6 % ERS (⌀6 → 6.16 mm), inside the §3.8 ± 0.5 mm.
 // - evaluate(): ampDbVsRef + transferDb (state.standards.transferDb unless args.transferDb) is the evaluated
 //   amplitude; pct = round(100·10^(amp/20)) of that corrected amplitude. Missing lengthMm → 0 (short), missing
 //   soundPath (AWS) → c = 0 (≤ 1 in assumed, said in ruleText), missing depth (AWS class C) → middle half assumed.
@@ -5546,6 +5691,26 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   function hBw(A) { return A <= 1 ? 1 : 1 / A; }
   /** Normalised disc (FBH) curve H_disc(A, G) = 2π·G²/max(A,1)² (lead decision, §11). */
   function hDisc(A, G) { const Ae = Math.max(A, 1); return TWO_PI * G * G / (Ae * Ae); }
+  /** One-way L-wave attenuation (dB/mm) as the tracer uses it: attenL5 of spec.material (library fallback) · (f/5)^1.5. */
+  function attenL(d, specimen) {
+    const sm = (specimen && specimen.material) || {};
+    const lib = has('specimens.materials');
+    const rec = lib && sm.key ? lib[sm.key] : null;
+    const a5 = finite(sm.attenL5) ? sm.attenL5 : (rec && finite(rec.attenL5) ? rec.attenL5 : 0.005);
+    const freq = finite(d.freq) && d.freq > 0 ? d.freq : 5;
+    return a5 * Math.pow(freq / 5, 1.5);
+  }
+  /**
+   * Simulator backwall distance law at path s for the 0° probe (e = S = 1, relative units): the tracer's
+   * D = √(N/max(s, N)) near-field blend times the two-way attenuation 10^(−2·α·s/20) (30-raytrace makeEcho).
+   * Only ratios bwLaw(s1)/bwLaw(s2) are used. Prefers UT.rays.ampBwLaw(s, derived, specimen) when 30 exports one.
+   */
+  function bwLaw(s, d, specimen) {
+    const ext = has('rays.ampBwLaw');
+    if (typeof ext === 'function') { try { const v = ext(s, d, specimen); if (finite(v) && v > 0) return v; } catch (e) { /* fall through */ } }
+    const N = d.nearField;
+    return Math.sqrt(N / Math.max(s, N)) * Math.pow(10, -2 * attenL(d, specimen) * s / 20);
+  }
   /** Normalised SDH curve H_sdh(A, d) = √(2λd)/(a·max(A,1)^1.5) (λ, a from derived). */
   function hSdh(A, d, derived) {
     const dv = derived || currentDerived() || { lambda: 0.648, crystalA: 10 };
@@ -5584,16 +5749,20 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const ref = q.ref, echo = q.echo;
     if (!ref || !echo || !(ref.path > 0) || !(echo.path > 0) || !(ref.ampPct > 0) || !(echo.ampPct > 0)) return null;
     const transferDb = finite(q.transferDb) ? q.transferDb : 0;
+    const spec = q.specimen || (UT.state && UT.state.specimen) || null;
     const Aref = ref.path / N, Aecho = echo.path / N;
     const Href = ref.kind === 'fbh' ? hDisc(Aref, (finite(ref.fbhMm) && ref.fbhMm > 0 ? ref.fbhMm : 3) / a) : hBw(Aref);
     const ampRefDb = 20 * Math.log10(ref.ampPct) - (finite(ref.gain) ? ref.gain : 0);
     const ampEchoDb = 20 * Math.log10(echo.ampPct) - (finite(echo.gain) ? echo.gain : 0) + transferDb;
     const dBvsRef = ampEchoDb - ampRefDb;
-    const Hecho = Href * Math.pow(10, dBvsRef / 20);
+    // Transport the reference to the echo's path with the simulator's backwall distance law (header note):
+    // = 1 for equal paths, or wherever that law coincides with the diagram's 1/A.
+    const distCorr = (hBw(Aecho) / hBw(Aref)) * (bwLaw(ref.path, d, spec) / bwLaw(echo.path, d, spec));
+    const Hecho = Href * distCorr * Math.pow(10, dBvsRef / 20);
     const G = Math.max(Aecho, 1) * Math.sqrt(Hecho / TWO_PI);
     const ersMm = G * a;
     const dBvsDisc3 = M.lin2dB(Hecho / hDisc(Aecho, 3 / a));
-    return { G, ersMm, dBvsRef, dBvsDisc3, Aref, Aecho, Href, Hecho, HdbRef: M.lin2dB(Href), HdbEcho: M.lin2dB(Hecho), a, N };
+    return { G, ersMm, dBvsRef, dBvsDisc3, distCorrDb: M.lin2dB(distCorr), Aref, Aecho, Href, Hecho, HdbRef: M.lin2dB(Href), HdbEcho: M.lin2dB(Hecho), a, N };
   }
 
   // ================================================================== T3 — rule sets (§4.3, verbatim data)
@@ -5980,7 +6149,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     out.push('ISO 11666:2018 — confidence HIGH: AL2 ↔ quality B, AL3 ↔ quality C, no AL1; AL2 = −4 dB (short, l ≤ max(10, 0.5 t)) / −10 dB (long), evaluation level −10 dB (33 % DAC). AL3 = +4 dB (short, l ≤ max(10, 1.0 t)) / −2 dB (long), evaluation −6 dB: lead decision, confidence MEDIUM — verify (alternative if disproved: 0 / −6 dB). Planar reject (crack / LOF / IP) is a simulator rule — ISO 23279 characterisation is optional in ISO 11666.');
     out.push('ASME BPVC VIII-1 App. 12 (12-3) + ASME V Art. 4 — confidence HIGH: investigate all indications > 20 % of reference (compared in percent so −14 dB counts as 20 %); reject cracks / LOF / IP regardless; other indications reject when > 100 % DAC AND longer than 6 mm (t ≤ 19), t/3 (19 < t ≤ 57) or 19 mm (t > 57). Basic block SDH ⌀ 2.4 mm for t ≤ 25.');
     out.push('AWS D1.1 Table 8.2 (statically loaded, non-tubular) — confidence MEDIUM-HIGH (~75 %) on the class numbers, HIGH on structure: rating d = a − b − c with c = 2 dB per inch of sound path beyond 1 in (rounded, .5 up); classes A–D per thickness band and probe angle; for t ≤ 3/4 in only 70° is listed (45°/60° → n/a); the B/C isolation (spacing) rule is omitted; class D is accepted and not recorded.');
-    out.push('DGS / ERS — normalised Krautkrämer diagram: backwall 1/A, disc 2π·G²/A² (lead decision), SDH √(2λd)/(a·A^1.5); far-field approximation (A ≥ 1); DGS applies to the 0° probe only; the transfer correction is added to the specimen echo.');
+    out.push('DGS / ERS — normalised Krautkrämer diagram: backwall 1/A, disc 2π·G²/A² (lead decision), SDH √(2λd)/(a·A^1.5); far-field approximation (A ≥ 1); DGS applies to the 0° probe only; the transfer correction is added to the specimen echo. The reference echo is transported to the evaluated echo\'s path with the simulator\'s own backwall law (√(N/s) near-field blend plus material attenuation) before the diagram is entered, so the ERS inverts the tracer\'s FBH law exactly (identity for equal paths).');
     out.push('Mode conversion — the S↔L conversion coefficients R_LS(φ) and R_SL(φ) of the ray tracer are closed-form fits, ±0.1; converted echoes are labelled "Mode-converted (L/S)". Switching Probes ▸ Mode conversion OFF also removes the conversion LOSS on specular echoes (the 1 − R split), so the 60° root-corner echo reads ≈ +5.5 dB higher with mode conversion off — compare readings only with the same setting.');
     out.push('Exam sharing — an exam link contains no defects (only the seed, the code hash and the settings) and the result token is signed with FNV-1a. This is obfuscation for classroom use, not security: the browser devtools can still reach the generator.');
     out.push('Transfer correction — measured as the gain difference between the block and the specimen backwall (same path); ISO 17640: ignore < 2 dB, compensate 2…12 dB, investigate > 12 dB. Lesson 24 enters it in Evaluation ▸ Transfer.');
@@ -5994,7 +6163,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       'ISO 11666:2018 — 신뢰도 높음: AL2 ↔ 품질 등급 B, AL3 ↔ 품질 등급 C, AL1 없음; AL2 = −4 dB (짧은 지시, l ≤ max(10, 0.5 t)) / −10 dB (긴 지시), 평가 레벨 −10 dB (DAC 33 %). AL3 = +4 dB (짧은 지시, l ≤ max(10, 1.0 t)) / −2 dB (긴 지시), 평가 레벨 −6 dB: 리드 결정, 신뢰도 보통 — 확인 필요(반증 시 대안: 0 / −6 dB). 면상 결함(균열 / 융합 불량 / 용입 부족) 불합격은 시뮬레이터 규칙 — ISO 11666에서 ISO 23279 특성 평가는 선택 사항입니다.',
       'ASME BPVC VIII-1 App. 12 (12-3) + ASME V Art. 4 — 신뢰도 높음: 기준의 20 %를 넘는 모든 지시를 조사(퍼센트로 비교하므로 −14 dB가 20 %에 해당); 균열 / 융합 불량 / 용입 부족은 무조건 불합격; 그 밖의 지시는 DAC 100 % 초과이면서 길이가 6 mm (t ≤ 19), t/3 (19 < t ≤ 57) 또는 19 mm (t > 57)를 넘을 때 불합격. t ≤ 25의 기본 시험편 횡공 ⌀ 2.4 mm.',
       'AWS D1.1 표 8.2 (정하중, 비관형) — 등급 수치는 신뢰도 보통-높음(약 75 %), 구조는 높음: 지시 등급 d = a − b − c, c = 빔 노정 1 in 초과분 1 in당 2 dB (반올림, .5는 올림); 두께 구간과 탐촉자 각도별 A–D 등급; t ≤ 3/4 in에서는 70°만 규정(45°/60° → 해당 없음); B/C 격리(간격) 규칙은 생략; D 등급은 합격이며 기록하지 않습니다.',
-      'DGS / ERS — 정규화된 Krautkrämer 선도: 저면 1/A, 원판 2π·G²/A² (리드 결정), 횡공 √(2λd)/(a·A^1.5); 원거리 음장 근사 (A ≥ 1); DGS는 0° 탐촉자에만 적용; 전달 손실 보정은 시험체 에코에 더해집니다.',
+      'DGS / ERS — 정규화된 Krautkrämer 선도: 저면 1/A, 원판 2π·G²/A² (리드 결정), 횡공 √(2λd)/(a·A^1.5); 원거리 음장 근사 (A ≥ 1); DGS는 0° 탐촉자에만 적용; 전달 손실 보정은 시험체 에코에 더해집니다. 기준 에코는 선도에 넣기 전에 시뮬레이터 자체의 저면 거리 법칙(√(N/s) 근거리 음장 혼합 + 재질 감쇠)으로 평가 에코의 노정으로 옮겨지므로 ERS는 광선 추적기의 평저공 법칙을 정확히 역산합니다(노정이 같으면 항등).',
       '모드 변환 — 광선 추적기의 S↔L 변환 계수 R_LS(φ), R_SL(φ)는 닫힌 형식 근사식(±0.1)이며, 변환된 에코는 "모드 변환 (L/S)"로 표시됩니다.',
       '시험 공유 — 시험 링크에는 결함이 들어 있지 않고(시드, 코드 해시, 설정만) 결과 토큰은 FNV-1a로 서명됩니다. 이는 교실용 난독화이지 보안이 아닙니다: 브라우저 개발자 도구로 여전히 생성기에 접근할 수 있습니다.',
       '전달 손실 보정 — 대비 시험편과 시험체 저면 에코(같은 노정)의 게인 차이로 측정; ISO 17640: 2 dB 미만 무시, 2…12 dB 보정, 12 dB 초과 시 조사. 레슨 24에서 평가 ▸ 전달 손실에 입력합니다.',
@@ -6205,8 +6374,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     return { id: evId++, n: finite(r.n) ? r.n : i + 1, z: num(r.z, ''), length: num(r.length, ''), depth: num(r.depth, ''), type: normaliseType(r.type) || 'planar',
       ampDbVsRef: num(r.ampDb, num(r.ampDbVsRef, '')), soundPath: num(r.soundPath, ''), angle: num(r.angle, ''), side: r.side === undefined ? '' : r.side, fromReport: true, result: null, open: false };
   }
+  function currentReport() { return (st().trade && Array.isArray(st().trade.report)) ? st().trade.report : []; }
   function syncFromReport() {
-    const rep = (st().trade && Array.isArray(st().trade.report)) ? st().trade.report : [];
+    const rep = currentReport();
     const key = JSON.stringify(rep);
     if (key === evUi.reportKey) return false;
     evUi.reportKey = key;
@@ -6240,7 +6410,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     return addRow({ z: s.probe.z, depth: +R.dp.toFixed(1), ampDbVsRef: +amp.toFixed(1), soundPath: +R.path.toFixed(1), angle: s.probe.angle, side: s.probe.side, type });
   }
   function removeRow(id) { evRows = evRows.filter(function (r) { return r.id !== id; }); evRefresh(); }
-  function clearRows() { evRows = []; evUi.reportKey = null; evRefresh(); }
+  /** Empty the table (mirrored trade-report rows included); the report is re-mirrored only once it changes again. */
+  function clearRows() { evRows = []; evUi.reportKey = JSON.stringify(currentReport()); evRefresh(); }
   function evalArgsFor(row) {
     const s = st().standards || {};
     return { ruleId: s.standard, level: s.level, technique: s.technique, T: finite(evUi.T) ? evUi.T : specimenT(), probeAngle: num(row.angle, NaN),
@@ -6502,14 +6673,25 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const i3 = c.A.reduce(function (best, a, i) { return Math.abs(a - 3) < Math.abs(c.A[best] - 3) ? i : best; }, 0);
     if (!near(hDisc(3, 0.3), 2 * Math.PI * 0.09 / 9, 1e-9)) f.push('hDisc(3,0.3) ' + hDisc(3, 0.3));
     if (c.discs.length !== 7 || !near(c.discs[2].H[i3], hDisc(c.A[i3], 0.3), 1e-12) || c.A.length !== 61 || c.bw[0] !== 1) f.push('curves shape');
-    const d0 = { crystalA: 10, diameter: 10, nearField: 100 * 5 / (4 * 5.9), lambda: 1.18, refracted: 0 };
+    const d0 = { crystalA: 10, diameter: 10, nearField: 100 * 5 / (4 * 5.9), lambda: 1.18, refracted: 0, freq: 5 };
+    const sp0 = { material: { key: 'carbon', attenL5: 0.005 } };
+    // tracer FBH law (§3.8): amp_fbh(s) = amp_bw_law(s)·π·d²/(2·λ·max(s, N)), amp_bw_law = the simulator's 0° backwall law
+    const bwAmp = function (s) { return 80 * bwLaw(s, d0, sp0); };
+    const fbhAmp = function (s, dMm) { return bwAmp(s) * Math.PI * dMm * dMm / (2 * d0.lambda * Math.max(s, d0.nearField)); };
+    if (!near(bwLaw(60, d0, sp0) / bwLaw(30, d0, sp0), Math.sqrt(30 / 60) * Math.pow(10, -0.005 * 60 / 20), 1e-9)) f.push('bwLaw ratio 60/30');
     [2, 3, 4, 6].forEach(function (dMm) {
-      const Aref = 60 / d0.nearField, Aecho = 30 / d0.nearField;
-      const echoPct = 80 * hDisc(Aecho, dMm / 10) / hBw(Aref);
-      const r = ers({ derived: d0, ref: { kind: 'backwall', path: 60, ampPct: 80, gain: 30 }, echo: { path: 30, ampPct: echoPct, gain: 30 } });
-      if (!r || !near(r.ersMm, dMm, 0.01)) f.push('ers round trip ' + dMm + ' → ' + (r && r.ersMm));
-      const r2 = ers({ derived: d0, ref: { kind: 'fbh', path: 30, ampPct: 40, gain: 20, fbhMm: 3 }, echo: { path: 30, ampPct: 40 * hDisc(Aecho, dMm / 10) / hDisc(Aecho, 0.3), gain: 20 } });
-      if (!r2 || !near(r2.ersMm, dMm, 0.01)) f.push('ers fbh-ref round trip ' + dMm + ' → ' + (r2 && r2.ersMm));
+      [30, 50, 60].forEach(function (s) {
+        // backwall reference at 60 mm (V2-9 / §3.8 round trip, all paths 30…60 must invert exactly)
+        const r = ers({ derived: d0, specimen: sp0, ref: { kind: 'backwall', path: 60, ampPct: bwAmp(60), gain: 30 }, echo: { path: s, ampPct: fbhAmp(s, dMm), gain: 30 } });
+        if (!r || !near(r.ersMm, dMm, 0.01)) f.push('ers round trip ⌀' + dMm + '@' + s + ' → ' + (r && r.ersMm));
+        // ⌀3 FBH reference at 30 mm
+        const r2 = ers({ derived: d0, specimen: sp0, ref: { kind: 'fbh', path: 30, ampPct: fbhAmp(30, 3), gain: 20, fbhMm: 3 }, echo: { path: s, ampPct: fbhAmp(s, dMm), gain: 20 } });
+        if (!r2 || !near(r2.ersMm, dMm, 0.01)) f.push('ers fbh-ref round trip ⌀' + dMm + '@' + s + ' → ' + (r2 && r2.ersMm));
+      });
+      // equal paths: the transport is the identity and the spec formula H_echo = H_ref·10^(ΔdB/20) applies verbatim
+      const Aecho = 30 / d0.nearField;
+      const r3 = ers({ derived: d0, specimen: sp0, ref: { kind: 'backwall', path: 30, ampPct: 80, gain: 30 }, echo: { path: 30, ampPct: 80 * hDisc(Aecho, dMm / 10) / hBw(Aecho), gain: 30 } });
+      if (!r3 || !near(r3.ersMm, dMm, 0.01) || Math.abs(r3.distCorrDb) > 1e-9) f.push('ers equal-path ' + dMm + ' → ' + (r3 && r3.ersMm));
     });
     // gain difference: echo read at +6 dB gain must give the same ERS
     const rA = ers({ derived: d0, ref: { kind: 'backwall', path: 60, ampPct: 80, gain: 30 }, echo: { path: 30, ampPct: 40, gain: 30 } });
@@ -6680,7 +6862,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
 //   the scan object) and are resampled to the current Range/X-Shift when drawn with a signed peak hold per
 //   pixel (the 512-sample wavelets are shorter than one screen pixel otherwise). runScan() is pure
 //   and synchronous (opts.sync is accepted and ignored); startScan()/stopScan() animate 8 columns per
-//   frame, store partial scans via UT.setIn('tofd', {scan, running}) and emit 'scan:progress'.
+//   frame, store partial scans via UT.setIn('tofd', {scan, running}) and emit 'scan:progress';
+//   prefers-reduced-motion (UT.app.reducedMotion()) → startScan() builds every column synchronously.
 // - D-scan canvas 280 × 450: left 140 px = the scan image (z top→bottom, wedge-zeroed time left→right),
 //   top-right 140 × 140 = 2× magnifier around the crosshair, rest black. Red crosshair: horizontal at
 //   probe.z, vertical at the hovered time (lateral-wave time when the pointer is elsewhere). Click sets
@@ -7139,11 +7322,29 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(h); else clearTimeout(h);
   }
 
-  /** Animated D-scan (8 columns per frame); stores partial scans into state and emits 'scan:progress'. */
+  /** prefers-reduced-motion (SPEC-v2 §5.7): UT.app.reducedMotion() when 90 is loaded, else the media query. */
+  function reducedMotion() {
+    try {
+      if (UT.app && typeof UT.app.reducedMotion === 'function') return !!UT.app.reducedMotion();
+      return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch (e) { return false; }
+  }
+
+  /**
+   * Animated D-scan (8 columns per frame); stores partial scans into state and emits 'scan:progress'.
+   * prefers-reduced-motion → all columns are built synchronously (one store, one 'scan:progress', isScanning() stays false).
+   */
   function startScan() {
     const state = UT.state;
     if (!state.specimen) return false;
     stopScan(true);
+    if (reducedMotion()) {
+      const full = runScan(state);
+      if (!full) return false;
+      UT.setIn('tofd', { scan: full, running: false });
+      UT.bus.emit('scan:progress', { kind: 'tofd', i: full.n, n: full.n });
+      return true;
+    }
     const sc = scanShell(state);
     anim = { sc, i: 0, handle: null };
     UT.setIn('tofd', { scan: stripPrivate(sc), running: true });
@@ -9203,8 +9404,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
 //    columns slide an 8-element aperture across the array (elements − 7 columns, ≥ 8 for 16 elements),
 //    column xOff = surface offset of the sub-aperture centre from the array centre (+x).
 // 4. Focal laws: steering τ_i = x_i·sin(θ_rel)/v_w − min; with a focus depth the §3.10 focused law
-//    d_i = √(F² + x_i² − 2F·x_i·sin θ_rel), τ_i = (max d − d_i)/v with F = Fd/cosθ and v = v_mat (the
-//    approximation the spec names). `slope` is always the steering slope |sin θ_rel|/v_w (µs/mm), 0 when the
+//    d_i = √(F² + x_i² − 2F·x_i·sin θ_rel), τ_i = (max d − d_i)/v_w with F = Fd/cosθ (the spec's "v_mat"
+//    clause only covers the F = Fd/cosθ approximation; the delays are wedge travel times, so the focused law
+//    converges to the steering law as F → ∞). `slope` is always the steering slope |sin θ_rel|/v_w (µs/mm), 0 when the
 //    law is invalid (past the critical angle: null θ_w → valid:false, delays 0, the column is skipped).
 // 5. Per-angle TCG (pa.tcg): gain(θ) = 20·log10(A_max/A(θ)) clamped 0…30 dB where A(θ) is the tracer
 //    amplitude of the DAC-block T/2 SDH insonified ON AXIS at θ (probe at x_h + y_h·tanθ) with the same
@@ -9379,7 +9581,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       F = Fd / Math.max(0.05, Math.cos(rad(theta)));
       const dist = xs.map(function (x) { return Math.sqrt(Math.max(0, F * F + x * x - 2 * F * x * sinRel)); });
       const mx = Math.max.apply(null, dist);
-      delays = dist.map(function (d) { return (mx - d) / w.vMat; });
+      // SPEC-v2 §3.10: τ_i = (max(d) − d_i)/v_w — the delays are travel times in the WEDGE medium,
+      // so the focused law tends to the pure steering law as F → ∞ (continuous focus on/off).
+      delays = dist.map(function (d) { return (mx - d) / w.vW; });
     } else {
       delays = xs.map(function (x) { return x * sinRel / w.vW; });
       const mn = Math.min.apply(null, delays);
@@ -10227,6 +10431,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       if (!e0.valid || e0.slope !== 0 || e0.delaysUs.length !== 8 || e0.delaysUs.some(function (v) { return Math.abs(v) > 1e-9; })) f.push('focalLaw(0, escan) ' + JSON.stringify(e0.delaysUs));
       const lf = focalLaw(60, { state: base, focusDepth: 20 });
       if (!lf.valid || lf.delaysUs.some(function (v) { return v < 0; }) || Math.abs(lf.F - 40) > 1e-9 || lf.slope !== l60.slope) f.push('focused law');
+      const lfar = focalLaw(60, { state: base, focusDepth: 5000 });
+      if (!lfar.valid || Math.abs(lfar.delaysUs[15] - l60.delaysUs[15]) > 0.01 * l60.delaysUs[15]) f.push('focused law F→∞ ≠ steering ' + lfar.delaysUs[15] + ' vs ' + l60.delaysUs[15]);
       const cu = focalLaw(60, { state: base, material: { key: 'copper', vComp: 4.66, vShear: 2.33 } });
       if (cu.valid || cu.slope !== 0 || cu.delaysUs.some(function (v) { return v !== 0; })) f.push('copper 60° should be invalid');
       const ap = apertureOf(60, arrayOf(base), false, materialOf(null));
@@ -15788,6 +15994,10 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     ctx.restore();
   }
 
+  /** Label of the recommendation row: 'Recommended by <standard>: <method>' (+ the evaluation level for 'eval'). */
+  function recText(rec) {
+    return t('Recommended by {std}: {method}', { std: rec.label, method: rec.methodLabel }) + (rec.sizingMethod === 'eval' ? ' (' + rec.evalDb + ' dB)' : '');
+  }
   function buildSizing() {
     const h = UT.dom.h;
     const els = {};
@@ -15795,7 +16005,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const rec = ruleInfo(s);
     const method = UT.dom.field('Method', { tag: 'select', type: 'text', value: (s.sizing && s.sizing.method) || '6dB', options: METHODS.map(function (m) { return { value: m, label: t(METHOD_LABELS[m]) }; }), onchange: function (v) { setMethod(v); } });
     els.method = method.input;
-    els.rec = h('div', { class: 'sz-rec' }, t('Recommended by {std}: {method}', { std: rec.label, method: rec.methodLabel }));
+    els.rec = h('div', { class: 'sz-rec' }, recText(rec));
     els.useRec = UT.dom.button('Use', function () { setMethod(ruleInfo(st()).sizingMethod); }, { class: 'btn sz-mini', title: 'apply the recommended method' });
     els.amp = h('span', { class: 'sz-val' }, '--');
     els.thr = h('span', { class: 'sz-val' }, '--');
@@ -15860,9 +16070,16 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     /** Open (create lazily) the Sizing window; pre-selects the standard's method until the user chose one. */
     open() {
       const w = sizingEnsure();
+      const info = ruleInfo(st());
       if (!Z.userChose) {
-        const rec = ruleInfo(st()).sizingMethod;
+        const rec = info.sizingMethod;
         if (rec !== ((st().sizing && st().sizing.method) || '6dB')) { const s = st(); UT.setIn('sizing', { method: rec, result: computeResult((s.sizing && s.sizing.marks) || [], rec, resultCtx(UT.frame, s)) }); }
+      }
+      // the recommendation label is built once; refresh it so an open after a standard change shows the current rule (§4.4)
+      if (Z.els) {
+        Z.els.rec.textContent = recText(info);
+        const m = (st().sizing && st().sizing.method) || '6dB';
+        if (Z.els.method.value !== m) Z.els.method.value = m;
       }
       w.show();
       return sizing;
@@ -15882,7 +16099,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
         const e = Z.els;
         if (e.method.value !== info.method) e.method.value = info.method;
         const rec = ruleInfo(s);
-        e.rec.textContent = t('Recommended by {std}: {method}', { std: rec.label, method: rec.methodLabel }) + (rec.sizingMethod === 'eval' ? ' (' + rec.evalDb + ' dB)' : '');
+        e.rec.textContent = recText(rec);
         const pct = info.r ? info.r.peakPct : 0;
         if (pct > Z.maxPct) Z.maxPct = pct;
         const ctx = { maxPct: Z.maxPct, refPct: refPctOf(s.instrument), evalDb: rec.evalDb };
@@ -18794,6 +19011,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   }
   function addPreset(name, opts) {
     const s = st();
+    // v2 exam lock (§4.2.3): no defect may join a locked exam's hidden truth (Defects ▸ Add Preset stays reachable, see isMenuEnabled)
+    if (examLocked(s)) { UT.status({ right: 'Defect editor is locked during the Trade Test' }); return null; }
     const fn = S.defectPresets[name];
     if (!fn) { UT.status({ right: t('Unknown preset {name}', { name }) }); return null; }
     const spec = s.specimen || S.plateWeld(s.weldOpts);
@@ -19612,7 +19831,12 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   function isMenuEnabled(id) {
     const key = id.indexOf('menu-') === 0 ? id : 'menu-' + id;
     if (defectEditor.isOpen() && enabled.editor.disabledMenus.indexOf(key) >= 0) return false;
-    if (examLocked() && key === 'menu-defects') return false;
+    // v2 exam lock (§4.2.3) locks the defect editor, HIDE, BEAM and Export — NOT the Defects menu: 'Trade Test…' (report
+    // rows, Submit, Reveal with the code, Report / Scoreboard) lives there and must stay reachable after the candidate
+    // closes the window (the v1 trade row would grey the whole menu). The editor entries guard themselves while locked:
+    // defectEditor.open() / addPreset() refuse, display.hide is forced back, Delete / Import are off while trade.active
+    // and Export omits the defects (90).
+    if (examLocked() && key === 'menu-defects') return true;
     const e = enabled[st().mode] || enabled.weld;
     return e.disabledMenus.indexOf(key) < 0;
   }
@@ -19758,8 +19982,10 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       UT.set({ standards: Object.assign({}, st().standards, { procedure: null }) }, { silent: true, noRender: true });
       if (!isToolbarEnabled('tb-45')) f.push('no procedure → angle buttons enabled');
       UT.setIn('trade', { exam: { v: 2, seed: 1, locked: true }, revealed: false }, { silent: true, noRender: true });
-      if (!examLocked() || isToolbarEnabled('tb-hide') || isToolbarEnabled('tb-beam') || isToolbarEnabled('tb-defect') || isMenuEnabled('menu-defects')) f.push('exam lock');
+      if (!examLocked() || isToolbarEnabled('tb-hide') || isToolbarEnabled('tb-beam') || isToolbarEnabled('tb-defect')) f.push('exam lock');
+      if (!isMenuEnabled('menu-defects')) f.push('Defects menu (Trade Test…) must stay reachable while exam-locked');
       if (trade.truth().length !== 0) f.push('truth must be [] while exam-locked');
+      { const nBefore = st().defects.length; if (addPreset('rootCrack') !== null || st().defects.length !== nBefore) f.push('addPreset must refuse while exam-locked'); }
       UT.setIn('trade', { exam: null, active: false }, { silent: true, noRender: true });
       if (!isToolbarEnabled('tb-beam')) f.push('beam enabled without exam lock');
       // library-aware lesson setProbe
@@ -21209,6 +21435,11 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
 //   while the exam is locked, result.misses / result.detail[].truth carry only {n} (re-hydrated on reveal).
 // - 'Reveal one' cannot draw a single hidden defect (display.hide is global): it prints the truth row, pre-fills a
 //   report row and marks the defect non-scoring in trade.revealedOne.
+// - configure({difficulty, timeLimitMin}) during a RUNNING test (trade.active && score === null, practice and a
+//   pending exam included) is deferred to the next start() (cfg.next, exposed by config().next) — a running test,
+//   above all a locked exam whose descriptor fixes difficulty and time, is never reconfigured; remainingSec()/submit()/
+//   report() read the exam descriptor (diffOf/timeLimitOf) and the windows disable the difficulty select / time
+//   input while a test runs or an exam is loaded. loadExam() applies the exam's values directly (it replaces any test).
 // - Advanced difficulty forces display.beam = false while the test is unrevealed (re-applied on every 'state' event).
 // - HTML report strings are escaped with a local esc(); report() never reads the truth while the exam is locked.
 // - Practice runs in mode 'trade' (trade.active = true, trade.practice = true) without a timer; the practice window
@@ -21259,7 +21490,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   const DISPOSITIONS = ['', 'accept', 'reject', 'record', 'not-recordable'];
 
   // ------------------------------------------------------------------ module buffers
-  const cfg = { specimen: 'auto', procedureId: null, probes: null };
+  const cfg = { specimen: 'auto', procedureId: null, probes: null, next: null /* {difficulty?, timeLimitMin?} deferred while a test runs (§4.2: NEXT start) */ };
   const reportMeta = { couplant: 'gel', surface: 'as welded', remarks: '' };
   let quiet = false;               // selftest: never open windows
   let vOffset = 0;                 // virtual clock offset (ms) advanced by tick()
@@ -21298,6 +21529,10 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     }
     return t(o.label);
   }
+  /** 'A' | 'B' | 'CL' for a truth/report side (+1 | −1 | 0). */
+  function sideLabel(side) { return side === -1 ? 'B' : (side === 1 ? 'A' : 'CL'); }
+  /** Hint side (§4.6): the side of a centreline defect is the side it is best detected from, e.g. 'B (CL)'. */
+  function hintSide(q) { return q.side === -1 || q.side === 1 ? sideLabel(q.side) : (q.bestSide === -1 || q.bestSide === 1 ? sideLabel(q.bestSide) + ' (CL)' : 'CL'); }
   function circDist(a, b, L, pipe) { let d = Math.abs(a - b); if (pipe && L > 0) { d = d % L; d = Math.min(d, L - d); } return d; }
   function overlapLen(a0, a1, b0, b1, L, pipe) {
     if (!pipe || !(L > 0)) return M.overlap(a0, a1, b0, b1);
@@ -21718,10 +21953,27 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   const trade = {};
   /** Injectable clock (ms); tick() advances a virtual offset. */
   trade._now = function () { return Date.now() + vOffset; };
+  /** A test is running: active and not yet scored (practice and a pending exam included). */
+  function running(tr) { tr = tr || st().trade; return !!(tr.active && (tr.score === null || tr.score === undefined)); }
+  /** Difficulty of the CURRENT test: a loaded exam descriptor fixes it (§4.2.3), else the value captured at start. */
+  function diffOf(tr) { tr = tr || st().trade; return tr.exam && DIFF[tr.exam.difficulty] ? tr.exam.difficulty : (DIFF[tr.difficulty] ? tr.difficulty : 'intermediate'); }
+  /** Time limit (min) of the CURRENT test: the exam descriptor's, else the value captured at start. */
+  function timeLimitOf(tr) {
+    tr = tr || st().trade;
+    const v = tr.exam && Number.isFinite(num(tr.exam.timeLimitMin)) ? num(tr.exam.timeLimitMin) : tr.timeLimitMin;
+    return Math.max(0.05, Number.isFinite(v) ? v : 60);
+  }
+  /** Apply a difficulty / time limit deferred by configure() during a running test (called once the test is over). */
+  function applyPending() {
+    if (!cfg.next) return;
+    const patch = cfg.next;
+    cfg.next = null;
+    UT.setIn('trade', patch, { noRender: true });
+  }
   function remainingSec() {
     const tr = st().trade;
     if (tr.practice || !tr.startedAt || !(tr.active || tr.score !== null)) return null;
-    const lim = Math.max(0.05, Number.isFinite(tr.timeLimitMin) ? tr.timeLimitMin : 60) * 60;
+    const lim = timeLimitOf(tr) * 60;
     return lim - (trade._now() - tr.startedAt) / 1000;
   }
   function announce(msg) {
@@ -21788,7 +22040,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   /**
    * Configure the next test. Returns false (no throw) when `probes` contains an id the active procedure excludes
    * or when `difficulty` is unknown; otherwise true. Setting `difficulty` resets timeLimitMin to the table value
-   * unless timeLimitMin is passed too.
+   * unless timeLimitMin is passed too. While a test is running (active, not yet scored — above all a locked exam)
+   * difficulty / timeLimitMin are NOT applied to it: they are kept for the NEXT start() (§4.2, `config().next`).
    * @param {{difficulty?:string, timeLimitMin?:number, specimen?:string, procedureId?:string, probes?:string[]}} o
    */
   function configure(o) {
@@ -21813,15 +22066,20 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     }
     if (o.specimen !== undefined) cfg.specimen = o.specimen === 'auto' ? 'auto' : (typeof o.specimen === 'string' ? o.specimen : 'auto');
     if (o.probes !== undefined) cfg.probes = Array.isArray(o.probes) && o.probes.length ? o.probes.slice() : null;
-    if (Object.keys(patch).length) UT.setIn('trade', patch, { noRender: true });
+    if (Object.keys(patch).length) {
+      // a running test keeps the difficulty / time limit captured at start (a locked exam fixes both): defer to the next start()
+      if (running()) cfg.next = Object.assign(cfg.next || {}, patch);
+      else UT.setIn('trade', patch, { noRender: true });
+    }
     refreshAll();
     return true;
   }
-  /** Copy of the module configuration (specimen, procedureId, probes). */
-  function config() { return { specimen: cfg.specimen, procedureId: cfg.procedureId, probes: cfg.probes ? cfg.probes.slice() : null }; }
+  /** Copy of the module configuration (specimen, procedureId, probes, next = difficulty/time deferred until the next start). */
+  function config() { return { specimen: cfg.specimen, procedureId: cfg.procedureId, probes: cfg.probes ? cfg.probes.slice() : null, next: cfg.next ? Object.assign({}, cfg.next) : null }; }
 
   function startInternal(seed, o) {
     const practice = !!(o && o.practice);
+    applyPending();   // difficulty / time limit configured while the previous test was running apply to THIS start
     const s0 = st();
     const sd = seed === undefined || seed === null || seed === '' ? Math.floor(Math.random() * 1e9) : (Number(seed) >>> 0);
     const exam = !practice && s0.trade.exam && (s0.trade.exam.seed >>> 0) === sd ? Object.assign({}, s0.trade.exam, { locked: true }) : null;
@@ -21893,20 +22151,21 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     if (!tr.active || s.mode !== 'trade') return 0;
     const list = rows === undefined ? rowsFromUi() : rows;
     const spec = s.specimen || {};
-    const res = scoreReport(list, tr.truth || [], { difficulty: tr.difficulty, L: spec.L, pipe: !!spec.pipe, hintsUsed: tr.practice ? tr.hintsUsed : 0, revealedOne: tr.revealedOne, standards: s.standards, T: spec.T });
+    const difficulty = diffOf(tr);   // captured at start; a locked exam's descriptor fixes it (§4.2.3)
+    const res = scoreReport(list, tr.truth || [], { difficulty, L: spec.L, pipe: !!spec.pipe, hintsUsed: tr.practice ? tr.hintsUsed : 0, revealedOne: tr.revealedOne, standards: s.standards, T: spec.T });
     const covSum = coverage();
     const timeUsedSec = Math.max(0, Math.round((trade._now() - (tr.startedAt || trade._now())) / 1000));
     const date = new Date(trade._now()).toISOString();
     const comp = compliance(covSum);
     const revealNow = tr.exam ? tr.exam.revealOnSubmit !== false : true;
-    let result = { seed: tr.seed, difficulty: tr.difficulty, score: res.score, fail: res.fail, pass: res.pass, timeUsedSec, date, name: tr.candidate || '',
+    let result = { seed: tr.seed, difficulty, score: res.score, fail: res.fail, pass: res.pass, timeUsedSec, date, name: tr.candidate || '',
       coverageA: covSum.sideA, coverageB: covSum.sideB, compliance: comp, matched: res.matched, typeMatches: res.typeMatches, falseCalls: res.falseCalls, duplicates: res.duplicates,
       misses: res.misses, detail: res.detail, perDefect: res.perDefect, kind: tr.practice ? 'practice' : 'trade' };
     result.token = tokenFor(result, codeHashCurrent(tr));
     // §4.2.3: while the exam stays locked the score result must not carry the truth rows (UT.test.state() exports it)
     const stillLocked = !!(tr.exam && tr.exam.locked && !revealNow);
     if (stillLocked) result = stripResult(result);
-    const entry = { date, seed: tr.seed, difficulty: tr.difficulty, kind: result.kind, score: res.score, fail: res.fail, timeUsedSec,
+    const entry = { date, seed: tr.seed, difficulty, kind: result.kind, score: res.score, fail: res.fail, timeUsedSec,
       specimen: { T: spec.T, pipe: !!spec.pipe, od: spec.pipe ? spec.pipe.od : null }, coverageA: covSum.sideA, coverageB: covSum.sideB, compliance: comp,
       perDefect: res.perDefect.map(function (p) { return { n: p.n, found: p.found, tFoundSec: p.tFoundSec }; }), name: tr.candidate || '' };
     const history = (tr.history || []).concat([entry]).slice(-HISTORY_CAP);
@@ -21919,6 +22178,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       display: Object.assign({}, s.display, { hide: !revealNow }),
     });
     stopTimer();
+    if (!running()) applyPending();
     refreshAll();
     UT.status({ right: t('Trade Test score {score}% — {found}/{n} found, {fc} false calls', { score: res.score, found: res.matched, n: (tr.truth || []).length, fc: res.falseCalls }) + (res.fail ? ' — ' + t('FAIL (critical miss)') : '') });
     return res.score;
@@ -21938,6 +22198,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       UT.set({ trade: Object.assign({}, tr, { revealed: true, exam: Object.assign({}, tr.exam, { locked: false }), result, active: submitted ? false : tr.active }), display: Object.assign({}, s.display, { hide: false }) });
     } else UT.set({ trade: Object.assign({}, tr, { revealed: true }), display: Object.assign({}, s.display, { hide: false }) });
     if (!tr.practice) stopTimer();
+    if (!running()) applyPending();
     refreshAll();
     return true;
   };
@@ -21957,7 +22218,11 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     if (!exam || typeof exam !== 'object' || !Number.isFinite(num(exam.seed))) return null;
     const ex = Object.assign({}, exam, { seed: num(exam.seed) >>> 0, locked: true });
     if (ex.procedureId) configure({ procedureId: ex.procedureId });
-    if (DIFF[ex.difficulty]) configure({ difficulty: ex.difficulty, timeLimitMin: ex.timeLimitMin });
+    if (DIFF[ex.difficulty]) {
+      // the exam replaces any running test, so its difficulty / time limit are applied now (never deferred)
+      cfg.next = null;
+      UT.setIn('trade', { difficulty: ex.difficulty, timeLimitMin: Number.isFinite(num(ex.timeLimitMin)) ? Math.max(0.05, num(ex.timeLimitMin)) : DIFF[ex.difficulty].time }, { noRender: true });
+    }
     UT.setIn('trade', { exam: ex, candidate: st().trade.candidate || '' }, { noRender: true });
     if (ex.nameRequired && !String(st().trade.candidate || '').trim()) {
       // 'candidate name required': the exam waits in mode 'trade' (locks apply, no truth, no timer) for the window's
@@ -22034,7 +22299,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     let html = '<div class="tr-report">';
     html += '<h2>' + (tr.exam && tr.exam.title ? esc(tr.exam.title) : L('Ultrasonic examination report')) + '</h2>';
     html += '<table class="tr-kv">';
-    html += kv('Job / exam title', tr.exam && tr.exam.title ? esc(tr.exam.title) : L('Trade Test') + ' #' + esc(tr.seed === null ? '—' : tr.seed) + ' (' + L(tr.difficulty || '') + (tr.practice ? ', ' + L('practice') : '') + ')');
+    html += kv('Job / exam title', tr.exam && tr.exam.title ? esc(tr.exam.title) : L('Trade Test') + ' #' + esc(tr.seed === null ? '—' : tr.seed) + ' (' + L(diffOf(tr)) + (tr.practice ? ', ' + L('practice') : '') + ')');
     html += kv('Candidate', esc(tr.candidate || (res && res.name) || '—'));
     html += kv('Date / time', esc(res ? res.date : new Date(trade._now()).toISOString()));
     html += kv('Standard / acceptance level / testing level', esc(std.standard || '—') + ' / ' + esc(std.level || '—') + ' / ' + esc(std.testingLevel || '—'));
@@ -22075,7 +22340,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     if (withTruth) {
       html += '<h3>' + L('True defects') + '</h3><table class="tr-truth"><tr>' + ['No', 'From z', 'Length', 'Depth', 'Height', 'Type', 'x', 'Side', 'Best dB'].map(function (k) { return '<th>' + L(k) + '</th>'; }).join('') + '</tr>';
       tr.truth.forEach(function (q) {
-        html += '<tr class="' + (q.recordable === false ? 'tr-dim' : '') + '"><td>' + q.n + '</td><td>' + q.zFrom + '</td><td>' + UT.fmtNum(q.zTo - q.zFrom, 1) + '</td><td>' + q.depth + '</td><td>' + q.height + '</td><td>' + esc(typeLabel(normType(q.type)) || q.type) + '</td><td>' + UT.fmtNum(q.x, 1) + '</td><td>' + (q.side === -1 ? 'B' : (q.side === 1 ? 'A' : 'CL')) + '</td><td>' + UT.fmtNum(q.bestDb, 1) + (q.recordable === false ? ' (' + L('below recording level') + ')' : '') + '</td></tr>';
+        html += '<tr class="' + (q.recordable === false ? 'tr-dim' : '') + '"><td>' + q.n + '</td><td>' + q.zFrom + '</td><td>' + UT.fmtNum(q.zTo - q.zFrom, 1) + '</td><td>' + q.depth + '</td><td>' + q.height + '</td><td>' + esc(typeLabel(normType(q.type)) || q.type) + '</td><td>' + UT.fmtNum(q.x, 1) + '</td><td>' + sideLabel(q.side) + '</td><td>' + UT.fmtNum(q.bestDb, 1) + (q.recordable === false ? ' (' + L('below recording level') + ')' : '') + '</td></tr>';
       });
       html += '</table>';
     }
@@ -22097,7 +22362,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   function nearestHidden(rows) {
     const s = st(), tr = s.trade, spec = s.specimen || {};
     if (!tr.active || !(tr.truth || []).length) return null;
-    const res = scoreReport(rows, tr.truth, { difficulty: tr.difficulty, L: spec.L, pipe: !!spec.pipe, revealedOne: tr.revealedOne });
+    const res = scoreReport(rows, tr.truth, { difficulty: diffOf(tr), L: spec.L, pipe: !!spec.pipe, revealedOne: tr.revealedOne });
     let best = null;
     res.perDefect.forEach(function (p, j) {
       if (p.found || !p.scoring) return;
@@ -22121,7 +22386,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       if (!near) msg = t('No hidden indication left — every recordable defect is already reported');
       else {
         const d = Math.round(Math.abs(near.dz));
-        msg = t('nearest hidden indication: {d} mm {dir} along z, side {side}', { d, dir: near.dz >= 0 ? t('further') : t('back'), side: near.truth.side === -1 ? 'B' : 'A' });
+        msg = t('nearest hidden indication: {d} mm {dir} along z, side {side}', { d, dir: near.dz >= 0 ? t('further') : t('back'), side: hintSide(near.truth) });
       }
       UT.setIn('trade', { hintsUsed: (tr.hintsUsed || 0) + 1 }, { noRender: true });
       practiceMsg(msg);
@@ -22135,7 +22400,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       if (!near) { practiceMsg(t('No hidden indication left — every recordable defect is already reported')); return null; }
       const q = near.truth;
       UT.setIn('trade', { revealedOne: (tr.revealedOne || []).concat([near.j]) }, { noRender: true });
-      const msg = t('Revealed defect {n}: {type}, z {z0}–{z1} mm, depth {d} mm, height {h} mm, side {side}', { n: q.n, type: typeLabel(normType(q.type)) || q.type, z0: q.zFrom, z1: q.zTo, d: q.depth, h: q.height, side: q.side === -1 ? 'B' : (q.side === 1 ? 'A' : 'CL') });
+      const msg = t('Revealed defect {n}: {type}, z {z0}–{z1} mm, depth {d} mm, height {h} mm, side {side}', { n: q.n, type: typeLabel(normType(q.type)) || q.type, z0: q.zFrom, z1: q.zTo, d: q.depth, h: q.height, side: sideLabel(q.side) });
       if (ui.rows) addRowUi({ n: ui.rows.children.length + 1, z: q.zFrom, length: r1(q.zTo - q.zFrom), depth: q.depth, height: q.height, type: normType(q.type) || 'planar', angle: st().probe.angle, side: q.side || 1 });
       practiceMsg(msg);
       refreshAll();
@@ -22149,7 +22414,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       const idx = Number.isFinite(num(i)) ? num(i) : 0;
       if (row && typeof row === 'object') rows[idx] = row;
       if (!rows[idx]) return null;
-      const res = scoreReport(rows, tr.truth || [], { difficulty: tr.difficulty, L: spec.L, pipe: !!spec.pipe, revealedOne: tr.revealedOne });
+      const res = scoreReport(rows, tr.truth || [], { difficulty: diffOf(tr), L: spec.L, pipe: !!spec.pipe, revealedOne: tr.revealedOne });
       const d = res.detail.find(function (q) { return q.row === res.rows[res.rows.findIndex(function (rr) { return rr.n === normRow(rows[idx], idx).n && rr.z === normRow(rows[idx], idx).z; })]; });
       const ok = !!(d && d.hit);
       const out = { ok, status: d ? d.status : 'ignored', n: d && d.truth ? d.truth.n : null };
@@ -22235,6 +22500,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const timeIn = dom.h('input', { type: 'number', class: 'tr-time', value: tr.timeLimitMin, min: 0.05, step: 1, title: t('Time limit (min)'), onchange: function () { configure({ timeLimitMin: timeIn.value }); } });
     ui.timeIn = timeIn;
     const diffSel = difficultySelect(tr.difficulty, function (v) { configure({ difficulty: v }); timeIn.value = st().trade.timeLimitMin; });
+    ui.diffSel = diffSel;
     ui.nameIn = dom.h('input', { type: 'text', class: 'tr-name', placeholder: t('Candidate name'), value: tr.candidate || '', onchange: function () { trade.setCandidate(ui.nameIn.value); } });
     const startFn = function () {
       const ex = st().trade.exam;
@@ -22268,12 +22534,15 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   function refreshTrade() {
     if (!tradeWin.isOpen() || !ui.result) return;
     const s = st(), tr = s.trade;
-    const running = tr.startedAt && (tr.active || tr.score !== null);
-    if (!running) ui.clock.textContent = t('Press Start');
+    const started = tr.startedAt && (tr.active || tr.score !== null);
+    if (!started) ui.clock.textContent = t('Press Start');
     else if (tr.practice) ui.clock.textContent = t('Practice (no timer)');
     else ui.clock.textContent = tr.score !== null || tr.revealed ? t('Time used {t}', { t: clock((trade._now() - tr.startedAt) / 1000) }) : t('Time left {t}', { t: clock(Math.max(0, remainingSec() || 0)) });
-    ui.seedLbl.textContent = tr.seed === null || tr.seed === undefined ? '' : t('Test #{seed}', { seed: tr.seed }) + ' · ' + t(tr.difficulty || '');
-    if (ui.timeIn && document.activeElement !== ui.timeIn) ui.timeIn.value = tr.timeLimitMin;
+    ui.seedLbl.textContent = tr.seed === null || tr.seed === undefined ? '' : t('Test #{seed}', { seed: tr.seed }) + ' · ' + t(diffOf(tr));
+    // §4.2: difficulty / time limit configure the NEXT test — locked while one runs (and while an exam descriptor is loaded)
+    const cfgLocked = running(tr) || !!(tr.exam && tr.exam.locked);
+    if (ui.diffSel) { ui.diffSel.disabled = cfgLocked; const dv = cfgLocked ? diffOf(tr) : (DIFF[tr.difficulty] ? tr.difficulty : ui.diffSel.value); if (ui.diffSel.value !== dv) ui.diffSel.value = dv; }
+    if (ui.timeIn) { ui.timeIn.disabled = cfgLocked; if (document.activeElement !== ui.timeIn || cfgLocked) ui.timeIn.value = cfgLocked ? timeLimitOf(tr) : tr.timeLimitMin; }
     ui.examBox.textContent = '';
     if (tr.exam) {
       ui.codeIn = dom.h('input', { type: 'password', class: 'tr-code', placeholder: t('exam code'), maxlength: 8 });
@@ -22301,7 +22570,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       ui.result.appendChild(tx('div', 'True defects', null, { class: 'tr-sub' }));
       ui.result.appendChild(dom.h('table', { class: 'tr-truth' }, [dom.h('tr', {}, ['#', 'From z', 'Length', 'Depth', 'Height', 'Type', 'Side', 'Best dB'].map(function (k) { return k === '#' ? dom.h('th', {}, '#') : tx('th', k); }))]
         .concat(tr.truth.map(function (q) {
-          const cells = [q.n, q.zFrom, r1(q.zTo - q.zFrom), q.depth, q.height, typeLabel(normType(q.type)) || q.type, q.side === -1 ? 'B' : (q.side === 1 ? 'A' : 'CL'), UT.fmtNum(q.bestDb, 1) + (q.recordable === false ? ' (' + t('below recording level') + ')' : '')];
+          const cells = [q.n, q.zFrom, r1(q.zTo - q.zFrom), q.depth, q.height, typeLabel(normType(q.type)) || q.type, sideLabel(q.side), UT.fmtNum(q.bestDb, 1) + (q.recordable === false ? ' (' + t('below recording level') + ')' : '')];
           return dom.h('tr', { class: q.recordable === false ? 'tr-dim' : '' }, cells.map(function (c) { return dom.h('td', {}, String(c)); }));
         }))));
       if (res && res.misses && res.misses.length) ui.result.appendChild(dom.h('div', { class: 'tr-miss' }, t('Missed') + ': ' + res.misses.map(function (m) { return '#' + m.n + ' (' + (typeLabel(normType(m.type)) || m.type) + ' z ' + m.zFrom + ')'; }).join(', ')));
@@ -22320,7 +22589,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     return dom.h('div', { class: 'tr' }, [
       sui.list,
       dom.h('div', { class: 'btn-row' }, [
-        btn('Copy JSON', function () { json.value = JSON.stringify(trade.history(), null, 1); json.hidden = false; json.select(); try { if (typeof navigator !== 'undefined' && navigator.clipboard) navigator.clipboard.writeText(json.value); } catch (e) { /* ignore */ } }),
+        btn('Copy JSON', function () { json.value = JSON.stringify(trade.history(), null, 1); json.hidden = false; json.select(); try { if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) { const p = navigator.clipboard.writeText(json.value); if (p && typeof p.catch === 'function') p.catch(function () { /* best effort: the textarea stays selected for manual copy */ }); } } catch (e) { /* ignore */ } }),
         btn('Clear history', function () { dom.confirm(t('Clear the trade test history?')).then(function (ok) { if (ok) { UT.setIn('trade', { history: [] }, { noRender: true }); refreshAll(); } }); }),
       ]),
       json,
@@ -22383,6 +22652,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const seedIn = dom.h('input', { type: 'number', class: 'tr-seedin', placeholder: t('seed') });
     const rowIn = dom.h('input', { type: 'number', class: 'tr-rowin', value: 1, min: 1, title: t('Row number') });
     const diffSel = difficultySelect(tr.difficulty, function (v) { configure({ difficulty: v }); });
+    pui.diffSel = diffSel;
     return dom.h('div', { class: 'tr' }, [
       tx('div', 'Random practice: the trade-test generator without timer or lock. Hint costs 5 % of the practice score; Reveal one shows the nearest hidden defect (non-scoring); Check row confirms a detection only.', null, { class: 'tr-intro' }),
       dom.h('div', { class: 'tr-head' }, [btn('Start practice', function () { practice.start(seedIn.value === '' ? undefined : +seedIn.value); }, { class: 'btn primary' }), seedIn, diffSel]),
@@ -22391,7 +22661,13 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     ]);
   }
   const practiceWin = winApi('practice', 'Random practice', { x: 560, y: 60, w: 520 }, buildPractice, null);
-  practiceWin.onRefresh = function () { /* nothing dynamic */ };
+  practiceWin.onRefresh = function () {
+    if (!pui.diffSel) return;
+    const tr = st().trade;
+    pui.diffSel.disabled = running(tr);   // the difficulty applies to the next start (§4.2)
+    const dv = running(tr) ? diffOf(tr) : (DIFF[tr.difficulty] ? tr.difficulty : pui.diffSel.value);
+    if (pui.diffSel.value !== dv) pui.diffSel.value = dv;
+  };
 
   function refreshAll() { tradeWin.refresh(); scoreboardWin.refresh(); reportWin.refresh(); practiceWin.refresh(); }
   Object.assign(practice, { open() { return practiceWin.open(); }, close() { return practiceWin.close(); }, toggle() { return practiceWin.toggle(); }, show() { return practiceWin.open(); }, hide() { return practiceWin.close(); }, isOpen() { return practiceWin.isOpen(); } });
@@ -22407,6 +22683,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       cov = null;
       const tr = st().trade;
       if (tr.practice || tr.hintsUsed || (tr.revealedOne && tr.revealedOne.length)) UT.setIn('trade', { practice: false, hintsUsed: 0, revealedOne: [] }, { noRender: true });
+      if (!running()) applyPending();
       if (preTrade) {
         // v1 §15.8: the trade test keeps the user's weld specimen — put the pre-exam weldOpts / material back and
         // rebuild the specimen of the mode just entered (defects and probe kept)
@@ -22424,7 +22701,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const s = st(), tr = s.trade;
     if (!tr) return;
     if (locked(tr) && !s.display.hide) { UT.setIn('display', { hide: true }); return; }
-    if (tr.active && !tr.revealed && !tr.practice && tr.difficulty === 'advanced' && s.mode === 'trade' && s.display.beam) UT.setIn('display', { beam: false });
+    if (tr.active && !tr.revealed && !tr.practice && diffOf(tr) === 'advanced' && s.mode === 'trade' && s.display.beam) UT.setIn('display', { beam: false });
   });
   UT.bus.on('lang', function () { tradeWin.relabel(); scoreboardWin.relabel(); reportWin.relabel(); practiceWin.relabel(); });
 
@@ -23712,7 +23989,16 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   // ------------------------------------------------------------------ global events
   function bindGlobalEvents() {
     const d = doc(), w = win_();
-    d.addEventListener('mousedown', function (e) { if (mem.openMenu && !mem.openMenu.contains(e.target)) closeMenus(); });
+    // Outside press closes an open dropdown (Windows/UTman): capture-phase pointerdown, because the canvas owners
+    // (60/62) preventDefault() their pointerdown, which suppresses the compatibility mousedown. The dismissing press
+    // is swallowed so the canvas does not also start a probe drag. mousedown stays as a no-Pointer-Events fallback.
+    const outsidePress = function (e) {
+      if (!mem.openMenu || mem.openMenu.contains(e.target)) return;
+      closeMenus();
+      if (e.type === 'pointerdown') { e.stopPropagation(); e.preventDefault(); }
+    };
+    d.addEventListener('pointerdown', outsidePress, true);
+    d.addEventListener('mousedown', outsidePress);
     d.addEventListener('keydown', onKey);
     d.addEventListener('keyup', onKeyUp);
     if (typeof ResizeObserver === 'function') {
@@ -23985,7 +24271,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       const set = function (k) { return function (v) { o[k] = v; }; };
       const nf = function (k, label, opts) { fields[k] = numField(label, Object.assign({ value: o[k], min: WELD_RANGES[k][0], max: WELD_RANGES[k][1], onchange: set(k) }, opts || {})); return fields[k]; };
       const odMm = nf('od', 'OD (mm)', { step: 0.1, onchange: function (v) { o.od = v; odIn.input.value = inchOf(v); } });
-      const odIn = UT.dom.field('OD (inch)', { tag: 'select', type: 'text', value: inchOf(o.od), options: [4, 6, 8, 10, 12].map(function (i) { return { value: String(i), label: i + ' inch (' + OD_INCH[i] + ' mm)' }; }).concat([{ value: 'custom', label: 'custom (mm)' }]), onchange: function (v) { if (OD_INCH[v]) { o.od = OD_INCH[v]; odMm.input.value = o.od; } } });
+      const odIn = UT.dom.field('OD (inch)', { tag: 'select', type: 'text', value: inchOf(o.od), options: [4, 6, 8, 10, 12].map(function (i) { return { value: String(i), label: i + ' inch (' + OD_INCH[i] + ' mm)' }; }).concat([{ value: 'custom', label: t('custom (mm)') }]), onchange: function (v) { if (OD_INCH[v]) { o.od = OD_INCH[v]; odMm.input.value = o.od; } } });
       const wt = nf('wt', 'Wall thickness WT', { step: 0.5, unit: 'mm' });
       const pipeChk = UT.dom.field('Pipe (circumferential weld)', { type: 'checkbox', value: !!o.pipe, onchange: function (v) { o.pipe = v; pipeBox.classList.toggle('disabled', !v); } });
       const pipeBox = h('div', { class: 'dlg-section' + (o.pipe ? '' : ' disabled') }, [h('span', { class: 'dlg-legend', i18n: 'Pipe' }), odIn, odMm, wt]);
@@ -23998,7 +24284,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       const webT = nf('webT', 'Web thickness (fillet / nozzle)', { step: 0.5, unit: 'mm' });
       const branch = nf('branchOd', 'Branch OD (nozzle)', { step: 0.1, unit: 'mm' });
       const loss = nf('transferLossDb', 'Transfer loss (two-way)', { step: 0.5, unit: 'dB' });
-      const wm = UT.dom.field('Weld metal', { tag: 'select', type: 'text', value: o.weldMaterial || 'same', options: [{ value: 'same', label: 'same as parent (carbon)' }, { value: 'austenitic', label: 'austenitic (attenuating, coarse grain)' }], onchange: set('weldMaterial') });
+      const wm = UT.dom.field('Weld metal', { tag: 'select', type: 'text', value: o.weldMaterial || 'same', options: [{ value: 'same', label: t('same as parent (carbon)') }, { value: 'austenitic', label: t('austenitic (attenuating, coarse grain)') }], onchange: set('weldMaterial') });
       const iconBtns = {};
       const refreshPrepUi = function () {
         for (const k of Object.keys(iconBtns)) { iconBtns[k].classList.toggle('active', o.prep === k); iconBtns[k].setAttribute('aria-checked', o.prep === k ? 'true' : 'false'); }
@@ -25348,7 +25634,10 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     'Reveal one': '하나 공개', 'Check row': '행 확인', 'Random practice': '무작위 연습', 'Difficulty:': '난이도:', 'Hint (−5 %)': '힌트 (−5 %)',
     'PASS': '합격', 'FAIL': '불합격', 'FAIL (below {p}%)': '불합격 ({p}% 미만)', 'FAIL (critical miss)': '불합격 (치명적 미검출)', 'SCORE {score}%': '점수 {score}%', 'Missed': '미검출', 'critical': '치명적', 'false call': '오검출', 'False calls': '오검출',
     'Trade Test score {score}% — {found}/{n} found, {fc} false calls': '실기 시험 점수 {score}% — {n}개 중 {found}개 검출, 오검출 {fc}건', '{found}/{n} found, {fc} false calls, time {t}': '{n}개 중 {found}개 검출, 오검출 {fc}건, 소요 시간 {t}',
-    'Time is up — the report has been submitted automatically': '시간 종료 — 보고서가 자동 제출되었습니다', 'Time used {t}': '소요 시간 {t}', '{m} minutes left': '{m}분 남음', 'Mean time to first detection': '첫 검출까지 평균 시간', 'Procedure compliance': '절차서 준수',
+    'Time is up — the report has been submitted automatically': '시간 종료 — 보고서가 자동 제출되었습니다', 'Time used {t}': '소요 시간 {t}', '{m} minutes left': '{m}분 남음', '{m} minute left': '{m}분 남음', 'Mean time to first detection': '첫 검출까지 평균 시간', 'Procedure compliance': '절차서 준수',
+    'DAC block ({n} points, T {T} mm)': 'DAC 대비 시험편 ({n}점, T {T} mm)', 'ref {r} dB + {x} dB': '기준 {r} dB + {x} dB',
+    // 90-app procedure lock while the trade exam runs (probe tooltips / status)
+    'Not allowed by the procedure while the trade test runs': '실기 시험 중에는 절차서상 허용되지 않습니다', 'Probe {id} is not allowed by the procedure while the trade test runs': '탐촉자 {id}은(는) 실기 시험 중에 절차서상 허용되지 않습니다',
     'Revealed defect {n}: {type}, z {z0}–{z1} mm, depth {d} mm, height {h} mm, side {side}': '공개된 결함 {n}: {type}, z {z0}–{z1} mm, 깊이 {d} mm, 높이 {h} mm, {side} 면',
     'No hidden indication left — every recordable defect is already reported': '남은 숨겨진 지시가 없습니다 — 기록 대상 결함을 모두 보고했습니다', 'nearest hidden indication: {d} mm {dir} along z, side {side}': '가장 가까운 숨겨진 지시: z 방향으로 {d} mm {dir}, {side} 면', 'further': '앞쪽', 'back': '뒤쪽',
     'Row {i}: detection ✓ (defect {n})': '행 {i}: 검출 ✓ (결함 {n})', 'Row {i}: no matching hidden defect ✗': '행 {i}: 일치하는 숨겨진 결함 없음 ✗', 'below recording level': '기록 레벨 미만',
@@ -25357,7 +25646,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     'planar': '면상', 'crack': '균열', 'lack of fusion': '융합 불량', 'incomplete penetration': '용입 부족', 'volumetric': '체적형', 'porosity': '기공', 'slag': '슬래그 혼입', 'lamination': '라미네이션',
     'Planar': '면상', 'Crack': '균열', 'Lack of fusion': '융합 불량', 'Incomplete penetration': '용입 부족', 'Volumetric': '체적형', 'Porosity': '기공', 'Slag inclusion': '슬래그 혼입', 'Lamination': '라미네이션',
     'History': '기록', 'Score': '점수', 'Found': '검출', 'Result': '결과', 'Candidate': '수험자', 'Clear history': '기록 지우기', 'Print this report': '이 보고서 인쇄', 'Verify': '검증', 'Token': '토큰', 'Paste a result token': '결과 토큰을 붙여 넣으세요',
-    'Detected': '검출', 'Type correct': '종류 정답', 'Length': '길이', 'Height': '높이', 'Position': '위치', 'Coverage {p} %': '주사 범위 {p} %', 'Coverage: {p} % of the weld length scanned from both sides': '주사 범위: 용접선 길이의 {p} %를 양면에서 주사',
+    'Detected': '검출', 'Bonus': '가산점', 'Type correct': '종류 정답', 'Length': '길이', 'Height': '높이', 'Position': '위치', 'Coverage {p} %': '주사 범위 {p} %', 'Coverage: {p} % of the weld length scanned from both sides': '주사 범위: 용접선 길이의 {p} %를 양면에서 주사',
     'Timer': '타이머', 'Truth': '정답', 'Locked': '잠김', 'Report rows': '보고서 행', 'Row': '행', 'Not recordable': '기록 불요', 'recordable': '기록', 'accept': '합격', 'reject': '불합격', 'record': '기록', 'Accept': '합격', 'Disposition': '판정',
 
     // ------------------------------------------------------------------ 45-standards (dgs / evaluation / procedures / stdnotes)
@@ -25608,6 +25897,11 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   // under 'ko' their data-i18n holds Korean text. Identity entries for every Korean value keep UT.i18n.has() true for them
   // (§5.3.4 counts only keys with has() false); the dictionary size reported by size() counts the English keys only.
   const HANGUL = /[\uAC00-\uD7A3]/;
+  /**
+   * Register identity entries (Korean value → itself) for every Korean dictionary value and every lesson choice label, so
+   * UT.i18n.has() stays true for the pre-translated keys 82/84 put into data-i18n. Idempotent; exposed as UT.i18nKo.init.
+   * @returns {number} count of identity entries added by this call (0 when everything was already registered)
+   */
   function registerIdentity() {
     const d = UT.i18n.dict('ko'), ident = {};
     for (const k of Object.keys(KO)) { const v = KO[k]; if (HANGUL.test(v) && d[v] === undefined) ident[v] = v; }
@@ -25632,12 +25926,22 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const words = k.split(/[\s/·|,()+\-–—:]+/).filter(Boolean);
     return words.length > 0 && words.every(function (w) { return PRODUCTS.indexOf(w) >= 0 || /^[\d.,%°µ]+$/.test(w); });
   }
+  /**
+   * Probe-library names exempt from untranslated() (§5.3.4): UT.probe.library[].name / .label, trimmed.
+   * @returns {Object<string, true>} set-like lookup object keyed by name (empty when the library is not loaded)
+   */
   function probeNames() {
     const set = {};
     const lib = UT.probe && UT.probe.library;
     if (Array.isArray(lib)) for (const p of lib) { if (p && p.name) set[String(p.name).trim()] = true; if (p && p.label) set[String(p.label).trim()] = true; }
     return set;
   }
+  /**
+   * UT.test.untranslated() — SPEC-v2 §5.3.4. Scans every [data-i18n] element of the current document and returns the unique
+   * keys without a Korean entry, minus the exemptions (short tokens, numerics, product names, probe-library names, `.no-i18n`
+   * subtrees and the status-bar physics line). Only meaningful while UT.i18n.lang === 'ko'.
+   * @returns {string[]} untranslated keys in document order ([] when lang !== 'ko' or there is no DOM)
+   */
   function untranslated() {
     if (typeof document === 'undefined' || !document || UT.i18n.lang !== 'ko') return [];
     const names = probeNames();

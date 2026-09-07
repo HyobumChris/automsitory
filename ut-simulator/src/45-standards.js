@@ -9,11 +9,21 @@
 // - ers(): transferDb is added to the ECHO amplitude only (the reference is recorded on the block; the
 //   specimen echo is weaker by the transfer loss, so the correction adds it back). gain fields default to 0.
 //   ampPct ≤ 0, missing reference or N ≤ 0 → null.
+// - ers() distance-law transport (§3.8 round-trip MUST, QA round 2): the tracer's 0° backwall falls with
+//   D = q^0.5 = √(N/max(s, N)) times the one-way L attenuation 10^(−2·α·s/20) (α = attenL5·(f/5)^1.5, 30's
+//   materialInfo/makeEcho), NOT with the diagram's 1/A — so a backwall reference at 60 mm predicted 6.0 dB
+//   where the tracer gives 3.75 dB and ⌀6 at 30 mm read 5.27 mm. The reference is therefore transported to the
+//   echo's path with the simulator law before the diagram is entered: H_ref' = H_ref(A_ref) ·
+//   [H_bw(A_echo)/H_bw(A_ref)] · [bwLaw(s_ref)/bwLaw(s_echo)] (= 1 for equal paths or a 1/A law); the spec's
+//   H_echo = H_ref·10^(ΔdB/20) is otherwise unchanged and the ERS inverts the tracer's FBH law exactly
+//   (result.distCorrDb reports the transport). bwLaw() is a replica of 30's law (UT.rays.ampBwLaw(s, derived,
+//   specimen) is preferred when 30 exports it) — if 30 changes its 0° distance law, update bwLaw() here.
 // - The DGS reference (backwall/FBH) is a module-level record (not state; the spec defines no state field):
 //   UT.standards.dgs.recordReference(kind, fbhMm) reads frame.readouts.primary; UT.test.dgs({record:'backwall'})
 //   does the same headlessly. UT.test.dgs() without args returns the live computation {ref, echo, result}.
-// - The FBH tracer law (30-raytrace) and the backwall distance law (D = q^0.5) are NOT this module's; with the
-//   tracer's q^0.5 backwall the ⌀6 FBH of V2-9 reads ≈ 4.0 mm ERS (bound 4.5) while ⌀3 reads ≈ 2.5 — see risks.
+// - The FBH tracer law and the backwall distance law (D = q^0.5) live in 30-raytrace; ers() mirrors the latter
+//   (bwLaw) only for the reference transport. A constant ≈ +0.45 dB of the tracer's specular FBH sum over the fan
+//   (independent of d and s) remains and reads as ≈ +2.6 % ERS (⌀6 → 6.16 mm), inside the §3.8 ± 0.5 mm.
 // - evaluate(): ampDbVsRef + transferDb (state.standards.transferDb unless args.transferDb) is the evaluated
 //   amplitude; pct = round(100·10^(amp/20)) of that corrected amplitude. Missing lengthMm → 0 (short), missing
 //   soundPath (AWS) → c = 0 (≤ 1 in assumed, said in ruleText), missing depth (AWS class C) → middle half assumed.
@@ -73,6 +83,26 @@
   function hBw(A) { return A <= 1 ? 1 : 1 / A; }
   /** Normalised disc (FBH) curve H_disc(A, G) = 2π·G²/max(A,1)² (lead decision, §11). */
   function hDisc(A, G) { const Ae = Math.max(A, 1); return TWO_PI * G * G / (Ae * Ae); }
+  /** One-way L-wave attenuation (dB/mm) as the tracer uses it: attenL5 of spec.material (library fallback) · (f/5)^1.5. */
+  function attenL(d, specimen) {
+    const sm = (specimen && specimen.material) || {};
+    const lib = has('specimens.materials');
+    const rec = lib && sm.key ? lib[sm.key] : null;
+    const a5 = finite(sm.attenL5) ? sm.attenL5 : (rec && finite(rec.attenL5) ? rec.attenL5 : 0.005);
+    const freq = finite(d.freq) && d.freq > 0 ? d.freq : 5;
+    return a5 * Math.pow(freq / 5, 1.5);
+  }
+  /**
+   * Simulator backwall distance law at path s for the 0° probe (e = S = 1, relative units): the tracer's
+   * D = √(N/max(s, N)) near-field blend times the two-way attenuation 10^(−2·α·s/20) (30-raytrace makeEcho).
+   * Only ratios bwLaw(s1)/bwLaw(s2) are used. Prefers UT.rays.ampBwLaw(s, derived, specimen) when 30 exports one.
+   */
+  function bwLaw(s, d, specimen) {
+    const ext = has('rays.ampBwLaw');
+    if (typeof ext === 'function') { try { const v = ext(s, d, specimen); if (finite(v) && v > 0) return v; } catch (e) { /* fall through */ } }
+    const N = d.nearField;
+    return Math.sqrt(N / Math.max(s, N)) * Math.pow(10, -2 * attenL(d, specimen) * s / 20);
+  }
   /** Normalised SDH curve H_sdh(A, d) = √(2λd)/(a·max(A,1)^1.5) (λ, a from derived). */
   function hSdh(A, d, derived) {
     const dv = derived || currentDerived() || { lambda: 0.648, crystalA: 10 };
@@ -111,16 +141,20 @@
     const ref = q.ref, echo = q.echo;
     if (!ref || !echo || !(ref.path > 0) || !(echo.path > 0) || !(ref.ampPct > 0) || !(echo.ampPct > 0)) return null;
     const transferDb = finite(q.transferDb) ? q.transferDb : 0;
+    const spec = q.specimen || (UT.state && UT.state.specimen) || null;
     const Aref = ref.path / N, Aecho = echo.path / N;
     const Href = ref.kind === 'fbh' ? hDisc(Aref, (finite(ref.fbhMm) && ref.fbhMm > 0 ? ref.fbhMm : 3) / a) : hBw(Aref);
     const ampRefDb = 20 * Math.log10(ref.ampPct) - (finite(ref.gain) ? ref.gain : 0);
     const ampEchoDb = 20 * Math.log10(echo.ampPct) - (finite(echo.gain) ? echo.gain : 0) + transferDb;
     const dBvsRef = ampEchoDb - ampRefDb;
-    const Hecho = Href * Math.pow(10, dBvsRef / 20);
+    // Transport the reference to the echo's path with the simulator's backwall distance law (header note):
+    // = 1 for equal paths, or wherever that law coincides with the diagram's 1/A.
+    const distCorr = (hBw(Aecho) / hBw(Aref)) * (bwLaw(ref.path, d, spec) / bwLaw(echo.path, d, spec));
+    const Hecho = Href * distCorr * Math.pow(10, dBvsRef / 20);
     const G = Math.max(Aecho, 1) * Math.sqrt(Hecho / TWO_PI);
     const ersMm = G * a;
     const dBvsDisc3 = M.lin2dB(Hecho / hDisc(Aecho, 3 / a));
-    return { G, ersMm, dBvsRef, dBvsDisc3, Aref, Aecho, Href, Hecho, HdbRef: M.lin2dB(Href), HdbEcho: M.lin2dB(Hecho), a, N };
+    return { G, ersMm, dBvsRef, dBvsDisc3, distCorrDb: M.lin2dB(distCorr), Aref, Aecho, Href, Hecho, HdbRef: M.lin2dB(Href), HdbEcho: M.lin2dB(Hecho), a, N };
   }
 
   // ================================================================== T3 — rule sets (§4.3, verbatim data)
@@ -507,7 +541,7 @@
     out.push('ISO 11666:2018 — confidence HIGH: AL2 ↔ quality B, AL3 ↔ quality C, no AL1; AL2 = −4 dB (short, l ≤ max(10, 0.5 t)) / −10 dB (long), evaluation level −10 dB (33 % DAC). AL3 = +4 dB (short, l ≤ max(10, 1.0 t)) / −2 dB (long), evaluation −6 dB: lead decision, confidence MEDIUM — verify (alternative if disproved: 0 / −6 dB). Planar reject (crack / LOF / IP) is a simulator rule — ISO 23279 characterisation is optional in ISO 11666.');
     out.push('ASME BPVC VIII-1 App. 12 (12-3) + ASME V Art. 4 — confidence HIGH: investigate all indications > 20 % of reference (compared in percent so −14 dB counts as 20 %); reject cracks / LOF / IP regardless; other indications reject when > 100 % DAC AND longer than 6 mm (t ≤ 19), t/3 (19 < t ≤ 57) or 19 mm (t > 57). Basic block SDH ⌀ 2.4 mm for t ≤ 25.');
     out.push('AWS D1.1 Table 8.2 (statically loaded, non-tubular) — confidence MEDIUM-HIGH (~75 %) on the class numbers, HIGH on structure: rating d = a − b − c with c = 2 dB per inch of sound path beyond 1 in (rounded, .5 up); classes A–D per thickness band and probe angle; for t ≤ 3/4 in only 70° is listed (45°/60° → n/a); the B/C isolation (spacing) rule is omitted; class D is accepted and not recorded.');
-    out.push('DGS / ERS — normalised Krautkrämer diagram: backwall 1/A, disc 2π·G²/A² (lead decision), SDH √(2λd)/(a·A^1.5); far-field approximation (A ≥ 1); DGS applies to the 0° probe only; the transfer correction is added to the specimen echo.');
+    out.push('DGS / ERS — normalised Krautkrämer diagram: backwall 1/A, disc 2π·G²/A² (lead decision), SDH √(2λd)/(a·A^1.5); far-field approximation (A ≥ 1); DGS applies to the 0° probe only; the transfer correction is added to the specimen echo. The reference echo is transported to the evaluated echo\'s path with the simulator\'s own backwall law (√(N/s) near-field blend plus material attenuation) before the diagram is entered, so the ERS inverts the tracer\'s FBH law exactly (identity for equal paths).');
     out.push('Mode conversion — the S↔L conversion coefficients R_LS(φ) and R_SL(φ) of the ray tracer are closed-form fits, ±0.1; converted echoes are labelled "Mode-converted (L/S)". Switching Probes ▸ Mode conversion OFF also removes the conversion LOSS on specular echoes (the 1 − R split), so the 60° root-corner echo reads ≈ +5.5 dB higher with mode conversion off — compare readings only with the same setting.');
     out.push('Exam sharing — an exam link contains no defects (only the seed, the code hash and the settings) and the result token is signed with FNV-1a. This is obfuscation for classroom use, not security: the browser devtools can still reach the generator.');
     out.push('Transfer correction — measured as the gain difference between the block and the specimen backwall (same path); ISO 17640: ignore < 2 dB, compensate 2…12 dB, investigate > 12 dB. Lesson 24 enters it in Evaluation ▸ Transfer.');
@@ -521,7 +555,7 @@
       'ISO 11666:2018 — 신뢰도 높음: AL2 ↔ 품질 등급 B, AL3 ↔ 품질 등급 C, AL1 없음; AL2 = −4 dB (짧은 지시, l ≤ max(10, 0.5 t)) / −10 dB (긴 지시), 평가 레벨 −10 dB (DAC 33 %). AL3 = +4 dB (짧은 지시, l ≤ max(10, 1.0 t)) / −2 dB (긴 지시), 평가 레벨 −6 dB: 리드 결정, 신뢰도 보통 — 확인 필요(반증 시 대안: 0 / −6 dB). 면상 결함(균열 / 융합 불량 / 용입 부족) 불합격은 시뮬레이터 규칙 — ISO 11666에서 ISO 23279 특성 평가는 선택 사항입니다.',
       'ASME BPVC VIII-1 App. 12 (12-3) + ASME V Art. 4 — 신뢰도 높음: 기준의 20 %를 넘는 모든 지시를 조사(퍼센트로 비교하므로 −14 dB가 20 %에 해당); 균열 / 융합 불량 / 용입 부족은 무조건 불합격; 그 밖의 지시는 DAC 100 % 초과이면서 길이가 6 mm (t ≤ 19), t/3 (19 < t ≤ 57) 또는 19 mm (t > 57)를 넘을 때 불합격. t ≤ 25의 기본 시험편 횡공 ⌀ 2.4 mm.',
       'AWS D1.1 표 8.2 (정하중, 비관형) — 등급 수치는 신뢰도 보통-높음(약 75 %), 구조는 높음: 지시 등급 d = a − b − c, c = 빔 노정 1 in 초과분 1 in당 2 dB (반올림, .5는 올림); 두께 구간과 탐촉자 각도별 A–D 등급; t ≤ 3/4 in에서는 70°만 규정(45°/60° → 해당 없음); B/C 격리(간격) 규칙은 생략; D 등급은 합격이며 기록하지 않습니다.',
-      'DGS / ERS — 정규화된 Krautkrämer 선도: 저면 1/A, 원판 2π·G²/A² (리드 결정), 횡공 √(2λd)/(a·A^1.5); 원거리 음장 근사 (A ≥ 1); DGS는 0° 탐촉자에만 적용; 전달 손실 보정은 시험체 에코에 더해집니다.',
+      'DGS / ERS — 정규화된 Krautkrämer 선도: 저면 1/A, 원판 2π·G²/A² (리드 결정), 횡공 √(2λd)/(a·A^1.5); 원거리 음장 근사 (A ≥ 1); DGS는 0° 탐촉자에만 적용; 전달 손실 보정은 시험체 에코에 더해집니다. 기준 에코는 선도에 넣기 전에 시뮬레이터 자체의 저면 거리 법칙(√(N/s) 근거리 음장 혼합 + 재질 감쇠)으로 평가 에코의 노정으로 옮겨지므로 ERS는 광선 추적기의 평저공 법칙을 정확히 역산합니다(노정이 같으면 항등).',
       '모드 변환 — 광선 추적기의 S↔L 변환 계수 R_LS(φ), R_SL(φ)는 닫힌 형식 근사식(±0.1)이며, 변환된 에코는 "모드 변환 (L/S)"로 표시됩니다.',
       '시험 공유 — 시험 링크에는 결함이 들어 있지 않고(시드, 코드 해시, 설정만) 결과 토큰은 FNV-1a로 서명됩니다. 이는 교실용 난독화이지 보안이 아닙니다: 브라우저 개발자 도구로 여전히 생성기에 접근할 수 있습니다.',
       '전달 손실 보정 — 대비 시험편과 시험체 저면 에코(같은 노정)의 게인 차이로 측정; ISO 17640: 2 dB 미만 무시, 2…12 dB 보정, 12 dB 초과 시 조사. 레슨 24에서 평가 ▸ 전달 손실에 입력합니다.',
@@ -732,8 +766,9 @@
     return { id: evId++, n: finite(r.n) ? r.n : i + 1, z: num(r.z, ''), length: num(r.length, ''), depth: num(r.depth, ''), type: normaliseType(r.type) || 'planar',
       ampDbVsRef: num(r.ampDb, num(r.ampDbVsRef, '')), soundPath: num(r.soundPath, ''), angle: num(r.angle, ''), side: r.side === undefined ? '' : r.side, fromReport: true, result: null, open: false };
   }
+  function currentReport() { return (st().trade && Array.isArray(st().trade.report)) ? st().trade.report : []; }
   function syncFromReport() {
-    const rep = (st().trade && Array.isArray(st().trade.report)) ? st().trade.report : [];
+    const rep = currentReport();
     const key = JSON.stringify(rep);
     if (key === evUi.reportKey) return false;
     evUi.reportKey = key;
@@ -767,7 +802,8 @@
     return addRow({ z: s.probe.z, depth: +R.dp.toFixed(1), ampDbVsRef: +amp.toFixed(1), soundPath: +R.path.toFixed(1), angle: s.probe.angle, side: s.probe.side, type });
   }
   function removeRow(id) { evRows = evRows.filter(function (r) { return r.id !== id; }); evRefresh(); }
-  function clearRows() { evRows = []; evUi.reportKey = null; evRefresh(); }
+  /** Empty the table (mirrored trade-report rows included); the report is re-mirrored only once it changes again. */
+  function clearRows() { evRows = []; evUi.reportKey = JSON.stringify(currentReport()); evRefresh(); }
   function evalArgsFor(row) {
     const s = st().standards || {};
     return { ruleId: s.standard, level: s.level, technique: s.technique, T: finite(evUi.T) ? evUi.T : specimenT(), probeAngle: num(row.angle, NaN),
@@ -1029,14 +1065,25 @@
     const i3 = c.A.reduce(function (best, a, i) { return Math.abs(a - 3) < Math.abs(c.A[best] - 3) ? i : best; }, 0);
     if (!near(hDisc(3, 0.3), 2 * Math.PI * 0.09 / 9, 1e-9)) f.push('hDisc(3,0.3) ' + hDisc(3, 0.3));
     if (c.discs.length !== 7 || !near(c.discs[2].H[i3], hDisc(c.A[i3], 0.3), 1e-12) || c.A.length !== 61 || c.bw[0] !== 1) f.push('curves shape');
-    const d0 = { crystalA: 10, diameter: 10, nearField: 100 * 5 / (4 * 5.9), lambda: 1.18, refracted: 0 };
+    const d0 = { crystalA: 10, diameter: 10, nearField: 100 * 5 / (4 * 5.9), lambda: 1.18, refracted: 0, freq: 5 };
+    const sp0 = { material: { key: 'carbon', attenL5: 0.005 } };
+    // tracer FBH law (§3.8): amp_fbh(s) = amp_bw_law(s)·π·d²/(2·λ·max(s, N)), amp_bw_law = the simulator's 0° backwall law
+    const bwAmp = function (s) { return 80 * bwLaw(s, d0, sp0); };
+    const fbhAmp = function (s, dMm) { return bwAmp(s) * Math.PI * dMm * dMm / (2 * d0.lambda * Math.max(s, d0.nearField)); };
+    if (!near(bwLaw(60, d0, sp0) / bwLaw(30, d0, sp0), Math.sqrt(30 / 60) * Math.pow(10, -0.005 * 60 / 20), 1e-9)) f.push('bwLaw ratio 60/30');
     [2, 3, 4, 6].forEach(function (dMm) {
-      const Aref = 60 / d0.nearField, Aecho = 30 / d0.nearField;
-      const echoPct = 80 * hDisc(Aecho, dMm / 10) / hBw(Aref);
-      const r = ers({ derived: d0, ref: { kind: 'backwall', path: 60, ampPct: 80, gain: 30 }, echo: { path: 30, ampPct: echoPct, gain: 30 } });
-      if (!r || !near(r.ersMm, dMm, 0.01)) f.push('ers round trip ' + dMm + ' → ' + (r && r.ersMm));
-      const r2 = ers({ derived: d0, ref: { kind: 'fbh', path: 30, ampPct: 40, gain: 20, fbhMm: 3 }, echo: { path: 30, ampPct: 40 * hDisc(Aecho, dMm / 10) / hDisc(Aecho, 0.3), gain: 20 } });
-      if (!r2 || !near(r2.ersMm, dMm, 0.01)) f.push('ers fbh-ref round trip ' + dMm + ' → ' + (r2 && r2.ersMm));
+      [30, 50, 60].forEach(function (s) {
+        // backwall reference at 60 mm (V2-9 / §3.8 round trip, all paths 30…60 must invert exactly)
+        const r = ers({ derived: d0, specimen: sp0, ref: { kind: 'backwall', path: 60, ampPct: bwAmp(60), gain: 30 }, echo: { path: s, ampPct: fbhAmp(s, dMm), gain: 30 } });
+        if (!r || !near(r.ersMm, dMm, 0.01)) f.push('ers round trip ⌀' + dMm + '@' + s + ' → ' + (r && r.ersMm));
+        // ⌀3 FBH reference at 30 mm
+        const r2 = ers({ derived: d0, specimen: sp0, ref: { kind: 'fbh', path: 30, ampPct: fbhAmp(30, 3), gain: 20, fbhMm: 3 }, echo: { path: s, ampPct: fbhAmp(s, dMm), gain: 20 } });
+        if (!r2 || !near(r2.ersMm, dMm, 0.01)) f.push('ers fbh-ref round trip ⌀' + dMm + '@' + s + ' → ' + (r2 && r2.ersMm));
+      });
+      // equal paths: the transport is the identity and the spec formula H_echo = H_ref·10^(ΔdB/20) applies verbatim
+      const Aecho = 30 / d0.nearField;
+      const r3 = ers({ derived: d0, specimen: sp0, ref: { kind: 'backwall', path: 30, ampPct: 80, gain: 30 }, echo: { path: 30, ampPct: 80 * hDisc(Aecho, dMm / 10) / hBw(Aecho), gain: 30 } });
+      if (!r3 || !near(r3.ersMm, dMm, 0.01) || Math.abs(r3.distCorrDb) > 1e-9) f.push('ers equal-path ' + dMm + ' → ' + (r3 && r3.ersMm));
     });
     // gain difference: echo read at +6 dB gain must give the same ERS
     const rA = ers({ derived: d0, ref: { kind: 'backwall', path: 60, ampPct: 80, gain: 30 }, echo: { path: 30, ampPct: 40, gain: 30 } });

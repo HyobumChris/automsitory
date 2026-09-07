@@ -203,7 +203,10 @@
     'Reveal one': '하나 공개', 'Check row': '행 확인', 'Random practice': '무작위 연습', 'Difficulty:': '난이도:', 'Hint (−5 %)': '힌트 (−5 %)',
     'PASS': '합격', 'FAIL': '불합격', 'FAIL (below {p}%)': '불합격 ({p}% 미만)', 'FAIL (critical miss)': '불합격 (치명적 미검출)', 'SCORE {score}%': '점수 {score}%', 'Missed': '미검출', 'critical': '치명적', 'false call': '오검출', 'False calls': '오검출',
     'Trade Test score {score}% — {found}/{n} found, {fc} false calls': '실기 시험 점수 {score}% — {n}개 중 {found}개 검출, 오검출 {fc}건', '{found}/{n} found, {fc} false calls, time {t}': '{n}개 중 {found}개 검출, 오검출 {fc}건, 소요 시간 {t}',
-    'Time is up — the report has been submitted automatically': '시간 종료 — 보고서가 자동 제출되었습니다', 'Time used {t}': '소요 시간 {t}', '{m} minutes left': '{m}분 남음', 'Mean time to first detection': '첫 검출까지 평균 시간', 'Procedure compliance': '절차서 준수',
+    'Time is up — the report has been submitted automatically': '시간 종료 — 보고서가 자동 제출되었습니다', 'Time used {t}': '소요 시간 {t}', '{m} minutes left': '{m}분 남음', '{m} minute left': '{m}분 남음', 'Mean time to first detection': '첫 검출까지 평균 시간', 'Procedure compliance': '절차서 준수',
+    'DAC block ({n} points, T {T} mm)': 'DAC 대비 시험편 ({n}점, T {T} mm)', 'ref {r} dB + {x} dB': '기준 {r} dB + {x} dB',
+    // 90-app procedure lock while the trade exam runs (probe tooltips / status)
+    'Not allowed by the procedure while the trade test runs': '실기 시험 중에는 절차서상 허용되지 않습니다', 'Probe {id} is not allowed by the procedure while the trade test runs': '탐촉자 {id}은(는) 실기 시험 중에 절차서상 허용되지 않습니다',
     'Revealed defect {n}: {type}, z {z0}–{z1} mm, depth {d} mm, height {h} mm, side {side}': '공개된 결함 {n}: {type}, z {z0}–{z1} mm, 깊이 {d} mm, 높이 {h} mm, {side} 면',
     'No hidden indication left — every recordable defect is already reported': '남은 숨겨진 지시가 없습니다 — 기록 대상 결함을 모두 보고했습니다', 'nearest hidden indication: {d} mm {dir} along z, side {side}': '가장 가까운 숨겨진 지시: z 방향으로 {d} mm {dir}, {side} 면', 'further': '앞쪽', 'back': '뒤쪽',
     'Row {i}: detection ✓ (defect {n})': '행 {i}: 검출 ✓ (결함 {n})', 'Row {i}: no matching hidden defect ✗': '행 {i}: 일치하는 숨겨진 결함 없음 ✗', 'below recording level': '기록 레벨 미만',
@@ -212,7 +215,7 @@
     'planar': '면상', 'crack': '균열', 'lack of fusion': '융합 불량', 'incomplete penetration': '용입 부족', 'volumetric': '체적형', 'porosity': '기공', 'slag': '슬래그 혼입', 'lamination': '라미네이션',
     'Planar': '면상', 'Crack': '균열', 'Lack of fusion': '융합 불량', 'Incomplete penetration': '용입 부족', 'Volumetric': '체적형', 'Porosity': '기공', 'Slag inclusion': '슬래그 혼입', 'Lamination': '라미네이션',
     'History': '기록', 'Score': '점수', 'Found': '검출', 'Result': '결과', 'Candidate': '수험자', 'Clear history': '기록 지우기', 'Print this report': '이 보고서 인쇄', 'Verify': '검증', 'Token': '토큰', 'Paste a result token': '결과 토큰을 붙여 넣으세요',
-    'Detected': '검출', 'Type correct': '종류 정답', 'Length': '길이', 'Height': '높이', 'Position': '위치', 'Coverage {p} %': '주사 범위 {p} %', 'Coverage: {p} % of the weld length scanned from both sides': '주사 범위: 용접선 길이의 {p} %를 양면에서 주사',
+    'Detected': '검출', 'Bonus': '가산점', 'Type correct': '종류 정답', 'Length': '길이', 'Height': '높이', 'Position': '위치', 'Coverage {p} %': '주사 범위 {p} %', 'Coverage: {p} % of the weld length scanned from both sides': '주사 범위: 용접선 길이의 {p} %를 양면에서 주사',
     'Timer': '타이머', 'Truth': '정답', 'Locked': '잠김', 'Report rows': '보고서 행', 'Row': '행', 'Not recordable': '기록 불요', 'recordable': '기록', 'accept': '합격', 'reject': '불합격', 'record': '기록', 'Accept': '합격', 'Disposition': '판정',
 
     // ------------------------------------------------------------------ 45-standards (dgs / evaluation / procedures / stdnotes)
@@ -463,6 +466,11 @@
   // under 'ko' their data-i18n holds Korean text. Identity entries for every Korean value keep UT.i18n.has() true for them
   // (§5.3.4 counts only keys with has() false); the dictionary size reported by size() counts the English keys only.
   const HANGUL = /[\uAC00-\uD7A3]/;
+  /**
+   * Register identity entries (Korean value → itself) for every Korean dictionary value and every lesson choice label, so
+   * UT.i18n.has() stays true for the pre-translated keys 82/84 put into data-i18n. Idempotent; exposed as UT.i18nKo.init.
+   * @returns {number} count of identity entries added by this call (0 when everything was already registered)
+   */
   function registerIdentity() {
     const d = UT.i18n.dict('ko'), ident = {};
     for (const k of Object.keys(KO)) { const v = KO[k]; if (HANGUL.test(v) && d[v] === undefined) ident[v] = v; }
@@ -487,12 +495,22 @@
     const words = k.split(/[\s/·|,()+\-–—:]+/).filter(Boolean);
     return words.length > 0 && words.every(function (w) { return PRODUCTS.indexOf(w) >= 0 || /^[\d.,%°µ]+$/.test(w); });
   }
+  /**
+   * Probe-library names exempt from untranslated() (§5.3.4): UT.probe.library[].name / .label, trimmed.
+   * @returns {Object<string, true>} set-like lookup object keyed by name (empty when the library is not loaded)
+   */
   function probeNames() {
     const set = {};
     const lib = UT.probe && UT.probe.library;
     if (Array.isArray(lib)) for (const p of lib) { if (p && p.name) set[String(p.name).trim()] = true; if (p && p.label) set[String(p.label).trim()] = true; }
     return set;
   }
+  /**
+   * UT.test.untranslated() — SPEC-v2 §5.3.4. Scans every [data-i18n] element of the current document and returns the unique
+   * keys without a Korean entry, minus the exemptions (short tokens, numerics, product names, probe-library names, `.no-i18n`
+   * subtrees and the status-bar physics line). Only meaningful while UT.i18n.lang === 'ko'.
+   * @returns {string[]} untranslated keys in document order ([] when lang !== 'ko' or there is no DOM)
+   */
   function untranslated() {
     if (typeof document === 'undefined' || !document || UT.i18n.lang !== 'ko') return [];
     const names = probeNames();

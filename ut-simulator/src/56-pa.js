@@ -21,8 +21,9 @@
 //    columns slide an 8-element aperture across the array (elements − 7 columns, ≥ 8 for 16 elements),
 //    column xOff = surface offset of the sub-aperture centre from the array centre (+x).
 // 4. Focal laws: steering τ_i = x_i·sin(θ_rel)/v_w − min; with a focus depth the §3.10 focused law
-//    d_i = √(F² + x_i² − 2F·x_i·sin θ_rel), τ_i = (max d − d_i)/v with F = Fd/cosθ and v = v_mat (the
-//    approximation the spec names). `slope` is always the steering slope |sin θ_rel|/v_w (µs/mm), 0 when the
+//    d_i = √(F² + x_i² − 2F·x_i·sin θ_rel), τ_i = (max d − d_i)/v_w with F = Fd/cosθ (the spec's "v_mat"
+//    clause only covers the F = Fd/cosθ approximation; the delays are wedge travel times, so the focused law
+//    converges to the steering law as F → ∞). `slope` is always the steering slope |sin θ_rel|/v_w (µs/mm), 0 when the
 //    law is invalid (past the critical angle: null θ_w → valid:false, delays 0, the column is skipped).
 // 5. Per-angle TCG (pa.tcg): gain(θ) = 20·log10(A_max/A(θ)) clamped 0…30 dB where A(θ) is the tracer
 //    amplitude of the DAC-block T/2 SDH insonified ON AXIS at θ (probe at x_h + y_h·tanθ) with the same
@@ -197,7 +198,9 @@
       F = Fd / Math.max(0.05, Math.cos(rad(theta)));
       const dist = xs.map(function (x) { return Math.sqrt(Math.max(0, F * F + x * x - 2 * F * x * sinRel)); });
       const mx = Math.max.apply(null, dist);
-      delays = dist.map(function (d) { return (mx - d) / w.vMat; });
+      // SPEC-v2 §3.10: τ_i = (max(d) − d_i)/v_w — the delays are travel times in the WEDGE medium,
+      // so the focused law tends to the pure steering law as F → ∞ (continuous focus on/off).
+      delays = dist.map(function (d) { return (mx - d) / w.vW; });
     } else {
       delays = xs.map(function (x) { return x * sinRel / w.vW; });
       const mn = Math.min.apply(null, delays);
@@ -1045,6 +1048,8 @@
       if (!e0.valid || e0.slope !== 0 || e0.delaysUs.length !== 8 || e0.delaysUs.some(function (v) { return Math.abs(v) > 1e-9; })) f.push('focalLaw(0, escan) ' + JSON.stringify(e0.delaysUs));
       const lf = focalLaw(60, { state: base, focusDepth: 20 });
       if (!lf.valid || lf.delaysUs.some(function (v) { return v < 0; }) || Math.abs(lf.F - 40) > 1e-9 || lf.slope !== l60.slope) f.push('focused law');
+      const lfar = focalLaw(60, { state: base, focusDepth: 5000 });
+      if (!lfar.valid || Math.abs(lfar.delaysUs[15] - l60.delaysUs[15]) > 0.01 * l60.delaysUs[15]) f.push('focused law F→∞ ≠ steering ' + lfar.delaysUs[15] + ' vs ' + l60.delaysUs[15]);
       const cu = focalLaw(60, { state: base, material: { key: 'copper', vComp: 4.66, vShear: 2.33 } });
       if (cu.valid || cu.slope !== 0 || cu.delaysUs.some(function (v) { return v !== 0; })) f.push('copper 60° should be invalid');
       const ap = apertureOf(60, arrayOf(base), false, materialOf(null));

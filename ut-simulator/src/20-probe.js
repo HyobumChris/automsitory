@@ -116,11 +116,18 @@
    */
   function derive(probe, specimen) {
     const mat = (specimen && specimen.material) || { vShear: C.V_SHEAR_STEEL, vComp: C.V_COMP_STEEL };
-    const angle = probe.method === 'pa' ? probe.paFrom : (probe.angle || 0);
-    const isZero = angle === 0;
+    const nominal = probe.method === 'pa' ? probe.paFrom : (probe.angle || 0);   // requested refracted angle (deg)
+    const isZero = nominal === 0;
     const mode = isZero ? 'comp' : (probe.mode === 'comp' ? 'comp' : 'shear');
     const vel = mode === 'comp' ? mat.vComp : mat.vShear;
     const vWedge = probe.wedgeVel || C.V_PERSPEX;
+    // Critical limit of the refracted angle (QA round 2 #1): Snell gives sin(wedge) = sin(refracted)·vWedge/vel, so when
+    // the material is slower than the wedge (copper vS 2.33, perspex vS 1.43 < 2.74) no wedge angle can produce a
+    // refracted angle above asin(vel/vWedge) (copper 58.3°, perspex 31.5°). The nominal angle is clamped 0.1° below that
+    // limit (same physics as the PA focal-law validity in 56-pa) instead of reporting an impossible 90° wedge.
+    const angleLimit = !isZero && vWedge > vel ? M.rad2deg(Math.asin(vel / vWedge)) : 90;
+    const angleLimited = !isZero && nominal > angleLimit - 0.1;
+    const angle = angleLimited ? angleLimit - 0.1 : nominal;
     const freq = probe.freq || 5;                 // MHz
     const dims = probe.crystalDims || { a: probe.diameter || 10, b: probe.diameter || 10, shape: 'round' };
     const a = dims.a || probe.diameter || 10;     // crystal size in the beam plane (mm)
@@ -138,15 +145,26 @@
     const halfAngle20dB = M.rad2deg(Math.asin(s20));
     const nullAngle = M.rad2deg(Math.asin(sNull));
     const fanMax = M.rad2deg(Math.asin(sMax));
-    const preset = presetFor(angle);
+    const preset = presetFor(nominal);
     const lib = libById[probe.libId] || null;
     const wedgeAngle = isZero ? 0 : wedgeAngleFor(angle, mode, vWedge, mat);
     const wedgePath = isZero ? 0 : ((lib && lib.wedgePath) || preset.wedgePath || 12);
     const wedgeDelayUs = 2 * wedgePath / vWedge;  // two-way
     const crit = criticalAngles(vWedge, mat);
     const focus = probe.focus && probe.focus.on && angle <= 70 ? { on: true, F: M.clamp(probe.focus.F || 30, 10, 150) } : { on: false, F: (probe.focus && probe.focus.F) || 30 };
+    const limitNote = angleLimited
+      ? '   ** ' + UT.i18n.t('{angle}° {mode} not possible in {mat} (limit {limit}°): refracted angle limited to {actual}°', {
+        angle: nominal.toFixed(1), mode: mode === 'comp' ? "comp' wave" : 'shear wave', mat: mat.name || mat.key || 'this material', limit: angleLimit.toFixed(1), actual: angle.toFixed(1),
+      }) + ' **'
+      : '';
     return {
       refracted: angle,
+      /** Requested refracted angle (probe.angle / paFrom); equals `refracted` unless `angleLimited`. */
+      nominalAngle: nominal,
+      /** Largest refracted angle this wedge can generate in the material (asin(vel/vWedge); 90 when unlimited). */
+      angleLimit,
+      /** true when the nominal angle exceeds the critical limit and `refracted` was clamped to angleLimit − 0.1°. */
+      angleLimited,
       mode,
       wedgeAngle,
       vel,
@@ -166,7 +184,7 @@
       indexOffset: isZero ? preset.shoeWidth / 2 : 12,
       shoeWidth: preset.shoeWidth,
       shoeHeight: preset.shoeHeight,
-      colour: probe.method === 'pa' ? C.PROBE_COLOURS.pa : (C.PROBE_COLOURS[angle] || presetFor(angle).colour || '#00c000'),
+      colour: probe.method === 'pa' ? C.PROBE_COLOURS.pa : (C.PROBE_COLOURS[nominal] || preset.colour || '#00c000'),
       crystal: probe.crystal || 'single',
       freq,
       diameter: D,
@@ -183,7 +201,7 @@
       /** One-way piston directivity weight at an angle offset from the beam axis (deg). */
       directivity(deltaDeg) { return M.pistonDirectivity(deltaDeg, a, lambda); },
       /** Human readable physics line for the status bar. */
-      statusLine: `Angle of Sound Transmission in Perspex Shoe=${wedgeAngle.toFixed(1)}°  Velocity in Wedge (Shoe) = ${Math.round(vWedge * 1000)} m/s   [ Shear Wave Angle=${(mode === 'shear' ? angle : 0).toFixed(1)}°   Velocity=${mode === 'shear' ? Math.round(vel * 1000) : 0} m/s]   [ Comp' Wave Angle=${(mode === 'comp' ? angle : 0).toFixed(1)}°   Velocity=${mode === 'comp' ? Math.round(vel * 1000) : 0} m/s]`,
+      statusLine: `Angle of Sound Transmission in Perspex Shoe=${wedgeAngle.toFixed(1)}°  Velocity in Wedge (Shoe) = ${Math.round(vWedge * 1000)} m/s   [ Shear Wave Angle=${(mode === 'shear' ? angle : 0).toFixed(1)}°   Velocity=${mode === 'shear' ? Math.round(vel * 1000) : 0} m/s]   [ Comp' Wave Angle=${(mode === 'comp' ? angle : 0).toFixed(1)}°   Velocity=${mode === 'comp' ? Math.round(vel * 1000) : 0} m/s]${limitNote}`,
     };
   }
 
@@ -228,6 +246,19 @@
       const d55 = derive({ angle: 55, freq: 5, diameter: 10, wedgeVel: 2.74, side: 1 }, null);
       if (!(d55.wedgeAngle > 40 && d55.wedgeAngle < 47.1)) f.push('custom 55° wedge ' + d55.wedgeAngle);
       if (Math.abs(d60.vRayleigh - 0.926 * 3.24) > 0.02) f.push('vRayleigh ' + d60.vRayleigh);
+      if (d60.angleLimited || d60.nominalAngle !== 60 || d60.angleLimit !== 90) f.push('steel 60° must not be limited');
+      // QA round 2 #1: refracted angle above the critical limit of a slow material is clamped (never a 90° wedge)
+      const cu = { key: 'copper', name: 'Copper', vComp: 4.66, vShear: 2.33 };
+      const dCu = derive({ angle: 60, freq: 5, diameter: 10, wedgeVel: 2.74, side: 1 }, { material: cu });
+      const cuLimit = M.rad2deg(Math.asin(2.33 / 2.74));   // 58.26°
+      if (!dCu.angleLimited || Math.abs(dCu.refracted - (cuLimit - 0.1)) > 1e-6 || dCu.nominalAngle !== 60) f.push('copper 60° limit ' + dCu.refracted);
+      if (!(dCu.wedgeAngle < 90) || !Number.isFinite(dCu.wedgeAngle) || Math.abs(Math.sin(M.deg2rad(dCu.wedgeAngle)) / 2.74 - Math.sin(M.deg2rad(dCu.refracted)) / 2.33) > 1e-6) f.push('copper wedge (Snell) ' + dCu.wedgeAngle);
+      if (dCu.statusLine.indexOf('not possible in Copper') < 0 || dCu.statusLine.indexOf('Shear Wave Angle=' + dCu.refracted.toFixed(1)) < 0) f.push('copper statusLine ' + dCu.statusLine);
+      if (Math.abs(dCu.dir.x + Math.sin(M.deg2rad(dCu.refracted))) > 1e-9) f.push('copper dir uses the limited angle');
+      const dCu45 = derive({ angle: 45, freq: 5, diameter: 10, wedgeVel: 2.74, side: 1 }, { material: cu });
+      if (dCu45.angleLimited || dCu45.refracted !== 45 || Math.abs(dCu45.wedgeAngle - M.rad2deg(Math.asin(Math.sin(M.deg2rad(45)) * 2.74 / 2.33))) > 1e-6) f.push('copper 45° must stay 45°');
+      const dPx = derive({ angle: 60, freq: 5, diameter: 10, wedgeVel: 2.74, side: 1 }, { material: { key: 'perspex', name: 'Perspex (PMMA)', vComp: 2.74, vShear: 1.43 } });
+      if (!dPx.angleLimited || Math.abs(dPx.refracted - (M.rad2deg(Math.asin(1.43 / 2.74)) - 0.1)) > 1e-6 || !(dPx.wedgeAngle < 90)) f.push('perspex 60° limit ' + dPx.refracted + ' wedge ' + dPx.wedgeAngle);
       return f;
     },
   };

@@ -745,6 +745,8 @@
   }
   function addPreset(name, opts) {
     const s = st();
+    // v2 exam lock (§4.2.3): no defect may join a locked exam's hidden truth (Defects ▸ Add Preset stays reachable, see isMenuEnabled)
+    if (examLocked(s)) { UT.status({ right: 'Defect editor is locked during the Trade Test' }); return null; }
     const fn = S.defectPresets[name];
     if (!fn) { UT.status({ right: t('Unknown preset {name}', { name }) }); return null; }
     const spec = s.specimen || S.plateWeld(s.weldOpts);
@@ -1563,7 +1565,12 @@
   function isMenuEnabled(id) {
     const key = id.indexOf('menu-') === 0 ? id : 'menu-' + id;
     if (defectEditor.isOpen() && enabled.editor.disabledMenus.indexOf(key) >= 0) return false;
-    if (examLocked() && key === 'menu-defects') return false;
+    // v2 exam lock (§4.2.3) locks the defect editor, HIDE, BEAM and Export — NOT the Defects menu: 'Trade Test…' (report
+    // rows, Submit, Reveal with the code, Report / Scoreboard) lives there and must stay reachable after the candidate
+    // closes the window (the v1 trade row would grey the whole menu). The editor entries guard themselves while locked:
+    // defectEditor.open() / addPreset() refuse, display.hide is forced back, Delete / Import are off while trade.active
+    // and Export omits the defects (90).
+    if (examLocked() && key === 'menu-defects') return true;
     const e = enabled[st().mode] || enabled.weld;
     return e.disabledMenus.indexOf(key) < 0;
   }
@@ -1709,8 +1716,10 @@
       UT.set({ standards: Object.assign({}, st().standards, { procedure: null }) }, { silent: true, noRender: true });
       if (!isToolbarEnabled('tb-45')) f.push('no procedure → angle buttons enabled');
       UT.setIn('trade', { exam: { v: 2, seed: 1, locked: true }, revealed: false }, { silent: true, noRender: true });
-      if (!examLocked() || isToolbarEnabled('tb-hide') || isToolbarEnabled('tb-beam') || isToolbarEnabled('tb-defect') || isMenuEnabled('menu-defects')) f.push('exam lock');
+      if (!examLocked() || isToolbarEnabled('tb-hide') || isToolbarEnabled('tb-beam') || isToolbarEnabled('tb-defect')) f.push('exam lock');
+      if (!isMenuEnabled('menu-defects')) f.push('Defects menu (Trade Test…) must stay reachable while exam-locked');
       if (trade.truth().length !== 0) f.push('truth must be [] while exam-locked');
+      { const nBefore = st().defects.length; if (addPreset('rootCrack') !== null || st().defects.length !== nBefore) f.push('addPreset must refuse while exam-locked'); }
       UT.setIn('trade', { exam: null, active: false }, { silent: true, noRender: true });
       if (!isToolbarEnabled('tb-beam')) f.push('beam enabled without exam lock');
       // library-aware lesson setProbe

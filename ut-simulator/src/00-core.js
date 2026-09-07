@@ -413,8 +413,9 @@
       const closeBtn = dom.h('button', { class: 'win-close', type: 'button', title: 'Close' }, '✕');
       const titleBar = dom.h('div', { class: 'win-title' }, [titleEl, closeBtn]);
       const body = dom.h('div', { class: 'win-body' });
-      const el = dom.h('div', { class: 'win' + (o.modal ? ' modal' : '') + (o.class ? ' ' + o.class : ''), dataset: { win: name }, style: { left: (o.x === undefined ? 200 : o.x) + 'px', top: (o.y === undefined ? 120 : o.y) + 'px', width: o.w ? o.w + 'px' : null, height: o.h ? o.h + 'px' : null, display: 'none' } }, [titleBar, body]);
+      const el = dom.h('div', { class: 'win' + (o.modal ? ' modal' : '') + (o.class ? ' ' + o.class : ''), role: 'dialog', 'aria-modal': o.modal ? 'true' : null, dataset: { win: name }, style: { left: (o.x === undefined ? 200 : o.x) + 'px', top: (o.y === undefined ? 120 : o.y) + 'px', width: o.w ? o.w + 'px' : null, height: o.h ? o.h + 'px' : null, display: 'none' } }, [titleBar, body]);
       let backdrop = null;
+      let prevFocus = null;
       const api = {
         el, body, name,
         isOpen() { return el.style.display !== 'none'; },
@@ -433,15 +434,57 @@
           if (el.offsetLeft + el.offsetWidth > bw) el.style.left = Math.max(0, bw - el.offsetWidth - 8) + 'px';
           if (el.offsetTop + el.offsetHeight > bh) el.style.top = Math.max(0, bh - el.offsetHeight - 8) + 'px';
           if (o.onShow) o.onShow(api);
+          // modal dialogs take the keyboard focus (SPEC-v2 §5.7): primary button first, else the first focusable control
+          if (o.modal || o.autofocus) {
+            const active = document.activeElement;
+            if (active && active !== document.body && !el.contains(active)) prevFocus = active;
+            const target = el.querySelector('.btn.primary') || api.focusables()[0];
+            if (target && typeof target.focus === 'function') { try { target.focus(); } catch (e) { /* ignore */ } }
+          }
           UT.bus.emit('win:show', api);
           return api;
         },
-        hide() { el.style.display = 'none'; if (backdrop) backdrop.style.display = 'none'; UT.bus.emit('win:hide', api); return api; },
+        /** Keyboard-reachable controls inside the window (title-bar ✕ last), in DOM order. */
+        focusables() {
+          const list = Array.prototype.slice.call(el.querySelectorAll('button, [href], input, select, textarea, [tabindex]'));
+          return list.filter(function (n) { return n !== closeBtn && !n.disabled && n.tabIndex >= 0 && n.getAttribute('aria-hidden') !== 'true' && (n.offsetWidth > 0 || n.offsetHeight > 0 || n.getClientRects().length > 0); }).concat([closeBtn]);
+        },
+        hide() {
+          el.style.display = 'none'; if (backdrop) backdrop.style.display = 'none';
+          // give the focus back to the control that opened a modal dialog (focus trap released)
+          const active = document.activeElement;
+          if (prevFocus && (!active || active === document.body || el.contains(active))) { try { if (prevFocus.isConnected !== false) prevFocus.focus(); } catch (e) { /* ignore */ } }
+          prevFocus = null;
+          UT.bus.emit('win:hide', api); return api;
+        },
         toggle() { return api.isOpen() ? api.hide() : api.show(); },
         close() { api.hide(); if (o.onClose) o.onClose(api); UT.bus.emit('win:close', api); return api; },
         destroy() { if (api.isOpen()) api.hide(); if (el.parentNode) el.parentNode.removeChild(el); if (backdrop && backdrop.parentNode) backdrop.parentNode.removeChild(backdrop); delete dom.wins[name]; },
       };
       closeBtn.addEventListener('click', function (e) { e.stopPropagation(); api.close(); });
+      // keyboard (SPEC-v2 §5.7): while a modal dialog is up, Tab/Shift+Tab cycle inside it and Enter activates the primary button
+      // (Esc stays with 90's document handler → closeTopWindow). Listener on the window itself, so it runs before the app's handlers.
+      if (o.modal) {
+        el.addEventListener('keydown', function (e) {
+          if (e.ctrlKey || e.altKey || e.metaKey) return;
+          if (e.key === 'Tab') {
+            const list = api.focusables();
+            if (!list.length) { e.preventDefault(); return; }
+            let i = list.indexOf(document.activeElement);
+            if (i < 0) i = e.shiftKey ? 0 : list.length - 1;
+            const next = list[(i + (e.shiftKey ? -1 : 1) + list.length) % list.length];
+            e.preventDefault(); e.stopPropagation();
+            try { next.focus(); } catch (err) { /* ignore */ }
+          } else if (e.key === 'Enter') {
+            const t = e.target, tag = t && t.tagName ? t.tagName.toLowerCase() : '';
+            if (tag === 'textarea' || tag === 'button' || tag === 'a' || tag === 'select' || (t && t.isContentEditable)) return;   // native activation / multi-line input
+            const primary = el.querySelector('.btn.primary');
+            if (!primary || primary.disabled) return;
+            e.preventDefault(); e.stopPropagation();
+            primary.click();
+          }
+        });
+      }
       el.addEventListener('mousedown', function () { api.raise(); });
       // drag by title bar
       let drag = null;
