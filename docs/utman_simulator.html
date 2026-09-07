@@ -20353,11 +20353,13 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
  *   whose `also` fails shows `alsoKo/En`. Numeric wrong answers also increment `progress[n].wrong`.
  * - `memo` keep set = union of `step.keep` over the lesson (so `bwClean`, `gainBlock/gainSpec`, `driftDb` survive every
  *   later step); `setup()` may return an object merged into the initial memo (lesson 25 → `driftDb`, sign from a seed
- *   that advances per start so repeat runs alternate).
+ *   that advances per start, run through the same mix32(fnv1a(...)) finaliser as the quiz/trade seeds — the plain LCG's
+ *   first draw is ~linear in the seed, so consecutive raw seeds would always give the same sign).
  * - Transition steps: `memo.was` is (re)set to false whenever the check is false, so a step that was already true at
  *   entry passes after the user makes it false and true again.
  * - start(n) first resets the §4.1 baseline (gates/tcg/pulser/receiver/reject/delay/freeze/peakMem/damping, single crystal, PE,
- *   skew 0, focus off, physics + damping points, weldOpts, material carbon, HIDE off, BEAM on); quiz.start() resets the whole
+ *   skew 0, focus off, physics + damping points, weldOpts, material carbon, HIDE off, BEAM on, plot points/edge marks —
+ *   the beam plot is state a lesson writes (9), so leftovers would pre-satisfy its transition step on a restart); quiz.start() resets the whole
  *   probe/instrument slices the same way so a shared seed gives the same items on every machine/session (§4.5)
  *   so lessons never inherit e.g. lesson 3's twin crystal (v1's loadLesson did not; the v1 setups assume these defaults).
  * - Manual 'Do it for me' force-advances when the check still fails after two renders (never leaves the user stuck);
@@ -20991,7 +20993,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
         H.auto(80); H.storeRef();
         H.enter('weld', { keepProbe: true }); H.setProbe({ x: 40 });
         L.drift++;
-        const sign = M.rng(25 + L.drift)() < 0.5 ? -1 : 1;
+        // §4.1 'sign from the seed': the plain LCG's first draw is ~linear in the seed (0.24…0.26 for 26…60 → always −3),
+        // so the counter goes through the same lowbias32 finaliser as the quiz/trade seeds and both signs really occur.
+        const sign = M.rng(mix32(M.fnv1a('lesson25:' + L.drift)))() < 0.5 ? -1 : 1;
         H.setInstrument({ gain: st().instrument.refGain + sign * 3 });
         return { driftDb: sign * 3 };
       } },
@@ -21093,7 +21097,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
    * §4.1 baseline applied before a lesson setup() and before a quiz (§4.5 'same seed → same sequence'): nothing an earlier
    * lesson, test or the user left behind (twin crystal, 2.5 MHz, reject, delay, freeze, TCG, damping fingers, physics
    * switches, austenitic material, a 30 mm weld, autocal zero …) may change what a step check or a quiz scenario sees.
-   * `full` (quiz) resets the whole probe/instrument slices (datalog/compare kept); lessons reset the keys listed in §4.1.
+   * `full` (quiz) resets the whole probe/instrument slices (datalog/compare kept); lessons reset the keys listed in §4.1
+   * plus the beam plot (a lesson writes edge marks itself — lesson 9's transition step must not start out already true).
    */
   function baseline(full) {
     const d = UT.defaultState(), s = st();
@@ -21103,6 +21108,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     UT.setIn('instrument', instr, { noRender: true });
     UT.setIn('probe', full ? d.probe : { crystal: 'single', method: 'pe', skew: 0, focus: d.probe.focus }, { noRender: true });
     UT.setIn('display', { hide: false, beam: true }, { noRender: true });
+    UT.setIn('plot', { points: [], edgeMarks: [] }, { noRender: true });   // §4.1 'regardless of what earlier lessons left behind': lesson 9 plots its own edge marks
     UT.set({ physics: d.physics, damping: d.damping, weldOpts: d.weldOpts, material: 'carbon' }, { noRender: true });
   }
   /** Start lesson n (1…25): runs setup(), resets answers/memo, enters step 0. */
@@ -21173,6 +21179,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   /** Answer the current choice/numeric step. Returns true when the step passed. */
   api.answer = function (value) {
     const l = ls(), step = curStep(); if (!step) return false;
+    // §4.1: only a wrong CHOICE (numeric miss = documented extension) counts as a wrong answer — a plain state step
+    // has nothing to answer, so an answer there is a no-op instead of a scored miss.
+    if (!step.choices && step.input !== 'number') return false;
     const n = l.active, i = l.step;
     const answers = Object.assign({}, l.answers || {}); answers[n] = Object.assign({}, answers[n] || {}); answers[n][i] = value;
     const patch = { answers };
@@ -23497,12 +23506,36 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
 
   // ------------------------------------------------------------------ actions used by toolbar & menus
   /**
+   * Library id of the active procedure's probe with that angle while the trade test runs (§4.3 T4), or null when
+   * there is no lock / no such probe. The current probe wins when it is allowed and already has the angle (a
+   * 70°-only procedure must not swap MWB 70-2 for the generic 70° probe); conventional entries beat PA / TOFD ones.
+   */
+  function procedureProbeForAngle(angle) {
+    const ids = lockedProbeIds();
+    if (!ids) return null;
+    const entry = function (id) { return has('probe.libEntry') ? UT.probe.libEntry(id) : null; };
+    const hit = ids.filter(function (id) { const e = entry(id); return !!e && e.angle === angle; });
+    if (!hit.length) return null;
+    const curId = st().probe.libId;
+    if (curId && hit.indexOf(curId) >= 0) return curId;
+    return hit.find(function (id) { const e = entry(id); return e.family !== 'pa' && e.family !== 'tofd'; }) || hit[0];
+  }
+  /**
    * Toolbar / keyboard angle change: angle + mode (comp at 0°) exactly as v1, plus the library id: a named probe
    * series (same maker, family, frequency and crystal) follows to the new angle, everything else maps to the
    * generic `gen-<angle>-5-10` entry (wedgePath 12 = the v1 preset) WITHOUT touching freq / diameter / crystalDims,
    * so the v1 physics of the default probe is unchanged (UT.probe.libForAngle would prefer the A430S 16 × 16).
+   * v2 procedure lock (§4.3 T4): while state.trade.active the angle buttons select the PROCEDURE's probe with that
+   * angle — the button is enabled precisely because such a probe exists (80 allowedAngles), so the v1 mapping below
+   * would otherwise put the candidate on a probe the procedure forbids (generic default, or the current maker series).
    */
   function setAngle(angle) {
+    if (lockedProbeIds()) {
+      const allowedId = procedureProbeForAngle(angle);
+      if (allowedId) selectLibProbe(allowedId);
+      else UT.status({ right: t('Not allowed by the procedure while the trade test runs') });
+      return;
+    }
     const patch = { angle, mode: angle === 0 ? 'comp' : 'shear' };
     const p = st().probe;
     const lib = has('probe.library') || [];

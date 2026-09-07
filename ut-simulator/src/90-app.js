@@ -214,12 +214,36 @@
 
   // ------------------------------------------------------------------ actions used by toolbar & menus
   /**
+   * Library id of the active procedure's probe with that angle while the trade test runs (§4.3 T4), or null when
+   * there is no lock / no such probe. The current probe wins when it is allowed and already has the angle (a
+   * 70°-only procedure must not swap MWB 70-2 for the generic 70° probe); conventional entries beat PA / TOFD ones.
+   */
+  function procedureProbeForAngle(angle) {
+    const ids = lockedProbeIds();
+    if (!ids) return null;
+    const entry = function (id) { return has('probe.libEntry') ? UT.probe.libEntry(id) : null; };
+    const hit = ids.filter(function (id) { const e = entry(id); return !!e && e.angle === angle; });
+    if (!hit.length) return null;
+    const curId = st().probe.libId;
+    if (curId && hit.indexOf(curId) >= 0) return curId;
+    return hit.find(function (id) { const e = entry(id); return e.family !== 'pa' && e.family !== 'tofd'; }) || hit[0];
+  }
+  /**
    * Toolbar / keyboard angle change: angle + mode (comp at 0°) exactly as v1, plus the library id: a named probe
    * series (same maker, family, frequency and crystal) follows to the new angle, everything else maps to the
    * generic `gen-<angle>-5-10` entry (wedgePath 12 = the v1 preset) WITHOUT touching freq / diameter / crystalDims,
    * so the v1 physics of the default probe is unchanged (UT.probe.libForAngle would prefer the A430S 16 × 16).
+   * v2 procedure lock (§4.3 T4): while state.trade.active the angle buttons select the PROCEDURE's probe with that
+   * angle — the button is enabled precisely because such a probe exists (80 allowedAngles), so the v1 mapping below
+   * would otherwise put the candidate on a probe the procedure forbids (generic default, or the current maker series).
    */
   function setAngle(angle) {
+    if (lockedProbeIds()) {
+      const allowedId = procedureProbeForAngle(angle);
+      if (allowedId) selectLibProbe(allowedId);
+      else UT.status({ right: t('Not allowed by the procedure while the trade test runs') });
+      return;
+    }
     const patch = { angle, mode: angle === 0 ? 'comp' : 'shear' };
     const p = st().probe;
     const lib = has('probe.library') || [];
