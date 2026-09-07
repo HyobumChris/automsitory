@@ -93,83 +93,17 @@
     standards: {},
   };
 
-  // ------------------------------------------------------------------ bytes / base64url / utf-8 (local fallbacks)
-  const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  function b64EncodeLocal(bin) {
-    let out = '';
-    for (let i = 0; i < bin.length; i += 3) {
-      const a = bin.charCodeAt(i), b = i + 1 < bin.length ? bin.charCodeAt(i + 1) : NaN, c = i + 2 < bin.length ? bin.charCodeAt(i + 2) : NaN;
-      const n = (a << 16) | ((b || 0) << 8) | (c || 0);
-      out += B64[(n >> 18) & 63] + B64[(n >> 12) & 63] + (Number.isNaN(b) ? '=' : B64[(n >> 6) & 63]) + (Number.isNaN(c) ? '=' : B64[n & 63]);
-    }
-    return out;
-  }
-  function b64DecodeLocal(s) {
-    let out = '';
-    let buf = 0, bits = 0;
-    for (let i = 0; i < s.length; i++) {
-      const ch = s[i];
-      if (ch === '=') break;
-      const v = B64.indexOf(ch);
-      if (v < 0) throw new Error('bad base64');
-      buf = (buf << 6) | v; bits += 6;
-      if (bits >= 8) { bits -= 8; out += String.fromCharCode((buf >> bits) & 255); buf &= (1 << bits) - 1; }
-    }
-    return out;
-  }
-  function bytesToBin(bytes) {
-    let bin = '';
-    for (let i = 0; i < bytes.length; i += 0x2000) bin += String.fromCharCode.apply(null, Array.prototype.slice.call(bytes, i, i + 0x2000));
-    return bin;
-  }
-  function binToBytes(bin) {
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 255;
-    return out;
-  }
+  // ------------------------------------------------------------------ bytes / base64url / utf-8 (thin aliases of UT.core)
   /** Uint8Array → base64url (no padding). */
-  function b64url(bytes) {
-    const bin = bytesToBin(bytes);
-    const b64 = typeof btoa === 'function' ? btoa(bin) : b64EncodeLocal(bin);
-    return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  }
-  /** base64url (with or without padding) → Uint8Array; throws on malformed input. */
-  function b64urlDecode(s) {
-    let b64 = String(s || '').replace(/-/g, '+').replace(/_/g, '/').replace(/\s+/g, '');
-    if (!/^[A-Za-z0-9+/]*=*$/.test(b64)) throw new Error('bad base64url');
-    while (b64.length % 4) b64 += '=';
-    const bin = typeof atob === 'function' ? atob(b64) : b64DecodeLocal(b64);
-    return binToBytes(bin);
-  }
-  /** string → UTF-8 bytes (TextEncoder when available). */
-  function utf8Encode(s) {
-    if (typeof TextEncoder === 'function') return new TextEncoder().encode(s);
-    const out = [];
-    for (let i = 0; i < s.length; i++) {
-      let c = s.charCodeAt(i);
-      if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) { const d = s.charCodeAt(i + 1); if (d >= 0xdc00 && d <= 0xdfff) { c = 0x10000 + ((c - 0xd800) << 10) + (d - 0xdc00); i++; } }
-      if (c < 0x80) out.push(c);
-      else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 63));
-      else if (c < 0x10000) out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
-      else out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
-    }
-    return new Uint8Array(out);
-  }
-  /** UTF-8 bytes → string (TextDecoder when available). */
-  function utf8Decode(bytes) {
-    if (typeof TextDecoder === 'function') return new TextDecoder('utf-8').decode(bytes);
-    let s = '';
-    for (let i = 0; i < bytes.length;) {
-      const b = bytes[i++];
-      let c;
-      if (b < 0x80) c = b;
-      else if ((b & 0xe0) === 0xc0) c = ((b & 31) << 6) | (bytes[i++] & 63);
-      else if ((b & 0xf0) === 0xe0) { c = ((b & 15) << 12) | ((bytes[i++] & 63) << 6); c |= bytes[i++] & 63; }
-      else { c = ((b & 7) << 18) | ((bytes[i++] & 63) << 12); c |= (bytes[i++] & 63) << 6; c |= bytes[i++] & 63; }
-      if (c >= 0x10000) { c -= 0x10000; s += String.fromCharCode(0xd800 + (c >> 10), 0xdc00 + (c & 0x3ff)); } else s += String.fromCharCode(c);
-    }
-    return s;
-  }
+  function b64url(bytes) { return UT.core.b64urlBytes(bytes); }
+  /** base64url (with or without padding) → Uint8Array; throws on malformed input (the public UT.scenario.b64urlDecode returns null). */
+  function b64urlDecode(s) { return UT.core.b64urlDecodeBytes(s); }
+  /** string → UTF-8 bytes (Uint8Array). */
+  function utf8Encode(s) { return UT.core.utf8Encode(s); }
+  /** UTF-8 bytes → string. */
+  function utf8Decode(bytes) { return UT.core.utf8Decode(bytes); }
+  /** Public, documented-safe variant: null instead of a throw on malformed input. */
+  function b64urlDecodeSafe(s) { try { return b64urlDecode(s); } catch (e) { return null; } }
   function concatChunks(chunks) {
     let n = 0;
     for (const c of chunks) n += c.length;
@@ -848,8 +782,6 @@
       let same = dec.length === 256;
       for (let i = 0; i < 256 && same; i++) same = dec[i] === i;
       if (!same) f.push('b64url round trip');
-      const locEnc = b64EncodeLocal(bytesToBin(all)), locDec = b64DecodeLocal(locEnc);
-      if (locEnc.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') !== enc || locDec !== bytesToBin(all)) f.push('local base64');
       const ko = '초음파 탐상 시뮬레이터 — ✓ 😀';
       if (utf8Decode(utf8Encode(ko)) !== ko) f.push('utf8 round trip');
       let bad = false;
@@ -920,7 +852,7 @@
   // ------------------------------------------------------------------ exports
   Object.assign(scenario, {
     capture, captureFrom, apply, save, load, remove, list, toText, fromText, toUrl, fromUrl, applyFromLocation, init,
-    sanitise, examify, encodeRaw, decodeRaw, parseHash, b64url, b64urlDecode, utf8Encode, utf8Decode, showToast, hideToast,
+    sanitise, examify, encodeRaw, decodeRaw, parseHash, b64url, b64urlDecode: b64urlDecodeSafe, utf8Encode, utf8Decode, showToast, hideToast,
     SLOTS, __selftest, selftest: __selftest,
   });
   UT.scenario = scenario;

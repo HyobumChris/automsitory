@@ -80,10 +80,12 @@ for (const p of paths) {
   if (r !== 'skipped') expect(r === true, `menu ${p} returns true (got ${r}, mode ${mode})`);
   if (mode !== 'weld') { modeSwitches.push(p + '→' + mode); await ev(() => UT.test.enterMode('weld')); await page.waitForTimeout(60); }
   errMark('menu ' + p, k);
-  // undo modal things
-  await ev(() => { for (const k of Object.keys(UT.dom.wins)) { const w = UT.dom.wins[k]; if (w.isOpen() && (k.startsWith('confirm-') || k.startsWith('alert-'))) w.close(); } });
+  // undo modal things: confirm/alert dialogs and the defect editor (SPEC §14.7 editor row: while it is open every menu
+  // but Help is disabled, so leaving it up would turn the rest of the walk into false negatives)
+  const editor = await ev(() => { for (const k of Object.keys(UT.dom.wins)) { const w = UT.dom.wins[k]; if (w.isOpen() && (k.startsWith('confirm-') || k.startsWith('alert-'))) w.close(); } const open = !!(UT.modes.defectEditor && UT.modes.defectEditor.isOpen()); if (open) UT.modes.defectEditor.close(); return open; });
+  if (editor) modeSwitches.push(p + '→editor');
 }
-log('menu mode switches (restored to weld):', modeSwitches.join(' ') || 'none');
+log('menu mode switches (restored to weld / editor closed):', modeSwitches.join(' ') || 'none');
 await shot('after-menus');
 // back to defaults
 await ev(() => { UT.test.enterMode('weld'); UT.setIn('probe', { method: 'pe', angle: 60, mode: 'shear', crystal: 'single', freq: 5, diameter: 10 }); UT.setIn('display', { colourCode: 'none', singleLine: false, focus: false, skips: 3, units: 'mm', plan: true }); UT.setIn('damping', { tool: false, points: [] }); if (UT.app.closeTour) UT.app.closeTour(); /* Help ▸ Quick tour leaves its modal #tour overlay up */ UT.set({ utSet: 'epoch600' }); UT.app.applyLayout(); });

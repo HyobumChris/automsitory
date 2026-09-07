@@ -954,10 +954,81 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     return n.toFixed(dp === undefined ? 1 : dp);
   };
 
+  // ------------------------------------------------------------------ bytes / UTF-8 / base64url (shared by 84 + 94)
+  const B64URL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const B64MAP = {};
+  for (let i = 0; i < 64; i++) B64MAP[B64URL[i]] = i;
+  B64MAP['+'] = 62; B64MAP['/'] = 63;
+  /** string → UTF-8 bytes (Uint8Array; array-like of numbers, surrogate pairs combined). */
+  function utf8Encode(str) {
+    const s = String(str === undefined || str === null ? '' : str);
+    const out = [];
+    for (let i = 0; i < s.length; i++) {
+      let c = s.charCodeAt(i);
+      if (c >= 0xd800 && c < 0xdc00 && i + 1 < s.length) { const d = s.charCodeAt(i + 1); if (d >= 0xdc00 && d < 0xe000) { c = 0x10000 + ((c - 0xd800) << 10) + (d - 0xdc00); i++; } }
+      if (c < 0x80) out.push(c);
+      else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 63));
+      else if (c < 0x10000) out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+      else out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+    }
+    return new Uint8Array(out);
+  }
+  /** UTF-8 bytes (Uint8Array | number[]) → string. */
+  function utf8Decode(bytes) {
+    let s = '';
+    for (let i = 0; i < bytes.length;) {
+      const b = bytes[i++];
+      let c;
+      if (b < 0x80) c = b;
+      else if (b < 0xe0) c = ((b & 31) << 6) | (bytes[i++] & 63);
+      else if (b < 0xf0) { c = ((b & 15) << 12) | ((bytes[i++] & 63) << 6); c |= bytes[i++] & 63; }
+      else { c = ((b & 7) << 18) | ((bytes[i++] & 63) << 12); c |= (bytes[i++] & 63) << 6; c |= bytes[i++] & 63; }
+      if (c >= 0x10000) { c -= 0x10000; s += String.fromCharCode(0xd800 + (c >> 10), 0xdc00 + (c & 1023)); } else s += String.fromCharCode(c);
+    }
+    return s;
+  }
+  /** bytes (Uint8Array | number[]) → base64url (alphabet A–Z a–z 0–9 - _, no padding). */
+  function b64urlBytes(bytes) {
+    let s = '';
+    for (let i = 0; i < bytes.length; i += 3) {
+      const a = bytes[i], b = i + 1 < bytes.length ? bytes[i + 1] : undefined, c = i + 2 < bytes.length ? bytes[i + 2] : undefined;
+      const n = (a << 16) | ((b || 0) << 8) | (c || 0);
+      s += B64URL[(n >> 18) & 63] + B64URL[(n >> 12) & 63] + (b === undefined ? '' : B64URL[(n >> 6) & 63]) + (c === undefined ? '' : B64URL[n & 63]);
+    }
+    return s;
+  }
+  /** base64url or base64 ('+' '/' and trailing '=' accepted, whitespace ignored) → Uint8Array; THROWS on an invalid character. */
+  function b64urlDecodeBytes(str) {
+    const clean = String(str === undefined || str === null ? '' : str).replace(/\s+/g, '').replace(/=+$/, '');
+    const out = [];
+    let buf = 0, bits = 0;
+    for (let i = 0; i < clean.length; i++) {
+      const v = B64MAP[clean[i]];
+      if (v === undefined) throw new Error('bad base64url');
+      buf = ((buf << 6) | v) & 0xffffff; bits += 6;
+      if (bits >= 8) { bits -= 8; out.push((buf >> bits) & 255); }
+    }
+    return new Uint8Array(out);
+  }
+  /** string → base64url of its UTF-8 bytes (no padding). */
+  function b64url(str) { return b64urlBytes(utf8Encode(str)); }
+  /** base64url (or base64) → string via UTF-8; THROWS on an invalid character (94 wraps it to return null). */
+  function b64urlDecode(str) { return utf8Decode(b64urlDecodeBytes(str)); }
+
   // ------------------------------------------------------------------ self test
   UT.core = {
+    utf8Encode, utf8Decode, b64url, b64urlDecode, b64urlBytes, b64urlDecodeBytes,
     __selftest() {
       const f = [];
+      const s0 = 'h\u00e9llo \uc2e4\uae30 {"a":1} \ud83d\ude00';
+      if (b64urlDecode(b64url(s0)) !== s0) f.push('base64url round trip');
+      if (b64url('ab') !== 'YWI' || b64url('abc') !== 'YWJj' || b64urlDecode('YWI=') !== 'ab') f.push('base64url ' + b64url('ab'));
+      const all = new Uint8Array(256); for (let i = 0; i < 256; i++) all[i] = i;
+      const enc = b64urlBytes(all), dec = b64urlDecodeBytes(enc);
+      let same = dec.length === 256 && !/[+/=]/.test(enc); for (let i = 0; i < 256 && same; i++) same = dec[i] === i;
+      if (!same) f.push('b64urlBytes round trip');
+      let bad = false; try { b64urlDecode('***'); } catch (e) { bad = true; }
+      if (!bad) f.push('b64urlDecode accepts junk');
       const a = math.snellAngle(47.1, 2.74, 3.24);
       if (Math.abs(a - 60) > 0.2) f.push('snell 47.1->60 got ' + a);
       if (math.snellAngle(80, 2.74, 5.9) !== null) f.push('critical angle not detected');
