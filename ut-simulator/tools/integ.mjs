@@ -77,7 +77,7 @@ for (const p of paths) {
 }
 await shot('after-menus');
 // back to defaults
-await ev(() => { UT.test.enterMode('weld'); UT.setIn('probe', { method: 'pe', angle: 60, mode: 'shear', crystal: 'single', freq: 5, diameter: 10 }); UT.setIn('display', { colourCode: 'none', singleLine: false, focus: false, skips: 3, units: 'mm', plan: true }); UT.setIn('damping', { tool: false, points: [] }); UT.set({ utSet: 'epoch600' }); UT.app.applyLayout(); });
+await ev(() => { UT.test.enterMode('weld'); UT.setIn('probe', { method: 'pe', angle: 60, mode: 'shear', crystal: 'single', freq: 5, diameter: 10 }); UT.setIn('display', { colourCode: 'none', singleLine: false, focus: false, skips: 3, units: 'mm', plan: true }); UT.setIn('damping', { tool: false, points: [] }); if (UT.app.closeTour) UT.app.closeTour(); /* Help ▸ Quick tour leaves its modal #tour overlay up */ UT.set({ utSet: 'epoch600' }); UT.app.applyLayout(); });
 log('mode after menus', await ev(() => UT.state.mode), 'utSet', await ev(() => UT.state.utSet));
 expect(!(await ev(() => UT.state.damping && UT.state.damping.tool)), 'finger damping tool is off after the menu loop reset');
 // Korean then back
@@ -115,6 +115,9 @@ log('data-win names', await ev(() => Array.from(document.querySelectorAll('.win'
   expect(!(await ev(() => UT.state.damping && UT.state.damping.tool)), 'finger damping tool off before the drag section');
   const c = await ev(() => { const b = document.getElementById('cv-cross').getBoundingClientRect(); const p = UT.views.cross.toPx(UT.state.probe.x, -5); return { left: b.left, top: b.top, px: p.x, py: p.y }; });
   const x0 = await ev(() => UT.state.probe.x);
+  // the press point must reach the canvas itself (no window / tour overlay left over the cross-section)
+  const atPress = await ev(pt => { const e = document.elementFromPoint(pt[0], pt[1]); return e ? e.tagName + (e.id ? '#' + e.id : '') : 'none'; }, [c.left + c.px * ks, c.top + c.py * ks]);
+  expect(atPress === 'CANVAS#cv-cross', `press point on the cross-section canvas is uncovered (elementFromPoint = ${atPress})`);
   await page.mouse.move(c.left + c.px * ks, c.top + c.py * ks);
   await page.mouse.down();
   await page.mouse.move(c.left + (c.px + 80) * ks, c.top + c.py * ks, { steps: 8 });
