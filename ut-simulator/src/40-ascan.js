@@ -907,6 +907,12 @@
     return e ? e.id : next.libId;
   }
 
+  /**
+   * UT.test.setProbe (SPEC §11): patch the probe (libId, angle, mode, x/z, skew, side, freq, diameter/crystalDims,
+   * wedgeVel, PA sweep, focus, enums) with coercion/clamping, then re-render.
+   * @param {object} p partial probe patch
+   * @returns {object} clone of the re-derived probe (frame.derived)
+   */
   function testSetProbe(p) {
     const cur = UT.state.probe;
     const q = isObj(p) ? p : {};
@@ -957,6 +963,12 @@
     });
   }
 
+  /**
+   * UT.test.setInstrument (SPEC §11 / SPEC-v2 §7): patch the instrument (gain, range, delay, reject, rectify, gates,
+   * cal, trig, DAC, TCG, pulser, receiver, AUTO %, compare snapshot, page/readout) with coercion, then re-render.
+   * @param {object} p partial instrument patch
+   * @returns {object} clone of the instrument state (compare snapshot omitted)
+   */
   function testSetInstrument(p) {
     const cur = UT.state.instrument;
     const patch = {};
@@ -1030,6 +1042,11 @@
     return UT.clone(Object.assign({}, UT.state.instrument, { compare: undefined }));
   }
 
+  /**
+   * UT.test.setDampers: set the damper x positions (≤ 3 finite numbers) and re-render.
+   * @param {number[]} xs damper positions (mm)
+   * @returns {number[]} the accepted positions
+   */
   function testSetDampers(xs) {
     const pts = (Array.isArray(xs) ? xs : []).map(function (v) { return +v; }).filter(Number.isFinite).slice(0, 3);
     UT.setIn('damping', { points: pts });
@@ -1037,6 +1054,11 @@
     return pts.slice();
   }
 
+  /**
+   * UT.test.setPhysics: patch the physics toggles (modeConv, surfaceWave, sideLobes, fanRays 21|41) and re-render.
+   * @param {object} p partial physics patch
+   * @returns {object} clone of state.physics
+   */
   function testSetPhysics(p) {
     const cur = UT.state.physics || { modeConv: true, surfaceWave: true, sideLobes: true, fanRays: 41 };
     const q = isObj(p) ? p : {};
@@ -1048,6 +1070,11 @@
     return UT.clone(UT.state.physics);
   }
 
+  /**
+   * UT.test.setFocus: coerce a focus patch against the current probe/specimen and re-render.
+   * @param {object} p focus patch ({on, F} — F in mm, clamped to 10…150 and to the near field)
+   * @returns {object} clone of probe.focus
+   */
   function testSetFocus(p) {
     const probe = UT.state.probe;
     const q = isObj(p) ? p : {};
@@ -1057,6 +1084,11 @@
     return UT.clone(UT.state.probe.focus);
   }
 
+  /**
+   * UT.test.selectProbe: select a probe-library entry by id and re-render.
+   * @param {string} libId library entry id
+   * @returns {object|null} clone of the re-derived probe, or null when the id is unknown
+   */
   function testSelectProbe(libId) {
     if (!(UT.probe && typeof UT.probe.select === 'function')) return null;
     const sel = UT.probe.select(libId);
@@ -1066,6 +1098,10 @@
     return UT.clone(frame.derived);
   }
 
+  /**
+   * UT.test.echoes: plain-object copies of the current frame's echo list (path, ampPct, kind, leg, x/y, defectId, tag, tUs, mode, lenMm).
+   * @returns {object[]} echoes of UT.frame
+   */
   function testEchoes() {
     return (UT.frame.echoes || []).map(function (e) {
       return { path: e.path, ampPct: e.ampPct, amp: e.amp, kind: e.kind, leg: e.leg, x: e.x, y: e.y, defectId: e.defectId === undefined ? null : e.defectId, tag: e.tag || null, angleDev: e.angleDev === undefined ? null : e.angleDev,
@@ -1073,6 +1109,10 @@
     });
   }
 
+  /**
+   * UT.test.ascan: plain copy of the current A-scan trace (samples, range, delay, rf, peak, grassPct, initialPulse).
+   * @returns {object} A-scan snapshot (empty samples when no frame has been rendered)
+   */
   function testAscan() {
     const a = UT.frame.ascan;
     if (!a) return { samples: [], range: UT.state.instrument.range, delay: UT.state.instrument.delay };
@@ -1080,6 +1120,7 @@
   }
 
   // ------------------------------------------------------------------ self test (headless)
+  /** Headless self test of the A-scan synthesiser (time base, gain law, gates, DAC/TCG, pulser/receiver); returns a list of failures. */
   function __selftest() {
     const f = [];
     const derived = UT.probe.derive({ angle: 60, freq: 5, diameter: 10, wedgeVel: 2.74, side: 1, mode: 'shear' }, null);

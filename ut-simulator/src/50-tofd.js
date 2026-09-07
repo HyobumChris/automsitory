@@ -1031,9 +1031,11 @@
         ctx.fillRect(x0, 0, x1 - x0, DSCAN.h);
         ctx.strokeStyle = 'rgba(255,80,80,0.6)'; ctx.lineWidth = 1;
         for (let x = x0 - 8; x < x1; x += 6) { ctx.beginPath(); ctx.moveTo(x, DSCAN.h); ctx.lineTo(x + 8, DSCAN.h - 8); ctx.stroke(); }
-        // labels on staggered rows (the two bands are often only a few px apart)
+        // labels on staggered rows (the two bands are often only a few px apart); measured and kept
+        // inside the image area so the text is never cut by the clip at DSCAN.imgW
         ctx.fillStyle = '#ff9090'; ctx.font = '9px "Segoe UI", Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-        ctx.fillText(label, M.clamp(x0 + 2, 0, DSCAN.imgW - 44), DSCAN.h - 10 - 12 * row);
+        const tw = ctx.measureText(label).width;
+        ctx.fillText(label, M.clamp(x0 + 2, 0, Math.max(0, DSCAN.imgW - tw - 2)), DSCAN.h - 10 - 12 * row);
       };
       band(lateralWz, lateralWz + tau, t('LW dead {mm} mm', { mm: dz.lateral.toFixed(1) }), 1);
       band(backwallWz - tau, backwallWz, t('BW dead {mm} mm', { mm: dz.backwall.toFixed(1) }), 0);

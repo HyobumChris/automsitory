@@ -11,6 +11,12 @@ const report = [];
 const log = (...a) => { console.log(...a); report.push(a.join(' ')); };
 const errMark = (label, k) => { const e = errors.slice(k); if (e.length) log('!! errors during ' + label + ':\n   ' + e.join('\n   ')); };
 const ev = (fn, arg) => page.evaluate(fn, arg);
+// Assertions of the drive itself (drags must move the probe, …) are pushed into `errors` so a silently broken
+// scenario shows up in TOTAL ERRORS and in the exit code instead of passing as a mere log line.
+const expect = (cond, msg) => { if (!cond) { errors.push('ASSERT ' + msg); log('!! ASSERT FAILED: ' + msg); } return !!cond; };
+// v2 design-box scaling (SPEC-v2 §5.4): view.toPx() returns design px inside the 1280×760 #app box while
+// getBoundingClientRect() is in screen px — multiply design offsets by UT.dom.scale() before adding the rect origin.
+const scaleK = () => ev(() => (UT.dom && UT.dom.scale ? UT.dom.scale() : 1) || 1);
 
 log('booted; UT.test:', await ev(() => !!(window.UT && UT.test)), 'mode', await ev(() => UT.state.mode));
 await shot('boot');
@@ -71,8 +77,9 @@ for (const p of paths) {
 }
 await shot('after-menus');
 // back to defaults
-await ev(() => { UT.test.enterMode('weld'); UT.setIn('probe', { method: 'pe', angle: 60, mode: 'shear', crystal: 'single', freq: 5, diameter: 10 }); UT.setIn('display', { colourCode: 'none', singleLine: false, focus: false, skips: 3, units: 'mm', plan: true }); UT.set({ utSet: 'epoch600' }); UT.app.applyLayout(); });
+await ev(() => { UT.test.enterMode('weld'); UT.setIn('probe', { method: 'pe', angle: 60, mode: 'shear', crystal: 'single', freq: 5, diameter: 10 }); UT.setIn('display', { colourCode: 'none', singleLine: false, focus: false, skips: 3, units: 'mm', plan: true }); UT.setIn('damping', { tool: false, points: [] }); UT.set({ utSet: 'epoch600' }); UT.app.applyLayout(); });
 log('mode after menus', await ev(() => UT.state.mode), 'utSet', await ev(() => UT.state.utSet));
+expect(!(await ev(() => UT.state.damping && UT.state.damping.tool)), 'finger damping tool is off after the menu loop reset');
 // Korean then back
 { const k = errors.length; await ev(() => UT.test.menu('Options/Language/Korean (한국어)')); await page.waitForTimeout(80); await shot('korean'); await ev(() => UT.test.menu('Options/Language/English')); errMark('language', k); }
 
@@ -104,38 +111,46 @@ log('data-win names', await ev(() => Array.from(document.querySelectorAll('.win'
 // ---- probe drag on cross-section and plan
 {
   const k = errors.length;
+  const ks = await scaleK();   // design px → screen px factor (1 with display.scale 'fixed', ≈ 1.09 at 1400×900 'auto')
+  expect(!(await ev(() => UT.state.damping && UT.state.damping.tool)), 'finger damping tool off before the drag section');
   const c = await ev(() => { const b = document.getElementById('cv-cross').getBoundingClientRect(); const p = UT.views.cross.toPx(UT.state.probe.x, -5); return { left: b.left, top: b.top, px: p.x, py: p.y }; });
   const x0 = await ev(() => UT.state.probe.x);
-  await page.mouse.move(c.left + c.px, c.top + c.py);
+  await page.mouse.move(c.left + c.px * ks, c.top + c.py * ks);
   await page.mouse.down();
-  await page.mouse.move(c.left + c.px + 80, c.top + c.py, { steps: 8 });
+  await page.mouse.move(c.left + (c.px + 80) * ks, c.top + c.py * ks, { steps: 8 });
   await page.mouse.up();
   await page.waitForTimeout(100);
   const x1 = await ev(() => UT.state.probe.x);
-  log('cross drag: probe.x', x0, '→', x1);
+  log('cross drag: probe.x', x0, '→', x1, '(scale', ks.toFixed(3) + ')');
+  expect(x1 > x0 + 5, `cross drag moved the probe (+80 design px): ${x0} → ${x1}`);
   const pl = await ev(() => { const b = document.getElementById('cv-plan').getBoundingClientRect(); const p = UT.views.plan.toPx(UT.state.probe.x, UT.state.probe.z); return { left: b.left, top: b.top, px: p.x, py: p.y }; });
   const z0 = await ev(() => UT.state.probe.z);
-  await page.mouse.move(pl.left + pl.px, pl.top + pl.py);
+  await page.mouse.move(pl.left + pl.px * ks, pl.top + pl.py * ks);
   await page.mouse.down();
-  await page.mouse.move(pl.left + pl.px - 40, pl.top + pl.py + 40, { steps: 8 });
+  await page.mouse.move(pl.left + (pl.px - 40) * ks, pl.top + (pl.py + 40) * ks, { steps: 8 });
   await page.mouse.up();
   await page.waitForTimeout(100);
   const after = await ev(() => [UT.state.probe.x, UT.state.probe.z]);
   log('plan drag: (x,z)', x1, z0, '→', after.join(','));
+  expect(after[0] < x1 - 2 && after[1] > z0 + 2, `plan drag moved the probe (−40/+40 design px): ${x1},${z0} → ${after.join(',')}`);
   await shot('after-drag');
   // ruler click
-  const ru = await ev(() => { const b = document.getElementById('cv-ruler').getBoundingClientRect(); const p = UT.views.cross.toPx(60, 0); return { x: b.left + p.x, y: b.top + b.height / 2 }; });
-  await page.mouse.click(ru.x, ru.y);
+  const ru = await ev(() => { const b = document.getElementById('cv-ruler').getBoundingClientRect(); const p = UT.views.cross.toPx(60, 0); return { x: b.left, px: p.x, y: b.top + b.height / 2 }; });
+  await page.mouse.click(ru.x + ru.px * ks, ru.y);
   await page.waitForTimeout(80);
-  log('ruler click x=60 → probe.x', await ev(() => UT.state.probe.x));
-  // compass drag
-  const cp = await ev(() => { const b = document.getElementById('cv-plan').getBoundingClientRect(); return { l: b.left, t: b.top, w: b.width }; });
-  await page.mouse.move(cp.l + cp.w - 80, cp.t + 25);
+  const xr = await ev(() => UT.state.probe.x);
+  log('ruler click x=60 → probe.x', xr);
+  expect(Math.abs(xr - 60) <= 1, `ruler click at x = 60 mm sets probe.x ≈ 60 (got ${xr})`);
+  // compass drag: the dial sits 16 px inside the top-right corner of the plan field (design px, see 62-view-plan)
+  const cp = await ev(() => { const cv = document.getElementById('cv-plan'); const b = cv.getBoundingClientRect(); return { l: b.left, t: b.top, w: cv.clientWidth }; });
+  await page.mouse.move(cp.l + (cp.w - 80) * ks, cp.t + 25 * ks);
   await page.mouse.down();
-  await page.mouse.move(cp.l + cp.w - 30, cp.t + 60, { steps: 6 });
+  await page.mouse.move(cp.l + (cp.w - 30) * ks, cp.t + 60 * ks, { steps: 6 });
   await page.mouse.up();
   await page.waitForTimeout(80);
-  log('compass drag → skew', await ev(() => UT.state.probe.skew));
+  const skew = await ev(() => UT.state.probe.skew);
+  log('compass drag → skew', skew);
+  expect(skew !== 0, `compass drag changes the skew (got ${skew})`);
   await ev(() => UT.setIn('probe', { skew: 0 }));
   // wheel over cross → gain
   const g0 = await ev(() => UT.state.instrument.gain);
@@ -249,11 +264,13 @@ log('data-win names', await ev(() => Array.from(document.querySelectorAll('.win'
   const k = errors.length;
   await ev(() => { UT.test.loadSpecimen('plate-weld', { T: 20 }); UT.test.setDefects([]); UT.modes.defectEditor.open(); });
   await page.waitForTimeout(100);
-  const c = await ev(() => { const b = document.getElementById('cv-cross').getBoundingClientRect(); const p = UT.views.cross.toPx(0, 15); const q = UT.views.cross.toPx(0, 20); return { x0: b.left + p.x, y0: b.top + p.y, x1: b.left + q.x, y1: b.top + q.y }; });
-  await page.mouse.move(c.x0, c.y0); await page.mouse.down(); await page.mouse.move(c.x1, c.y1, { steps: 6 }); await page.mouse.up();
+  const ks = await scaleK();
+  const c = await ev(() => { const b = document.getElementById('cv-cross').getBoundingClientRect(); const p = UT.views.cross.toPx(0, 15); const q = UT.views.cross.toPx(0, 20); return { left: b.left, top: b.top, px0: p.x, py0: p.y, px1: q.x, py1: q.y }; });
+  await page.mouse.move(c.left + c.px0 * ks, c.top + c.py0 * ks); await page.mouse.down(); await page.mouse.move(c.left + c.px1 * ks, c.top + c.py1 * ks, { steps: 6 }); await page.mouse.up();
   await page.waitForTimeout(100);
   const d = await ev(() => UT.state.defects.map(x => ({ n: x.n, type: x.type, pts: x.pts.length, zFrom: x.zFrom, zTo: x.zTo })));
   log('brush → defects', JSON.stringify(d));
+  expect(d.length === 1 && d[0].pts >= 2, 'brush stroke on the cross-section creates one defect');
   await shot('defect-editor');
   await ev(() => UT.modes.defectEditor.close());
   errMark('defect editor', k);
@@ -317,3 +334,4 @@ await shot('final');
 log('TOTAL ERRORS', errors.length);
 if (errors.length) log(errors.join('\n'));
 await browser.close();
+process.exitCode = errors.length ? 1 : 0;
