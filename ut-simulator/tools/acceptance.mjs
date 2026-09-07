@@ -285,17 +285,25 @@ check('V1-8 root crack corner echo (60°)', 'v1', async ({ page }) => {
     UT.test.loadSpecimen('plate-weld', Object.assign({}, UT.defaultState().weldOpts, { T: 20 }));
     UT.test.setDefects([]); const d = UT.test.addPreset('rootCrack');
     UT.test.setProbe({ angle: 60, side: 1, x: 38 });
-    const pick40 = (E) => { let b = null; for (const e of E) if (e.kind === 'corner' && Math.abs(e.path - 40) <= 2 && (!b || e.ampPct > b.ampPct)) b = e; return b; };
-    const s2 = ACC.scanX(28, 48, 0.5, pick40);
-    UT.test.setProbe({ x: 38 }); const at38 = pick40(UT.test.echoes());
+    // SPEC §11.1 #8, default weld: pick the LOUDEST corner echo, without pre-filtering on path. A merged
+    // corner group may report either admissible representative (30-raytrace NOTE 22 "Corner walk") — the
+    // beam-axis member (T/cos60 = 40.0 at every stand-off) or the walking plane-wave member
+    // (a·sin60 + d·cos60 ≈ 43.8 at x = 38) — and the amplitude, which is the max over the group's members,
+    // is the same either way. A path-windowed picker would have hidden the walking reading from the scan.
+    const pickC = (E) => { let b = null; for (const e of E) if (e.kind === 'corner' && (!b || e.ampPct > b.ampPct)) b = e; return b; };
+    const s2 = ACC.scanX(28, 48, 0.5, pickC);
+    UT.test.setProbe({ x: 38 }); const at38 = pickC(UT.test.echoes());
     return { best: s.best && { x: s.best.x, path: s.best.v.path, amp: s.best.v.ampPct }, far: far.map(e => e ? e.ampPct : 0),
       ys: d ? d.pts.map(p => p.y) : null, best2: s2.best && { x: s2.best.x, path: s2.best.v.path, amp: s2.best.v.ampPct }, at38: at38 && { path: at38.path, amp: at38.ampPct } };
   });
   A.ok(!!r.best, 'corner echo (flat plate)');
   if (r.best) { A.near(r.best.path, 40, 1, 'corner path'); A.near(r.best.x, 34.6, 3, 'corner max x'); r.far.forEach((a, i) => A.ok(a === 0 || dB(a, r.best.amp) <= -20, `corner gone ±15 mm (${i}): ${a.toFixed(2)} vs ${r.best.amp.toFixed(1)}`)); }
   A.ok(r.ys && Math.min(...r.ys) === 17 && Math.max(...r.ys) === 21.5, 'default-weld preset spans y 17…21.5: ' + JSON.stringify(r.ys));
-  A.ok(!!r.best2 && !!r.at38, 'corner echo (default weld) at path ≈ 40');
-  if (r.best2 && r.at38) { A.near(r.at38.path, 40, 2, 'default-weld corner path at x 38'); A.ge(dB(r.at38.amp, r.best2.amp), -1, `corner at x 38 within 1 dB of the scan maximum (max ${r.best2.amp.toFixed(1)} % at x ${r.best2.x})`); }
+  A.ok(!!r.best2 && !!r.at38, 'corner echo (default weld) present across the scan and at x = 38');
+  if (r.best2 && r.at38) {
+    A.ok(r.at38.path >= 39 && r.at38.path <= 45, `default-weld corner path at x 38 in 39…45 (beam-axis 40.0 | walking ≈ 43.8): ${r.at38.path.toFixed(2)}`);
+    A.ge(dB(r.at38.amp, r.best2.amp), -1, `corner at x 38 within 1 dB of the scan maximum (max ${r.best2.amp.toFixed(1)} % at x ${r.best2.x})`);
+  }
   return A.result();
 });
 
@@ -750,6 +758,22 @@ check('V2-14 lessons: autoRun 1…25, manual lesson 3, progress flags', 'v2', as
     if (res.error) A.fail(`lesson ${n} autoRun threw ${res.error}`);
     else if (!(res.completed && res.failed && res.failed.length === 0)) A.fail(`lesson ${n}: completed ${res.completed}, failedSteps ${JSON.stringify(res.failed)}`);
     await page.evaluate(() => { try { UT.lessons.stop(); } catch (e) {} for (const k of Object.keys(UT.dom.wins)) { const w = UT.dom.wins[k]; if (w.isOpen() && k !== 'lessons') w.close(); } });
+  }
+  // lessons still run after a trade test: 84-trade proxies weldOpts/probe while a test is active and restores
+  // them on mode exit — a leaked proxy or an unrestored specimen used to break the later lessons (QA bug #2).
+  const afterTrade = await page.evaluate(async () => {
+    try {
+      UT.trade.configure({ difficulty: 'basic', timeLimitMin: 60 });
+      UT.trade.start(3);
+      const t20 = await UT.test.lessonAutoRun(20);
+      const t25 = await UT.test.lessonAutoRun(25);
+      return { t20: { completed: t20.completed, failed: t20.failedSteps }, t25: { completed: t25.completed, failed: t25.failedSteps } };
+    } catch (e) { return { error: String((e && e.message) || e) }; }
+  });
+  if (afterTrade.error) A.fail(`lessons after a trade test threw ${afterTrade.error}`);
+  else {
+    A.ok(afterTrade.t20.completed && afterTrade.t25.completed,
+      `lessons 20/25 after a trade test (20: ${afterTrade.t20.completed} ${JSON.stringify(afterTrade.t20.failed)}, 25: ${afterTrade.t25.completed} ${JSON.stringify(afterTrade.t25.failed)})`);
   }
   // manual lesson 3
   await page.evaluate(() => ACC.reset());

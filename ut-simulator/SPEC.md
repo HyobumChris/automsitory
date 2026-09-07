@@ -789,8 +789,15 @@ Instrument container id `instrument`. Floating windows have class `.win` and `da
 8. `plateWeld({T:20, rootHeight:0, capHeight:0})`, 60°, root crack preset (vertical planar at x=0,
    y=17..20): 'corner' echo at path = T/cos60 = 40 (±1) with probe at x ≈ T·tan60 = 34.6 (±3), gone
    (> 20 dB down) when the probe is ±15 mm away. With the default weld (rootHeight 1.5) the preset
-   spans y = T−3 … T+rootHeight and the 'corner' echo still appears at path ≈ 40 (±2, maximum near
-   x ≈ 38); additional weak 'tip'/'geometry' echoes near 44 mm are allowed.
+   spans y = T−3 … T+rootHeight and the crack forms its corner with the root bead (vertex y 20…21.5).
+   The 'corner' echo is then still the loudest `corner` of an x = 28…48 scan when the probe sits at
+   x = 38 (within 1 dB of the scan maximum), and its path there lies in 39…45 mm. That band admits
+   BOTH representatives a merged corner group may report (see `30-raytrace.js` NOTE 22 "Corner walk"):
+   the **beam-axis** member, which reads T/cos60 = 40.0 at every stand-off, and the **walking**
+   (plane-wave arrival) member, which reads a·sin60 + d·cos60 ≈ 43.8 at x = 38 for a vertex depth
+   d ≈ 21.5. Implementations may report either — the two conventions agree at the half-skip
+   x ≈ 34.6 (40.0 vs 40.7), which is where lesson L10 step 6 states the answer. Additional weak
+   'tip'/'geometry' echoes near 44 mm are allowed.
 9. LOF preset on the right fusion face (bevel 30°): the 60° beam is normal to the face in the SECOND
    leg — maximum with the probe at x ≈ x_f + (2T − y_f)·tan60 (≈ 60 mm for T 20, bevel 30, rootGap 2,
    rootFace 2, where (x_f, y_f) is the face midpoint); scan x = 45…70 for 60° and 35…60 for 45°:

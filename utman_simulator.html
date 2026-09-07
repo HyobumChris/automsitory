@@ -9567,7 +9567,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     close() { return panel.close(); },
     /** toggle() → the 'aut' window api or null — open when closed, close when open; @see panel.toggle(). */
     toggle() { return panel.toggle(); },
-    /** setTab(name) → boolean — select a panel tab ('strip' | 'map' | 'ascan' | 'setup'); false for an unknown name; @see panel.setTab(). */
+    /** setTab(name) → the selected tab id — select a panel tab ('chart' | 'strips' | 'map'); an unknown name leaves the current tab; @see panel.setTab(). */
     setTab(name) { return panel.setTab(name); },
     /** The 'aut' window api (null until first open()). */
     get window() { return panel.window; },
@@ -20074,7 +20074,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     loadSpecimen,
     setDefects,
     addPreset,
-    /** enterMode(name, opts) → boolean — enter a mode ('weld' | 'trade' | 'lessons' | 'tofd' | 'aut' | …); opts {keepProbe, silentUI}; @see enter(). */
+    /** enterMode(name, opts) → the mode's status hint — enter one of MODES ('weld' | 'v1' | 'v2' | 'step' | 'iow' | 'dac' | 'tky' | 'tofd' | 'aut' | 'trade' | 'lamination' | 'fbh'); THROWS on an unknown name; opts {keepProbe, silentUI}; @see enter(). */
     enterMode: enter,
     /** lessons() → string[] of lesson titles — 82-lessons overwrites this member with its own 25-title getter when it loads (SPEC-v2 §1 (3)). */
     lessons() { return modes.lessons.map(function (l) { return l.title; }); },
@@ -21690,7 +21690,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     lessonState() { const c = api.current(); const l = ls(); return { n: c.n, step: c.step, done: c.done, answers: UT.clone(l.answers || {}), progress: UT.clone(l.progress || {}) }; },
     /** lessonAnswer(value) → boolean — submit an answer to the current step (wrong answers bump progress[n].wrong); @see api.answer(). */
     lessonAnswer(value) { return api.answer(value); },
-    /** quiz = {start(seed), answer(value), answerAction(id), state() → {n, question, choices, score, done}, skip()} — the echo quiz (Help ▸ Echo quiz…); @see quiz. */
+    /** quiz = {start(seed), answer(value), answerAction(id), state() → {active, i, n, correct, wrong, times[], seed, difficulty, item}, skip()} — the echo quiz (Help ▸ Echo quiz…); @see quiz. */
     quiz: { start: quiz.start, answer: quiz.answer, answerAction: quiz.answerAction, state: quiz.state, skip: quiz.skip },
   });
 
