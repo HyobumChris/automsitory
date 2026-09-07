@@ -50,6 +50,10 @@
   //     was hit > 12° off its normal. A leg-2 normal-incidence return off a fusion face (bottom → face →
   //     bottom → probe) is otherwise labelled 'corner' by the literal rule; it is a plain 'defect' echo.
   //     Corner echoes report x,y of the defect hit and the leg of the first reflection of the pair.
+  //     QA round 3: the gate follows the probe angle down, min(12°, 90 − θ − 4°, floor 4°), so steep probes
+  //     keep their corner echo (an 80° beam meets a vertical crack at only 10° incidence and the fixed 12°
+  //     gate silently re-labelled the whole corner 'defect'); near-normal fusion-face returns (incidence
+  //     ≈ 0°) stay excluded at every angle.
   // 14. Raw echoes with max(amp, ampNoZ) < 1e-6 (−120 dB, < 1 % FSH even at 110 dB gain) are dropped
   //     before merging. An echo whose z-overlap Z is 0 (defect not under the probe's z) is KEPT with
   //     amp 0 when its ampNoZ is finite, so the AUT trace-once + zFactor() re-weighting (§15.11) can
@@ -106,7 +110,10 @@
   //     |angleDev|) among those within 1 dB of the max — the beam-centre path is what a real probe reads.
   //     With the literal max-path rule a 70° corner reflector read 57.4 instead of T/cos70 = 58.5 because
   //     D(path) rewards the −0.4° fan ray's shorter path more than w(δ) penalises it. Volumetric groups
-  //     keep their loudest scatterer point.
+  //     keep their loudest scatterer point. A corner pair keeps the MEAN path (out + back)/2 like every
+  //     other specular return: a monostatic set displays half the round trip, and for the right-angle pair
+  //     that is T/cosθ (40 mm for T 20 at 60°) — NOT the outgoing leg |E→V| to the vertex, which is the
+  //     shorter √(x² + T²) and was measured wrong by a QA round-3 proposal (see selftest o).
   // 23. Coverage symmetry of specular planar returns (kinds 'defect' with a planar type, 'lamination'):
   //     the merged amplitude is multiplied by Σ_members w(δ)² / Σ_window w(δ)², where the window is the
   //     fan interval of the same angular width centred on the strongest member's δ (clamped ≤ 1). A face
@@ -179,7 +186,9 @@
   //     (f/5)^1.5, accumulated over every travelled segment (out and back) with the segment's own mode:
   //     M = 10^(−Σ α·len/20); for un-converted echoes this is exactly v1's 10^(−α·2·path/20). Austenitic weld
   //     metal (opts.weldMaterial === 'austenitic') adds 0.15·(f/5) dB/mm one-way over UT.specimens.segmentInRegion
-  //     (diffuse captures inside a segment use the proportional share of that segment). opts.transferLossDb is a
+  //     (a diffuse capture inside a segment is charged the weld crossing of the SUB-segment up to the capture
+  //     point — QA round 3: the earlier proportional share segExtra·(u/L) under-charged a scatterer past the
+  //     weld by the crossing beyond it, 1.7 dB on the §3.2 tip geometry). opts.transferLossDb is a
   //     flat two-way loss on specimen.kind === 'weld' only, applied to every echo kind (incl. surface/modeconv).
   // 32. Every echo carries tUs (two-way metal time), lenMm (geometric one-way length: (out + back)/2 for specular
   //     returns, the one-way distance for diffuse scatterers) and mode (arriving mode 'S'|'L', 'R' for the
@@ -242,6 +251,18 @@
   //     4th backwall multiple of a 0° probe (leg k covers paths (k−1)·T…k·T); deeper legs capture holes only, like
   //     side-lobe and converted branches. Specular echoes (backwall multiples, lamination, corners) are unaffected.
   //     A 0° probe on the default plate with range 400 (42 legs) otherwise spends ~2× the budget in point sampling.
+  // 40. FBH shadow (QA round 3): a 'fbh' reflector segment is a small disc that covers only part of the beam, so
+  //     it must SHADOW — never consume — the rays that meet it (the point-source fan otherwise loses every
+  //     main-lobe ray to the specular bounce and the backwall under a ⌀6 FBH read −20 dB, ruining the DGS
+  //     backwall reference). Like the holes of NOTE 20 the ray passes through, with e scaled by
+  //     1 − c^1.5 where c = overlap(disc chord, beam band)/band width, band half-width D/2 + len·tanθ20 —
+  //     exponent 1.5 because the disc is bounded in BOTH beam dimensions (between the 1-D chord fraction of a
+  //     cylinder, exponent 1, and the 2-D area fraction of a point, exponent 2): ⌀2/3/4/6 at depth 30 shadow the
+  //     60 mm backwall by 0.4/0.7/1.1/2.2 dB. The 'fbh' echo of §3.8 is emitted AT the crossing from the specular
+  //     retro direction (same aperture/direction gates and amplitude law as the 2d return test, so the DGS law of
+  //     NOTE 35 is unchanged); the up-going crossing after the backwall bounce points the retro away from the
+  //     probe and emits nothing. Side-lobe/converted/TT/tandem rays only get the shadow. 'interface' reflectors
+  //     keep the specular v2 behaviour.
 
   const M = UT.math;
   const DEG = Math.PI / 180;
@@ -278,6 +299,7 @@
   const NOTCH_GAP = 12;       // SPEC NOTE 33
   const SURF_MAX_REFL = 4;
   const DAMPER_FACTOR = 0.01; // 0.1 each way (§3.3)
+  const FBH_SHADOW_EXP = 1.5; // exponent on the covered beam fraction of an FBH disc (SPEC NOTE 40)
   const TWIN_BOOST = 1.5;     // §3.5 twin-crystal angle probe near-surface boost (SPEC NOTE 38)
   const TWIN_NEAR = 15;       // mm: boosted below this path (SPEC NOTE 38)
   const TWIN_ROLL = 12;       // mm: full boost up to here, linear roll-off to TWIN_NEAR (SPEC NOTE 38)
@@ -682,7 +704,10 @@
             if (d > cap) continue;
             const lenMm = Math.max(0, len + u - (P.back || 0));
             const taper = Math.cos(Math.PI / 2 * d / cap);
-            const attP = 2 * (att + alpha * u + segExtra * (u / L));
+            // austenitic weld metal: charge the crossing of the SUB-segment up to the capture point, not a
+            // proportional share of the whole segment (SPEC NOTE 31, QA round 3); segExtra === 0 ⇒ the full
+            // segment crosses no weld, so neither does any sub-segment
+            const attP = 2 * (att + alpha * u + (segExtra > 0 ? weldExtraDb(C, px, py, px + dx * u, py + dy * u) : 0));
             const isConv = conv !== null;
             const key = P.vol ? (P.idx * 2 + (isConv ? 1 : 0)) * 64 + leg : 0;
             let cur = null;
@@ -778,6 +803,39 @@
           }
         }
 
+        // ---- FBH disc (SPEC NOTE 40): the disc covers only part of the beam, so it shadows — never
+        //      consumes — the rays that meet it. The 'fbh' echo of the specular retro direction is emitted
+        //      here (same gates and amplitude law as the return-to-probe test below), then the march
+        //      continues straight through with e scaled by the uncovered beam fraction.
+        if (best.type === 'reflector' && best.seg.fbhD > 0) {
+          const sg = best.seg;
+          if (!C.tt && !C.tandem && !conv) {
+            const nd0 = reflect(dx, dy, sg.nx, sg.ny);
+            if ((nd0.x * C.ss.normal.x + nd0.y * C.ss.normal.y) < 0) {
+              const cr = M.raySegment(hp.x + nd0.x * STEP_OFF, hp.y + nd0.y * STEP_OFF, nd0.x, nd0.y, C.segment.a.x, C.segment.a.y, C.segment.b.x, C.segment.b.y, EPS);
+              if (cr) {
+                const dE0 = M.dist(cr.x, cr.y, C.E.x, C.E.y);
+                const ra0 = C.diameter / 2 + (len + cr.t) * Math.sin(C.th6 * DEG);
+                const dev0 = M.angleBetween(nd0.x, nd0.y, -C.u0.x, -C.u0.y);
+                const tail0 = AP_TAIL * C.diameter;
+                if (dE0 < ra0 + tail0 && dev0 < C.devMax) {
+                  const wAp0 = dE0 <= ra0 ? 1 : Math.pow(Math.cos(Math.PI / 2 * (dE0 - ra0) / tail0), 2);
+                  echoes.push(makeEcho(C, { lenMm: (len + cr.t) / 2, tUs: tUs + cr.t / v, att: att + alpha * cr.t + weldExtraDb(C, hp.x, hp.y, cr.x, cr.y), mode, conv: null,
+                    kind: sg.kind, leg, x: hp.x, y: hp.y, w, wReturn: C.dirW(dev0) * wAp0, e, S: sg.S, dExp: sg.dExp, tag: sg.tag, label: sg.label, fbhD: sg.fbhD, angleDev: delta, zs, tw }));
+                }
+              }
+            }
+          }
+          const halfW = C.diameter / 2 + len * tan20;
+          const pA = (sg.ax - px) * dy - (sg.ay - py) * dx;
+          const pB = (sg.ax + sg.ex - px) * dy - (sg.ay + sg.ey - py) * dx;
+          const ovF = M.overlap(Math.min(pA, pB), Math.max(pA, pB), -halfW, halfW);
+          if (ovF > 0) e *= Math.max(0, 1 - Math.pow(Math.min(1, ovF / (2 * halfW)), FBH_SHADOW_EXP));
+          pos = { x: hp.x + dx * STEP_OFF, y: hp.y + dy * STEP_OFF };
+          slotPending = false;
+          continue;
+        }
+
         // ---- reflect
         let nd;
         const retro = slotPending && best.type === 'outline' && best.tag === 'top' && M.dist(hp.x, hp.y, C.E.x, C.E.y) <= 1.0;
@@ -823,7 +881,7 @@
             sawDefect = true;
             fromTag = 'defect';
           }
-          hist.push({ type: best.type, tag: best.tag, x: hp.x, y: hp.y, seg: best.seg, leg: legAtHit, inc: incDeg });
+          hist.push({ type: best.type, tag: best.tag, x: hp.x, y: hp.y, nx: best.nx, ny: best.ny, seg: best.seg, leg: legAtHit, inc: incDeg });
 
           // ---- mode conversion (SPEC NOTE 30)
           if (canConvert && best.type !== 'perspex' && incDeg > 0.05) {
@@ -884,7 +942,7 @@
               const dRx = M.dist(cross.x, cross.y, C.rx.x, C.rx.y);
               const dev = M.angleBetween(dir.x, dir.y, C.rxDir.x, C.rxDir.y);
               if (sawDefect && sawBottom && dRx <= C.diameter / 2 && dev < C.devMax) {
-                const info = returnInfo(hist);
+                const info = returnInfo(hist, C.cornerMinInc);
                 if (info.kind === 'defect' || info.kind === 'corner' || info.kind === 'lamination') {
                   const back = alpha * cross.t + weldExtraDb(C, pos.x, pos.y, cross.x, cross.y);
                   echoes.push(makeEcho(C, { lenMm: (len + cross.t) / 2, tUs: tUs + cross.t / v, att: att + back, mode, conv: conv ? conv.first : null, kind: conv ? 'modeconv' : 'defect', leg: info.leg, x: info.x, y: info.y, w, wReturn: C.dirW(dev) * (conv && mode !== C.probeMode ? 0.5 : 1), e, S: info.S, dExp: info.dExp, defect: info.defect, tag: 'tandem', angleDev: delta, zs, tw }));
@@ -898,7 +956,7 @@
               if (dE < ra + tail && dev < C.devMax) {
                 // full weight inside ra, cos² taper to 0 over the next AP_TAIL·D (SPEC NOTE 18)
                 const wAp = dE <= ra ? 1 : Math.pow(Math.cos(Math.PI / 2 * (dE - ra) / tail), 2);
-                const info = returnInfo(hist);
+                const info = returnInfo(hist, C.cornerMinInc);
                 const back = alpha * cross.t + weldExtraDb(C, pos.x, pos.y, cross.x, cross.y);
                 echoes.push(makeEcho(C, { lenMm: (len + cross.t) / 2, tUs: tUs + cross.t / v, att: att + back, mode, conv: conv ? conv.first : null, kind: conv ? 'modeconv' : info.kind, leg: info.leg, x: info.x, y: info.y, w, wReturn: C.dirW(dev) * wAp * (conv && mode !== C.probeMode ? 0.5 : 1), e, S: info.S, dExp: info.dExp, defect: info.defect, tag: info.tag, label: info.label, fbhD: info.fbhD, angleDev: delta, zs, tw }));
                 if (C.retroSlot && dE <= 1.0 && !conv) slotPending = true;
@@ -961,15 +1019,19 @@
    * Corner rule (§6.1 2d): the last two reflections are one outline edge/arc and one planar defect
    * segment, in either order, AND the defect was not hit at near-normal incidence (a leg-2 normal
    * return off a fusion face is a plain 'defect' echo even though the bottom precedes/follows it).
+   * `minInc` = incidence gate in deg (SPEC NOTE 13; default CORNER_MIN_INC).
    */
-  function returnInfo(hist) {
+  function returnInfo(hist, minInc) {
     const last = hist[hist.length - 1];
     const prev = hist.length > 1 ? hist[hist.length - 2] : null;
     if (prev && ((last.type === 'outline' && prev.type === 'defect') || (last.type === 'defect' && prev.type === 'outline'))) {
       const dref = last.type === 'defect' ? last : prev;
+      const oref = last.type === 'outline' ? last : prev;
       const seg = dref.seg;
       if (seg.kind !== 'lamination') {
-        if (dref.inc > CORNER_MIN_INC) return { kind: 'corner', S: seg.S, dExp: 1.5, defect: seg.defect, tag: last.type === 'outline' ? last.tag : prev.tag, x: dref.x, y: dref.y, leg: Math.min(last.leg, prev.leg) };
+        if (dref.inc > (minInc === undefined ? CORNER_MIN_INC : minInc)) {
+          return { kind: 'corner', S: seg.S, dExp: 1.5, defect: seg.defect, tag: oref.tag, x: dref.x, y: dref.y, leg: Math.min(last.leg, prev.leg) };
+        }
         return { kind: 'defect', S: seg.S, dExp: 1.5, defect: seg.defect, tag: seg.defect.type, x: dref.x, y: dref.y, leg: dref.leg };
       }
     }
@@ -1375,6 +1437,9 @@
       transferLin: Math.pow(10, -transferDb / 20),
       modeConv, sideLobes, surfaceWave: surfOn, dirW,
       devMax: Math.max(2 * (derived.halfAngle20dB || 4), fanMaxA),
+      // corner incidence gate follows the probe angle down so steep probes keep their corner echo
+      // (80°: face incidence 10°); near-normal fusion-face returns stay 'defect' (SPEC NOTE 13, QA round 3)
+      cornerMinInc: Math.min(CORNER_MIN_INC, Math.max(4, 90 - theta - 4)),
       Gf: focusOn ? function (len) { const g = Math.min(N / F, 3) - 1; const r = (len - F) / (0.25 * F); return 1 + g * Math.exp(-r * r); } : function () { return 1; },
       F, focusCapScale: function (len) { return FOCUS_CAPTURE + (1 - FOCUS_CAPTURE) * Math.min(1, Math.abs(len - F) / F); },   // SPEC NOTE 34
       twin, nearBoost: twin ? function (len) { return len >= TWIN_NEAR ? 1 : 1 + (TWIN_BOOST - 1) * M.clamp((TWIN_NEAR - len) / (TWIN_NEAR - TWIN_ROLL), 0, 1); } : function () { return 1; },

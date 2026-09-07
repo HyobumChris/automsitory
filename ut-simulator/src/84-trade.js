@@ -57,6 +57,18 @@
 // - HTML report strings are escaped with a local esc(); report() never reads the truth while the exam is locked.
 // - Practice runs in mode 'trade' (trade.active = true, trade.practice = true) without a timer; the practice window
 //   opens the trade window for the report rows.
+// - QA3 #1: submit() of a locked exam that already holds a result returns the STORED score (§4.2.3: one submission
+//   per attempt — re-scoring while the exam stays active/locked was a z-sweep score oracle); the trade window greys
+//   Submit / Row+ / Take from readout meanwhile.
+// - QA3 #2: a 'state' event that writes weldOpts/material from OUTSIDE this module (a lesson baseline, a scenario,
+//   the Weld dialog, applyProcedure) drops the preTrade snapshot, so the mode-exit restore can never clobber a
+//   specimen another module just built (§4.1: lessons must pass regardless of what a trade test left behind).
+// - QA3 #3: basic and intermediate draws replace every non-recordable non-tiny defect from the SAME rng (bounded
+//   retries, later passes avoid the toe-crack geometry) until recordability() accepts it — the difficulty table
+//   promises findable defects there; advanced keeps its sub-recordable tiny porosity/slag by design (V2-15d).
+// - QA3 #4/#5/#6: timer announcements skip thresholds ≥ the configured limit; the report's reference level and
+//   calibration block follow the applied procedure/rule (refReflector/refBlock, fallback '3 mm SDH'/'none
+//   recorded'); a practice hint with nothing left to reveal costs nothing.
 (function (UT) {
   'use strict';
   const M = UT.math;
@@ -113,6 +125,7 @@
   let usedProbes = {};             // probes seen during the test (report)
   let lastCovKey = '';
   let preTrade = null;             // {weldOpts, material} before the first seeded draw; restored when mode 'trade' is left
+  let selfSet = false;             // true while THIS module writes weldOpts/material (QA3 #2: external writes drop preTrade)
   const ui = {};                   // live DOM refs of the trade window
   const pui = {};                  // practice window refs
   const sui = {};                  // scoreboard refs
@@ -246,12 +259,56 @@
     return S.makeDefect({ n: o.n, type: 'slag', label: 'Slag inclusion', pts, height: h, zFrom: o.zFrom, length: o.length, reflectivity: 0.8 });
   }
   /**
+   * Draw ONE defect for slot i of a plan entry p = {key, trap?, tiny?, boost?} — extracted from drawDefects so a
+   * non-recordable draw can be replaced from the same rng (QA3 #3, ensureRecordable). rng consumption is identical
+   * to the original inline body when p.boost is absent; p.boost (mm) only raises a crack height on forced redraws.
+   */
+  function makeOne(rng, spec, difficulty, p, i, slotLen) {
+    const D = DIFF[difficulty] || DIFF.intermediate;
+    const T = spec.T, L = spec.L;
+    const key = p.key;
+    const length = Math.round(D.len[0] + rng() * (D.len[1] - D.len[0]));
+    const zFrom = Math.round(M.clamp(i * slotLen + 3 + rng() * Math.max(1, slotLen - length - 6), 0, Math.max(0, L - length)));
+    const o = { n: i + 1, zFrom, length, label: 'Defect ' + (i + 1) };
+    let d = null;
+    if (key === 'rootCrack') { o.height = r1((p.boost || 0) + D.minH + rng() * (difficulty === 'basic' ? 2 : 3)); }
+    else if (key === 'centrelineCrack') { o.height = r1((p.boost || 0) + D.minH + rng() * 4); }
+    else if (key === 'toeCrack') { o.side = rng() < 0.5 ? -1 : 1; o.height = r1(D.minH + rng() * 2); }
+    else if (key === 'lof') {
+      o.side = rng() < 0.5 ? -1 : 1;
+      if (!p.trap) {
+        const full = S.defectPresets.lof(spec, { side: o.side, t0: 0.001, t1: 0.999 });
+        const faceH = Math.max(1, S.bbox(full.pts).h);
+        const span = M.clamp((D.minH + 0.5) / faceH, 0.25, 0.7);
+        o.t0 = r1(0.15 + rng() * Math.max(0.01, 0.85 - span - 0.15)); o.t1 = r1(Math.min(0.99, o.t0 + span));
+      } else o.label = 'Lack of side-wall fusion (inclined)';
+    } else if (key === 'porosity') {
+      o.dia = p.tiny ? r1(1 + rng()) : r1(Math.max(D.minH, 2) + rng() * (difficulty === 'basic' ? 2 : 3));
+      o.x = Math.round((rng() - 0.5) * 6); o.y = r1(T * (0.3 + rng() * 0.4));
+    } else if (key === 'slag') {
+      const h = p.tiny ? r1(1 + rng()) : r1(D.minH + rng() * 2);
+      const w = p.tiny ? r1(2 + rng()) : r1(4 + rng() * 4);
+      d = slagDefect(spec, { n: o.n, x: Math.round((rng() - 0.5) * 6), y: r1(T * (0.3 + rng() * 0.4)), w, h, zFrom, length });
+    }
+    if (!d) d = S.defectPresets[key](spec, o);
+    d.n = i + 1; d.label = p.trap ? 'Defect ' + (i + 1) + ' (inclined LOF)' : 'Defect ' + (i + 1); d.id = 1000 + i;
+    d.zFrom = zFrom; d.zTo = zFrom + length;
+    return d;
+  }
+  /** Truth row of a drawn defect (plan entry p carries the tiny/trap flags). */
+  function truthRow(d, p) {
+    const b = S.bbox(d.pts);
+    const side = b.cx > 0.5 ? 1 : (b.cx < -0.5 ? -1 : 0);
+    return { n: d.n, zFrom: r1(d.zFrom), zTo: r1(d.zTo), length: r1(d.zTo - d.zFrom), depth: r1(b.yMin), yMin: r1(b.yMin), yMax: r1(b.yMax),
+      height: r1(d.height), type: d.type, x: r1(b.cx), side, recordable: true, bestDb: null, tiny: !!(p && p.tiny), trap: !!(p && p.trap) };
+  }
+  /**
    * Draw the hidden defects for a difficulty from a seeded rng (pure apart from the rng).
    * @returns {{defects: object[], truth: object[]}}
    */
   function drawDefects(rng, spec, difficulty) {
     const D = DIFF[difficulty] || DIFF.intermediate;
-    const T = spec.T, L = spec.L;
+    const L = spec.L;
     const count = D.count[0] + Math.floor(rng() * (D.count[1] - D.count[0] + 1));
     const pool = difficulty === 'basic' ? ['rootCrack', 'centrelineCrack', 'lof', 'porosity', 'toeCrack'] : ['rootCrack', 'centrelineCrack', 'lof', 'porosity', 'toeCrack', 'slag', 'incompletePenetration'];
     const nTiny = D.tiny ? 1 + Math.floor(rng() * 2) : 0;
@@ -262,44 +319,36 @@
       plan.push({ key: pool[Math.floor(rng() * pool.length)] });
     }
     const slotLen = L / count;
-    const defects = [];
-    plan.forEach(function (p, i) {
-      const key = p.key;
-      const length = Math.round(D.len[0] + rng() * (D.len[1] - D.len[0]));
-      const zFrom = Math.round(M.clamp(i * slotLen + 3 + rng() * Math.max(1, slotLen - length - 6), 0, Math.max(0, L - length)));
-      const o = { n: i + 1, zFrom, length, label: 'Defect ' + (i + 1) };
-      let d = null;
-      if (key === 'rootCrack') { o.height = r1(D.minH + rng() * (difficulty === 'basic' ? 2 : 3)); }
-      else if (key === 'centrelineCrack') { o.height = r1(D.minH + rng() * 4); }
-      else if (key === 'toeCrack') { o.side = rng() < 0.5 ? -1 : 1; o.height = r1(D.minH + rng() * 2); }
-      else if (key === 'lof') {
-        o.side = rng() < 0.5 ? -1 : 1;
-        if (!p.trap) {
-          const full = S.defectPresets.lof(spec, { side: o.side, t0: 0.001, t1: 0.999 });
-          const faceH = Math.max(1, S.bbox(full.pts).h);
-          const span = M.clamp((D.minH + 0.5) / faceH, 0.25, 0.7);
-          o.t0 = r1(0.15 + rng() * Math.max(0.01, 0.85 - span - 0.15)); o.t1 = r1(Math.min(0.99, o.t0 + span));
-        } else o.label = 'Lack of side-wall fusion (inclined)';
-      } else if (key === 'porosity') {
-        o.dia = p.tiny ? r1(1 + rng()) : r1(Math.max(D.minH, 2) + rng() * (difficulty === 'basic' ? 2 : 3));
-        o.x = Math.round((rng() - 0.5) * 6); o.y = r1(T * (0.3 + rng() * 0.4));
-      } else if (key === 'slag') {
-        const h = p.tiny ? r1(1 + rng()) : r1(D.minH + rng() * 2);
-        const w = p.tiny ? r1(2 + rng()) : r1(4 + rng() * 4);
-        d = slagDefect(spec, { n: o.n, x: Math.round((rng() - 0.5) * 6), y: r1(T * (0.3 + rng() * 0.4)), w, h, zFrom, length });
-      }
-      if (!d) d = S.defectPresets[key](spec, o);
-      d.n = i + 1; d.label = p.trap ? 'Defect ' + (i + 1) + ' (inclined LOF)' : 'Defect ' + (i + 1); d.id = 1000 + i;
-      d.zFrom = zFrom; d.zTo = zFrom + length;
-      defects.push(d);
-    });
-    const truth = defects.map(function (d, i) {
-      const b = S.bbox(d.pts);
-      const side = b.cx > 0.5 ? 1 : (b.cx < -0.5 ? -1 : 0);
-      return { n: d.n, zFrom: r1(d.zFrom), zTo: r1(d.zTo), length: r1(d.zTo - d.zFrom), depth: r1(b.yMin), yMin: r1(b.yMin), yMax: r1(b.yMax),
-        height: r1(d.height), type: d.type, x: r1(b.cx), side, recordable: true, bestDb: null, tiny: !!plan[i].tiny, trap: !!plan[i].trap };
-    });
+    const defects = plan.map(function (p, i) { return makeOne(rng, spec, difficulty, p, i, slotLen); });
+    const truth = defects.map(function (d, i) { return truthRow(d, plan[i]); });
     return { defects, truth };
+  }
+  /**
+   * §4.2 difficulty table (QA3 #3): basic promises 3 findable defects (planar height ≥ 4 mm) and intermediate
+   * defects sized ≥ 2 mm — the recordability filter is meant for advanced's tiny porosity/slag, not for half of the
+   * basic tests. Replace every non-recordable non-tiny draw (in practice toe cracks whose best traced echo stays
+   * below −14 dB) from the SAME rng, so the truth stays deterministic per seed: two passes redraw from the pool
+   * without the toe-crack geometry, later passes force a well-detected centreline crack (+2 mm height). Advanced is
+   * left alone (sub-recordable tiny defects are by design — V2-15d relies on them).
+   */
+  function ensureRecordable(rng, spec, difficulty, g) {
+    if (difficulty !== 'basic' && difficulty !== 'intermediate') return;
+    if (!(has('rays.trace') && has('ascan.ampPctOf') && has('probe.derive'))) return;
+    const pool = difficulty === 'basic' ? ['rootCrack', 'centrelineCrack', 'lof', 'porosity']
+      : ['rootCrack', 'centrelineCrack', 'lof', 'porosity', 'slag', 'incompletePenetration'];
+    const slotLen = spec.L / Math.max(1, g.defects.length);
+    for (let retry = 0; retry < 4; retry++) {
+      const bad = [];
+      g.truth.forEach(function (q, i) { if (q.recordable === false && !q.tiny) bad.push(i); });
+      if (!bad.length) return;
+      bad.forEach(function (i) {
+        const p = retry < 2 ? { key: pool[Math.floor(rng() * pool.length)] } : { key: 'centrelineCrack', boost: 2 };
+        const d = makeOne(rng, spec, difficulty, p, i, slotLen);
+        g.defects[i] = d;
+        g.truth[i] = truthRow(d, p);
+      });
+      recordability(g.truth, g.defects, spec);
+    }
   }
 
   // ------------------------------------------------------------------ recordability filter
@@ -563,6 +612,10 @@
   function startTimer() {
     stopTimer();
     announced = {};
+    // QA3 #4: an announcement fires when the remaining time CROSSES a threshold from above — thresholds at or above
+    // the configured limit can never be crossed (a 3 min test must not announce '10/5 minutes left' on its first tick)
+    const lim = timeLimitOf() * 60;
+    for (const th of [600, 300, 60]) if (th >= lim) announced[th] = true;
     if (typeof setInterval !== 'function' || typeof document === 'undefined') return;
     timer = setInterval(timerCb, 1000);
   }
@@ -658,7 +711,8 @@
       // keep the user's weld specimen for the return from mode 'trade' (v1: trade keeps the weld specimen)
       if (!preTrade) preTrade = { weldOpts: Object.assign({}, s0.weldOpts), material: s0.material };
       const draw = drawSpecimen(rng, difficulty, s0.weldOpts, procedureSpecimen());
-      UT.set({ weldOpts: draw.weldOpts, material: draw.material }, { noRender: true });
+      selfSet = true;
+      try { UT.set({ weldOpts: draw.weldOpts, material: draw.material }, { noRender: true }); } finally { selfSet = false; }
     }
     if (has('modes.enter')) UT.modes.enter('trade', { keepProbe: true, silentUI: true });
     else if (!st().specimen) UT.set({ specimen: S.plateWeld(st().weldOpts) }, { noRender: true });
@@ -666,6 +720,7 @@
     const spec = s.specimen;
     const g = drawDefects(rng, spec, difficulty);
     recordability(g.truth, g.defects, spec);
+    ensureRecordable(rng, spec, difficulty, g);
     covReset(spec);
     usedProbes = {};
     const display = Object.assign({}, s.display, { hide: true });
@@ -714,6 +769,13 @@
     const s = st();
     const tr = s.trade;
     if (!tr.active || s.mode !== 'trade') return 0;
+    // QA3 #1 (§4.2.3): ONE submission per exam attempt. A locked exam keeps trade.active after Submit (the truth
+    // must not reach localStorage), but the exam is over — re-scoring fresh rows would be a z-sweep score oracle
+    // (probe a row, read the score, resubmit the hits). Return the stored score; no new token or history entry.
+    if (locked(tr) && tr.result && tr.score !== null && tr.score !== undefined) {
+      announce(t('Report already submitted — the exam is over'));
+      return tr.score;
+    }
     const list = rows === undefined ? rowsFromUi() : rows;
     const spec = s.specimen || {};
     const difficulty = diffOf(tr);   // captured at start; a locked exam's descriptor fixes it (§4.2.3)
@@ -858,8 +920,17 @@
     const specTxt = (UT.i18n && UT.i18n.lang === 'ko' && mat.nameKo ? mat.nameKo : (mat.name || s.material || 'carbon')) + ' · ' + esc(spec.prep || (spec.weld && spec.weld.prep) || '—') + ' · ' +
       (spec.pipe ? 'OD ' + spec.pipe.od + ' mm / WT ' + spec.pipe.wt + ' mm' : 'T ' + (spec.T || '—') + ' mm') + ' · ' + L('datum: z 0 mark') + ' · ' + L('surfaces A (side +) / B (side −)');
     const dac = inst.dac || {};
-    const calTxt = Array.isArray(dac.points) && dac.points.length >= 2 ? L('DAC block ({n} points, T {T} mm)', { n: dac.points.length, T: s.weldOpts.T }) : L('none recorded');
-    const refTxt = (Number.isFinite(dac.refDb) ? dac.refDb : inst.refGain) + ' dB · ' + L('3 mm SDH');
+    // QA3 #5 (§4.2.2): reference reflector / calibration block follow the procedure or rule set in force
+    // (AWS: 1.5 mm IIW hole, ASME: 2.4 mm SDH, …); '3 mm SDH' / 'none recorded' only without one.
+    const procs = has('standards.procedures');
+    const proc = procs ? procs[std.procedure || cfg.procedureId || ''] : null;
+    const ruleMap = has('standards.rules');
+    const rule = ruleMap && std.standard ? ruleMap[std.standard] : null;
+    const reflector = (proc && proc.refReflector) || (rule && rule.refReflector) || null;
+    const blockNames = { iiw: 'IIW (V1)', v2: 'V2', dac: 'DAC', fbh: 'FBH' };
+    const calTxt = Array.isArray(dac.points) && dac.points.length >= 2 ? L('DAC block ({n} points, T {T} mm)', { n: dac.points.length, T: s.weldOpts.T })
+      : (proc && proc.refBlock ? esc((blockNames[proc.refBlock] || String(proc.refBlock).toUpperCase()) + (Number.isFinite(proc.refSdhMm) ? ' · ' + proc.refSdhMm + ' mm SDH' : '') + ' · T ' + s.weldOpts.T + ' mm') : L('none recorded'));
+    const refTxt = (Number.isFinite(dac.refDb) ? dac.refDb : inst.refGain) + ' dB · ' + (reflector || t('3 mm SDH'));
     const scanTxt = inst.refGain !== undefined ? L('ref {r} dB + {x} dB', { r: inst.refGain, x: r1(inst.gain - inst.refGain) }) : inst.gain + ' dB';
     let html = '<div class="tr-report">';
     html += '<h2>' + (tr.exam && tr.exam.title ? esc(tr.exam.title) : L('Ultrasonic examination report')) + '</h2>';
@@ -952,8 +1023,10 @@
       else {
         const d = Math.round(Math.abs(near.dz));
         msg = t('nearest hidden indication: {d} mm {dir} along z, side {side}', { d, dir: near.dz >= 0 ? t('further') : t('back'), side: hintSide(near.truth) });
+        // QA3 #6 (§4.6): the 5 % penalty pays for the z-distance/side of a hidden defect — a hint that reveals
+        // nothing ('No hidden indication left') is free.
+        UT.setIn('trade', { hintsUsed: (tr.hintsUsed || 0) + 1 }, { noRender: true });
       }
-      UT.setIn('trade', { hintsUsed: (tr.hintsUsed || 0) + 1 }, { noRender: true });
       practiceMsg(msg);
       return msg;
     },
@@ -1086,8 +1159,8 @@
       tx('div', 'Report every indication you find: z start, length, depth to the top, height, type, dB vs reference, probe angle and side. Matching is one-to-one; false calls cost 15 points; pass mark 70 %.', null, { class: 'tr-intro' }),
       dom.h('div', { class: 'tr-scroll' }, table),
       dom.h('div', { class: 'btn-row' }, [
-        btn('Row+', function () { addRowUi(); }), btn('Take from readout', function () { trade.addRowFromReadout(); }),
-        btn('Submit', function () { if (!(st().trade.truth || []).length) { announce(t('Press Start first')); return; } trade.submit(rowsFromUi()); }, { class: 'btn primary' }),
+        ui.rowBtn = btn('Row+', function () { addRowUi(); }), ui.takeBtn = btn('Take from readout', function () { trade.addRowFromReadout(); }),
+        ui.submitBtn = btn('Submit', function () { if (!(st().trade.truth || []).length) { announce(t('Press Start first')); return; } trade.submit(rowsFromUi()); }, { class: 'btn primary' }),
         btn('Reveal', function () { const ex = st().trade.exam; if (ex && ex.locked) { const code = ui.codeIn ? ui.codeIn.value : ''; if (!trade.reveal(code)) announce(t('Wrong exam code')); } else trade.reveal(); }),
         btn('Report...', function () { reportWin.open(); }), btn('Scoreboard...', function () { scoreboardWin.open(); }),
       ]),
@@ -1104,6 +1177,11 @@
     else if (tr.practice) ui.clock.textContent = t('Practice (no timer)');
     else ui.clock.textContent = tr.score !== null || tr.revealed ? t('Time used {t}', { t: clock((trade._now() - tr.startedAt) / 1000) }) : t('Time left {t}', { t: clock(Math.max(0, remainingSec() || 0)) });
     ui.seedLbl.textContent = tr.seed === null || tr.seed === undefined ? '' : t('Test #{seed}', { seed: tr.seed }) + ' · ' + t(diffOf(tr));
+    // QA3 #1 (§4.2.3): a locked exam that already holds its one submission takes no further rows or submissions
+    const submitted = !!(locked(tr) && tr.score !== null && tr.score !== undefined);
+    if (ui.submitBtn) ui.submitBtn.disabled = submitted;
+    if (ui.rowBtn) ui.rowBtn.disabled = submitted;
+    if (ui.takeBtn) ui.takeBtn.disabled = submitted;
     // §4.2: difficulty / time limit configure the NEXT test — locked while one runs (and while an exam descriptor is loaded)
     const cfgLocked = running(tr) || !!(tr.exam && tr.exam.locked);
     if (ui.diffSel) { ui.diffSel.disabled = cfgLocked; const dv = cfgLocked ? diffOf(tr) : (DIFF[tr.difficulty] ? tr.difficulty : ui.diffSel.value); if (ui.diffSel.value !== dv) ui.diffSel.value = dv; }
@@ -1251,10 +1329,13 @@
       if (!running()) applyPending();
       if (preTrade) {
         // v1 §15.8: the trade test keeps the user's weld specimen — put the pre-exam weldOpts / material back and
-        // rebuild the specimen of the mode just entered (defects and probe kept)
+        // rebuild the specimen of the mode just entered (defects and probe kept). QA3 #2: preTrade survives to this
+        // point only when NOTHING outside this module wrote weldOpts/material meanwhile (see the 'state' listener),
+        // so the restore can never clobber a specimen a lesson/scenario just set up.
         const snap = preTrade;
         preTrade = null;
-        UT.set({ weldOpts: snap.weldOpts, material: snap.material }, { noRender: true });
+        selfSet = true;
+        try { UT.set({ weldOpts: snap.weldOpts, material: snap.material }, { noRender: true }); } finally { selfSet = false; }
         if (has('modes.enter')) { try { UT.modes.enter(ev.mode, { keepProbe: true, silentUI: true, keepDefects: true }); } catch (e) { /* ignore */ } }
       }
       refreshAll();
@@ -1262,6 +1343,10 @@
   });
   UT.bus.on('state', function (ev) {
     const keys = ev && ev.keys ? ev.keys : [];
+    // QA3 #2 (§4.1): a weldOpts/material write from OUTSIDE this module (a lesson baseline, quiz, scenario apply,
+    // the Weld dialog, applyProcedure) takes ownership of the specimen — drop the pre-trade snapshot so the
+    // mode-exit restore cannot rebuild the previous specimen over it (lessons 20/25 after a trade test).
+    if (preTrade && !selfSet && (keys.indexOf('weldOpts') >= 0 || keys.indexOf('material') >= 0)) preTrade = null;
     if (keys.indexOf('display') < 0 && keys.indexOf('trade') < 0) return;
     const s = st(), tr = s.trade;
     if (!tr) return;
@@ -1417,16 +1502,35 @@
         const lockedRes = st().trade.result;
         if (!lockedRes || !st().trade.active || (lockedRes.misses || []).some(function (m) { return 'zFrom' in m; }) || (lockedRes.detail || []).some(function (d) { return d.truth && 'zFrom' in d.truth; })) f.push('locked result carries truth');
         if (verifyResult(lockedRes.token).ok !== true || verifyResult(lockedRes.token, 'zzzz').ok || verifyResult(tokenFor(lockedRes, codeHashOf('', 9)), 'abcd').ok || verifyResult(tokenFor(lockedRes, codeHashOf('', 9))).ok) f.push('exam token verification');
+        // QA3 #1: a locked exam takes ONE submission — further submits return the stored score without re-scoring
+        const h9 = (st().trade.history || []).length, s9 = st().trade.score;
+        if (trade.submit([{ z: 10, length: 30, depth: 5, type: 'crack' }]) !== s9 || st().trade.score !== s9 ||
+          (st().trade.history || []).length !== h9 || st().trade.result.token !== lockedRes.token) f.push('locked exam resubmit oracle');
         if (!trade.reveal('abcd') || st().trade.active || !(st().trade.result.misses || []).every(function (m) { return 'zFrom' in m; })) f.push('reveal hydrates the result');
         // nameRequired exam waits for a name
         UT.setIn('trade', { candidate: '' }, { noRender: true });
         if (trade.loadExam(trade.makeExam({ seed: 10, code: 'abcd', nameRequired: true })) !== null || st().trade.startedAt || (st().trade.truth || []).length) f.push('nameRequired gate');
         trade.setCandidate('A'); trade.start(10);
         if (!st().trade.exam || !st().trade.startedAt) f.push('nameRequired start');
+        // QA3 #6: a hint with nothing left to reveal is free; one with a hidden defect costs 5 %
+        if (!ui.rows) {
+          practice.start(3);
+          UT.setIn('trade', { report: trade.truth().map(function (q) { return { n: q.n, z: q.zFrom, length: q.zTo - q.zFrom, depth: q.depth, type: q.type }; }) }, { noRender: true });
+          practice.hint();
+          if (st().trade.hintsUsed !== 0) f.push('empty hint charged');
+          UT.setIn('trade', { report: [] }, { noRender: true });
+          practice.hint();
+          if (st().trade.hintsUsed !== 1) f.push('hint not charged');
+        }
         const drawn = JSON.stringify(st().weldOpts);
         UT.modes.enter('weld', { silentUI: true });
         if (st().trade.active) f.push('inactive after exit');
         if (JSON.stringify(st().weldOpts) !== JSON.stringify(saved.weldOpts) || st().material !== saved.material || preTrade) f.push('weldOpts restored after trade ' + drawn);
+        // QA3 #2: an external weldOpts write (a lesson baseline) after a trade start must survive the restore
+        trade.start(11);
+        UT.set({ weldOpts: Object.assign({}, UT.defaultState().weldOpts, { T: 33 }) }, { noRender: true });
+        UT.modes.enter('weld', { silentUI: true });
+        if (st().weldOpts.T !== 33 || preTrade) f.push('lesson weldOpts clobbered by preTrade restore');
       } catch (e) { f.push('live exception ' + (e && e.message)); }
       finally {
         quiet = false;
