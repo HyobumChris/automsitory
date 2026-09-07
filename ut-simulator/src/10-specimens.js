@@ -17,6 +17,48 @@
  *  - scanSurfaceAt(spec, {surface:'web', side, x}): probe on a web face of the fillet T-joint (x = distance up
  *    the web from the fillet's web toe, side ±1 selects the face; the beam always points down toward the joint).
  *  - segmentInRegion / pointInWeld region helpers; defect presets backingLof and toeCrackFillet; prepNames.
+ *
+ * v3 additions (SPEC-v3 §1 — lead-owned):
+ *  - F45 weld conditions in weldGeometry/plateWeld/pipeWeld: rootCorrosion (a seeded bumpy root bead),
+ *    roughSurface (a COSMETIC 0.3 mm sawtooth on the drawn top edge — the scan surface stays flat),
+ *    misalignmentMm (a high-low step the weld body bridges) and wtVariationMm (a pipe wall that varies
+ *    along z). All four are off by default, so every v1/v2 number is unchanged.
+ *  - F46 tky({kind:'Plate'|'T-joint'|'Pipe', chordOd, chordWt}): a genuinely curved chord backed by exact
+ *    spec.arcs, and the complete pipe ring (spec.ring, two loops) for a small diameter.
+ *  - F21 defect presets centre their z on the parked probe (spec.defaultProbe.z, or opts.z).
+ *  - F22 toeCrack is a near-VERTICAL surface-breaking crack (a tilted reflector loses its corner return
+ *    by design — see §4.10; this is a preset fix, never a 30-raytrace change).
+ *  - F10 the V2 wide face gains the 5 mm hole and the 35…75° graduations along the 25 mm radius.
+ *  - F41 polygon({outline, loops, T}) + build('polygon') for Scale Mode; F53 okDemo (the 'OK' splash).
+ *  - F56 laminationPlate gains a butt-weld outline; F59 the 'carbon-utman' material.
+ *  - spec.loops: [{pts, hole}] — multi-loop outlines (the pipe ring, a traced ring, the OK demo). Absent
+ *    loops behave exactly as before: loops defaults to [{pts: outline, hole:false}].
+ *  - spec.scanArc / spec.scanSurface.follow: scanSurfaceAt follows a curved or stepped scanning surface.
+ *
+ * SPEC NOTES (v3, where SPEC-v3 is silent or self-inconsistent — recorded per the working agreement):
+ *  4. F45 root corrosion: §6.3 asks for "9 vertices at 1.5 mm pitch" spanning "x = ±capWidth/4", which are
+ *     two different widths. Shipped: 9 vertices spanning ±max(rootWidth/2, capWidth/4) (the explicit x
+ *     range, which scales with the weld), the two end vertices pinned to y = T so the crown still meets the
+ *     plate bottom — an unpinned end would make a right-angle corner reflector and swamp the bumps, which
+ *     V3-45 explicitly requires to be 3…8 dB BELOW the clean root.
+ *  5. F45 misalignment is applied as one 2-D warp of the outline, the weld region and the fusion faces (the
+ *     offset ramps across the cap width at the surface, across the root-bead width at the bottom and is
+ *     interpolated by depth between them), so the weld body bridges the step and no polygon self-intersects.
+ *     The two mismatch faces themselves are emitted as planar `reflectors` tagged 'misalign' — that is what
+ *     gives 30-raytrace the tagged geometry echo without a discontinuity in the scanning surface.
+ *  6. F45 pipe wall variation uses cos, not sin: §6.3's `sin(2π·z/L·3)` is 0 at BOTH z = 0 and z = L/6, so
+ *     V3-45's own comparison of those two positions would be identically zero. The same sinusoid phase-
+ *     shifted (nominal wall at the datum, thinning to wt − v over three cycles) satisfies the check.
+ *  7. F46 tky()'s OWN default kind is 'Plate' (today's flat chord) even though state.tkyOpts.kind defaults
+ *     to 'T-joint' (§2): the lead's §4.10 measurements are quoted against `build('tky', {})`, so the
+ *     builder's no-argument result must not move. 80-modes passes state.tkyOpts.kind explicitly.
+ *  8. F46: the chord thickness is chordWt for a curved chord ('T-joint'/'Pipe', per V3-46's 32 mm and
+ *     20 mm backwalls) and chordT for the flat 'Plate' chord. The ring is emitted only for kind 'Pipe'
+ *     (a T-joint needs somewhere to put its brace); the drawable width is the 300 mm cross-section box.
+ *  9. F10: the spec's `{x: 25, y: 12.5}` is in the real block's 0-based 75 mm frame — our wide face is drawn
+ *     at x 35…110 with the radius centre at x = 60, so the 5 mm hole is placed at (60, 12.5).
+ * 10. F53 registers BOTH ids the spec uses: build('okDemo') (§6.5) and build('ok-demo') (§8's MODE_OF and
+ *     V3-53's loadSpecimen); spec.id is 'ok-demo'.
  */
 (function (UT) {
   'use strict';
@@ -33,6 +75,10 @@
     titanium:   { key: 'titanium',   name: 'Titanium',            nameKo: '티타늄',                 vComp: 6.10, vShear: 3.12, atten5: 0.008, grass: 0.02, attenL5: 0.006, attenS5: 0.008, poisson: 0.32, anisotropic: false },
     castiron:   { key: 'castiron',   name: 'Cast iron',           nameKo: '주철',                   vComp: 4.60, vShear: 2.60, atten5: 0.080, grass: 0.20, attenL5: 0.10, attenS5: 0.15, poisson: 0.26, anisotropic: true },
     perspex:    { key: 'perspex',    name: 'Perspex (PMMA)',      nameKo: '퍼스펙스(아크릴)',        vComp: 2.74, vShear: 1.43, atten5: 0.15,  grass: 0.0,  anisotropic: false, attenL5: 0.30, attenS5: 0.30, poisson: 0.35 },
+    // v3 F59: the videos' own numerals (UTman600 prints shear 3200 m/s, UTman II compression 5960 m/s).
+    // The DEFAULT carbon steel does not move (§11.7) — this material is selected from Weld ▸ Material… to
+    // reproduce Shoe=53.6° at 70°, Compression Wave Angle=48.1° at shoe 20° and a 1st critical angle of 27.4°.
+    'carbon-utman': { key: 'carbon-utman', name: 'Carbon steel (UTman numerals)', nameKo: '탄소강(UTman 수치)', vComp: 5.96, vShear: 3.20, atten5: 0.010, grass: 0.02, attenL5: 0.005, attenS5: 0.010, poisson: 0.29, anisotropic: false },
   };
   // SPEC-v2 §3.4: spec.material = materialOf(state.material) carries the FULL record — incl. poisson (20-probe's
   // derived.vRayleigh) and the one-way attenL5/attenS5 (30 may read them directly instead of the key lookup).
@@ -79,6 +125,24 @@
     return edges;
   }
 
+  /**
+   * Normalise spec.loops (v3): [{pts, hole}] with the first entry the outer boundary. Accepts bare point
+   * arrays. Falls back to a single loop around `outline`, which is what every v1/v2 specimen gets.
+   * @param {Array} loops
+   * @param {Array<{x:number,y:number}>} outline
+   * @returns {Array<{pts:Array, hole:boolean}>}
+   */
+  function normaliseLoops(loops, outline) {
+    const out = [];
+    for (const l of Array.isArray(loops) ? loops : []) {
+      const pts = Array.isArray(l) ? l : (l && Array.isArray(l.pts) ? l.pts : null);
+      if (!pts || pts.length < 3) continue;
+      out.push({ pts, hole: !!(l && !Array.isArray(l) && l.hole) });
+    }
+    if (!out.length) out.push({ pts: outline || [], hole: false });
+    return out;
+  }
+
   function extentsOf(outline, holes) {
     let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
     for (const p of outline) { xMin = Math.min(xMin, p.x); xMax = Math.max(xMax, p.x); yMin = Math.min(yMin, p.y); yMax = Math.max(yMax, p.y); }
@@ -88,10 +152,14 @@
 
   function finish(spec) {
     spec.arcs = spec.arcs || [];
-    spec.edges = deriveEdges(spec.outline);
+    spec.loops = normaliseLoops(spec.loops, spec.outline);           // v3: one loop per closed boundary (holes last)
+    spec.edges = [];
+    for (const l of spec.loops) spec.edges = spec.edges.concat(deriveEdges(l.pts));
     // exact arcs replace the sampled 'radius' edges for ray tracing (the sampled edges stay in outline for drawing)
     if (spec.arcs.length) spec.edges = spec.edges.filter(function (e) { return e.tag !== 'radius'; });
-    spec.extents = extentsOf(spec.outline, spec.holes);
+    let allPts = spec.outline;
+    if (spec.loops.length > 1) { allPts = []; for (const l of spec.loops) allPts = allPts.concat(l.pts); }
+    spec.extents = extentsOf(allPts, spec.holes);
     spec.holes = spec.holes || [];
     spec.labels = spec.labels || [];
     spec.material = materialOf(spec.material);
@@ -138,19 +206,61 @@
       const seg = (spec.edges || []).find(function (e) { return e.tag === 'web' && Math.abs(e.a.x - xf) < 1e-6 && Math.abs(e.b.x - xf) < 1e-6; }) || null;
       return { x: xf, y: -w.leg - d, tangent: { x: 0, y: -side }, normal: { x: -side, y: 0 }, segment: seg };
     }
+    // v3 F46/F41: curved scanning surface (arc chord, pipe ring, traced ring). probe.x is the ARC LENGTH
+    // along the surface from the datum (arc angle spec.scanArc.a0, +x direction), and the local normal
+    // points at the arc centre — so a flat chord (r → ∞) reduces to exactly the block below.
+    if (spec && spec.scanArc) {
+      const sa = spec.scanArc;
+      const r = Math.max(1e-6, sa.r);
+      const ang = M.deg2rad(sa.a0) + (probe ? (probe.x || 0) : 0) / r;
+      const ca = Math.cos(ang), sn = Math.sin(ang);
+      const px = sa.cx + r * ca, py = sa.cy + r * sn;
+      const tx = -sn, ty = ca;
+      // The tracer needs a scanning-surface SEGMENT (it is where a returning ray re-crosses the surface at
+      // the probe). On an arc the local tangent chord is that surface: half a probe-neighbourhood long, so
+      // the deviation from the true arc is far below the aperture the return test then applies.
+      const hl = Math.max(10, Math.min(40, r));
+      return {
+        x: px, y: py,
+        tangent: { x: tx, y: ty }, normal: { x: -ca, y: -sn },
+        segment: { a: { x: px - tx * hl, y: py - ty * hl }, b: { x: px + tx * hl, y: py + ty * hl }, tag: 'top', virtual: true },
+        arc: sa, angleDeg: M.rad2deg(ang),
+      };
+    }
     const x = probe ? probe.x : 0;
     let seg = null;
+    const follow = !!(spec && spec.scanSurface && spec.scanSurface.follow);
     for (const e of (spec && spec.edges) || []) {
-      if (e.tag !== 'top') continue;
+      if (e.tag !== 'top' && !(follow && e.tag === 'cap')) continue;
       const lo = Math.min(e.a.x, e.b.x), hi = Math.max(e.a.x, e.b.x);
       if (x >= lo - 1e-6 && x <= hi + 1e-6) { seg = e; break; }
     }
     if (!seg) seg = ((spec && spec.edges) || []).find(function (e) { return e.tag === 'top'; }) || null;
+    // v3 F45/F41: a stepped or sloping scanning surface — ride the segment the probe is standing on
+    if (follow && seg) {
+      const dx = seg.b.x - seg.a.x, dy = seg.b.y - seg.a.y;
+      const lo = Math.min(seg.a.x, seg.b.x), hi = Math.max(seg.a.x, seg.b.x);
+      if (Math.abs(dx) > 1e-9 && x >= lo - 1e-6 && x <= hi + 1e-6) {
+        const t = (x - seg.a.x) / dx;
+        const len = Math.hypot(dx, dy) || 1;
+        const sgn = dx < 0 ? -1 : 1;                       // tangent always points along +x
+        const tx = sgn * dx / len, ty = sgn * dy / len;
+        return { x, y: seg.a.y + dy * t, tangent: { x: tx, y: ty }, normal: { x: -ty, y: tx }, segment: seg };
+      }
+      const y0 = spec.scanSurface.y || 0;
+      return { x, y: y0, tangent: { x: 1, y: 0 }, normal: { x: 0, y: 1 }, segment: seg };
+    }
     return { x, y: 0, tangent: { x: 1, y: 0 }, normal: { x: 0, y: 1 }, segment: seg };
   }
 
   function pointInside(spec, x, y) {
-    if (!M.pointInPolygon(x, y, spec.outline)) return false;
+    const loops = spec && spec.loops;
+    if (loops && loops.length > 1) {
+      let inside = false;
+      for (const l of loops) if (!l.hole && M.pointInPolygon(x, y, l.pts)) { inside = true; break; }
+      if (!inside) return false;
+      for (const l of loops) if (l.hole && M.pointInPolygon(x, y, l.pts)) return false;
+    } else if (!M.pointInPolygon(x, y, spec.outline)) return false;
     for (const h of spec.holes || []) if (M.dist(x, y, h.x, h.y) < h.r) return false;
     return true;
   }
@@ -369,11 +479,50 @@
         root = beadPts(bottomCapWidth / 2, -bottomCapWidth / 2, T, bottomCapHeight, 1, rootTag, n);   // right → left
       }
     }
+    // ---- v3 F45 weld conditions (all off by default → every v1/v2 number is untouched)
+    // Root corrosion: the root-bead crown becomes a seeded bumpy profile (SPEC NOTE 4). Deterministic:
+    // UT.math.rng(1) is drawn once per vertex whether or not that vertex uses the draw.
+    if (o.rootCorrosion && root.length && !isFillet && prep !== 'none' && prep !== 'double-v' && rootHeight > FLAT_BEAD) {
+      const hw = Math.max(rootWidth / 2, capWidth / 4);
+      const rnd = M.rng(1);
+      const bumpy = [];
+      for (let i = 0; i <= 8; i++) {
+        const r = rnd();
+        const x = hw - 2 * hw * i / 8;                                   // right → left, as beadPts emits the root
+        bumpy.push({ x, y: (i === 0 || i === 8) ? T : T + rootHeight - 0.8 * r, tag: 'root' });
+      }
+      root = bumpy;
+    }
+    // Misalignment: one 2-D warp so the outline, the weld region and the fusion faces stay consistent
+    // (SPEC NOTE 5). dy ramps 0 → mis across the cap width at the surface and across the root-bead width at
+    // the bottom, interpolated by depth between them; the plates outside the weld are flat at 0 and at mis.
+    const mis = M.clamp(finiteNum(o.misalignmentMm, 0), -5, 5);
     const outCapWidth = isFillet ? 2 * (webT / 2 + leg) : capWidth;
+    let warp = null;
+    if (mis !== 0 && !isFillet) {
+      const hwTop = Math.max(0.5, outCapWidth / 2), hwBot = Math.max(0.5, rootWidth / 2);
+      warp = function (x, y) {
+        const tTop = M.clamp((x - capCentre + hwTop) / (2 * hwTop), 0, 1);
+        const tBot = M.clamp((x + hwBot) / (2 * hwBot), 0, 1);
+        const d = M.clamp((y || 0) / Math.max(T, 1e-6), 0, 1);
+        return mis * (tTop + (tBot - tTop) * d);
+      };
+      const warpPts = function (arr) { return (arr || []).map(function (p) { return { x: p.x, y: p.y + warp(p.x, p.y), tag: p.tag }; }); };
+      cap = warpPts(cap); root = warpPts(root);
+      region = warpPts(region);
+      if (regions) regions = regions.map(warpPts);
+      if (backing) backing = warpPts(backing);
+      for (const f of fusionFaces) {
+        f.a = { x: f.a.x, y: f.a.y + warp(f.a.x, f.a.y) };
+        f.b = { x: f.b.x, y: f.b.y + warp(f.b.x, f.b.y) };
+      }
+    }
     const out = {
       type, prep, bevel, rootGap, rootFace, capWidth: outCapWidth, capHeight, rootHeight, rootWidth, capCentre,
       fusionFaces, region, regions: regions || (region.length ? [region] : []), cap, root,
       backing, backingFused, web, webT, leg, fillets, hazHalfWidth: outCapWidth / 2 + 6,
+      // v3 F45
+      misalignment: mis, warp, rootCorrosion: !!o.rootCorrosion, roughSurface: !!o.roughSurface,
     };
     return out;
   }
@@ -393,6 +542,30 @@
       { x: -xf, y: T, tag: 'bottom' },           // plate bottom inside the left interface slit
       { x: -bh, y: T, tag: 'bottom' },           // plate bottom left of the bar
     ];
+  }
+
+  /**
+   * v3 F45 rough surface: the COSMETIC sawtooth polyline 60-view-cross strokes over the drawn top edge.
+   * The scanning surface itself is untouched (spec.scanSurface / scanSurfaceAt), so probe placement, wedge
+   * delay and every existing path length are unchanged; the physics of roughness (transfer loss + grass)
+   * lives in 30/40 behind state.weldOpts.roughSurface.
+   * @param {object} spec a finished specimen
+   * @param {number} [amp] tooth height above the surface (mm, default 0.3)
+   * @param {number} [pitch] tooth pitch (mm, default 2)
+   * @returns {{amp:number, pitch:number, pts:Array<{x:number,y:number}>}}
+   */
+  function roughProfile(spec, amp, pitch) {
+    const a = amp === undefined ? 0.3 : amp, p = Math.max(0.5, pitch === undefined ? 2 : pitch);
+    const ss = spec.scanSurface || { y: 0, xMin: spec.extents.xMin, xMax: spec.extents.xMax };
+    const x0 = ss.xMin, x1 = ss.xMax;
+    const pts = [];
+    const n = Math.min(1200, Math.max(2, Math.ceil((x1 - x0) / (p / 2))));
+    for (let i = 0; i <= n; i++) {
+      const x = x0 + (x1 - x0) * i / n;
+      const base = scanSurfaceAt(spec, { x }).y;
+      pts.push({ x, y: base - (i % 2 ? a : 0) });          // teeth stand proud of the metal (y is down)
+    }
+    return { amp: a, pitch: p, pts };
   }
 
   /** Plate butt weld specimen. Cross-section width 300 (x −150..150). Fillet preps build a set-on T-joint. */
@@ -417,22 +590,34 @@
       // unfused web/plate interface: a planar reflector (not part of the outline — metal is continuous through the fillets)
       reflectors.push({ a: { x: -hw, y: 0 }, b: { x: hw, y: 0 }, tag: 'interface', d: wg.webT, label: 'web/plate interface' });
     } else {
-      outline.push({ x: -W / 2, y: 0, tag: 'top' });
+      // v3 F45: the plate corners follow the misalignment warp; the cap/root vertices are warped already
+      const wp = wg.warp;
+      const corner = function (x, y, tag) { outline.push({ x, y: wp ? y + wp(x, y) : y, tag }); };
+      corner(-W / 2, 0, 'top');
       if (wg.cap.length) { for (const p of wg.cap) outline.push({ x: p.x, y: p.y, tag: p.tag }); outline[outline.length - 1].tag = 'top'; }
-      outline.push({ x: W / 2, y: 0, tag: 'end' });
-      outline.push({ x: W / 2, y: T, tag: 'bottom' });
+      corner(W / 2, 0, 'end');
+      corner(W / 2, T, 'bottom');
       if (wg.root.length) { for (const p of wg.root) outline.push({ x: p.x, y: p.y, tag: p.tag }); outline[outline.length - 1].tag = 'bottom'; }
-      if (wg.backing) for (const p of backingOutline(wg, T)) outline.push(p);
-      outline.push({ x: -W / 2, y: T, tag: 'end' });
+      if (wg.backing) for (const p of backingOutline(wg, T)) outline.push({ x: p.x, y: wp ? p.y + wp(p.x, p.y) : p.y, tag: p.tag });
+      corner(-W / 2, T, 'end');
+      // the two mismatch faces themselves (SPEC NOTE 5): planar reflectors, not outline edges
+      if (wg.misalignment) {
+        const m = wg.misalignment;
+        const xTop = wg.capCentre + wg.capWidth / 2, xRoot = wg.rootWidth / 2;
+        reflectors.push({ a: { x: xTop, y: Math.min(0, m) }, b: { x: xTop, y: Math.max(0, m) }, tag: 'misalign', d: Math.abs(m), label: 'High-low step (cap side)' });
+        reflectors.push({ a: { x: xRoot, y: T + Math.min(0, m) }, b: { x: xRoot, y: T + Math.max(0, m) }, tag: 'misalign', d: Math.abs(m), label: 'High-low step (root side)' });
+      }
     }
     const spec = finish({
       id: 'plate-weld', name: `Plate ${T} mm ${wg.prep === 'none' ? 'no weld' : wg.prep}`, kind: 'weld', T, L: o.L,
       prep: wg.prep, outline, holes: [], weld: wg, pipe: null, material: o.material, reflectors,
-      scanSurface: wg.web ? { y: 0, xMin: wg.webT / 2 + wg.leg + 2, xMax: W / 2 } : { y: 0, xMin: -W / 2, xMax: W / 2 },
+      scanSurface: wg.web ? { y: 0, xMin: wg.webT / 2 + wg.leg + 2, xMax: W / 2 } : { y: 0, xMin: -W / 2, xMax: W / 2, follow: wg.misalignment !== 0 || undefined },
       defaultProbe: { x: Math.round(T * Math.tan(M.deg2rad(60)) + 6) + (wg.web ? Math.round(wg.webT / 2 + wg.leg) : 0), z: o.L / 2, side: 1 },
       labels: [{ x: W / 2 - 60, y: -6, text: 'CROSS SECTION' }],
     });
     if (wg.prep === 'nozzle') spec.nozzle = { branchOd: o.branchOd || 114.3, branchWt: wg.webT };
+    spec.conditions = { rootCorrosion: !!o.rootCorrosion, roughSurface: !!o.roughSurface, misalignmentMm: wg.misalignment, wtVariationMm: 0 };
+    if (o.roughSurface) spec.rough = roughProfile(spec);
     if (wg.web) spec.labels.push({ x: wg.webT / 2 + 8, y: -WEB_H + 6, text: wg.prep === 'nozzle' ? 'BRANCH' : 'WEB', small: true });
     return spec;
   }
@@ -444,14 +629,31 @@
     return +(od / 25.4).toFixed(1);
   }
 
-  /** Pipe circumferential butt weld: same cross-section as a plate of thickness wt; L = circumference. */
+  /**
+   * Pipe circumferential butt weld: same cross-section as a plate of thickness wt; L = circumference.
+   * v3 F45: `wtVariationMm` (0…4 mm peak-to-peak) makes the wall vary along z over three cycles — the
+   * cross-section is built at T(opts.z) and `spec.thicknessAtZ(z)` gives the wall anywhere, so 80-modes
+   * rebuilds as the probe travels and the backwall walks (SPEC NOTE 6: cos, not sin).
+   */
   function pipeWeld(opts) {
     const o = Object.assign({ od: 168.3, wt: 20, type: 'single-v' }, opts || {});
     const circ = Math.PI * o.od;
-    const spec = plateWeld(Object.assign({}, o, { T: o.wt, L: circ }));
+    const vary = M.clamp(finiteNum(o.wtVariationMm, 0), 0, 4);
+    const wtAt = function (z) {
+      if (!(vary > 0)) return o.wt;
+      const c = circ > 0 ? circ : 1;
+      const zz = ((finiteNum(z, 0) % c) + c) % c;
+      return o.wt - vary / 2 + (vary / 2) * Math.cos(2 * Math.PI * 3 * zz / c);
+    };
+    const zHere = finiteNum(o.z, 0);
+    const wtHere = vary > 0 ? +wtAt(zHere).toFixed(4) : o.wt;
+    const spec = plateWeld(Object.assign({}, o, { T: wtHere, L: circ }));
     spec.id = 'pipe-weld';
     spec.name = `Pipe OD ${o.od} mm WT ${o.wt} mm ${spec.prep === 'none' ? 'no weld' : spec.prep}`;
-    spec.pipe = { od: o.od, wt: o.wt, circumference: circ, odInch: nominalInch(o.od) };
+    spec.pipe = { od: o.od, wt: o.wt, circumference: circ, odInch: nominalInch(o.od), wtVariationMm: vary, wtHere, wtZ: zHere };
+    spec.conditions = Object.assign({}, spec.conditions, { wtVariationMm: vary });
+    /** Wall thickness (mm) at a circumferential position z (F45); constant without wtVariationMm. */
+    spec.thicknessAtZ = wtAt;
     // Quarter circumference (3 o'clock, the near side of the 3-D cylinder; the reference shows Pos 124 mm on a
     // 6 inch pipe). z = 0 put the probe symbol on the top edge of the plan-view z-window (half clipped, hidden
     // under the USK7 window) and z = L/2 (6 o'clock) faces away from the 3-D camera — QA round 4.
@@ -502,8 +704,16 @@
     outline.push({ x: 60, y: 50, tag: 'end' });
     outline.push({ x: 60, y: 25, tag: 'radius' });
     for (const p of arcPoints(60, 0, 25, 90, 180, 'radius', false)) { if (p.y > 1e-6 && p.y < 25 - 1e-6) outline.push(p); }
+    // v3 F10: the 5 mm through hole at the radius centre (SPEC NOTE 9) and the probe-angle graduations
+    // every 5° from 35° to 75° along the 25 mm radius edge — both drawn by 60-view-cross.
+    const graduations = [];
+    for (let d = 35; d <= 75; d += 5) {
+      graduations.push({ deg: d, x: +(60 - 25 * Math.sin(M.deg2rad(d))).toFixed(3), y: +(25 * Math.cos(M.deg2rad(d))).toFixed(3), label: d % 10 === 0 });
+    }
     return finish({
-      id: 'v2', name: 'V2 calibration block', kind: 'block', T: 50, L: 12.5, outline, holes: [], material: o.material,
+      id: 'v2', name: 'V2 calibration block', kind: 'block', T: 50, L: 12.5, outline, material: o.material,
+      holes: [{ x: 60, y: 12.5, r: 2.5, tag: 'hole5', label: '5mm' }],
+      graduations,
       arcs: [{ cx: 60, cy: 0, r: 25, a0: 90, a1: 180, tag: 'radius' }, { cx: 60, cy: 0, r: 50, a0: 0, a1: 90, tag: 'radius' }],
       scanSurface: { y: 0, xMin: 35, xMax: 110 }, defaultProbe: { x: 60, z: 6, side: 1 }, face: 'wide',
       labels: [{ x: 70, y: 30, text: 'V2', big: true }, { x: 45, y: 16, text: 'R25', small: true }, { x: 90, y: 28, text: 'R50', small: true }, { x: 60, y: -5, text: '0', small: true }],
@@ -591,12 +801,72 @@
       labels: fbhs.map(function (f) { return { x: f.x, y: f.y - 4, text: f.label, small: true }; }) });
   }
 
+  const TKY_W = 300;   // drawable cross-section width (mm): the chord spans x −150…150
+
+  /** Signed angle (deg, about the chord centre) of the surface point at horizontal offset x on radius r. */
+  function chordAngleAt(x, r) { return M.rad2deg(Math.atan2(-Math.sqrt(Math.max(0, r * r - x * x)), x)); }
+
+  /**
+   * v3 F46: pipe configuration of the TKY screen — the complete ring when the OD fits the drawable width
+   * (spec.ring, two closed loops, scanned on the OD), otherwise the arc spanning the canvas with straight
+   * end faces. Both are backed by exact `arcs`, so the tracer reflects off the real curvature.
+   * @param {object} o merged tky options (material, braceLen, weldLeg … are carried through)
+   * @param {number} chordOd outside diameter (mm)
+   * @param {number} chordWt wall thickness (mm)
+   */
+  function tkyPipe(o, chordOd, chordWt) {
+    const ro = chordOd / 2, ri = Math.max(2, ro - chordWt), cy = ro;
+    const ring = chordOd <= 0.9 * TKY_W;
+    const meta = { kind: 'Pipe', braceAngle: o.braceAngle, braceT: o.braceT, chordT: chordWt, chordOd, chordWt, ro, ri,
+      braceOffset: 0, braceLen: o.braceLen, weldLeg: o.weldLeg, curved: true, ring, toe: { x: 0, y: 0 }, heel: { x: 0, y: 0 }, side: 1 };
+    if (ring) {
+      const outer = arcPoints(0, cy, ro, -90, 270, 'radius', false);
+      const inner = arcPoints(0, cy, ri, 270, -90, 'radius', false);
+      return finish({
+        id: 'tky', name: `Pipe ring OD ${chordOd} mm WT ${chordWt} mm`, kind: 'tky', T: chordWt, L: 300,
+        outline: outer, loops: [{ pts: outer, hole: false }, { pts: inner, hole: true }], holes: [],
+        arcs: [{ cx: 0, cy, r: ro, a0: -90, a1: 270, tag: 'top' }, { cx: 0, cy, r: ri, a0: -90, a1: 270, tag: 'bottom' }],
+        ring: true, material: o.material, tky: meta,
+        scanArc: { cx: 0, cy, r: ro, a0: -90 },
+        scanSurface: { y: 0, xMin: -Math.PI * ro, xMax: Math.PI * ro },
+        defaultProbe: { x: 0, z: 150, side: 1 },
+        labels: [{ x: 0, y: cy, text: `OD ${chordOd} WT ${chordWt}`, small: true }],
+      });
+    }
+    const half = Math.min(TKY_W / 2, 0.95 * ri, 0.98 * ro);
+    const outline = [];
+    for (const p of arcPoints(0, cy, ro, chordAngleAt(-half, ro), chordAngleAt(half, ro), 'radius', true)) outline.push(p);
+    outline[outline.length - 1].tag = 'end';
+    for (const p of arcPoints(0, cy, ri, chordAngleAt(half, ri), chordAngleAt(-half, ri), 'radius', true)) outline.push(p);
+    outline[outline.length - 1].tag = 'end';
+    return finish({
+      id: 'tky', name: `Pipe wall OD ${chordOd} mm WT ${chordWt} mm`, kind: 'tky', T: chordWt, L: 300,
+      outline, holes: [], material: o.material, tky: meta, ring: false,
+      arcs: [{ cx: 0, cy, r: ro, a0: chordAngleAt(-half, ro), a1: chordAngleAt(half, ro), tag: 'top' },
+        { cx: 0, cy, r: ri, a0: chordAngleAt(-half, ri), a1: chordAngleAt(half, ri), tag: 'bottom' }],
+      scanArc: { cx: 0, cy, r: ro, a0: -90 },
+      scanSurface: { y: 0, xMin: ro * M.deg2rad(chordAngleAt(-half, ro) + 90), xMax: ro * M.deg2rad(chordAngleAt(half, ro) + 90) },
+      defaultProbe: { x: Math.round(chordWt * Math.tan(M.deg2rad(60))), z: 150, side: 1 },
+      labels: [{ x: 0, y: -8, text: `OD ${chordOd} WT ${chordWt}`, small: true }],
+    });
+  }
+
   /**
    * TKY joint: chord plate (x −150..150, y 0..chordT) with a brace of thickness braceT rising to the
    * upper-left from the toe at x = braceOffset, at braceAngle (deg from the chord surface). Fillet welds at toe & heel.
+   * v3 F46: `kind` selects the chord — 'Plate' (the flat v1/v2 chord, and the builder's own default per
+   * SPEC NOTE 7), 'T-joint' (a genuinely curved chord of OD chordOd and wall chordWt) or 'Pipe' (the
+   * complete ring / bare pipe wall of tkyPipe). For the curved kinds the chord thickness is chordWt.
    */
   function tky(opts) {
-    const o = Object.assign({ braceAngle: 45, braceT: 12, chordT: 20, braceOffset: 0, braceLen: 90, weldLeg: 8 }, opts || {});
+    const o = Object.assign({ kind: 'Plate', braceAngle: 45, braceT: 12, chordT: 20, braceOffset: 0, braceLen: 90, weldLeg: 8, chordOd: 600, chordWt: 32 }, opts || {});
+    const kind = (o.kind === 'T-joint' || o.kind === 'Pipe') ? o.kind : 'Plate';
+    const chordOd = M.clamp(finiteNum(o.chordOd, 600), 100, 2000);
+    const chordWt = M.clamp(finiteNum(o.chordWt, 32), 6, 60);
+    if (kind === 'Pipe') return tkyPipe(o, chordOd, chordWt);
+    const curved = kind === 'T-joint';
+    const ro = chordOd / 2, ri = Math.max(2, ro - chordWt);
+    const chordT = curved ? chordWt : o.chordT;
     const a = M.deg2rad(o.braceAngle);
     const ux = -Math.cos(a), uy = -Math.sin(a);          // up the brace (toe surface direction)
     const nx = -Math.sin(a), ny = Math.cos(a);           // perpendicular pointing from toe surface toward heel surface... (left/up)
@@ -608,35 +878,149 @@
     const heelWeldOnBrace = { x: xh - Math.cos(a) * leg, y: -Math.sin(a) * leg };
     const braceEndToe = { x: xt + ux * o.braceLen, y: uy * o.braceLen };
     const braceEndHeel = { x: xh + ux * (o.braceLen - o.braceT / Math.tan(a)), y: uy * (o.braceLen - o.braceT / Math.tan(a)) };
-    const outline = [
-      { x: -150, y: 0, tag: 'top' },
-      { x: xh - leg, y: 0, tag: 'fusion' },            // heel weld face (chord → brace)
-      { x: heelWeldOnBrace.x, y: heelWeldOnBrace.y, tag: 'brace' },
-      { x: braceEndHeel.x, y: braceEndHeel.y, tag: 'end' },
-      { x: braceEndToe.x, y: braceEndToe.y, tag: 'brace' },
-      { x: toeWeldOnBrace.x, y: toeWeldOnBrace.y, tag: 'fusion' }, // toe weld face (brace → chord)
-      { x: xt + leg, y: 0, tag: 'top' },
-      { x: 150, y: 0, tag: 'end' },
-      { x: 150, y: o.chordT, tag: 'bottom' },
-      { x: -150, y: o.chordT, tag: 'end' },
-    ];
+    // v3 F46: on a curved chord every vertex of the brace/weld assembly rides the arc (dy = 0 at the toe,
+    // where the datum sits, so a flat chord — ro → ∞ — reproduces the block below exactly).
+    const half = curved ? Math.min(150, 0.95 * ri, 0.98 * ro) : 150;
+    const dy = curved ? function (x) { return ro - Math.sqrt(Math.max(0, ro * ro - Math.min(Math.abs(x), ro) * Math.min(Math.abs(x), ro))); } : function () { return 0; };
+    const W2 = function (p, tag) { return { x: p.x, y: p.y + dy(p.x), tag }; };
+    const outline = [];
+    if (curved) {
+      for (const p of arcPoints(0, ro, ro, chordAngleAt(-half, ro), chordAngleAt(xh - leg, ro), 'radius', false)) outline.push(p);
+    } else {
+      outline.push({ x: -150, y: 0, tag: 'top' });
+    }
+    outline.push(W2({ x: xh - leg, y: 0 }, 'fusion'));   // heel weld face (chord → brace)
+    outline.push(W2(heelWeldOnBrace, 'brace'));
+    outline.push(W2(braceEndHeel, 'end'));
+    outline.push(W2(braceEndToe, 'brace'));
+    outline.push(W2(toeWeldOnBrace, 'fusion'));          // toe weld face (brace → chord)
+    outline.push(W2({ x: xt + leg, y: 0 }, curved ? 'radius' : 'top'));
+    if (curved) {
+      for (const p of arcPoints(0, ro, ro, chordAngleAt(xt + leg, ro), chordAngleAt(half, ro), 'radius', true)) { if (p.x > xt + leg + 1e-6) outline.push(p); }
+      outline[outline.length - 1].tag = 'end';
+      for (const p of arcPoints(0, ro, ri, chordAngleAt(half, ri), chordAngleAt(-half, ri), 'radius', true)) outline.push(p);
+      outline[outline.length - 1].tag = 'end';
+    } else {
+      outline.push({ x: 150, y: 0, tag: 'end' });
+      outline.push({ x: 150, y: chordT, tag: 'bottom' });
+      outline.push({ x: -150, y: chordT, tag: 'end' });
+    }
     void nx; void ny;
-    return finish({
-      id: 'tky', name: `TKY joint ${o.braceAngle}°`, kind: 'tky', T: o.chordT, L: 300, outline, holes: [], material: o.material,
-      tky: { braceAngle: o.braceAngle, braceT: o.braceT, chordT: o.chordT, braceOffset: o.braceOffset, braceLen: o.braceLen, weldLeg: leg, toe: { x: xt, y: 0 }, heel: { x: xh, y: 0 }, side: 1 },
-      weld: { type: 'fillet', fusionFaces: [{ a: { x: xt, y: 0 }, b: { x: toeWeldOnBrace.x, y: toeWeldOnBrace.y }, side: 1 }], region: [{ x: xt, y: 0 }, { x: xt + leg, y: 0 }, toeWeldOnBrace], cap: [], root: [], capWidth: leg * 2, hazHalfWidth: leg + 4 },
-      scanSurface: { y: 0, xMin: xt + leg + 2, xMax: 150 },
-      defaultProbe: { x: xt + leg + Math.round(o.chordT * Math.tan(M.deg2rad(60))), z: 150, side: 1 },
-      labels: [{ x: 90, y: -8, text: 'CHORD', small: true }, { x: braceEndToe.x + 8, y: braceEndToe.y + 4, text: 'BRACE', small: true }],
+    const spec = finish({
+      id: 'tky', name: `TKY joint ${o.braceAngle}°`, kind: 'tky', T: chordT, L: 300, outline, holes: [], material: o.material,
+      tky: { kind, braceAngle: o.braceAngle, braceT: o.braceT, chordT, braceOffset: o.braceOffset, braceLen: o.braceLen, weldLeg: leg, toe: { x: xt, y: 0 }, heel: { x: xh, y: 0 }, side: 1,
+        chordOd, chordWt, ro: curved ? ro : Infinity, ri: curved ? ri : Infinity, curved, ring: false },
+      arcs: curved ? [
+        { cx: 0, cy: ro, r: ro, a0: chordAngleAt(-half, ro), a1: chordAngleAt(xh - leg, ro), tag: 'top' },
+        { cx: 0, cy: ro, r: ro, a0: chordAngleAt(xt + leg, ro), a1: chordAngleAt(half, ro), tag: 'top' },
+        { cx: 0, cy: ro, r: ri, a0: chordAngleAt(-half, ri), a1: chordAngleAt(half, ri), tag: 'bottom' },
+      ] : [],
+      scanArc: curved ? { cx: 0, cy: ro, r: ro, a0: -90 } : null,
+      weld: { type: 'fillet', fusionFaces: [{ a: { x: xt, y: 0 }, b: { x: toeWeldOnBrace.x, y: toeWeldOnBrace.y + dy(toeWeldOnBrace.x) }, side: 1 }], region: [{ x: xt, y: 0 }, { x: xt + leg, y: dy(xt + leg) }, { x: toeWeldOnBrace.x, y: toeWeldOnBrace.y + dy(toeWeldOnBrace.x) }], cap: [], root: [], capWidth: leg * 2, hazHalfWidth: leg + 4 },
+      scanSurface: { y: 0, xMin: xt + leg + 2, xMax: curved ? ro * M.deg2rad(chordAngleAt(half, ro) + 90) : 150 },
+      defaultProbe: { x: xt + leg + Math.round(chordT * Math.tan(M.deg2rad(60))), z: 150, side: 1 },
+      labels: [{ x: 90, y: -8 + dy(90), text: 'CHORD', small: true }, { x: braceEndToe.x + 8, y: braceEndToe.y + dy(braceEndToe.x) + 4, text: 'BRACE', small: true }],
     });
+    return spec;
   }
 
-  /** Plain plate for lamination checks. */
+  /**
+   * Plate for lamination checks. v3 F56: it carries a real butt weld at x = 0 (single-V, cap 16, no root
+   * bulge), so the lesson teaches "check the scanning surface NEXT TO the weld" as the original does. The
+   * probe's default position and the plate's thickness are unchanged.
+   */
   function laminationPlate(opts) {
     const o = Object.assign({ T: 25, L: 300, W: 300 }, opts || {});
-    const outline = [{ x: -o.W / 2, y: 0, tag: 'top' }, { x: o.W / 2, y: 0, tag: 'end' }, { x: o.W / 2, y: o.T, tag: 'bottom' }, { x: -o.W / 2, y: o.T, tag: 'end' }];
+    const wg = weldGeometry({ T: o.T, prep: 'single-v', capWidth: 16, capHeight: 2, rootHeight: 0, rootGap: 2, rootFace: 2, bevel: 30 });
+    const outline = [{ x: -o.W / 2, y: 0, tag: 'top' }];
+    for (const p of wg.cap) outline.push({ x: p.x, y: p.y, tag: p.tag });
+    outline[outline.length - 1].tag = 'top';
+    outline.push({ x: o.W / 2, y: 0, tag: 'end' }, { x: o.W / 2, y: o.T, tag: 'bottom' }, { x: -o.W / 2, y: o.T, tag: 'end' });
     return finish({ id: 'lamination-plate', name: `Plate ${o.T} mm (lamination check)`, kind: 'block', T: o.T, L: o.L, outline, holes: [], material: o.material,
+      weld: wg, prep: 'single-v',
       scanSurface: { y: 0, xMin: -o.W / 2, xMax: o.W / 2 }, defaultProbe: { x: 40, z: o.L / 2, side: 1 } });
+  }
+
+  // ------------------------------------------------------------------ v3: traced / arbitrary outlines (F41, F53)
+  /** Tag an edge of a traced loop: near-horizontal edges become the scanning surface ('top') or the backwall ('bottom'). */
+  function traceTag(ax, ay, bx, by, midY, hole) {
+    if (Math.abs(by - ay) > Math.abs(bx - ax)) return 'end';
+    const upper = (ay + by) / 2 < midY;
+    return (hole ? !upper : upper) ? 'top' : 'bottom';
+  }
+
+  /**
+   * Arbitrary traced outline (Scale Mode, F41). The polygon runs through the normal finish() path, so the
+   * tracer, the A-scan and every view work on it unchanged.
+   * @param {object} opts {outline: [{x,y}] mm (≥3 points, open or closed), loops: [{pts, hole}] for a ring
+   *   or a multi-part shape, T (mm; defaults to the outline's height), L, material, id, name}
+   * @returns {object} specimen with id 'polygon'
+   */
+  function polygon(opts) {
+    const o = Object.assign({ outline: [], T: undefined, L: 100 }, opts || {});
+    let loops = normaliseLoops(o.loops, null).filter(function (l) { return l.pts && l.pts.length >= 3; });
+    if (!loops.length) {
+      const pts = Array.isArray(o.outline) ? o.outline.slice() : [];
+      loops = [{ pts, hole: false }];
+    }
+    // drop a repeated closing vertex and keep only finite points
+    loops = loops.map(function (l) {
+      const pts = [];
+      for (const p of l.pts) { const x = finiteNum(p && p.x, NaN), y = finiteNum(p && p.y, NaN); if (Number.isFinite(x) && Number.isFinite(y)) pts.push({ x, y }); }
+      while (pts.length > 3 && Math.abs(pts[0].x - pts[pts.length - 1].x) < 1e-9 && Math.abs(pts[0].y - pts[pts.length - 1].y) < 1e-9) pts.pop();
+      return { pts, hole: l.hole };
+    }).filter(function (l) { return l.pts.length >= 3; });
+    if (!loops.length) throw new Error('polygon() needs an outline of at least 3 points');
+    let yMin = Infinity, yMax = -Infinity;
+    for (const l of loops) for (const p of l.pts) { yMin = Math.min(yMin, p.y); yMax = Math.max(yMax, p.y); }
+    const midY = (yMin + yMax) / 2;
+    for (const l of loops) {
+      for (let i = 0; i < l.pts.length; i++) {
+        const a = l.pts[i], b = l.pts[(i + 1) % l.pts.length];
+        a.tag = traceTag(a.x, a.y, b.x, b.y, midY, l.hole);
+      }
+    }
+    const T = finiteNum(o.T, 0) > 0 ? +o.T : Math.max(1, +(yMax - yMin).toFixed(3));
+    // the scanning surface is the topmost run of 'top' edges of the outer loop
+    let sxMin = Infinity, sxMax = -Infinity;
+    for (const l of loops) {
+      if (l.hole) continue;
+      for (let i = 0; i < l.pts.length; i++) {
+        const a = l.pts[i], b = l.pts[(i + 1) % l.pts.length];
+        if (a.tag !== 'top') continue;
+        sxMin = Math.min(sxMin, a.x, b.x); sxMax = Math.max(sxMax, a.x, b.x);
+      }
+    }
+    if (!Number.isFinite(sxMin)) { sxMin = loops[0].pts[0].x; sxMax = sxMin; }
+    const spec = finish({
+      id: o.id || 'polygon', name: o.name || `Traced outline ${T} mm`, kind: 'block', T, L: finiteNum(o.L, 100),
+      outline: loops[0].pts, loops, holes: [], material: o.material,
+      scanSurface: { y: yMin, xMin: sxMin, xMax: sxMax, follow: true },
+      defaultProbe: { x: +((sxMin + sxMax) / 2).toFixed(2), z: finiteNum(o.L, 100) / 2, side: 1 },
+      labels: o.labels || [],
+    });
+    spec.traced = true;
+    return spec;
+  }
+
+  /**
+   * v3 F53: the original's 'OK' splash — an "O" built as an annulus and a "K" as a polygon, both through
+   * the F41 polygon path, with the probe parked on the "K". Reached by Help ▸ Demo (OK splash) and by
+   * UT.test.loadSpecimen('ok-demo'); never entered at boot (§11.4).
+   */
+  function okDemo(opts) {
+    const o = opts || {};
+    const oOuter = circlePts(-60, 38, 38, 48).slice(0, -1);
+    const oInner = circlePts(-60, 38, 20, 40).slice(0, -1).reverse();
+    const k = [{ x: 10, y: 0 }, { x: 26, y: 0 }, { x: 26, y: 30 }, { x: 58, y: 0 }, { x: 80, y: 0 },
+      { x: 46, y: 38 }, { x: 82, y: 76 }, { x: 58, y: 76 }, { x: 26, y: 48 }, { x: 26, y: 76 }, { x: 10, y: 76 }];
+    const spec = polygon({
+      id: 'ok-demo', name: 'OK demo (Scale Mode)', T: 76, L: 100, material: o.material,
+      loops: [{ pts: k, hole: false }, { pts: oOuter, hole: false }, { pts: oInner, hole: true }],
+      labels: [{ x: -60, y: -6, text: 'OK', small: true }],
+    });
+    spec.defaultProbe = { x: 18, z: 50, side: 1 };
+    return spec;
   }
 
   /** Build by id (used by UT.test.loadSpecimen and modes). */
@@ -652,6 +1036,8 @@
       case 'fbh': return fbhBlock(opts);
       case 'tky': return tky(opts);
       case 'lamination-plate': return laminationPlate(opts);
+      case 'polygon': return polygon(opts);
+      case 'okDemo': case 'ok-demo': return okDemo(opts);   // §6.5 uses 'okDemo', §8/V3-53 use 'ok-demo'
       default: throw new Error('Unknown specimen id: ' + id);
     }
   }
@@ -788,45 +1174,74 @@
     return ((w && w.capCentre) || 0) + side * cw / 2;
   }
 
+  /**
+   * v3 F21: the z window of a preset, centred on the position the trainee is looking at — `o.z` when the
+   * caller gives one (UT.modes.addPreset passes the probe's z), else the specimen's parked probe z, else
+   * the mid-length. On plates defaultProbe.z is L/2 = 150, so every v1/v2 plate number is unchanged; on a
+   * pipe the preset lands under the parked probe instead of 117 mm of circumference away.
+   * Returns {} when the caller pins zFrom/zTo itself, so an explicit window always wins untouched.
+   * @param {object} spec specimen
+   * @param {object} [o] preset options ({z, length, zFrom, zTo})
+   * @param {number} defLen default z extent (mm); 0 or missing falls back to 30 (§4.9 rule 3)
+   * @returns {{zFrom:number, zTo:number}|{}}
+   */
+  function presetZ(spec, o, defLen) {
+    const oo = o || {};
+    if (oo.zFrom !== undefined || oo.zTo !== undefined) return {};
+    const wanted = finiteNum(oo.length, NaN);
+    const len = wanted > 0 ? wanted : (finiteNum(defLen, 0) > 0 ? +defLen : 30);
+    const zc = Number.isFinite(finiteNum(oo.z, NaN)) ? finiteNum(oo.z, 0)
+      : (spec && spec.defaultProbe && spec.defaultProbe.z !== undefined ? spec.defaultProbe.z : (spec ? spec.L / 2 : 0));
+    return { zFrom: zc - len / 2, zTo: zc + len / 2 };
+  }
+
   /** Defect presets: each (spec, o) → Defect placed sensibly for the specimen's weld. */
   const defectPresets = {
     rootCrack(spec, o) {
       const T = spec.T, h = (o && o.height) || 3;
       const bead = (spec.weld && spec.weld.type === 'single-v') ? (spec.weld.rootHeight || 0) : 0;   // crack reaches the root bead crown
-      return makeDefect(Object.assign({ type: 'crack', label: 'Root crack', pts: [{ x: 0, y: T - h }, { x: 0, y: T + bead }], height: h + bead, zFrom: spec.L / 2 - 15, length: 30 }, o || {}));
+      return makeDefect(Object.assign({ type: 'crack', label: 'Root crack', pts: [{ x: 0, y: T - h }, { x: 0, y: T + bead }], height: h + bead }, presetZ(spec, o, 30), o || {}));
     },
     incompletePenetration(spec, o) {
       const T = spec.T, rf = (spec.weld && spec.weld.rootFace) || 2;
-      return makeDefect(Object.assign({ type: 'root', label: 'Incomplete penetration', pts: [{ x: 0, y: T - rf - 0.5 }, { x: 0, y: T }], height: rf + 0.5, zFrom: spec.L / 2 - 20, length: 40 }, o || {}));
+      return makeDefect(Object.assign({ type: 'root', label: 'Incomplete penetration', pts: [{ x: 0, y: T - rf - 0.5 }, { x: 0, y: T }], height: rf + 0.5 }, presetZ(spec, o, 40), o || {}));
     },
     lof(spec, o) {
       const side = (o && o.side) || 1;
       const face = fusionFaceFor(spec, side) || { a: { x: 0, y: spec.T - 2 }, b: { x: spec.T * 0.58, y: 0 } };
       const t0 = (o && o.t0) || 0.35, t1 = (o && o.t1) || 0.65;
       const p = function (t) { return { x: +(face.a.x + (face.b.x - face.a.x) * t).toFixed(2), y: +(face.a.y + (face.b.y - face.a.y) * t).toFixed(2) }; };
-      return makeDefect(Object.assign({ type: 'lof', label: 'Lack of side-wall fusion', pts: [p(t0), p(t1)], zFrom: spec.L / 2 - 12, length: 25 }, o || {}));
+      return makeDefect(Object.assign({ type: 'lof', label: 'Lack of side-wall fusion', pts: [p(t0), p(t1)] }, presetZ(spec, o, 25), o || {}));
     },
     porosity(spec, o) {
       const T = spec.T, r = ((o && o.dia) || 3) / 2;
-      return makeDefect(Object.assign({ type: 'porosity', label: 'Porosity', pts: circlePts((o && o.x) || 0, (o && o.y) || T / 2, r, 10), height: r * 2, zFrom: spec.L / 2 - 8, length: 16, reflectivity: 0.6 }, o || {}));
+      return makeDefect(Object.assign({ type: 'porosity', label: 'Porosity', pts: circlePts((o && o.x) || 0, (o && o.y) || T / 2, r, 10), height: r * 2, reflectivity: 0.6 }, presetZ(spec, o, 16), o || {}));
     },
     slag(spec, o) {
       const T = spec.T, cx = (o && o.x) || 2, cy = (o && o.y) || T * 0.55;
       const pts = [{ x: cx - 3, y: cy - 0.8 }, { x: cx + 3, y: cy - 0.8 }, { x: cx + 3.5, y: cy + 0.8 }, { x: cx - 3.5, y: cy + 0.8 }, { x: cx - 3, y: cy - 0.8 }];
-      return makeDefect(Object.assign({ type: 'slag', label: 'Slag inclusion', pts, height: 1.6, zFrom: spec.L / 2 - 20, length: 40, reflectivity: 0.8 }, o || {}));
+      return makeDefect(Object.assign({ type: 'slag', label: 'Slag inclusion', pts, height: 1.6, reflectivity: 0.8 }, presetZ(spec, o, 40), o || {}));
     },
+    /**
+     * v3 F22: a NEAR-VERTICAL surface-breaking crack at the weld toe (x = cap toe + 1 mm, height 4 mm).
+     * The old preset leaned 26.6° out of vertical, and tilting one face of a right-angle pair by α rotates
+     * the return by 2α out of the aperture, so it could never answer the exercise the videos teach
+     * ("put the probe at full skip, find the toe defect"). This is a preset-geometry fix: 30-raytrace is
+     * NOT changed for it, and a patch there justified by "toe cracks give no corner echo" is to be
+     * rejected in review (SPEC-v3 §4.10, §11 decision 12).
+     */
     toeCrack(spec, o) {
-      const side = (o && o.side) || 1, h = (o && o.height) || 3;
-      const x0 = capToeX(spec, side);
-      return makeDefect(Object.assign({ type: 'crack', label: 'Toe crack', pts: [{ x: x0, y: 0 }, { x: x0 - side * h * 0.5, y: h }], height: h, zFrom: spec.L / 2 - 10, length: 20 }, o || {}));
+      const side = (o && o.side) || 1, h = (o && o.height) || 4;
+      const x0 = +(capToeX(spec, side) + side).toFixed(2);
+      return makeDefect(Object.assign({ type: 'crack', label: 'Toe crack', pts: [{ x: x0, y: 0 }, { x: x0, y: h }], height: h }, presetZ(spec, o, 20), o || {}));
     },
     centrelineCrack(spec, o) {
       const T = spec.T, h = (o && o.height) || 6;
-      return makeDefect(Object.assign({ type: 'crack', label: 'Centreline crack', pts: [{ x: 0, y: T / 2 - h / 2 }, { x: 0, y: T / 2 + h / 2 }], height: h, zFrom: spec.L / 2 - 15, length: 30 }, o || {}));
+      return makeDefect(Object.assign({ type: 'crack', label: 'Centreline crack', pts: [{ x: 0, y: T / 2 - h / 2 }, { x: 0, y: T / 2 + h / 2 }], height: h }, presetZ(spec, o, 30), o || {}));
     },
     lamination(spec, o) {
       const T = spec.T, y = (o && o.y) || +(T / 2).toFixed(1), x0 = (o && o.x0) || 20, x1 = (o && o.x1) || 60;
-      return makeDefect(Object.assign({ type: 'lamination', label: 'Lamination', pts: [{ x: x0, y }, { x: x1, y }], height: 0.5, zFrom: spec.L / 2 - 30, length: 60 }, o || {}));
+      return makeDefect(Object.assign({ type: 'lamination', label: 'Lamination', pts: [{ x: x0, y }, { x: x1, y }], height: 0.5 }, presetZ(spec, o, 60), o || {}));
     },
     /**
      * Lack of fusion between the root pass and the backing bar: planar along the bar top (y = T) from the root-gap
@@ -841,13 +1256,16 @@
       const xEnd = w.backing ? Math.min(g + len, w.backingFused - 0.5) : g + len;
       const y = w.backing ? T : T - 0.5;
       const pts = [{ x: +(side * g).toFixed(2), y }, { x: +(side * Math.max(g + 1, xEnd)).toFixed(2), y }];
-      return makeDefect(Object.assign({ type: 'lof', label: 'Backing bar lack of fusion', pts, height: 0.5, zFrom: spec.L / 2 - 15, length: 30 }, o || {}));
+      return makeDefect(Object.assign({ type: 'lof', label: 'Backing bar lack of fusion', pts, height: 0.5 }, presetZ(spec, o, 30), o || {}));
     },
-    /** Fillet-weld toe crack: planar, 3 mm, starting at the fillet toe on the plate and leaning under the weld. */
+    /**
+     * Fillet-weld toe crack: planar, 3 mm, starting at the fillet toe on the plate. v3 F22: built
+     * PERPENDICULAR to the face it breaks (the plate surface), for the same reason as toeCrack.
+     */
     toeCrackFillet(spec, o) {
       const side = (o && o.side) || 1, h = (o && o.height) || 3;
-      const x0 = capToeX(spec, side);
-      return makeDefect(Object.assign({ type: 'crack', label: 'Fillet toe crack', pts: [{ x: +x0.toFixed(2), y: 0 }, { x: +(x0 - side * h * 0.5).toFixed(2), y: h }], height: h, zFrom: spec.L / 2 - 10, length: 20 }, o || {}));
+      const x0 = +capToeX(spec, side).toFixed(2);
+      return makeDefect(Object.assign({ type: 'crack', label: 'Fillet toe crack', pts: [{ x: x0, y: 0 }, { x: x0, y: h }], height: h }, presetZ(spec, o, 20), o || {}));
     },
   };
   const defectPresetNames = [
@@ -883,6 +1301,7 @@
     materials, materialOf, prepNames, preps: PREPS.slice(),
     arcPoints, deriveEdges, extentsOf, pointInside, scanSurfaceAt, weldGeometry, nominalInch,
     plateWeld, pipeWeld, v1, v2, stepWedge, iow, dacBlock, fbhBlock, tky, laminationPlate, build,
+    normaliseLoops, roughProfile, polygon, okDemo, presetZ,   // v3 (F41 F45 F46 F53 F21)
     segmentInRegion, pointInWeld, weldRegions,
     isPlanar, bbox, decimate, makeDefect, defectFromBrush, defectLength, defectSamples, circlePts,
     defectPresets, defectPresetNames, normaliseDefects,
@@ -986,7 +1405,11 @@
       if (!(ft.scanSurface.xMin > 14) || !(ft.defaultProbe.x > ft.scanSurface.xMin)) f.push('fillet-t scan surface');
       const tc = defectPresets.toeCrackFillet(ft);
       if (!near(tc.pts[0].x, 14.4) || tc.pts[0].y !== 0 || tc.height !== 3) f.push('toeCrackFillet ' + JSON.stringify(tc.pts));
-      if (!near(defectPresets.toeCrack(p).pts[0].x, 8) || !near(defectPresets.toeCrack(k, { side: -1 }).pts[0].x, k.weld.capCentre - 8)) f.push('toeCrack uses the cap centre');
+      // v3 F22: near-vertical, one millimetre outboard of the cap toe, on both sides
+      const tcP = defectPresets.toeCrack(p), tcK = defectPresets.toeCrack(k, { side: -1 });
+      if (!near(tcP.pts[0].x, 9) || !near(tcP.pts[1].x, 9) || tcP.pts[0].y !== 0 || !near(tcP.pts[1].y, 4) || tcP.height !== 4) f.push('toeCrack vertical ' + JSON.stringify(tcP.pts));
+      if (!near(tcK.pts[0].x, k.weld.capCentre - 9) || !near(tcK.pts[1].x, k.weld.capCentre - 9)) f.push('toeCrack side -1 ' + JSON.stringify(tcK.pts));
+      if (!near(tc.pts[1].x, 14.4)) f.push('toeCrackFillet perpendicular ' + JSON.stringify(tc.pts));
       const nz = pipeWeld({ od: 219.1, wt: 16, prep: 'nozzle', branchOd: 114.3, branchWt: 8 });
       if (!nz.nozzle || nz.nozzle.branchOd !== 114.3 || nz.weld.webT !== 8 || !nz.pipe) f.push('nozzle fields');
       if (defectPresetNames.length !== 10 || !defectPresetNames.some(function (q) { return q.key === 'backingLof'; })) f.push('preset names');
@@ -1005,6 +1428,40 @@
       // defect sanitising + bounded sampling
       const nd = normaliseDefects([{ n: 'x', type: 'crack', pts: [{ x: 'a', y: NaN }, { x: null }] }, { n: '2', type: 'porosity', pts: [{ x: 1e6, y: -1e6 }, { x: 2, y: 2 }, { x: 1e6, y: 2 }, { x: 'z' }] }]);
       if (nd.length !== 1 || nd[0].n !== 2 || nd[0].pts.length !== 3 || nd[0].pts.some(function (q) { return !Number.isFinite(q.x) || !Number.isFinite(q.y) || Math.abs(q.x) > 2000 || Math.abs(q.y) > 2000; })) f.push('normaliseDefects sanitise ' + JSON.stringify(nd));
+      // --- v3: weld conditions, TKY kinds, traced outlines, materials
+      const base3 = plateWeld({ T: 20 });
+      const off3 = plateWeld({ T: 20, rootCorrosion: false, roughSurface: false, misalignmentMm: 0, wtVariationMm: 0 });
+      if (JSON.stringify(off3.outline) !== JSON.stringify(base3.outline) || off3.rough !== undefined) f.push('F45 flags off must not move the geometry');
+      const rc3 = plateWeld({ T: 20, rootCorrosion: true });
+      const rcY = rc3.outline.filter(function (q) { return q.tag === 'root'; }).map(function (q) { return +q.y.toFixed(4); });
+      const rcY2 = plateWeld({ T: 20, rootCorrosion: true }).outline.filter(function (q) { return q.tag === 'root'; }).map(function (q) { return +q.y.toFixed(4); });
+      if (rcY.length < 8 || JSON.stringify(rcY) !== JSON.stringify(rcY2)) f.push('F45 root corrosion not deterministic ' + JSON.stringify(rcY));
+      const mis3 = plateWeld({ T: 20, misalignmentMm: 3 });
+      const misTop = mis3.outline.find(function (q) { return q.x === 150 && q.tag === 'end'; });
+      if (!misTop || !near(misTop.y, 3) || mis3.reflectors.filter(function (q) { return q.tag === 'misalign'; }).length !== 2) f.push('F45 misalignment step/reflectors');
+      if (!near(scanSurfaceAt(mis3, { x: 40 }).y, 3) || !near(scanSurfaceAt(base3, { x: 40 }).y, 0)) f.push('F45 scanSurfaceAt follow');
+      const pv = pipeWeld({ od: 168.3, wt: 20, wtVariationMm: 4 });
+      if (!near(pv.T, 20, 1e-3) || !near(pv.thicknessAtZ(pv.L / 6), 16, 1e-3) || !near(pipeWeld({ od: 168.3, wt: 20 }).thicknessAtZ(99), 20)) f.push('F45 wall variation ' + pv.T);
+      const tkyFlat = tky({}), tkyPlate = tky({ kind: 'Plate' });
+      if (JSON.stringify(tkyFlat.outline) !== JSON.stringify(tkyPlate.outline) || tkyFlat.T !== 20 || tkyFlat.scanArc) f.push('F46 default kind must stay the flat chord');
+      const tkyT = tky({ kind: 'T-joint', chordOd: 600, chordWt: 32 });
+      if (tkyT.T !== 32 || tkyT.arcs.length !== 3 || !tkyT.scanArc || !(Math.abs(scanSurfaceAt(tkyT, { x: tkyT.scanSurface.xMax }).y) >= 2)) f.push('F46 curved chord');
+      const tkyRing = tky({ kind: 'Pipe', chordOd: 180, chordWt: 20 });
+      if (tkyRing.ring !== true || tkyRing.loops.length !== 2 || !tkyRing.loops[1].hole || !pointInside(tkyRing, 0, 10) || pointInside(tkyRing, 0, 50)) f.push('F46 pipe ring');
+      const poly3 = build('polygon', { outline: [{ x: 0, y: 0 }, { x: 60, y: 0 }, { x: 60, y: 20 }, { x: 0, y: 20 }] });
+      if (poly3.id !== 'polygon' || poly3.T !== 20 || poly3.outline[0].tag !== 'top' || poly3.outline[2].tag !== 'bottom' || !near(poly3.defaultProbe.x, 30)) f.push('F41 polygon ' + JSON.stringify(poly3.outline.map(function (q) { return q.tag; })));
+      const ok3 = build('ok-demo');
+      if (ok3.id !== 'ok-demo' || ok3.loops.length < 2 || build('okDemo').id !== 'ok-demo') f.push('F53 okDemo');
+      const v2w = v2({ face: 'wide' });
+      if (v2w.holes.length !== 1 || v2w.holes[0].r !== 2.5 || v2w.graduations.length !== 9 || v2w.graduations[0].deg !== 35 || v2w.graduations[8].deg !== 75) f.push('F10 V2 wide face hole/graduations');
+      const lam3 = laminationPlate({});
+      if (!lam3.weld || lam3.weld.capWidth !== 16 || lam3.outline.some(function (q) { return q.tag === 'root'; })) f.push('F56 lamination weld outline');
+      const cu3 = materialOf('carbon-utman');
+      if (cu3.key !== 'carbon-utman' || cu3.vShear !== 3.20 || cu3.vComp !== 5.96) f.push('F59 carbon-utman');
+      const zc = defectPresets.rootCrack(pipeWeld({ od: 168.3, wt: 20 }));
+      if (!(zc.zFrom < 132 && zc.zTo > 132) || !near(zc.zTo - zc.zFrom, 30)) f.push('F21 preset z ' + JSON.stringify([zc.zFrom, zc.zTo]));
+      const zp = defectPresets.rootCrack(base3), zx = defectPresets.rootCrack(base3, { z: 200 });
+      if (!near(zp.zFrom, 135) || !near(zp.zTo, 165) || !near(zx.zFrom, 185) || !near(defectPresets.rootCrack(base3, { zFrom: 10, zTo: 20 }).zTo, 20)) f.push('F21 preset z on plates must not move');
       const t0 = Date.now(), ns = defectSamples(nd[0]).length;
       if (ns > 8000 || Date.now() - t0 > 200) f.push('defectSamples bound ' + ns);
       if (defectSamples(defectPresets.porosity(p)).length < 12) f.push('porosity samples');

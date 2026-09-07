@@ -1,5 +1,29 @@
 /* 00-core.js — UT namespace, constants, math, event bus, state store, DOM helpers, test API stub.
  * Loaded first. Classic script (no modules). Nothing here touches the DOM at load time.
+ *
+ * v3 additions (SPEC-v3 §1, §2 — lead-owned):
+ *  - UT.defaultState() gains instrument.powered, weldOpts.{rootCorrosion, roughSurface, misalignmentMm,
+ *    wtVariationMm}, autocal.{entered, field, source, rangeAfter}, plot.{lines, blockMarks, ruler, bs,
+ *    overlay}, scaleMode{…}, annot{…}, tofd.{ascanOn, parallel}, display.{depthEcho, defectShade,
+ *    alwaysShowControls, instrumentFloat, drawRegion, skipsToRange}, editing.{lof, autoType, spotMm,
+ *    returnMode, keyLock} and tkyOpts{…}. Every one of them is off/neutral by default, so no v1/v2
+ *    number moves; UT.test.state() drops scaleMode.picture, tofd.parallel and annot.strokes.
+ *  - UT.dom.fileOpen(accept) → Promise<{name, size, type, dataUrl, text}> via a hidden <input type=file>
+ *    created on call (no network, no persistence).
+ *  - UT.dom.win({alwaysOnTop:true}) raises in a separate z band; api.setAlwaysOnTop(on) / api.onTop().
+ *  - UT.math.fitLine(pts) → {angleDeg, a, b, rms, …} (total least squares; angleDeg in the plotter
+ *    caption's convention — 0° along the surface, 90° straight down).
+ *
+ * SPEC NOTES (v3, where SPEC-v3 is silent — recorded per the working agreement):
+ *  1. display.skipsToRange is added here, not in §2's list, because §11 decision 7 (binding) replaces the
+ *     `display.skips = null` sentinel of F17 with a separate boolean. `display.skips` keeps its numeric type
+ *     so coerceLike needs no exemption.
+ *  2. fitLine is a TOTAL least-squares (principal-axis) fit rather than an ordinary y-on-x regression, so a
+ *     vertical drag on the plotter card reports 90.0 instead of dividing by zero. For a non-vertical fit the
+ *     reported `a`/`b` are the ordinary y = a·x + b coefficients of the same line; `a` and `b` are null when
+ *     the fit is vertical, and `rms` is always the RMS PERPENDICULAR residual.
+ *  3. fileOpen resolves null on cancel where the browser fires the `cancel` event (Chrome/Edge) and stays
+ *     pending otherwise; callers must not block UI on it. It never persists the data URL — that is §11.9.
  */
 (function (UT) {
   'use strict';
@@ -117,6 +141,46 @@
     },
     /** FNV-1a 32-bit hash of a string (used for exam codes). */
     fnv1a(str) { let h = 0x811c9dc5; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h >>> 0; },
+    /**
+     * Least-squares straight-line fit of 2-D points (total least squares, so a vertical set is fine).
+     * Accepts `{x, y}` or the plotter's `{standoff, depth}` (standoff → x, depth → y).
+     * `angleDeg` is measured the way the original's plotter caption measures it (SPEC-v3 §6.1 F36):
+     * from the SURFACE — 0° = along the surface (+x), 90° = straight down (+y) — in the range (−90, 90].
+     * @param {Array<{x?:number,y?:number,standoff?:number,depth?:number}>} pts at least two distinct finite points
+     * @returns {{angleDeg:number,a:number|null,b:number|null,rms:number,n:number,x0:number,y0:number,ux:number,uy:number}|null}
+     *   a/b are the slope and intercept of y = a·x + b (both null for a vertical fit), rms the RMS
+     *   perpendicular distance of the points from the line, (x0, y0) their centroid and (ux, uy) the unit
+     *   direction. null when fewer than two distinct finite points are given.
+     */
+    fitLine(pts) {
+      if (!Array.isArray(pts) || pts.length < 2) return null;
+      const xs = [], ys = [];
+      for (const p of pts) {
+        if (!p || typeof p !== 'object') continue;
+        const x = Number(p.x === undefined ? p.standoff : p.x);
+        const y = Number(p.y === undefined ? p.depth : p.y);
+        if (Number.isFinite(x) && Number.isFinite(y)) { xs.push(x); ys.push(y); }
+      }
+      const n = xs.length;
+      if (n < 2) return null;
+      let mx = 0, my = 0;
+      for (let i = 0; i < n; i++) { mx += xs[i]; my += ys[i]; }
+      mx /= n; my /= n;
+      let sxx = 0, syy = 0, sxy = 0;
+      for (let i = 0; i < n; i++) { const dx = xs[i] - mx, dy = ys[i] - my; sxx += dx * dx; syy += dy * dy; sxy += dx * dy; }
+      if (sxx + syy <= 1e-18) return null;                       // every point identical
+      const theta = 0.5 * Math.atan2(2 * sxy, sxx - syy);        // principal axis, in (−π/2, π/2]
+      const ux = Math.cos(theta), uy = Math.sin(theta);
+      let ss = 0;
+      for (let i = 0; i < n; i++) { const d = (xs[i] - mx) * uy - (ys[i] - my) * ux; ss += d * d; }   // perpendicular residual
+      const vertical = Math.abs(ux) < 1e-9;
+      return {
+        angleDeg: theta / DEG,
+        a: vertical ? null : uy / ux,
+        b: vertical ? null : my - (uy / ux) * mx,
+        rms: Math.sqrt(ss / n), n, x0: mx, y0: my, ux, uy,
+      };
+    },
     /** Angle (deg, 0..180) between two direction vectors. */
     angleBetween(ax, ay, bx, by) {
       const la = Math.hypot(ax, ay) || 1, lb = Math.hypot(bx, by) || 1;
@@ -177,19 +241,36 @@
         // v2
         tcg: { on: false }, pulser: { energy: 200, damping: 150, prf: 60 }, receiver: { filter: 'broadband' },   // energy V ∈ {100,200,300,400}; damping Ω ∈ {50,100,150,200,400}
         autoPct: 80, compare: null, datalog: [],
+        // v3
+        powered: true,                 // F1: false blanks the trace, keeps grid + window + panel
       },
       display: {
         beam: true, skips: 3, colourCode: 'none', singleLine: false, focus: false,
         hide: false, plan: true, pipe3d: true, mirror: true, units: 'mm', legend: true, grid: true,
         // v2
         sound: false, touchBar: 'auto', highContrast: false, scale: 'auto' /* 'auto'|'fixed' */, convRays: true, autoTrig: true,
+        // v3
+        depthEcho: true,               // F23: show 'Depth = …' from the strongest/gated echo
+        defectShade: true,             // F32: shade defects by mean depth
+        alwaysShowControls: false,     // F7: pin the USK 7 controls on screen
+        instrumentFloat: false,        // F8: float the EPOCH skins instead of docking them left
+        drawRegion: null,              // F31: {x, y, w, h} in mm; null = auto (around the weld)
+        skipsToRange: false,           // F17 (§11.7): 'Run to UT Screen Range' — derive the skip count from the range, `skips` keeps its last numeric value
       },
       weldOpts: { T: 20, L: 300, type: 'single-v', bevel: 30, rootGap: 2, rootFace: 2, capWidth: 16, capHeight: 2, rootHeight: 1.5, pipe: false, od: 168.3, wt: 20,
-        prep: 'single-v', weldMaterial: 'same', backing: false, webT: 12, branchOd: 114.3, transferLossDb: 0 },   // v2: prep supersedes type; transferLossDb 0…8 two-way
+        prep: 'single-v', weldMaterial: 'same', backing: false, webT: 12, branchOd: 114.3, transferLossDb: 0,   // v2: prep supersedes type; transferLossDb 0…8 two-way
+        // v3 (F45 weld conditions — all off by default, so every v1/v2 number is unchanged)
+        rootCorrosion: false,          // bumpy, echoing root bead
+        roughSurface: false,           // scanning-surface roughness (transfer loss + grass)
+        misalignmentMm: 0,             // high-low step at the joint, −5…+5 mm (0 = aligned)
+        wtVariationMm: 0 },            // pipe wall-thickness variation, 0…4 mm peak-to-peak
       defects: [],
       selectedDefect: 0,
       tofd: { pcs: 60, txAngle: 60, rangeUs: 15, delayUs: 0, gainDb: 40, scan: null, running: false,
-        modeConv: true, straighten: false, deadZones: true },
+        modeConv: true, straighten: false, deadZones: true,
+        // v3
+        ascanOn: true,                 // F44: the RF A-scan sub-window's OFF button (the mode stays)
+        parallel: null },              // F43: {z0, z1, step, n, cols} — ALWAYS null in state (module buffer in 50-tofd)
       aut: {
         x: 40,
         gates: [
@@ -206,12 +287,39 @@
       standards: { standard: 'iso11666', level: 'AL2', technique: 1, testingLevel: 'B', transferDb: 0, rulesOverride: null, procedure: null, lastEval: null },
       lessons: { active: null, step: 0, progress: {}, answers: {}, memo: {}, stepStartedAt: 0 },
       quiz: { active: false, i: 0, n: 10, seed: null, difficulty: 'basic', correct: 0, wrong: 0, times: [], item: null },
-      autocal: { stage: 0, t1: null, d1: 10, d2: 25 },   // written by 80-modes (0 idle | 1 after Start | 2 after the first tick)
+      autocal: { stage: 0, t1: null, d1: 10, d2: 25,     // written by 80-modes (0 idle | 1 after Start | 2 after the first tick)
+        // v3
+        entered: { thin: null, thick: null },   // F3: the values the trainee typed/arrowed (mm), null until entered
+        field: 0,                               // F3: the live value of the on-LCD entry field (mm)
+        source: 'specimen',                     // F2: 'specimen' (current specimen backwalls) | 'step' (forced step wedge)
+        rangeAfter: null },                     // F4: the range set after a successful cal (mm), null before
       pa: { elements: 16, pitch: 1.0, freq: 5, from: 35, to: 75, step: 1, focusDepth: null, view: 'S', escanAngle: 60, scan: null, tcg: false },
       bscan: { axis: 'x', on: false, columns: null },
       echodyn: { on: false, samples: [] },
       scenario: { slot: null, name: '', title: '', noteKo: '', noteEn: '', author: '' },
-      plot: { points: [], edgeMarks: [], mirror: true, refPct: 80, cardStyle: 'iow' },
+      plot: { points: [], edgeMarks: [], mirror: true, refPct: 80, cardStyle: 'iow',
+        // v3
+        lines: [],                              // F36: [{pts:[{standoff, depth}], colour:'green'}] — freehand edge lines & rungs
+        blockMarks: [],                         // F35: [{x /* mm on the block surface */, side /* ±1 */, hole /* mm depth or null */}]
+        ruler: { on: false, x: 0, view: 'plotter' },   // F39: 'plotter' | 'block'; x = mm of the ruler's 0 mark
+        bs: null,                               // F37: {angleDeg, k20, k12, k6, n} written by 66 when ≥2 marks per side exist
+        overlay: false },                       // F38: true = plotter card over the current weld (not the IOW block)
+      scaleMode: {                              // F41/F42 — owned by 85-scalemode
+        on: false, mmPerPx: 0.5,                // 0.05…5.0 mm per CSS px of the cross-section canvas
+        picture: null,                          // {name, dataUrl, w, h, x, y} — data: URL only, never persisted
+        outline: [],                            // [{x, y}] traced boundary in mm (closed, ≥3 points) → the polygon specimen
+        protractor: null,                       // {x, y, rotDeg} in mm, or null when hidden
+        magnify: false, gradStepMm: 5,          // F42: skip-line graduations every gradStepMm along each drawn skip
+      },
+      annot: {                                  // F51 — owned by 86-annotate
+        on: false,                              // SHIFT+F12 teaching-aid drawing mode
+        tool: 'pencil',                         // 'pencil' | 'line' | 'eraser'
+        strokes: [],                            // [{colour:'red'|'blue', tool, pts:[{x,y}] /* design px */}] cap 200
+        torch: false,                           // Options ▸ Highlight pointer
+        shown: false,                           // the STEP notification dialog has been shown once
+      },
+      tkyOpts: { kind: 'T-joint', braceAngle: 60, braceT: 12, chordT: 20, braceOffset: 0, precision: 1,
+        chordOd: 600, chordWt: 32 },            // F46: promoted from 80-modes module state into state (persisted)
       sizing: { method: '6dB', marks: [], result: null },
       trade: { active: false, revealed: false, report: [], score: null, seed: null, startedAt: null, truth: [],
         difficulty: 'intermediate', timeLimitMin: 60, history: [], exam: null,
@@ -219,7 +327,13 @@
       lesson: null,
       status: { left: '', mid: '', right: '' },
       cursor: { x: null, y: null, view: null, tUs: null, depth: null, z: null },   // 60 writes x/y/view; 50 writes view:'dscan', tUs/depth/z
-      editing: { defect: false, brush: 'planar' },   // cross-section brush active when defect editor open
+      editing: { defect: false, brush: 'planar',      // cross-section brush active when defect editor open
+        // v3
+        lof: false,                             // F26: the current stroke is a right-button single-line LOF
+        autoType: true,                         // F28: infer volumetric vs LOF from the stroke
+        spotMm: 5,                              // F29: spot/brush diameter in mm (5…45); replaces the 10–60 px spinner
+        returnMode: null,                       // F30: the modal mode to re-enter when the editor closes
+        keyLock: null },                        // F33: HIDE key code (string) or null = NO KEY
     };
   };
   UT.state = UT.defaultState();
@@ -398,12 +512,62 @@
       win.show();
       return win;
     },
+    /**
+     * User-initiated file picker (SPEC-v3 §1: Load Def / Load Pic). Creates a hidden `<input type="file">`,
+     * clicks it and resolves with the chosen file. Nothing is fetched and nothing is persisted — the data
+     * URL lives only in the returned object, which the caller is expected to drop when it is done.
+     * @param {string} [accept] the input's accept attribute, e.g. 'image/*' or '.json,.def'
+     * @param {{text?:boolean}} [opts] text:true forces, text:false suppresses the extra readAsText pass
+     *   (by default text is read for text/JSON types and for .json/.txt/.csv/.def names)
+     * @returns {Promise<{name:string,size:number,type:string,dataUrl:string,text:(string|null)}|null>}
+     *   null when the picker is cancelled or the document is unavailable; rejects when the file cannot be read
+     */
+    fileOpen(accept, opts) {
+      return new Promise(function (resolve, reject) {
+        if (typeof document === 'undefined') { resolve(null); return; }
+        const o = opts || {};
+        const input = dom.h('input', { type: 'file', accept: accept || null, style: { position: 'fixed', left: '-10000px', top: '0', width: '1px', height: '1px', opacity: '0' } });
+        let settled = false;
+        const settle = function (value, err) {
+          if (settled) return;
+          settled = true;
+          if (input.parentNode) input.parentNode.removeChild(input);
+          if (err) reject(err); else resolve(value);
+        };
+        input.addEventListener('cancel', function () { settle(null); });   // Chrome/Edge; elsewhere the promise simply never settles
+        input.addEventListener('change', function () {
+          const file = input.files && input.files[0];
+          if (!file) { settle(null); return; }
+          const name = String(file.name || 'file');
+          const type = String(file.type || '');
+          const wantText = o.text === true || (o.text !== false && (/^text\//.test(type) || type === 'application/json' || /\.(json|txt|csv|def)$/i.test(name)));
+          const urlReader = new FileReader();
+          urlReader.onerror = function () { settle(null, new Error('Could not read ' + name)); };
+          urlReader.onload = function () {
+            const dataUrl = String(urlReader.result || '');
+            if (!wantText) { settle({ name, size: file.size || 0, type, dataUrl, text: null }); return; }
+            const textReader = new FileReader();
+            textReader.onerror = function () { settle({ name, size: file.size || 0, type, dataUrl, text: null }); };
+            textReader.onload = function () { settle({ name, size: file.size || 0, type, dataUrl, text: String(textReader.result || '') }); };
+            textReader.readAsText(file);
+          };
+          urlReader.readAsDataURL(file);
+        });
+        (document.body || document.documentElement).appendChild(input);
+        input.click();
+      });
+    },
     wins: {},
     _z: 100,
+    _zTop: 100000,   // always-on-top band (SPEC-v3 §1: dom.win({alwaysOnTop:true}))
     /**
      * Floating, draggable Win-classic style window.
-     * dom.win({name, title, x, y, w, h, content: Element|() => Element, onClose, onShow, modal, resizable})
-     * → { el, body, show(), hide(), toggle(), close(), setTitle(), setContent(), isOpen(), raise() }
+     * dom.win({name, title, x, y, w, h, content: Element|() => Element, onClose, onShow, modal, resizable,
+     *          alwaysOnTop})
+     * → { el, body, show(), hide(), toggle(), close(), setTitle(), setContent(), isOpen(), raise(),
+     *     setAlwaysOnTop(on), onTop() }
+     * `alwaysOnTop` (SPEC-v3 §1) raises the window in a separate z band above every ordinary window, so a
+     * floating instrument or palette stays visible while other windows are raised over each other.
      * Windows are appended to #app (or document.body) on first show. Registry: dom.wins[name].
      */
     win(o) {
@@ -416,10 +580,15 @@
       const el = dom.h('div', { class: 'win' + (o.modal ? ' modal' : '') + (o.class ? ' ' + o.class : ''), role: 'dialog', 'aria-modal': o.modal ? 'true' : null, dataset: { win: name }, style: { left: (o.x === undefined ? 200 : o.x) + 'px', top: (o.y === undefined ? 120 : o.y) + 'px', width: o.w ? o.w + 'px' : null, height: o.h ? o.h + 'px' : null, display: 'none' } }, [titleBar, body]);
       let backdrop = null;
       let prevFocus = null;
+      let onTop = !!o.alwaysOnTop;
       const api = {
         el, body, name,
         isOpen() { return el.style.display !== 'none'; },
-        raise() { el.style.zIndex = String(++dom._z); },
+        raise() { el.style.zIndex = String(onTop ? ++dom._zTop : ++dom._z); },
+        /** True while this window sits in the always-on-top z band. */
+        onTop() { return onTop; },
+        /** Move the window into (true) or out of (false) the always-on-top band and re-raise it. */
+        setAlwaysOnTop(on) { onTop = !!on; api.raise(); return api; },
         setTitle(t) { titleEl.dataset.i18n = t; titleEl.textContent = UT.i18n.t(t); },
         setContent(c) { body.textContent = ''; const node = typeof c === 'function' ? c(api) : c; if (node) body.appendChild(node); },
         show() {
@@ -563,6 +732,11 @@
     s.aut = Object.assign({}, s.aut, { scan: null, map: null });
     s.pa = Object.assign({}, s.pa, { scan: null }); s.bscan = Object.assign({}, s.bscan, { columns: null });
     s.instrument = Object.assign({}, s.instrument, { compare: null });
+    // v3 §2: never leaves the page — a picture data: URL is megabytes, the parallel-scan buffer is binary,
+    // and the annotation strokes are a per-session teaching overlay
+    if (s.scaleMode) { s.scaleMode = Object.assign({}, s.scaleMode); delete s.scaleMode.picture; }
+    if (s.tofd) { s.tofd = Object.assign({}, s.tofd); delete s.tofd.parallel; }
+    if (s.annot) { s.annot = Object.assign({}, s.annot); delete s.annot.strokes; }
     // exam lock (SPEC-v2 §4.2.3): the hidden truth never leaves the page while an exam is locked and unrevealed
     if (s.trade && s.trade.exam && s.trade.exam.locked && !s.trade.revealed) { delete s.defects; s.trade = Object.assign({}, s.trade, { truth: [] }); }
     s.specimen = s.specimen ? { id: s.specimen.id, name: s.specimen.name, T: s.specimen.T, L: s.specimen.L, face: s.specimen.face || null, kind: s.specimen.kind } : null;
@@ -677,6 +851,22 @@
       const d6 = math.pistonDirectivity(math.rad2deg(Math.asin(0.51 * 0.648 / 10)), 10, 0.648);
       if (Math.abs(20 * Math.log10(d6) + 3) > 0.3) f.push('piston -3 dB at 0.51 λ/a: ' + (20 * Math.log10(d6)).toFixed(2));
       if (UT.i18n.t('Defect {n}', { n: 3 }) !== 'Defect 3') f.push('i18n params');
+      // v3: fitLine (F36/F37) — the plotter caption's angle convention
+      const fl = math.fitLine([{ standoff: 0, depth: 0 }, { standoff: 20, depth: 34.6 }]);
+      if (!fl || Math.abs(fl.angleDeg - 60) > 0.1 || Math.abs(fl.a - 1.73) > 0.01 || fl.rms > 1e-6) f.push('fitLine 60° ' + JSON.stringify(fl));
+      const flh = math.fitLine([{ x: 0, y: 7 }, { x: 10, y: 7 }, { x: 20, y: 7 }]);
+      if (!flh || Math.abs(flh.angleDeg) > 1e-9 || Math.abs(flh.a) > 1e-9 || Math.abs(flh.b - 7) > 1e-9) f.push('fitLine horizontal ' + JSON.stringify(flh));
+      const flv = math.fitLine([{ x: 5, y: 0 }, { x: 5, y: 9 }]);
+      if (!flv || Math.abs(flv.angleDeg - 90) > 1e-9 || flv.a !== null || flv.b !== null) f.push('fitLine vertical ' + JSON.stringify(flv));
+      const flr = math.fitLine([{ x: 0, y: 0 }, { x: 10, y: 1 }, { x: 20, y: 1 }, { x: 30, y: 0 }]);
+      if (!flr || Math.abs(flr.angleDeg) > 1e-9 || Math.abs(flr.rms - 0.5) > 1e-9) f.push('fitLine rms ' + JSON.stringify(flr));
+      if (math.fitLine([{ x: 1, y: 1 }]) !== null || math.fitLine([{ x: 1, y: 1 }, { x: 1, y: 1 }]) !== null) f.push('fitLine degenerate');
+      // v3 state additions (§2) — names other modules bind to
+      const s3 = UT.defaultState();
+      if (s3.instrument.powered !== true || s3.weldOpts.misalignmentMm !== 0 || s3.plot.blockMarks.length !== 0 ||
+          s3.scaleMode.mmPerPx !== 0.5 || s3.annot.tool !== 'pencil' || s3.tofd.parallel !== null ||
+          s3.display.depthEcho !== true || s3.editing.spotMm !== 5 || s3.tkyOpts.chordOd !== 600 ||
+          s3.autocal.source !== 'specimen') f.push('v3 defaultState keys');
       return f;
     },
   };
