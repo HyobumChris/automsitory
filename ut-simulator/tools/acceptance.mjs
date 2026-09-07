@@ -686,15 +686,16 @@ check('V2-11 phased array S/E/C-scan, per-angle TCG, focal laws', 'v2', async ({
       const e = col && sdhOf(col); if (e && e.ampPct > 0) spread.push(e.ampPct);
     }
     const mx = Math.max(...spread), mn = Math.min(...spread);
-    const fl60 = UT.test.pa.focalLaw(60); const fl0 = UT.test.pa.focalLaw(0, { escan: true });
+    const fl60 = UT.test.pa.focalLaw(60); const fl0 = UT.test.pa.focalLaw(0, { escan: true }); const flFar = UT.test.pa.focalLaw(60, { focusDepth: 5000 });
     UT.setIn('pa', { tcg: false }); UT.setIn('probe', { method: 'pe' }); UT.renderNow();
-    return { nCols: ss.columns.length, bestCol, expAngle, nE: es ? es.columns.length : 0, finite, spreadDb: 20 * Math.log10(mx / mn), nSpread: spread.length, slope60: fl60.slope, slope0: fl0.slope, minDelay: Math.min(...fl60.delaysUs, ...fl0.delaysUs) };
+    return { nCols: ss.columns.length, bestCol, expAngle, nE: es ? es.columns.length : 0, finite, spreadDb: 20 * Math.log10(mx / mn), nSpread: spread.length, d15: fl60.delaysUs[15], d15Far: flFar.delaysUs[15], slope60: fl60.slope, slope0: fl0.slope, minDelay: Math.min(...fl60.delaysUs, ...fl0.delaysUs) };
   });
   A.eq(r.nCols, 41, 'S-scan columns'); A.ok(!!r.bestCol, 'SDH visible in the S-scan');
   if (r.bestCol) A.near(r.bestCol.angle, r.expAngle, 3, `SDH angle (expected ${r.expAngle.toFixed(1)}°)`);
   A.ge(r.nE, 8, 'E-scan columns'); A.ge(r.finite, 1, 'C-scan map non-empty');
   A.le(r.spreadDb, 3, `TCG spread dB over ${r.nSpread} angles`);
   A.near(r.slope60, 0.070, 0.003, 'focalLaw(60).slope'); A.eq(r.slope0, 0, 'focalLaw(0,{escan}).slope'); A.ge(r.minDelay, 0, 'delays ≥ 0');
+  A.near(r.d15Far, r.d15, Math.max(1e-4, Math.abs(r.d15) * 0.01), 'focused law → steering law as F → ∞ (focusDepth 5000, element 15)');
   return A.result();
 });
 
