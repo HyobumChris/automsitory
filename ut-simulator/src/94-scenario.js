@@ -49,7 +49,7 @@
     for (const k of path.split('.')) { if (!o || o[k] === undefined || o[k] === null) return null; o = o[k]; }
     return o;
   }
-  function clone(v) { return v === undefined ? undefined : JSON.parse(JSON.stringify(v)); }
+  const clone = UT.clone;
   function str(v, max) { return typeof v === 'string' ? v.slice(0, max || 200) : (typeof v === 'number' && Number.isFinite(v) ? String(v) : ''); }
 
   // ------------------------------------------------------------------ constants
@@ -177,12 +177,20 @@
   async function pumpStream(stream, bytes) {
     const writer = stream.writable.getWriter();
     const reader = stream.readable.getReader();
+    // The write/close chain is observed unconditionally: when the (de)compressor rejects (corrupt 'z:' data) the read
+    // loop throws first and the caller's try/catch swallows it — an un-observed `written` rejection would otherwise
+    // surface as an unhandled promise rejection (page error) although fromUrl() correctly returns null (§5.5).
     const written = writer.write(bytes).then(function () { return writer.close(); });
+    written.catch(function () { /* reported through the read side */ });
     const chunks = [];
-    for (;;) {
-      const r = await reader.read();
-      if (r.done) break;
-      chunks.push(r.value instanceof Uint8Array ? r.value : new Uint8Array(r.value));
+    try {
+      for (;;) {
+        const r = await reader.read();
+        if (r.done) break;
+        chunks.push(r.value instanceof Uint8Array ? r.value : new Uint8Array(r.value));
+      }
+    } finally {
+      try { reader.releaseLock(); } catch (e) { /* ignore */ }
     }
     await written;
     return concatChunks(chunks);
@@ -374,15 +382,22 @@
     }
     return false;
   }
+  /**
+   * Load an exam through UT.trade.loadExam (fallback: state.trade.exam + start(seed)).
+   * @returns {boolean} true when the exam has started; false when it is pending (nameRequired without a candidate
+   *   name: loadExam returns null, the trade window opens and the Start button gates the timer)
+   */
   function applyExam(exam) {
     const ex = Object.assign({}, exam, { seed: Number(exam.seed) >>> 0, locked: true });
-    if (has('trade.loadExam')) { UT.trade.loadExam(ex); }
+    let started = false;
+    if (has('trade.loadExam')) { started = UT.trade.loadExam(ex) !== null; }
     else {
       UT.setIn('trade', { exam: ex, revealed: false }, { noRender: true });
       const start = has('trade.start') || has('test.trade.start');
-      if (start) start(ex.seed);
+      if (start) { start(ex.seed); started = !!st().trade.startedAt; }
     }
     UT.setIn('display', { hide: true }, { noRender: true });
+    return started;
   }
   /**
    * Apply a scenario object: rebuilds the specimen through UT.modes.enter, restores probe/instrument/display/
@@ -410,8 +425,9 @@
     if (sc.tofd) base.tofd = Object.assign({}, s.tofd, sc.tofd, { scan: null, running: false });
     if (sc.aut) base.aut = Object.assign({}, s.aut, sc.aut, { scan: null, map: null, running: false });
     UT.set(base, { noRender: true });
+    let examPending = false;
     if (sc.exam) {
-      applyExam(sc.exam);
+      examPending = !applyExam(sc.exam);
     } else {
       let mode = sc.mode === 'trade' ? 'weld' : sc.mode;
       if (!sc.mode && sc.specimenId && SPEC_MODE[sc.specimenId]) mode = SPEC_MODE[sc.specimenId];
@@ -427,7 +443,7 @@
       try { UT.lessons.start(sc.lesson); if (sc.lessonStep > 0 && has('lessons.goto')) UT.lessons.goto(sc.lessonStep); } catch (e) { console.warn('[UT.scenario] lesson start failed', e); }
     }
     try { UT.renderNow(); } catch (e) { console.error('[UT.scenario] renderNow', e); }
-    if (o.toast !== false) showToast(sc);
+    if (o.toast !== false) showToast(sc, { examPending });
     return true;
   }
 
@@ -435,11 +451,18 @@
   let toastTimer = null;
   const scenario = {};
   scenario.lastToast = null;
-  function showToast(sc) {
+  const EXAM_HINT = 'Exam mode: the defects are hidden until you submit';
+  const EXAM_PENDING_HINT = 'Exam loaded — enter the candidate name and press Start';
+  /**
+   * @param {object} sc  scenario object
+   * @param {{examPending?:boolean}} [info]  examPending: the exam is loaded but waits for the candidate name (Start)
+   */
+  function showToast(sc, info) {
     const lang = UT.i18n && UT.i18n.lang;
     const title = sc.title || sc.name || t('Scenario loaded');
     const note = lang === 'ko' ? (sc.noteKo || sc.noteEn || '') : (sc.noteEn || sc.noteKo || '');
-    scenario.lastToast = { title, note, author: sc.author || '', at: Date.now() };
+    const examHint = sc.exam ? (info && info.examPending ? EXAM_PENDING_HINT : EXAM_HINT) : '';
+    scenario.lastToast = { title, note, author: sc.author || '', exam: examHint ? t(examHint) : '', at: Date.now() };
     if (typeof document === 'undefined') return null;
     const root = document.getElementById('app') || document.body;
     if (!root) return null;
@@ -450,7 +473,7 @@
       dom.h('div', { class: 'scn-toast-title' }, [dom.h('span', { i18n: 'Scenario' }), ': ' + title]),
       note ? dom.h('div', { class: 'scn-toast-note' }, note) : null,
       sc.author ? dom.h('div', { class: 'scn-toast-author' }, t('by {author}', { author: sc.author })) : null,
-      sc.exam ? dom.h('div', { class: 'scn-toast-exam', i18n: 'Exam mode: the defects are hidden until you submit' }) : null,
+      examHint ? dom.h('div', { class: 'scn-toast-exam', i18n: examHint }) : null,
       dom.h('button', { class: 'scn-toast-close', type: 'button', title: t('Close'), onclick: function () { hideToast(); } }, '✕'),
     ]);
     root.appendChild(el);
