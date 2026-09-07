@@ -214,8 +214,8 @@
     'Clear the trade test history?': '실기 시험 기록을 지울까요?', 'best {score}% ({date})': '최고 {score}% ({date})', 'dB vs reference': '기준 대비 dB', 'wedge': '쐐기', 'z start': 'z 시작', 'z start (mm)': 'z 시작 (mm)', 'length (mm)': '길이 (mm)', 'depth (mm)': '깊이 (mm)', 'height (mm)': '높이 (mm)', 'angle': '각도', 'Angle (°)': '각도 (°)', 'Side': '면',
     'planar': '면상', 'crack': '균열', 'lack of fusion': '융합 불량', 'incomplete penetration': '용입 부족', 'volumetric': '체적형', 'porosity': '기공', 'slag': '슬래그 혼입', 'lamination': '라미네이션',
     'Planar': '면상', 'Crack': '균열', 'Lack of fusion': '융합 불량', 'Incomplete penetration': '용입 부족', 'Volumetric': '체적형', 'Porosity': '기공', 'Slag inclusion': '슬래그 혼입', 'Lamination': '라미네이션',
-    'History': '기록', 'Score': '점수', 'Found': '검출', 'Result': '결과', 'Candidate': '수험자', 'Clear history': '기록 지우기', 'Print this report': '이 보고서 인쇄', 'Verify': '검증', 'Token': '토큰', 'Paste a result token': '결과 토큰을 붙여 넣으세요',
-    'Detected': '검출', 'Bonus': '가산점', 'Type correct': '종류 정답', 'Length': '길이', 'Height': '높이', 'Position': '위치', 'Coverage {p} %': '주사 범위 {p} %', 'Coverage: {p} % of the weld length scanned from both sides': '주사 범위: 용접선 길이의 {p} %를 양면에서 주사',
+    'History': '기록', 'Score': '점수', 'Found': '발견', 'Result': '결과', 'Candidate': '수험자', 'Clear history': '기록 지우기', 'Print this report': '이 보고서 인쇄', 'Verify': '검증', 'Token': '토큰', 'Paste a result token': '결과 토큰을 붙여 넣으세요',
+    'Detected': '검출됨', 'Bonus': '가산점', 'Type correct': '종류 정답', 'Length': '길이', 'Height': '높이', 'Position': '위치', 'Coverage {p} %': '주사 범위 {p} %', 'Coverage: {p} % of the weld length scanned from both sides': '주사 범위: 용접선 길이의 {p} %를 양면에서 주사',
     'Timer': '타이머', 'Truth': '정답', 'Locked': '잠김', 'Report rows': '보고서 행', 'Row': '행', 'Not recordable': '기록 불요', 'recordable': '기록', 'accept': '합격', 'reject': '불합격', 'record': '기록', 'Accept': '합격', 'Disposition': '판정',
 
     // ------------------------------------------------------------------ 45-standards (dgs / evaluation / procedures / stdnotes)

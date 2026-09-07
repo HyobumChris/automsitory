@@ -477,7 +477,8 @@
             try { next.focus(); } catch (err) { /* ignore */ }
           } else if (e.key === 'Enter') {
             const t = e.target, tag = t && t.tagName ? t.tagName.toLowerCase() : '';
-            if (tag === 'textarea' || tag === 'button' || tag === 'a' || tag === 'select' || (t && t.isContentEditable)) return;   // native activation / multi-line input
+            if (tag === 'button' || tag === 'a') { e.stopPropagation(); return; }   // native activation of the focused control (kept away from the app's Enter handlers)
+            if (tag === 'textarea' || tag === 'select' || (t && t.isContentEditable)) return;   // multi-line input / native behaviour
             const primary = el.querySelector('.btn.primary');
             if (!primary || primary.disabled) return;
             e.preventDefault(); e.stopPropagation();
