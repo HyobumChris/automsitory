@@ -104,6 +104,8 @@
   const BLOCK_KIND = { v1: 1, v2: 1, step: 1, iow: 1, dac: 1, tky: 1, fbh: 1 };
   const MODE_OF = { 'plate-weld': 'weld', 'pipe-weld': 'weld', v1: 'v1', v2: 'v2', step: 'step', iow: 'iow', dac: 'dac', tky: 'tky', 'lamination-plate': 'lamination', fbh: 'fbh' };
   const DEFECT_TYPES = ['planar', 'volumetric', 'crack', 'lof', 'porosity', 'slag', 'lamination', 'root'];
+  /** English option labels of the editor's Type <select> (same wording as 84-trade's TYPE_OPTIONS; translated at render time). */
+  const TYPE_LABELS = { planar: 'planar', volumetric: 'volumetric', crack: 'crack', lof: 'lack of fusion', porosity: 'porosity', slag: 'slag', lamination: 'lamination', root: 'incomplete penetration' };
   const ALL_TB = ['0', '45', '60', '70', 'v2', 'v1', 'dac', 'plot', 'damp', 'size', 'defect', 'hide', 'clear', 'beam', 'rad', 'pipe', 'tky', 'tofd', 'aut'];
   const ALL_MENUS = ['file', 'probes', 'stepwedge', 'weld', 'defects', 'tools', 'options', 'help'];   // v2: 'tools' between defects and options (§8)
   const ANGLE_TB = { 'tb-0': 0, 'tb-45': 45, 'tb-60': 60, 'tb-70': 70 };
@@ -372,7 +374,7 @@
     lastAngle = probe.angle;
     UT.set(patch);
     if (!o.silentUI) openModeWindows(name);
-    UT.status({ right: t(hintFor(name)) });
+    UT.status({ right: hintFor(name) });   // English KEY — 90 renderStatus t()s it at render time (SPEC-v2 §5.3.2)
     UT.bus.emit('mode', { mode: name, prev });
     return spec;
   }
@@ -412,7 +414,7 @@
     const probe = clampProbe(s.probe, spec);
     if (!s.specimen || s.specimen.face !== face) Object.assign(probe, { x: spec.defaultProbe.x, z: spec.defaultProbe.z });
     UT.set({ specimen: spec, probe });
-    UT.status({ right: t(hintFor(s.mode)) });
+    UT.status({ right: hintFor(s.mode) });
     return spec;
   }
 
@@ -479,7 +481,7 @@
     if (keys.indexOf('damping') >= 0) {
       const wasTool = !!dampingToolWas, isTool = !!(s.damping && s.damping.tool);
       dampingToolWas = isTool;
-      if (isTool !== wasTool) UT.status({ right: t(isTool ? HINTS.dampingTool : hintFor(s.mode)) });
+      if (isTool !== wasTool) UT.status({ right: isTool ? HINTS.dampingTool : hintFor(s.mode) });
     }
   });
 
@@ -567,7 +569,7 @@
       return cal;
     },
     /** Abort the wizard (autocal.stage = 0). */
-    cancel() { setAcState(null); if (autoCalWin) autoCalWin.hide(); UT.status({ right: t(hintFor(st().mode)) }); },
+    cancel() { setAcState(null); if (autoCalWin) autoCalWin.hide(); UT.status({ right: hintFor(st().mode) }); },
     state() { return autoCalState; },
   };
 
@@ -577,7 +579,7 @@
     record() {
       const s = st();
       const r = UT.frame && UT.frame.readouts && UT.frame.readouts.primary;
-      if (!r || !(r.path > 0)) { UT.status({ right: t('DAC: no echo above the gate level — maximise the echo first') }); return null; }
+      if (!r || !(r.path > 0)) { UT.status({ right: 'DAC: no echo above the gate level — maximise the echo first' }); return null; }
       const cur = s.instrument.dac;
       const refDb = cur.refDb === null || cur.refDb === undefined ? s.instrument.gain : cur.refDb;
       const ampPct = r.peakPct * Math.pow(10, (refDb - s.instrument.gain) / 20);
@@ -594,15 +596,15 @@
     erase() {
       const cur = st().instrument.dac;
       UT.setIn('instrument', { dac: Object.assign({}, cur, { points: [], on: false, refDb: null, curves: false }) });
-      UT.status({ right: t(hintFor(st().mode)) });
+      UT.status({ right: hintFor(st().mode) });
     },
     /** Toggle the −6 / −14 dB companion curves (or set explicitly). Returns the new state. */
     curves(on) {
       const cur = st().instrument.dac;
       const v = on === undefined ? !cur.curves : !!on;
       UT.setIn('instrument', { dac: Object.assign({}, cur, { curves: v, on: cur.points.length >= 2 }) });
-      if (cur.points.length < 2) UT.status({ right: t('DAC: record at least 2 points, then Draw Curves') });
-      else UT.status({ right: t(v ? 'DAC −6 dB (50 %) / −14 dB (20 %) curves drawn' : 'DAC companion curves hidden') });
+      if (cur.points.length < 2) UT.status({ right: 'DAC: record at least 2 points, then Draw Curves' });
+      else UT.status({ right: v ? 'DAC −6 dB (50 %) / −14 dB (20 %) curves drawn' : 'DAC companion curves hidden' });
       return v;
     },
   };
@@ -615,7 +617,7 @@
     });
     if (!d.points.length) ui.dacList.appendChild(UT.dom.h('div', { class: 'dac-pt dim', i18n: 'no points' }));
     ui.dacRef.textContent = t('Ref gain: {g}   Curves: {c}', { g: d.refDb === null || d.refDb === undefined ? '--' : d.refDb + ' dB', c: d.curves ? t('ON (−6 / −14 dB)') : t('off') });
-    if (ui.dacDraw) ui.dacDraw.textContent = t(d.curves ? 'Hide Curves' : 'Draw Curves');
+    if (ui.dacDraw) { const k = d.curves ? 'Hide Curves' : 'Draw Curves'; ui.dacDraw.dataset.i18n = k; ui.dacDraw.textContent = t(k); }
   }
   const dacPanel = {
     open() {
@@ -625,7 +627,7 @@
         ui.dacList = UT.dom.h('div', { class: 'dac-list' });
         ui.dacRef = UT.dom.h('div', { class: 'dac-ref' });
         const body = UT.dom.h('div', { class: 'dac-body', tabindex: 0, onkeydown: function (e) { if (e.key === 'r' || e.key === 'R') { dac.record(); e.preventDefault(); } } }, [
-          UT.dom.h('div', { class: 'dac-hint' }, 'Set Amplitude and press record button, then draw curves'),
+          UT.dom.h('div', { class: 'dac-hint', i18n: HINTS.dac }),
           UT.dom.h('div', { class: 'btn-row' }, [
             UT.dom.button('Record', function () { dac.record(); }, { class: 'btn primary', title: 'Record the gated peak (R)' }),
             UT.dom.button('Erase', function () { dac.erase(); }, { title: 'Erase all DAC points' }),
@@ -747,7 +749,7 @@
     if (!fn) { UT.status({ right: t('Unknown preset {name}', { name }) }); return null; }
     const spec = s.specimen || S.plateWeld(s.weldOpts);
     const n = freeSlot(s.defects);
-    if (!n) { UT.status({ right: t('Maximum 8 defects') }); return null; }
+    if (!n) { UT.status({ right: 'Maximum 8 defects' }); return null; }
     const d = fn(spec, Object.assign({ n }, opts || {}));
     d.n = n;
     UT.set({ defects: s.defects.concat([d]) });
@@ -984,7 +986,7 @@
     });
     ui.jsonArea = dom.h('textarea', { class: 'dfe-json', rows: 4, spellcheck: 'false', placeholder: 'Defect JSON (Save Def writes here; paste here and press Load Def)' });
     ui.jsonArea.style.display = 'none';
-    const presetSel = dom.h('select', { class: 'dfe-preset' }, S.defectPresetNames.map(function (p) { return dom.h('option', { value: p.key }, p.label); }));
+    const presetSel = (ui.presetSel = dom.h('select', { class: 'dfe-preset' }, S.defectPresetNames.map(function (p) { return dom.h('option', { value: p.key, dataset: { i18n: p.label } }, t(p.label)); })));
     const left = dom.h('div', { class: 'dfe-left' }, [
       dom.button('Delete All Defects', function () {
         dom.confirm('Delete all defects?', { title: 'ERASE ALL DEFECTS' }).then(function (yes) { if (yes) UT.set({ defects: [] }); });
@@ -994,15 +996,15 @@
       dom.button('Load Def', function () {
         let txt = ui.jsonArea.value.trim();
         if (!txt) { try { txt = localStorage.getItem('utsim.defects') || ''; } catch (e) { txt = ''; } }
-        if (!txt) { UT.status({ right: t('No saved defects (utsim.defects)') }); return; }
-        try { setDefects(JSON.parse(txt)); ui.jsonArea.value = txt; ui.jsonArea.style.display = 'block'; UT.status({ right: t('Defects loaded') }); }
-        catch (e) { UT.status({ right: t('Load Def: invalid JSON') }); }
+        if (!txt) { UT.status({ right: 'No saved defects (utsim.defects)' }); return; }
+        try { setDefects(JSON.parse(txt)); ui.jsonArea.value = txt; ui.jsonArea.style.display = 'block'; UT.status({ right: 'Defects loaded' }); }
+        catch (e) { UT.status({ right: 'Load Def: invalid JSON' }); }
       }, { class: 'btn dfe-btn' }),
       dom.button('Save Def', function () {
         const txt = JSON.stringify(st().defects);
         try { localStorage.setItem('utsim.defects', txt); } catch (e) { /* ignore */ }
         ui.jsonArea.value = txt; ui.jsonArea.style.display = 'block';
-        UT.status({ right: t('Defects saved (utsim.defects) — JSON shown for copy/paste') });
+        UT.status({ right: 'Defects saved (utsim.defects) — JSON shown for copy/paste' });
       }, { class: 'btn dfe-btn' }),
       presetSel,
       dom.button('Add preset', function () {
@@ -1054,10 +1056,10 @@
     ui.fSep = dom.field('SEPARATION', { type: 'number', value: ed.separation, min: 0, max: 500, step: 1 });
     ui.fLength = dom.field('LENGTH', { type: 'number', value: ed.length, min: 1, max: 1000, step: 1 });
     ui.fHeight = dom.field('HEIGHT', { type: 'number', value: ed.height, min: 0.2, max: 100, step: 0.5 });
-    ui.fType = dom.field('Type', { tag: 'select', type: 'select', value: st().editing.brush || 'planar', options: DEFECT_TYPES.map(function (t) { return { value: t, label: t }; }), onchange: function (v) { UT.setIn('editing', { brush: v }, { noRender: true }); } });
+    ui.fType = dom.field('Type', { tag: 'select', type: 'select', value: st().editing.brush || 'planar', options: DEFECT_TYPES.map(function (k) { return { value: k, label: t(TYPE_LABELS[k] || k) }; }), onchange: function (v) { UT.setIn('editing', { brush: v }, { noRender: true }); } });
     ui.fAll = dom.field('APPLY TO ALL DEFECTS', { type: 'checkbox', value: false });
     const right = dom.h('div', { class: 'dfe-right' }, [
-      dom.h('fieldset', { class: 'dfe-select' }, [dom.h('legend', {}, 'Select Defect')].concat(radioRows)),
+      dom.h('fieldset', { class: 'dfe-select' }, [dom.h('legend', { i18n: 'Select Defect' })].concat(radioRows)),
       ui.fSep, ui.fLength, ui.fHeight, ui.fType, ui.fAll,
       dom.button('OK', applyEditorFields, { class: 'btn dfe-ok' }),
     ]);
@@ -1074,18 +1076,18 @@
       if (typeof document === 'undefined') return null;
       UT.dom.injectCss('modes', modes.css);
       if (!editorWin) buildEditor();
-      if ((st().mode === 'trade' && st().trade.active) || examLocked()) { UT.status({ right: t('Defect editor is locked during the Trade Test') }); return null; }
+      if ((st().mode === 'trade' && st().trade.active) || examLocked()) { UT.status({ right: 'Defect editor is locked during the Trade Test' }); return null; }
       UT.setIn('editing', { defect: true, brush: st().editing.brush || 'planar', brushPx: st().editing.brushPx || 26 });
       editorWin.show();
       editorRefresh();
-      UT.status({ right: t(HINTS.editor) });
+      UT.status({ right: HINTS.editor });
       return editorWin;
     },
     close() { if (editorWin && editorWin.isOpen()) editorWin.close(); else defectEditor._closed(); },
     toggle() { return editorWin && editorWin.isOpen() ? defectEditor.close() : defectEditor.open(); },
     _closed() {
       if (st().editing.defect) UT.setIn('editing', { defect: false });
-      UT.status({ right: t(hintFor(st().mode)) });
+      UT.status({ right: hintFor(st().mode) });
     },
     isOpen() { return !!(editorWin && editorWin.isOpen()); },
     get window() { return editorWin; },
@@ -1163,6 +1165,16 @@
     });
   }
   UT.bus.on('lang', tkyKindTitles);
+  /** 'lang': re-render the DAC window's parametrised lines and the defect editor's <select> option labels (SPEC-v2 §5.3.3/5). */
+  UT.bus.on('lang', function () {
+    if (typeof document === 'undefined') return;
+    try {
+      if (ui.fType) for (const o of Array.from(ui.fType.input.options)) o.textContent = t(TYPE_LABELS[o.value] || o.value);
+      if (ui.presetSel) for (const o of Array.from(ui.presetSel.options)) o.textContent = t(o.dataset.i18n || o.value);
+      dacRefresh();
+      editorRefresh();
+    } catch (e) { console.error('[UT.modes] lang', e); }
+  });
   function tkyApply(patch) {
     const p = Object.assign({}, patch || {});
     if (p.kind !== undefined && p.kind !== 'T-joint') delete p.kind;   // only the T-joint geometry is modelled
@@ -1214,7 +1226,7 @@
               const y = 0.6;
               const d = S.makeDefect({ n: 1, type: 'lof', label: 'Toe LOF', pts: [{ x: toe - 20, y }, { x: toe, y }], height: 0.6, zFrom: spec.L / 2 - 10, zTo: spec.L / 2 + 10 });
               UT.set({ defects: [d] });
-              UT.status({ right: t('Default toe LOF loaded (20 mm long under the toe weld)') });
+              UT.status({ right: 'Default toe LOF loaded (20 mm long under the toe weld)' });
             }, { class: 'btn tky-btn' }),
           ]),
           ui.fBraceT, ui.fChordT, ui.fOffset,
@@ -1719,7 +1731,7 @@
       Object.keys(UT.state).forEach(function (k) { if (!(k in saved)) delete UT.state[k]; });
       if (Object.keys(patch).length) UT.set(patch);
       if (modeBefore !== saved.mode) UT.bus.emit('mode', { mode: saved.mode, prev: modeBefore });
-      UT.status(Object.assign({}, saved.status || {}, { right: saved.status && saved.status.right ? saved.status.right : UT.i18n.t(HINTS[saved.mode] || '') }));
+      UT.status(Object.assign({}, saved.status || {}, { right: saved.status && saved.status.right ? saved.status.right : (HINTS[saved.mode] || '') }));
     }
     return f;
   }

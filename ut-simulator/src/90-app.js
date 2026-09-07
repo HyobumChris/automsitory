@@ -69,7 +69,7 @@
     lastLeft: '', lastMid: '', resizeObs: null, suspendSave: false,
     scale: 1, kbFocus: null, kbReturn: null, altArmed: false, coarse: false, coarseMq: null, motionMq: null,
     touch: { step: 1, timer: null, els: {} }, tour: { i: 0, el: null, open: false }, soundArmed: false,
-    winBuilders: {}, printPending: false,
+    winBuilders: {}, printPending: false, lastRecord: null,
   };
   const DESIGN_W = 1280, DESIGN_H = 760;
   const OD_INCH = { 4: 114.3, 6: 168.3, 8: 219.1, 10: 273.1, 12: 323.9 };
@@ -1036,12 +1036,12 @@
     const bar = h('div', { id: 'touchbar', role: 'toolbar', 'aria-label': 'Touch bar' });
     mem.touch.els = {};
     for (const def of touchDefs()) {
-      const btn = h('button', { id: 'tbar-' + def.id, class: 'tbar-btn' + (def.ctx ? ' ctx-' + def.ctx : ''), type: 'button', title: t(def.title), 'aria-label': t(def.title), dataset: { i18n: def.title }, 'aria-pressed': def.active ? 'false' : null }, def.label);
+      const btn = h('button', { id: 'tbar-' + def.id, class: 'tbar-btn' + (def.ctx ? ' ctx-' + def.ctx : ''), type: 'button', title: t(def.title), 'aria-label': t(def.title), dataset: { i18n: def.title }, 'aria-pressed': def.active ? 'false' : null }, t(def.label));
       bindRepeat(btn, def);
       bar.appendChild(btn);
       mem.touch.els[def.id] = btn;
     }
-    const step = h('button', { id: 'tbar-step', class: 'tbar-btn tbar-step', type: 'button', title: t('Step size for ◀ ▶ ▲ ▼'), 'aria-label': t('Step size for ◀ ▶ ▲ ▼') }, 'Step 1 mm');
+    const step = h('button', { id: 'tbar-step', class: 'tbar-btn tbar-step', type: 'button', title: t('Step size for ◀ ▶ ▲ ▼'), 'aria-label': t('Step size for ◀ ▶ ▲ ▼') }, t('Step {n} mm', { n: mem.touch.step }));
     step.addEventListener('click', function () { mem.touch.step = TB_STEPS[(TB_STEPS.indexOf(mem.touch.step) + 1) % TB_STEPS.length]; step.textContent = t('Step {n} mm', { n: mem.touch.step }); });
     bar.appendChild(step);
     mem.touch.els.step = step;
@@ -1256,9 +1256,15 @@
     if (mem.openMenu && menuKey(ev)) { ev.preventDefault(); return; }
     if (key === 'Escape' && mem.tour.open) { closeTour(); ev.preventDefault(); return; }
     const tag = ev.target && ev.target.tagName ? ev.target.tagName.toLowerCase() : '';
-    if (tag === 'input' || tag === 'textarea' || tag === 'select' || (ev.target && ev.target.isContentEditable)) return;
+    const editable = tag === 'input' || tag === 'textarea' || tag === 'select' || !!(ev.target && ev.target.isContentEditable);
+    // Esc closes the top window also while a dialog field has the focus (SPEC v1 keyboard table) — before the editable early return
+    if (key === 'Escape' && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+      if (mem.openMenu) { closeMenus(); ev.preventDefault(); return; }
+      if (UT.dom.closeTopWindow()) { if (editable) { try { ev.target.blur(); } catch (e) { /* ignore */ } } ev.preventDefault(); }
+      return;
+    }
+    if (editable) return;
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
-    if (key === 'Escape') { if (mem.openMenu) { closeMenus(); ev.preventDefault(); return; } if (UT.dom.closeTopWindow()) ev.preventDefault(); return; }
     if (key.indexOf('Arrow') === 0 || key === 'Enter') {
       let used = false;
       try { used = !!(has('instruments.handleKey') && UT.instruments.handleKey(ev)); } catch (e) { used = false; }
@@ -1523,9 +1529,9 @@
       const sel = function (label, value, options, onchange) { return UT.dom.field(label, { tag: 'select', type: 'text', value, options, onchange }); };
       const chk = function (label, value, onchange) { return UT.dom.field(label, { type: 'checkbox', value, onchange }); };
       return h('div', {}, [
-        sel('UT Set', s.utSet, [{ value: 'epoch600', label: 'EPOCH 600' }, { value: 'epoch4', label: 'EPOCH 4 (ASME text screen)' }, { value: 'usk7', label: 'Krautkrämer USK 7 (analogue)' }], setUtSet),
-        sel('Units', s.display.units || 'mm', [{ value: 'mm', label: 'mm' }, { value: 'inch', label: 'inch' }], function (v) { setDisplay({ units: v }); }),
-        sel('Colour code', s.display.colourCode || 'none', [{ value: 'none', label: 'None' }, { value: 'propagation', label: 'Mode propagation (leg colours)' }, { value: 'geometry', label: 'Geometry (last surface)' }], function (v) { setDisplay({ colourCode: v }); }),
+        sel('UT Set', s.utSet, [{ value: 'epoch600', label: t('EPOCH 600') }, { value: 'epoch4', label: t('EPOCH 4 (ASME text screen)') }, { value: 'usk7', label: t('Krautkrämer USK 7 (analogue)') }], setUtSet),
+        sel('Units', s.display.units || 'mm', [{ value: 'mm', label: t('mm') }, { value: 'inch', label: t('inch') }], function (v) { setDisplay({ units: v }); }),
+        sel('Colour code', s.display.colourCode || 'none', [{ value: 'none', label: t('None') }, { value: 'propagation', label: t('Mode propagation (leg colours)') }, { value: 'geometry', label: t('Geometry (last surface)') }], function (v) { setDisplay({ colourCode: v }); }),
         sel('Number of skips', String(s.display.skips || 3), [1, 2, 3, 4].map(function (n) { return { value: String(n), label: String(n) }; }), function (v) { setDisplay({ skips: parseInt(v, 10) }); }),
         chk('Show plan view', s.display.plan !== false, function (v) { setDisplay({ plan: v }); applyLayout(); }),
         chk('Show 3D window', pipe3dOpen(), function (v) { setPipe3dShown(v); }),
@@ -1534,7 +1540,7 @@
         chk('Show converted rays', s.display.convRays !== false, function (v) { setDisplay({ convRays: v }); }),
         chk('Auto trig (angle/thickness follow probe)', s.display.autoTrig !== false, function (v) { setDisplay({ autoTrig: v }); }),
         chk('Sound alarm', !!s.display.sound, function (v) { if (v !== !!st().display.sound) toggleSound(); }),
-        sel('Touch bar', s.display.touchBar || 'auto', [{ value: 'auto', label: 'auto (coarse pointer)' }, { value: 'on', label: 'on' }, { value: 'off', label: 'off' }], function (v) { setDisplay({ touchBar: v }); }),
+        sel('Touch bar', s.display.touchBar || 'auto', [{ value: 'auto', label: t('auto (coarse pointer)') }, { value: 'on', label: t('on') }, { value: 'off', label: t('off') }], function (v) { setDisplay({ touchBar: v }); }),
         chk('High contrast', !!s.display.highContrast, function (v) { setDisplay({ highContrast: v }); }),
         chk('Auto-scale layout', s.display.scale !== 'fixed', function (v) { setDisplay({ scale: v ? 'auto' : 'fixed' }); }),
         chk('Show dead zones', !!(s.tofd && s.tofd.deadZones), function (v) { UT.setIn('tofd', { deadZones: v }); }),
@@ -1749,7 +1755,7 @@
           h('span', { class: 'mat-num no-i18n' }, 'vL ' + m.vComp.toFixed(2) + '  vS ' + m.vShear.toFixed(2) + ' mm/µs   αL ' + m.attenL5 + '  αS ' + (m.attenS5 === undefined ? '–' : m.attenS5) + ' dB/mm   ν ' + (m.poisson === undefined ? '–' : m.poisson) + (m.anisotropic ? '   ' + t('anisotropic') : '')),
         ]));
       }
-      const wm = UT.dom.field('Weld metal', { tag: 'select', type: 'text', value: (st().weldOpts && st().weldOpts.weldMaterial) || 'same', options: [{ value: 'same', label: 'same as parent' }, { value: 'austenitic', label: 'austenitic (attenuating, coarse grain)' }], onchange: function (v) { applyWeldOpts(Object.assign({}, st().weldOpts, { weldMaterial: v })); } });
+      const wm = UT.dom.field('Weld metal', { tag: 'select', type: 'text', value: (st().weldOpts && st().weldOpts.weldMaterial) || 'same', options: [{ value: 'same', label: t('same as parent') }, { value: 'austenitic', label: t('austenitic (attenuating, coarse grain)') }], onchange: function (v) { applyWeldOpts(Object.assign({}, st().weldOpts, { weldMaterial: v })); } });
       return h('div', {}, [
         list, wm,
         tx('div', { class: 'dlg-note' }, 'One-way attenuation at 5 MHz (scales with (f/5)^1.5); grass scales with (f/5)². Changing the material re-builds the specimen and the readouts use its velocities.'),
@@ -2039,11 +2045,12 @@
   function onLang(l) {
     if (l === 'ko' || l === 'en') { mem.lang = l; }
     const d = doc();
+    if (d && d.documentElement) d.documentElement.lang = mem.lang;   // screen readers / font selection follow the UI language
     if (!d || !mem.built) return;
     for (const el of d.querySelectorAll('#menubar [data-key].menu-label')) el.textContent = t(el.dataset.key);
     for (const def of TOOLBAR) if (!def.gap && mem.tb['tb-' + def.id]) mem.tb['tb-' + def.id].title = tbTitle(def);
     closeMenus();
-    for (const def of touchDefs()) { const el = mem.touch.els[def.id]; if (el) { el.title = t(def.title); el.setAttribute('aria-label', t(def.title)); } }
+    for (const def of touchDefs()) { const el = mem.touch.els[def.id]; if (el) { el.title = t(def.title); el.setAttribute('aria-label', t(def.title)); el.textContent = t(def.label); } }
     if (mem.touch.els.step) mem.touch.els.step.textContent = t('Step {n} mm', { n: mem.touch.step });
     for (const name of Object.keys(mem.winBuilders)) {
       const w = winApi(name);
@@ -2055,7 +2062,7 @@
 
   // ------------------------------------------------------------------ persistence (v2 record)
   /** Build the JSON-serialisable persistence record for a state (pure; used by saveNow and __selftest). */
-  function buildSavePatch(s, lang) {
+  function buildSavePatch(s, lang, prev) {
     const ins = {};
     for (const k of INSTR_KEYS) if (s.instrument && s.instrument[k] !== undefined) ins[k] = s.instrument[k];
     const std = Object.assign({}, s.standards || {});
@@ -2068,11 +2075,22 @@
     const trade = s.trade || {};
     const hist = Array.isArray(trade.history) ? trade.history.slice(-30) : [];
     const pa = Object.assign({}, s.pa || {}); delete pa.scan;
-    return UT.clone({
+    // A trade test's seeded specimen and hidden truth defects are never the user's own setup: while the trade mode is
+    // on screen (or a test is active / exam-locked) carry defects, weldOpts and material forward from the last saved
+    // record — or omit them (patchFromRecord tolerates absent keys) — instead of the seeded values.
+    const hidden = s.mode === 'trade' || !!(trade.active || (trade.exam && trade.exam.locked));
+    const p = hidden && prev && typeof prev === 'object' ? prev : null;
+    const rec = {
       v: 2, probe: s.probe, instrument: ins, display: s.display, defects: s.defects || [], weldOpts: s.weldOpts, utSet: s.utSet, lang: lang || 'en',
       material: s.material, physics: s.physics, standards: std, lessons: { progress, answers: lessons.answers || {} },
       trade: { history: hist, difficulty: trade.difficulty, timeLimitMin: trade.timeLimitMin }, pa,
-    });
+    };
+    if (hidden) {
+      if (p && Array.isArray(p.defects)) rec.defects = p.defects; else delete rec.defects;
+      if (p && p.weldOpts && typeof p.weldOpts === 'object') rec.weldOpts = p.weldOpts; else delete rec.weldOpts;
+      if (p && typeof p.material === 'string') rec.material = p.material; else delete rec.material;
+    }
+    return UT.clone(rec);
   }
   /** Finite number from a stored value (number or numeric string), else `def`. */
   function num(v, def) {
@@ -2251,7 +2269,9 @@
       if (typeof localStorage === 'undefined') return null;
       const raw = localStorage.getItem(STORE_KEY);
       if (!raw) return null;
-      const patch = patchFromRecord(JSON.parse(raw));
+      const rec = JSON.parse(raw);
+      const patch = patchFromRecord(rec);
+      if (patch) mem.lastRecord = rec;   // carried forward by buildSavePatch while a trade test is on screen
       if (patch && patch.__lang) { mem.lang = patch.__lang; if (UT.i18n) UT.i18n.lang = patch.__lang; delete patch.__lang; }
       return patch;
     } catch (e) { console.warn('[UT.app] restore failed', e); return null; }
@@ -2262,7 +2282,9 @@
     if (st().trade && st().trade.active) return false;
     try {
       if (typeof localStorage === 'undefined') return false;
-      localStorage.setItem(STORE_KEY, JSON.stringify(buildSavePatch(st(), mem.lang)));
+      const rec = buildSavePatch(st(), mem.lang, mem.lastRecord);
+      localStorage.setItem(STORE_KEY, JSON.stringify(rec));
+      mem.lastRecord = rec;
       return true;
     } catch (e) { console.warn('[UT.app] save failed', e); return false; }
   }
@@ -2414,6 +2436,16 @@
         if (!p || p.instrument.gain !== 30 || p.utSet !== 'epoch600' || p.__lang !== 'ko' || !p.probe || p.instrument.compare !== null || p.instrument.datalog.length !== 0) f.push('patchFromRecord');
         if (!p.physics || p.physics.modeConv !== true || !p.standards || p.standards.lastEval !== null || !p.pa || p.pa.scan !== null || p.trade.history.length !== 30 || p.trade.active !== false) f.push('patchFromRecord v2 keys');
         if (patchFromRecord({ v: 3 }) !== null || patchFromRecord('x') !== null) f.push('patchFromRecord rejects');
+        // trade test on screen: the seeded truth defects / weldOpts / material never reach the record (carried forward or omitted)
+        const dt = UT.clone(ds); dt.mode = 'trade'; dt.trade.active = true; dt.defects = [{ type: 'crack', zFrom: 10, length: 20, height: 5 }]; dt.material = 'austenitic'; dt.weldOpts = Object.assign({}, dt.weldOpts, { T: 30, prep: 'double-v' });
+        const prevRec = { v: 2, defects: [{ type: 'lof', zFrom: 1, length: 9, height: 2 }], weldOpts: { T: 20, prep: 'single-v', type: 'single-v' }, material: 'carbon' };
+        const rt = buildSavePatch(dt, 'en', prevRec);
+        if (!rt.defects || rt.defects[0].type !== 'lof' || rt.weldOpts.T !== 20 || rt.material !== 'carbon' || rt.probe === undefined) f.push('buildSavePatch trade carry-forward ' + JSON.stringify([rt.defects, rt.weldOpts, rt.material]));
+        const rt2 = buildSavePatch(dt, 'en', null);
+        if ('defects' in rt2 || 'weldOpts' in rt2 || 'material' in rt2 || !patchFromRecord(rt2)) f.push('buildSavePatch trade omits seeded keys');
+        const dl = UT.clone(ds); dl.trade.exam = { locked: true }; dl.defects = dt.defects;
+        if ('defects' in buildSavePatch(dl, 'en', null)) f.push('buildSavePatch exam-locked omits defects');
+        if (buildSavePatch(ds, 'en', prevRec).defects.length !== ds.defects.length) f.push('buildSavePatch outside trade keeps live defects');
         const v1 = patchFromRecord({ v: 1, weldOpts: { T: 25, type: 'double-v' }, probe: { angle: 45 } });
         if (!v1 || v1.weldOpts.prep !== 'double-v' || v1.weldOpts.type !== 'double-v' || v1.probe.libId !== 'gen-60-5-10' || v1.probe.crystalDims.a !== 10 || v1.probe.focus.on !== false) f.push('v1 record → v2 defaults ' + JSON.stringify(v1.weldOpts));
         const fil = patchFromRecord({ v: 2, weldOpts: { prep: 'fillet-t', type: 'single-v' } }).weldOpts;

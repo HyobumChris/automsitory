@@ -1125,6 +1125,16 @@
     return categoryOf(e || R);
   }
   const Q = { win: null, ui: {}, dirty: false, saved: null, seed: null, rng: null, ids: [] };
+  /** lowbias32 finaliser: the plain LCG's first draws are ~linear in the seed, so seeds 1, 2, 3… would open with the same item. */
+  function mix32(x) {
+    x = x >>> 0;
+    x ^= x >>> 16; x = Math.imul(x, 0x7feb352d) >>> 0;
+    x ^= x >>> 15; x = Math.imul(x, 0x846ca68b) >>> 0;
+    x ^= x >>> 16;
+    return x >>> 0;
+  }
+  /** Seeded quiz generator (same idea as UT.trade.tradeRng): same seed → same sequence, neighbouring seeds decorrelated. */
+  function quizRng(seed) { return M.rng(mix32(M.fnv1a('quiz:' + (seed >>> 0)))); }
   function gateOn(path) { H.setInstrument({ gates: [{ on: true, start: Math.max(0.5, +(path - 4).toFixed(1)), width: 8, level: 10 }] }); }
   /** Quiz scenarios: each applies a state and returns the target predicate for the gated echo. */
   const SCEN = [
@@ -1134,7 +1144,7 @@
     { id: 'root-bead', lvl: 0, apply() { H.weld({ T: 20 }); H.setDefects([]); H.setProbe({ angle: 60, side: 1 }); H.setInstrument({ range: 100, gain: 36 }); return { pred: function (e) { return e.kind === 'geometry' && /root/.test(e.tag || '') ; }, xs: H.range(30, 44, 1) }; } },
     { id: 'cap', lvl: 0, apply() { H.weld({ T: 20 }); H.setDefects([]); H.setProbe({ angle: 60, side: 1 }); H.setInstrument({ range: 100, gain: 40 }); return { pred: function (e) { return e.kind === 'geometry' && /cap|toe/.test(e.tag || ''); }, xs: H.range(66, 90, 1) }; } },
     { id: 'root-crack', lvl: 0, apply() { H.weld({ T: 20, rootHeight: 0, capHeight: 0 }); H.setDefects([]); H.addPreset('rootCrack'); H.setProbe({ angle: 60, side: 1 }); H.setInstrument({ range: 100, gain: 30 }); return { pred: function (e) { return e.kind === 'corner'; }, xs: H.range(30, 40, 1) }; } },
-    { id: 'lof-30', lvl: 1, apply() { H.weld({ T: 20 }); H.setDefects([]); H.addPreset('lof'); H.setProbe({ angle: 45, side: 1 }); H.setInstrument({ range: 100, gain: 36 }); return { pred: function (e) { return e.kind === 'defect' || e.kind === 'modeconv'; }, xs: H.range(30, 60, 1) }; } },
+    { id: 'lof-30', lvl: 1, apply() { H.weld({ T: 20 }); H.setDefects([]); const d = H.addPreset('lof'); H.setProbe({ angle: 45, side: 1 }); H.setInstrument({ range: 100, gain: 36 }); const id = d && d.id; return { pred: function (e) { return (e.kind === 'defect' || e.kind === 'tip') && (id === undefined || id === null || e.defectId === id); }, xs: H.range(30, 60, 1) }; } },  // §4.5: the gated echo is the LOF tip/defect return (45°: the leg-2 tip echo), never the faint L-conversion
     { id: 'cap-toe-70', lvl: 2, apply() { H.weld({ T: 20 }); H.setDefects([]); H.setProbe({ angle: 70, side: 1 }); H.setInstrument({ range: 100, gain: 40 }); return { pred: function (e) { return e.kind === 'surface'; }, xs: H.range(36, 44, 2) }; } },
     { id: 'backing-edge', lvl: 2, apply() { H.weld({ T: 20, prep: 'single-v-backing', backing: true }); H.setDefects([]); H.setProbe({ angle: 60, side: 1 }); H.setInstrument({ range: 100, gain: 40 }); return { pred: function (e) { return e.kind === 'geometry' && /back/.test(e.tag || ''); }, xs: H.range(40, 70, 1) }; } },
   ];
@@ -1195,7 +1205,7 @@
       o = o || {};
       const n = M.clamp(Math.round(+o.n || 10), 1, 50);
       const seed = o.seed === undefined || o.seed === null ? (Date.now() & 0xffff) : (+o.seed >>> 0);
-      Q.rng = M.rng(seed); Q.seed = seed;
+      Q.rng = quizRng(seed); Q.seed = seed;
       if (ls().active !== null && ls().active !== undefined) api.stop();
       baseline(true);   // same seed → same sequence on every machine/session, whatever probe/instrument/material was left behind
       quizWrite({ active: true, i: 0, n, seed, difficulty: ['basic', 'intermediate', 'advanced'].indexOf(o.difficulty) >= 0 ? o.difficulty : 'basic', correct: 0, wrong: 0, times: [], item: null });
@@ -1323,6 +1333,8 @@
     if (categoryOf({ kind: 'geometry', tag: 'cap' }) !== 'geometry-cap' || categoryOf({ kind: 'radius' }) !== 'backwall' || categoryOf({ kind: 'corner' }) !== 'corner') f.push('categoryOf');
     if (actionFor('corner') !== 'record' || actionFor('sdh') !== 'geometry-note') f.push('actionFor');
     if (SCEN.length !== 9) f.push('scenarios ' + SCEN.length);
+    if (quizRng(3)() !== quizRng(3)()) f.push('quiz rng not deterministic');
+    if (new Set([1, 2, 3, 4, 5].map(function (sd) { return Math.floor(quizRng(sd)() * 6); })).size < 3) f.push('quiz seeds correlated');
     // step DSL
     const num = N('a', 'b', function () { return 10; }, 1);
     if (!num.check({ ans: 10.5, memo: {} }) || num.check({ ans: 12, memo: {} })) f.push('numeric check');
