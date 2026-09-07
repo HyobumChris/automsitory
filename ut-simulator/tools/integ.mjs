@@ -63,6 +63,12 @@ await ev(() => UT.test.enterMode('weld'));
 const paths = await allMenuPaths(page);
 log('menu paths', paths.length);
 const skip = /Print|^File\/New|Trade Test|Lamination Check|Language\/Korean|Delete All Defects|Exit Step Wedge|Auto Cal$/;
+// Every path is exercised from weld mode: some items are mode toggles (Step Wedge ▸ Steps…/FBH block, Weld ▸ TKY Joint)
+// and v2's DISABLED table legitimately greys out whole menus in other modes (SPEC-v2 §8: DISABLED.fbh.menus =
+// ['weld','defects']), so a loop that stays in fbh mode would log the entire Weld/Defects menus as false negatives.
+// The mode is restored after such an item and every non-skipped path must return true (a disabled or throwing entry
+// is a drive failure, not a log line).
+const modeSwitches = [];
 for (const p of paths) {
   const k = errors.length;
   let r = 'skipped';
@@ -70,11 +76,14 @@ for (const p of paths) {
     r = await ev(p => { try { return UT.test.menu(p); } catch (e) { return 'EXC ' + e.message; } }, p);
     await page.waitForTimeout(60);
   }
-  if (r !== true && r !== 'skipped') log('menu', p, '→', r, 'mode', await ev(() => UT.state.mode));
+  const mode = await ev(() => UT.state.mode);
+  if (r !== 'skipped') expect(r === true, `menu ${p} returns true (got ${r}, mode ${mode})`);
+  if (mode !== 'weld') { modeSwitches.push(p + '→' + mode); await ev(() => UT.test.enterMode('weld')); await page.waitForTimeout(60); }
   errMark('menu ' + p, k);
   // undo modal things
   await ev(() => { for (const k of Object.keys(UT.dom.wins)) { const w = UT.dom.wins[k]; if (w.isOpen() && (k.startsWith('confirm-') || k.startsWith('alert-'))) w.close(); } });
 }
+log('menu mode switches (restored to weld):', modeSwitches.join(' ') || 'none');
 await shot('after-menus');
 // back to defaults
 await ev(() => { UT.test.enterMode('weld'); UT.setIn('probe', { method: 'pe', angle: 60, mode: 'shear', crystal: 'single', freq: 5, diameter: 10 }); UT.setIn('display', { colourCode: 'none', singleLine: false, focus: false, skips: 3, units: 'mm', plan: true }); UT.setIn('damping', { tool: false, points: [] }); if (UT.app.closeTour) UT.app.closeTour(); /* Help ▸ Quick tour leaves its modal #tour overlay up */ UT.set({ utSet: 'epoch600' }); UT.app.applyLayout(); });
