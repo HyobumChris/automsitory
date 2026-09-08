@@ -106,6 +106,15 @@
 //   editing.spotMm + editing.keyLock, scaleMode.mmPerPx + scaleMode.gradStepMm, plot.ruler, annot.torch +
 //   annot.shown. Never scaleMode.picture / scaleMode.outline / annot.strokes / tofd.parallel.
 //   Restored sub-objects are merged over the defaults (UT.set REPLACES a nested object).
+// - F3 Esc (QA round 3): §3.3 asks for 'Esc / CANCEL aborts to stage 0' on EVERY UT set, but on the three
+//   EPOCH skins the wizard is painted on #cv-ascan with no window, so the shell's Esc branch cannot go
+//   through UT.dom.closeTopWindow(). It now asks state.autocal.stage first and calls modes.autoCal.cancel()
+//   (guarded), ahead of closeTopWindow — which also makes Esc on USK 7, where the wizard IS a dom.win, roll
+//   the standards back to the pair start() chose instead of only clearing the stage via the window's
+//   onClose. setAcState patches with {noRender: true}, so 90 calls UT.renderNow() itself to wipe the
+//   overlay. `Step Wedge ▸ Cancel Auto Cal` (enabled only while a wizard runs) is the pointer-reachable
+//   twin of that Esc for the EPOCH 4 / LTC skins, whose LCD softkey row shows no CANCEL; the softkey CAL
+//   page for those two themes is 70-instruments' call and was reported, not patched.
 // SPEC NOTES (decisions where the spec is silent or ambiguous)
 // - style.css lives at ut-simulator/style.css (where index.html / build.py reference it), not under src/.
 // - Menu keys: every v1 key is kept verbatim ('Weld Settings...', 'Phased Array Probe', 'Focus Beam', 'Lessons...').
@@ -833,6 +842,8 @@
         { key: 'Custom Steps...', action: openStepWedge },
         sepItem(),
         { key: 'Auto Cal', action: function () { if (currentMode() !== 'step') enterStep([5, 10, 15, 20, 25], 40); call('modes.autoCal.start'); }, enabled: function () { return !!has('modes.autoCal.start'); } },
+        // v3 F3: a reachable CANCEL on the EPOCH 4 / LTC skins, whose LCD softkey row carries no cancel control
+        { key: 'Cancel Auto Cal', action: cancelAutoCal, enabled: function () { return !!(st().autocal && st().autocal.stage); } },
         { key: 'Exit Step Wedge', action: function () { enterMode('weld', { keepProbe: false }); }, enabled: function () { return currentMode() === 'step' || currentMode() === 'fbh'; } },
         sepItem(),
         { key: 'FBH block', action: function () { toggleMode('fbh'); }, check: function () { return currentMode() === 'fbh'; } },

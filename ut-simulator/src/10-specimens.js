@@ -26,10 +26,9 @@
  *  - F46 tky({kind:'Plate'|'T-joint'|'Pipe', chordOd, chordWt}): a genuinely curved chord backed by exact
  *    spec.arcs, and the complete pipe ring (spec.ring, two loops) for a small diameter.
  *  - F21 defect presets centre their z on the parked probe (spec.defaultProbe.z, or opts.z).
- *  - F22 toeCrack / toeCrackFillet are surface-breaking cracks built PERPENDICULAR to the face they break
- *    (surfaceCrackPts: mouth on the real scanning surface, running along its inward normal — vertical on a
- *    plate, tilted with the arc on a curved chord; a tilted reflector loses its corner return by design —
- *    see §4.10; this is a preset fix, never a 30-raytrace change).
+ *  - F22 toeCrack / toeCrackFillet break the surface PERPENDICULAR to it (surfaceCrackPts: mouth on the
+ *    real scanning surface, along its inward normal — vertical on a plate, tilted with a curved chord; a
+ *    tilted reflector loses its corner return by design, §4.10 — a preset fix, never a 30-raytrace change).
  *  - F10 the V2 wide face gains the 5 mm hole and the 35…75° graduations along the 25 mm radius.
  *  - F41 polygon({outline, loops, T}) + build('polygon') for Scale Mode; F53 okDemo (the 'OK' splash).
  *  - F56 laminationPlate gains a butt-weld outline; F59 the 'carbon-utman' material.
@@ -57,23 +56,17 @@
  *  8. F46: the chord thickness is chordWt for a curved chord ('T-joint'/'Pipe', per V3-46's 32 mm and
  *     20 mm backwalls) and chordT for the flat 'Plate' chord. The ring is emitted only for kind 'Pipe'
  *     (a T-joint needs somewhere to put its brace); the drawable width is the 300 mm cross-section box.
- *  9. F10 (revised, QA round 3): the spec's `{x: 25, y: 12.5}` read as "25 mm from the left end, 12.5 mm
- *     down" lands the 5 mm hole at (60, 12.5) — 12.5 mm straight under the PARKED probe (defaultProbe.x =
- *     60 = the radius centre), i.e. on top of the R25/R50 walk. Every leg of that walk radiates from (60, 0),
- *     so SPEC NOTE 20's beam-band shadow in 30-raytrace clipped the taught multiples by 5.3 / 10.3 / 13.4 dB
- *     and the 4th multiple that F10 exists to expose fell to 3.7 %FSH at 40 dB (measured; §9.0 allows no such
- *     move). The hole is therefore offset ALONG the surface to (102, 4), in the R50 quadrant near the far end
- *     of the scanning surface: 84.7° off vertical from the radius centre, so no leg of the 35…75° walk passes
- *     within a band width of it. Measured at 45°, x = 60, range 250, fan 21 (amp, hole → no hole):
- *       side +1  0.8969 / 0.3202 / 0.1391 / 0.0594   vs   0.8969 / 0.3202 / 0.1391 / 0.0669
- *       side −1  0.7437 / 0.2704 / 0.1228 / 0.0541   vs   0.7437 / 0.2704 / 0.1228 / 0.0602
- *     — the 2nd and 3rd multiples are exact and only the 4th keeps a 1.0 dB scatter loss (15.7 %FSH at
- *     40 dB against 17.7 % with no hole at all), which is the honest price of a 5 mm hole in the block.
- *     The spec prose's other reading, "the radius centre" (60, 0), is the one point the shadow cannot touch
- *     (0.65 dB) but 60-view-cross then draws the white disc HALF OUTSIDE the block, straddling the scanning
- *     surface under the probe shoe — a worse fidelity break than the offset, so it was rejected. The hole
- *     stays reachable for the F10 angle check of lessons 6/19 (hole5Maximise parks at x + y·tan θ = 108.9 at
- *     60°, inside scanSurface.xMax = 110, and the hole is the strongest echo there).
+ *  9. F10 (revised, QA round 3): the spec's `{x: 25, y: 12.5}` — "25 mm from the left end, 12.5 mm down" —
+ *     put the 5 mm hole straight under the PARKED probe (defaultProbe.x = 60 = the radius centre). Every leg
+ *     of the R25/R50 walk radiates from (60, 0), so NOTE 20's beam-band shadow in 30-raytrace clipped the
+ *     taught multiples by 5.3/10.3/13.4 dB and the 4th multiple F10 exists to expose fell to 3.7 %FSH at
+ *     40 dB (§9.0 allows no such move). It is therefore offset ALONG the surface to (102, 4), 84.7° off
+ *     vertical from the centre and clear of the 35…75° walk: at 45°, x 60, range 250, fan 21 the multiples
+ *     read +1 0.8969/0.3202/0.1391/0.0594 and −1 0.7437/0.2704/0.1228/0.0541 against 0.0669 / 0.0602 with
+ *     no hole at all — 2nd and 3rd exact, 1.0 dB of scatter on the 4th (15.7 %FSH). The prose's other
+ *     reading, the radius centre (60, 0), is the one point the shadow cannot touch (0.65 dB) but 60-view-
+ *     cross then draws the disc HALF OUTSIDE the block under the probe shoe. (102, 4) stays reachable for
+ *     the angle check of lessons 6/19 (x + y·tan 60° = 108.9 < scanSurface.xMax 110).
  * 10. F53 registers BOTH ids the spec uses: build('okDemo') (§6.5) and build('ok-demo') (§8's MODE_OF and
  *     V3-53's loadSpecimen); spec.id is 'ok-demo'.
  */
@@ -1192,18 +1185,16 @@
   }
 
   /**
-   * v3 F22 (QA round 3): the two points of a surface-breaking crack whose mouth sits ON the scanning
-   * surface at `x0` and which runs `h` mm along the INWARD surface normal, i.e. perpendicular to the face
-   * it breaks. On a flat surface `scanSurfaceAt` returns y = 0 with the normal (0, 1), so the result is the
-   * plane-vertical [{x0, 0}, {x0, h}] of the first v3 draft bit for bit (plate/flat-chord numbers do not
-   * move — the lead's 0.3882 amp / 56.57 mm path is preserved). On the curved chord of F46 (the app's TKY
-   * default: T-joint, chordOd 600) the mouth moves onto the real arc and the crack tilts with it, which is
-   * what F22 is about: a face tilted α out of the right angle rotates the corner return by 2α, straight out
-   * of the aperture — plane-vertical on a 600 mm OD threw 7.9 dB of the toe-corner echo away and left the
-   * "crack" floating 0.135 mm above its own surface.
-   * @param {object} spec specimen (any builder; a spec without a scanning surface keeps the vertical crack)
-   * @param {number} x0 crack mouth position along the scanning surface (mm; arc length on a curved surface)
-   * @param {number} side probe/weld side (±1) — only used to resolve the surface on multi-face specimens
+   * v3 F22 (QA round 3): the two points of a surface-breaking crack whose mouth sits ON the scanning surface
+   * at `x0` and runs `h` mm along the INWARD normal, i.e. perpendicular to the face it breaks. Flat surfaces
+   * are untouched — `scanSurfaceAt` gives y = 0 and the normal (0, 1), so the result is the plane-vertical
+   * [{x0, 0}, {x0, h}] bit for bit (the lead's 0.3882 amp / 56.57 mm path is preserved). On F46's curved
+   * chord (the app's TKY default) the mouth moves onto the real arc and the crack tilts with it: plane-
+   * vertical there floated the "crack" 0.135 mm above its own surface and, because a face tilted α out of a
+   * right angle rotates the return by 2α, threw 7.9 dB of the toe-corner echo away.
+   * @param {object} spec specimen (a spec without a scanning surface keeps the vertical crack)
+   * @param {number} x0 mouth position along the scanning surface (mm; arc length on a curved surface)
+   * @param {number} side probe/weld side (±1) — resolves the surface on multi-face specimens
    * @param {number} h crack height (mm)
    * @returns {Array<{x: number, y: number}>} two points, mouth first, rounded to 3 dp
    */
@@ -1273,13 +1264,11 @@
     },
     /**
      * v3 F22: a surface-breaking crack at the weld toe (x = cap toe + 1 mm, height 4 mm), built PERPENDICULAR
-     * to the scanning surface it breaks — vertical on a plate or a flat chord, tilted with the arc on the
-     * curved TKY chord of F46 (QA round 3; see surfaceCrackPts).
-     * The old preset leaned 26.6° out of vertical, and tilting one face of a right-angle pair by α rotates
-     * the return by 2α out of the aperture, so it could never answer the exercise the videos teach
-     * ("put the probe at full skip, find the toe defect"). This is a preset-geometry fix: 30-raytrace is
-     * NOT changed for it, and a patch there justified by "toe cracks give no corner echo" is to be
-     * rejected in review (SPEC-v3 §4.10, §11 decision 12).
+     * to the surface it breaks (surfaceCrackPts: vertical on a plate or a flat chord, tilted with the arc on
+     * F46's curved chord). The v1/v2 preset leaned 26.6° out of vertical and a face tilted α out of a right
+     * angle rotates the return by 2α out of the aperture, so it could never answer the exercise the videos
+     * teach ("put the probe at full skip, find the toe defect"). Preset geometry, NOT a 30-raytrace change:
+     * a patch there justified by "toe cracks give no corner echo" is rejected in review (§4.10, §11 #12).
      */
     toeCrack(spec, o) {
       const side = (o && o.side) || 1, h = (o && o.height) || 4;
@@ -1461,6 +1450,19 @@
       if (!near(tcP.pts[0].x, 9) || !near(tcP.pts[1].x, 9) || tcP.pts[0].y !== 0 || !near(tcP.pts[1].y, 4) || tcP.height !== 4) f.push('toeCrack vertical ' + JSON.stringify(tcP.pts));
       if (!near(tcK.pts[0].x, k.weld.capCentre - 9) || !near(tcK.pts[1].x, k.weld.capCentre - 9)) f.push('toeCrack side -1 ' + JSON.stringify(tcK.pts));
       if (!near(tc.pts[1].x, 14.4)) f.push('toeCrackFillet perpendicular ' + JSON.stringify(tc.pts));
+      // v3 F22 (QA round 3): on a CURVED chord the mouth sits on the arc, at a right angle to it
+      const tkyC = tky({ kind: 'T-joint', chordOd: 600, chordWt: 32 });
+      const ssC = scanSurfaceAt(tkyC, { x: 9, side: 1 }), tcC = defectPresets.toeCrack(tkyC);
+      const dxC = tcC.pts[1].x - tcC.pts[0].x, dyC = tcC.pts[1].y - tcC.pts[0].y;
+      if (Math.abs(tcC.pts[0].x - ssC.x) > 0.01 || Math.abs(tcC.pts[0].y - ssC.y) > 0.01 || !near(tcC.pts[0].y, 0.135)) f.push('toeCrack curved mouth ' + JSON.stringify(tcC.pts));
+      if (Math.abs(dxC * ssC.tangent.x + dyC * ssC.tangent.y) > 0.01 || Math.abs(Math.hypot(dxC, dyC) - 4) > 0.01) f.push('toeCrack curved normal ' + JSON.stringify(tcC.pts));
+      // …and F10's 5 mm hole stays clear of the R25/R50 walk, which radiates from (60, 0)
+      const v2wide = v2({ face: 'wide' }), v2h = (v2wide.holes || [])[0];
+      const v2ok = v2h && v2h.r === 2.5 && Math.hypot(v2h.x - 60, v2h.y) - v2h.r > 30 &&   // clear of the walk about (60, 0)
+        v2h.y - v2h.r > 0.5 && Math.hypot(v2h.x - 60, v2h.y) + v2h.r < 50 &&               // buried, inside the R50 arc
+        v2h.x + v2h.r < v2wide.scanSurface.xMax &&                                          // and drawn inside the block
+        v2h.x + v2h.y * Math.tan(M.deg2rad(60)) <= v2wide.scanSurface.xMax;                 // still reachable at 60° (lessons 6/19)
+      if (!v2ok) f.push('V2 hole5 ' + JSON.stringify(v2h));
       const nz = pipeWeld({ od: 219.1, wt: 16, prep: 'nozzle', branchOd: 114.3, branchWt: 8 });
       if (!nz.nozzle || nz.nozzle.branchOd !== 114.3 || nz.weld.webT !== 8 || !nz.pipe) f.push('nozzle fields');
       if (defectPresetNames.length !== 10 || !defectPresetNames.some(function (q) { return q.key === 'backingLof'; })) f.push('preset names');

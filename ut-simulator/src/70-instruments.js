@@ -110,6 +110,14 @@
  *   (f006). ▲▼ / wheel step 0.10 mm, 2ND F (or the coarse ◀ ▶) 1.00 mm, clamped 0…500; digits, '.' and Backspace
  *   typed while the wizard is up edit the field directly. Confirm goes through UT.modes.autoCal.confirm() when 80
  *   provides it and falls back to the v2 .step().
+ *   SPEC NOTE (v3 QA r3): on the EPOCH 600 the CAL page is EXACTLY five slots — one per hardware F key — holding
+ *   `CAL THIN | CAL THICK | CANCEL` on F1–F3 (§3.3) and two blank rows on F4/F5, with NO orange header cell and
+ *   with the gate thumbnail suppressed while the wizard is up: header and thumbnail are extra drawn rows, and they
+ *   pushed every legend one to two slots below the key that performs it (the key beside `CAL THICK` cancelled).
+ *   F(n) therefore presses drawn row n, sub-page or not.  The stage is shown by the `<` marker on the live row and
+ *   by the on-LCD box, which is where the original puts it.  `CAL THIN` pressed at stage 2 restarts the thin stage
+ *   (`autoCal.start({d1, d2})`) and `CAL THICK` at stage 1 confirms the thin standard and moves on, so no legend
+ *   is ever a dead key.
  * - F5 P-row: the relabelled row is the PHYSICAL P1…P7 key row (`.ik-p`), not the LCD's bottom dB cells — the dB
  *   cells are a v1 contract (V1-6 clicks them by their `10.0dB` text). EPOCH 600 labels are the bare numbers
  *   (`10.0`…`500.0`, V3-5); the EPOCH 4 / LTC quick-range row keeps the `10.0mm` form of f028.
@@ -164,6 +172,8 @@
   // v3 F5: quick-range softkey rows — EPOCH 600 P1…P7 and the EPOCH 4 / LTC F1…F4 row of f028
   const QUICK_RANGES = [10, 20, 50, 100, 125, 250, 500];
   const QUICK_RANGES_E4 = [10, 20, 50, 100];
+  // the hardware softkey column: F(n) presses the drawn softkey row n (v3 QA r3 — the CAL page is sized to it)
+  const FKEYS = ['F1', 'F2', 'F3', 'F4', 'F5'];
   const LEGAL_PARAMS = ['gain', 'range', 'delay', 'reject', 'g1start', 'g1width', 'g1level', 'g2start', 'g2width', 'g2level', 'velocity', 'zero', 'trigAngle', 'trigThick', 'autoPct', 'trigDiameter'];
   // v2 option lists (§3.7) — identical to 40-ascan's tables; UT.ascan's copies win when loaded
   const ENERGIES = [100, 200, 300, 400];
@@ -501,9 +511,26 @@
       if (calStage() === 2) { UT.status({ right: t('Auto Cal 2/2: press ENTER to confirm the thick standard') }); return; }
       if (UT.modes && UT.modes.autoCal && UT.modes.autoCal.start) UT.modes.autoCal.start(); else UT.status({ right: 'Auto Cal is not available' });
     },
-    /** F3 softkeys: CAL THIN (stage 1 confirm), CAL THICK (stage 2 confirm), CANCEL. */
-    calThin() { if (calStage() === 1) calConfirm(); else if (!calStage() && UT.modes && UT.modes.autoCal && UT.modes.autoCal.start) UT.modes.autoCal.start(); },
-    calThick() { if (calStage() === 2) calConfirm(); else if (calStage() === 1) calConfirm(); },
+    /**
+     * F3 softkey CAL THIN: stage 1 confirms the thin standard, stage 2 goes BACK and re-enters it (the wizard is
+     * restarted on the same standards — `instrument.cal` is untouched either way), idle starts the wizard.
+     */
+    calThin() {
+      const s = calStage();
+      const ac = UT.modes && UT.modes.autoCal;
+      if (s === 1) { calConfirm(); return; }
+      if (s === 2) {
+        if (!(ac && typeof ac.start === 'function')) return;
+        const a = st().autocal || {};
+        mem.calType = '';
+        ac.start({ d1: +a.d1, d2: +a.d2 });
+        UT.status({ right: t('Auto Cal 1/2: enter the thin standard again') });
+        return;
+      }
+      if (ac && typeof ac.start === 'function') ac.start();
+    },
+    /** F3 softkey CAL THICK: stage 2 confirms the thick standard; at stage 1 it captures the thin one and moves on. */
+    calThick() { if (calStage()) calConfirm(); },
     calCancel() { calCancel(); },
     /** F1: power the set on / off — the window, panel and softkeys stay, only the trace goes (§3.1). */
     power(on) { power(on === undefined ? !(inst().powered !== false) : !!on); },
@@ -746,20 +773,30 @@
   function rectLabel(ins) { const r = (ins || inst()).rectify; return r === 'rf' ? 'RF' : r === 'half+' ? 'Half+' : r === 'half-' ? 'Half−' : 'Full'; }
   /** TCG softkey value: Off | On (active) | On* (on but fewer than 2 DAC points → no effect). */
   function tcgLabel(ins) { const I = ins || inst(); if (!(I.tcg && I.tcg.on)) return 'Off'; return tcgActive(I) ? 'On' : 'On*'; }
-  /** F3: the softkey column while the auto-cal thickness wizard is up (epoch_auto_calibration f036 / f044). */
-  function CAL_PAGE() {
-    const s = calStage();
-    return [
-      { kind: 'hdr', label: s === 2 ? 'CAL THICK' : 'CAL THIN' },
+  /**
+   * F3: the softkey column while the auto-cal thickness wizard is up (SPEC-v3 §3.3, epoch_auto_calibration
+   * f036 / f044) — `CAL THIN | CAL THICK | CANCEL` on F1–F3.  The page is ALWAYS one slot per hardware F key
+   * (`FKEYS`) with no header row, and `rebuildSoftkeys()` suppresses the gate thumbnail while it is drawn, so
+   * slot n is the row level with F(n + 1): the legend a trainee reads beside a key is the action that key runs.
+   * @param {number} [stage]  1 = thin, 2 = thick (default: the live wizard stage) — an argument so the selftest is pure
+   * @returns {Array<object>} the five softkey slots (three actions, then blanks)
+   */
+  function CAL_PAGE(stage) {
+    const s = stage === undefined ? calStage() : stage;
+    const page = [
       act('CAL THIN', keys.calThin, s === 1 ? '<' : ''),
       act('CAL THICK', keys.calThick, s === 2 ? '<' : ''),
       act('CANCEL', keys.calCancel),
     ];
+    while (page.length < FKEYS.length) page.push(blank());
+    return page;
   }
   function pk(label, param) { return { kind: 'param', label, param }; }
   function sub(label) { return { kind: 'sub', label }; }
   function act(label, fn, value) { return { kind: 'act', label, fn, value }; }
   function hdr(label) { return { kind: 'hdr', label }; }
+  /** An empty softkey row: drawn, never pressed — it keeps slot n level with F(n + 1) (v3 QA r3). */
+  function blank() { return { kind: 'blank', label: '' }; }
   /**
    * Softkey items for a page / sub-page (exported for tests).  Pure: reads `ins` (default `state.instrument`)
    * and `subPage` (default the live `mem.subPage`; pass `null` for the top level) without touching state.
@@ -1046,16 +1083,27 @@
         }, 'ik-p', { tip: TIPS.P, tipParams: { n: String(i + 1) } });
       }))),
     ]);
-    const right = h('div', { class: 'e6-right no-i18n' }, [key('NEXT GROUP', keys.nextGroup, 'ik-next'), h('div', { class: 'e6-fkeys' }, ['F1', 'F2', 'F3', 'F4', 'F5'].map(function (f, i) { return key(f, function () { softkeyPress(i + (mem.subPage ? 1 : 0)); }, 'ik-f', { tip: TIPS.F, tipParams: { n: i + 1 } }); }))]);
+    const right = h('div', { class: 'e6-right no-i18n' }, [key('NEXT GROUP', keys.nextGroup, 'ik-next'), h('div', { class: 'e6-fkeys' }, FKEYS.map(function (f, i) { return key(f, function () { softkeyPress(i); }, 'ik-f', { tip: TIPS.F, tipParams: { n: i + 1 } }); }))]);
     const body = h('div', { class: 'skin skin-epoch600' + (mem.touch ? ' touch' : '') }, [leftPad, centre, right]);
     container.appendChild(body);
     rebuildSoftkeys();
   }
-  /** Press the i-th softkey of the current column (F1–F5 map to the value keys). */
-  function softkeyPress(i) {
+  /**
+   * The softkey item hardware key F(i + 1) addresses.  While the F3 wizard is up the CAL page owns every drawn
+   * row, so the key presses ITS OWN row (v3 QA r3); otherwise the historic mapping is kept (header cells filtered
+   * out, a sub-page's title row skipped).
+   * @param {number} i  0-based F key (F1 → 0)
+   * @param {number} [stage]  wizard-stage override (selftest); default the live stage
+   * @returns {object|null} the item, or null when the key faces a blank row
+   */
+  function fkeyItem(i, stage) {
+    const s = stage === undefined ? calStage() : stage;
+    if (s) { const c = CAL_PAGE(s)[i]; return c && c.kind !== 'blank' ? c : null; }
     const items = softkeyItems().filter(function (it) { return it.kind !== 'hdr'; });
-    const it = items[i]; if (it) softkeyAction(it);
+    return items[i + (mem.subPage ? 1 : 0)] || null;
   }
+  /** Press the i-th softkey of the current column (F1–F5 map to the drawn rows). */
+  function softkeyPress(i) { const it = fkeyItem(i); if (it) softkeyAction(it); }
   /** 'ui' id of a softkey item: the parameter name for value cells, else the (English) label. */
   function softkeyId(it) { return it.kind === 'param' ? it.param : it.label; }
   function softkeyAction(it) {
@@ -1074,7 +1122,11 @@
     col.textContent = '';
     const items = softkeyItems();
     const sel = inst().selectedParam;
+    // v3 QA r3: while the CAL page is up the five slots ARE the five F keys — no gate thumbnail between them
+    const wiz = !!calStage();
+    const iconRow = function () { return h('div', { class: 'e6-icon' }, [miniIcon(), h('span', { class: 'e6-icon1 no-i18n' }, '1'), h('div', { class: 'e6-legs no-i18n' }, mem.refs.legs)]); };
     items.forEach(function (it, idx) {
+      if (it.kind === 'blank') { col.appendChild(h('div', { class: 'e6-sk blank' })); return; }
       const cell = h('div', { class: 'e6-sk' + (it.kind === 'param' && it.param === sel ? ' sel' : '') + (it.kind === 'hdr' || it.kind === 'back' ? ' hdr' : '') + (it.kind === 'sub' ? ' sub' : ''), dataset: { sk: it.label }, role: 'button', tabindex: '0', 'aria-label': t(it.label) });
       // all-caps legends (the F3 CAL THIN | CAL THICK | CANCEL page) are product key legends: never translated (F6)
       cell.appendChild(/^[A-Z0-9 ]{4,}$/.test(it.label) ? h('span', { class: 'e6-skl no-i18n' }, it.label) : tx('span', 'e6-skl', it.label));
@@ -1084,9 +1136,9 @@
       cell.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); softkeyAction(it); } });
       if (it.kind === 'param') attachValueDrag(cell, it.param);
       col.appendChild(cell);
-      if (idx === 2) col.appendChild(h('div', { class: 'e6-icon' }, [miniIcon(), h('span', { class: 'e6-icon1 no-i18n' }, '1'), h('div', { class: 'e6-legs no-i18n' }, mem.refs.legs)]));
+      if (!wiz && idx === 2) col.appendChild(iconRow());
     });
-    if (items.length < 3) col.appendChild(h('div', { class: 'e6-icon' }, [miniIcon(), h('span', { class: 'e6-icon1 no-i18n' }, '1'), h('div', { class: 'e6-legs no-i18n' }, mem.refs.legs)]));
+    if (!wiz && items.length < 3) col.appendChild(iconRow());
     if (mem.iconCanvas) drawMiniIcon(UT.frame);
   }
   /**
@@ -2297,6 +2349,7 @@
     '.e6-sk.sel{background:#22c022;color:#000;}',
     '.e6-sk.hdr{background:#1d1f1d;color:#f0c020;}',
     '.e6-sk.sub{background:#343634;}',
+    '.e6-sk.blank{background:#2b2d2b;cursor:default;}',
     '.e6-skl{font-size:9px;font-weight:bold;white-space:nowrap;}',
     '.e6-skv{font-size:8px;white-space:nowrap;}',
     '.e6-skv.ref{font-size:6.5px;letter-spacing:-0.2px;}',
@@ -2580,6 +2633,21 @@
       if (PARAMS.trigDiameter.fmt(168.3) !== '168.3' || LEGAL_PARAMS.indexOf('trigDiameter') < 0) f.push('trigDiameter param');
       if (cscOn(v3) !== false || cscOn(Object.assign({}, v3, { trig: { csc: true } })) !== true) f.push('cscOn');
       if (calFieldText(0) !== '0' || calFieldText(20) !== '20.00' || calFieldText(16.5) !== '16.50') f.push('calFieldText ' + calFieldText(16.5));
+      // F3 CAL page (v3 QA r3): one slot per F key, no header row, and F(n) presses the row it is drawn beside
+      [1, 2].forEach(function (s) {
+        const page = CAL_PAGE(s);
+        const labs = page.map(function (i) { return i.label; }).join('|');
+        if (page.length !== FKEYS.length) f.push('CAL page rows ' + page.length);
+        if (labs !== 'CAL THIN|CAL THICK|CANCEL||') f.push('CAL page labels: ' + labs);
+        if (page.some(function (i) { return i.kind === 'hdr'; })) f.push('CAL page header row');
+        if (page[0].value !== (s === 1 ? '<' : '') || page[1].value !== (s === 2 ? '<' : '')) f.push('CAL page stage marker ' + s);
+        if (page[2].fn !== keys.calCancel) f.push('CANCEL is not on F3');
+        page.forEach(function (it, i) {
+          const k = fkeyItem(i, s);
+          const same = it.kind === 'act' ? (k && k.label === it.label && k.fn === it.fn) : k === null;
+          if (!same) f.push('F' + (i + 1) + ' does not press its own row (stage ' + s + ')');
+        });
+      });
       if (shortOf('CAL') !== 'CALIBRATE' || shortOf('up') !== 'ARROW RIGHT/UP' || shortOf('down') !== 'ARROW LEFT/DOWN' || shortOf('NEXT GROUP') !== 'NEXT GROUP' || shortOf('P3') !== 'NEXT GROUP' || shortOf('freeze') !== 'FREEZE' || shortOf('PULSER') !== 'PULSAR') f.push('SHORTS');
       Object.keys(SHORTS).forEach(function (k) { if (SHORTS[k] !== SHORTS[k].toUpperCase()) f.push('short not upper-case: ' + k); });
       // CSC: a flat set (huge diameter) reproduces the plain trigonometry; a 168.3 mm pipe reads shallower

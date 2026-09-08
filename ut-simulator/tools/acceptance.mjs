@@ -29,6 +29,15 @@ const CI = !!process.env.CI && process.env.CI !== '0' && process.env.CI !== 'fal
 const TIME_FACTOR = CI ? 2 : 1;
 
 // ---------------------------------------------------------------------------------------------- args
+/** Largest embedded base64 data: payload in bytes — the single file must carry no binaries (V1-14/V2-26). */
+function biggestBlob(html) {
+  let max = 0;
+  const re = /data:[a-zA-Z/+.-]+;base64,([A-Za-z0-9+/=]+)/g;
+  let m;
+  while ((m = re.exec(html)) !== null) max = Math.max(max, m[1].length);
+  return max;
+}
+
 const argv = process.argv.slice(2);
 function argOf(name, dflt) { const i = argv.indexOf(name); return i >= 0 && argv[i + 1] !== undefined ? argv[i + 1] : dflt; }
 const FILE = path.resolve(argOf('--file', path.join(REPO, 'utman_simulator.html')));
@@ -413,7 +422,9 @@ check('V1-14 build: size, no external URLs, no console errors (load + toolbar)',
   const A = checker();
   const html = fs.readFileSync(file, 'utf8');
   const size = Buffer.byteLength(html);
-  A.le(size, 2.5 * 1024 * 1024, 'size bytes (SPEC-v2 V2-26 budget < 2.5 MB; v1 said 900 kB)');
+  A.le(size, 3.0 * 1024 * 1024, 'size bytes (SPEC-v3 V3-62 budget < 3.0 MB, raised from v2 for the two new modules; v1 said 900 kB)');
+  // the budget exists to stop binary payloads being baked in, so assert that directly too
+  A.le(biggestBlob(html), 4096, 'largest embedded base64 payload (bytes) — no binaries in the single file');
   const ext = html.match(/(?:src|href)="https?:\/\/[^"]+"/g) || [];
   A.eq(ext.length, 0, 'external src/href URLs: ' + ext.slice(0, 3).join(','));
   A.eq(bootErrors.length, 0, 'console errors on load: ' + bootErrors.slice(0, 3).join(' ; '));
@@ -1448,7 +1459,7 @@ function canonYaml(v, top) {
   return v;
 }
 
-check('V2-26 CI workflow YAML (§6.2), build outputs identical, size < 2.5 MB', 'v2', async ({ file }) => {
+check('V2-26 CI workflow YAML (§6.2), build outputs identical, size < 3.0 MB (V3-62)', 'v2', async ({ file }) => {
   const A = checker();
   const wf = path.join(REPO, '.github', 'workflows', 'utsim-ci.yml');
   A.ok(fs.existsSync(wf), 'workflow file exists');
@@ -1498,7 +1509,8 @@ check('V2-26 CI workflow YAML (§6.2), build outputs identical, size < 2.5 MB', 
   const main = path.join(REPO, 'utman_simulator.html'), docs = path.join(REPO, 'docs', 'utman_simulator.html');
   A.ok(fs.existsSync(main) && fs.existsSync(docs), 'both build outputs exist');
   if (fs.existsSync(main) && fs.existsSync(docs)) A.ok(fs.readFileSync(main).equals(fs.readFileSync(docs)), 'outputs byte-identical');
-  const size = fs.statSync(file).size; A.le(size, 2.5 * 1024 * 1024 - 1, `size ${(size / 1024 / 1024).toFixed(2)} MB`);
+  const size = fs.statSync(file).size; A.le(size, 3.0 * 1024 * 1024 - 1, `size ${(size / 1024 / 1024).toFixed(2)} MB < 3.0 MB (V3-62)`);
+  A.le(biggestBlob(fs.readFileSync(file, 'utf8')), 4096, 'largest embedded base64 payload (bytes)');
   const deploy = path.join(REPO, '.github', 'workflows', 'deploy-pages.yml');
   A.ok(!fs.existsSync(deploy) || !/utsim|acceptance/.test(fs.readFileSync(deploy, 'utf8')), 'deploy-pages.yml untouched by the UTsim job');
   return Object.assign(A.result(), { info: { yamlParser: parser, structural: parser !== 'none' } });
