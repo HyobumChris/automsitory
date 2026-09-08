@@ -1,0 +1,390 @@
+/* style.css — UTsim page layout, menu/toolbar, Win-classic window chrome, buttons, fields, rulers,
+ * status bar, design-box scaling (#app.scaled), touch bar, quick tour, high contrast, print root.
+ * Owned by 90-app.js (SPEC §7, §15.3; SPEC-v2 §5.4, §5.6, §5.7). Module-specific CSS is injected at runtime. */
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+body {
+  background: #fdfbd8;
+  color: #111;
+  font: 12px/1.3 "Segoe UI", Tahoma, Arial, Helvetica, sans-serif;
+  min-width: 1024px;
+  overflow: auto;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+canvas { display: block; }
+/* design-box scaling (SPEC-v2 §5.4): the page never scrolls while #app is scaled */
+html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min-width: 0; }
+
+/* ------------------------------------------------------------------ app frame */
+#app {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  /* definite height: #main (flex 1 1 auto) then gets a definite size, so the grid below sizes its rows
+   * from the real free space (whatever the title/menu/tool bars and the — possibly two-line — status
+   * bar leave) instead of assumed constants. The bars are `flex: none`, so #main (min-height 0) is
+   * the only flex item that gives way. Windows are position:fixed children, unaffected. */
+  height: 100vh;
+  min-width: 1024px;
+  background: #fdfbd8;
+}
+/* 1280 × 760 design box transformed by k = clamp(min(innerW/1280, innerH/760), 0.6, 1.6) (90 sets the transform).
+ * The box is letterboxed in BOTH axes: 90 centres it horizontally with an inline `left`, and the vertical
+ * leftover is halved here so the status bar is never left floating above a bare strip of page background.
+ * CSS can re-derive the scaled height without knowing k, because the clamp survives the multiplication:
+ *   760·k = clamp(760·0.6, min(760·100vw/1280, 100vh), 760·1.6) = clamp(456px, min(59.375vw, 100vh), 1216px)
+ * (`max(0px, …)` mirrors 90's `Math.max(0, …)`: below the k = 0.6 floor the box overflows and stays anchored). */
+#app.scaled { position: fixed; left: 0; top: max(0px, (100vh - clamp(456px, min(59.375vw, 100vh), 1216px)) / 2); width: 1280px; height: 760px; min-width: 0; transform-origin: 0 0; overflow: hidden; }
+#app.scaled .win-body { max-height: calc(760px - 132px); } /* 760 − toolbar bottom (≈102) − title bar − padding: tall windows clamp under the toolbar without spilling out of the design box */
+#titlebar {
+  display: flex; align-items: center; gap: 10px; flex: none;
+  height: 26px; padding: 0 8px;
+  background: #ffffff; color: #222; border-bottom: 1px solid #c8c8c8;
+  font-size: 12px; white-space: nowrap; overflow: hidden; user-select: none;
+}
+#titlebar .tb-icon { width: 14px; height: 14px; border: 1px solid #333; background: linear-gradient(#ff00ff 50%, #00c000 50%); flex: none; }
+#titlebar .tb-name { font-weight: bold; }
+#titlebar .tb-sub { color: #444; }
+#titlebar .tb-ver { margin-left: auto; color: #777; font-size: 11px; }
+
+/* ------------------------------------------------------------------ menu bar */
+#menubar {
+  position: relative; z-index: 60;
+  display: flex; align-items: stretch; flex: none;
+  height: 22px; padding: 0 2px;
+  background: #f5f5f5; border-bottom: 1px solid #c8c8c8;
+  user-select: none; font-size: 12px;
+}
+.menu-item { position: relative; display: flex; align-items: center; padding: 0 8px; cursor: default; }
+.menu-item:hover, .menu-item.open { background: #cfe0f7; }
+.menu-item.disabled { color: #999; pointer-events: none; }
+.menu-item:focus { outline: none; }
+.menu-item:focus-visible { outline: 2px solid #0a246a; outline-offset: -2px; }
+.menu-drop {
+  position: absolute; left: 0; top: 100%; min-width: 210px;
+  background: #f7f7f7; border: 1px solid #8a8a8a; box-shadow: 3px 3px 6px rgba(0,0,0,0.35);
+  padding: 2px 0; z-index: 70; display: none;
+}
+.menu-item.open > .menu-drop { display: block; }
+.menu-entry { position: relative; display: flex; align-items: center; height: 20px; padding: 0 22px 0 4px; white-space: nowrap; cursor: default; }
+.menu-entry:hover, .menu-entry.hover, .menu-entry.kb, .menu-entry:focus { background: #0a246a; color: #fff; outline: none; }
+.menu-entry.disabled { color: #9a9a9a; }
+.menu-entry.disabled:hover { background: #f7f7f7; color: #9a9a9a; }
+.menu-entry .m-check { width: 16px; text-align: center; flex: none; font-size: 11px; }
+.menu-entry .m-label { flex: 1; }
+.menu-entry .m-arrow { position: absolute; right: 6px; font-size: 10px; }
+.menu-entry.has-sub > .menu-sub { display: none; }
+.menu-entry.has-sub:hover > .menu-sub, .menu-entry.has-sub.hover > .menu-sub { display: block; }
+.menu-sub {
+  position: absolute; left: 100%; top: -3px; min-width: 190px;
+  background: #f7f7f7; color: #111; border: 1px solid #8a8a8a; box-shadow: 3px 3px 6px rgba(0,0,0,0.35);
+  padding: 2px 0; z-index: 80;
+}
+.menu-sep { height: 1px; margin: 3px 2px; background: #b5b5b5; border-bottom: 1px solid #fff; }
+
+/* ------------------------------------------------------------------ toolbar */
+#toolbar {
+  display: flex; align-items: flex-end; gap: 2px; flex: none;
+  height: 52px; padding: 2px 4px 3px 4px;
+  background: #ececec; border-bottom: 1px solid #b0b0b0;
+  user-select: none; overflow: hidden;
+}
+.tb-gap { width: 8px; flex: none; }
+.tb-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+  width: 48px; height: 45px; padding: 2px 0 0 0;
+  border: 1px solid #b8b8b8; border-color: #fff #808080 #808080 #fff;
+  background: #f0f0f0; color: #111; font-size: 11px; line-height: 1; cursor: pointer; flex: none;
+}
+.tb-btn:hover { background: #f8f8f8; }
+.tb-btn:active { border-color: #808080 #fff #fff #808080; }
+.tb-btn.active { background: #d6d6d6; border-color: #707070 #fff #fff #707070; }
+.tb-btn.disabled { opacity: 0.5; pointer-events: none; cursor: default; }
+.tb-btn:focus-visible { outline: 2px solid #0a246a; outline-offset: 1px; }
+.tb-btn .tb-ico { width: 24px; height: 22px; display: block; }
+.tb-btn .tb-ico svg { width: 24px; height: 22px; display: block; }
+.tb-btn .tb-lbl { margin-top: 2px; font-size: 11px; letter-spacing: 0; white-space: nowrap; }
+
+/* ------------------------------------------------------------------ main grid */
+#main {
+  flex: 1 1 auto;
+  display: grid;
+  /* Row sizing mirrors the original (RcSqNFlOF4E.jpg): the plan view is the height of the instrument
+   * and the ruler + cross-section take whatever height is left, so there is never a blank cream band
+   * under the instrument and the cross-section grows with the viewport. It stays intrinsic, so it holds
+   * for every UT set (EPOCH 600 396 px, EPOCH 4 486 px, USK7 dock 200 px) and for a wrapped two-line
+   * status bar without hard-coded heights:
+   * - plan/instrument row `auto`: sized by its content, i.e. the instrument column (or the plan view's
+   *   min-height when the instrument is shorter, e.g. the USK7 dock). The `1fr` cross-section track
+   *   absorbs all free space before auto tracks are stretched, so this row never grows past that;
+   * - cross-section row `minmax(--cross-min, 1fr)`: takes the remaining height and shrinks towards its
+   *   minimum on small screens (1024 × 700, §7: ≈146 px with the EPOCH 600 column). */
+  --cross-min: 120px;
+  grid-template-columns: 470px minmax(0, 1fr);
+  grid-template-rows: auto 30px minmax(var(--cross-min), 1fr);
+  gap: 0;
+  min-height: 0;
+  /* below the supported envelope the rows (instrument + ruler + minimum cross-section) can exceed the
+   * space: clip inside #main rather than painting over / pushing down the status bar */
+  overflow: hidden;
+  padding: 4px 6px 2px 6px;
+  background: #fdfbd8;
+}
+#instrument { grid-area: 1 / 1 / 2 / 2; align-self: start; min-width: 0; overflow: visible; padding-right: 6px; }
+/* the plan row floor (360 px, 300 px for block specimens) lives on the plan view: the row min is `auto` */
+#plan-area { grid-area: 1 / 2 / 2 / 3; position: relative; min-height: 360px; min-width: 0; overflow: hidden; }
+#ruler-area { grid-area: 2 / 1 / 3 / 3; position: relative; min-width: 0; overflow: hidden; }
+#cross-area { grid-area: 3 / 1 / 4 / 3; position: relative; min-width: 0; overflow: hidden; }
+/* absolutely positioned so the canvas backing-store size never feeds back into the grid row sizes */
+#plan-area canvas, #cross-area canvas, #ruler-area canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
+#cv-plan { border: 1px solid #333; background: #fdfbd8; }
+#cv-plotter { border: 1px solid #333; background: #ffffff; }
+#cv-cross { background: #fdfbd8; }
+#cv-ruler { background: #fdfbd8; }
+#main.plot #cv-plan { display: none; }
+#main:not(.plot) #cv-plotter { display: none; }
+/* block / TKY layouts: the plan view is hidden and the cross-section fills the main area */
+#main.block { grid-template-rows: 30px minmax(360px, 1fr); }
+#main.block #plan-area { display: none; }
+#main.block #instrument { grid-area: 1 / 1 / 3 / 2; }
+#main.block #ruler-area { grid-area: 1 / 2 / 2 / 3; }
+#main.block #cross-area { grid-area: 2 / 2 / 3 / 3; }
+#main.block.no-ruler { grid-template-rows: minmax(360px, 1fr); }
+#main.block.no-ruler #ruler-area { display: none; }
+#main.block.no-ruler #instrument { grid-area: 1 / 1 / 2 / 2; }
+#main.block.no-ruler #cross-area { grid-area: 1 / 2 / 2 / 3; }
+#main.no-ruler:not(.block) { grid-template-rows: auto 0 minmax(var(--cross-min), 1fr); }
+/* block specimens (IOW 45 mm, DAC, step wedge, lamination plate): taller cross-section floor so the whole block fits */
+#main.tall { --cross-min: 140px; }
+/* through transmission: room for the plate plus both 14 mm shoes at the fixed §14.1 scale (≈154 px at 1024 wide) */
+#main.tt { --cross-min: max(140px, calc(48 * 100vw / 320)); }
+#main.tall #plan-area { min-height: 300px; }
+#main.no-ruler:not(.block) #ruler-area { display: none; }
+/* EPOCH 4 (486 px, ASME keypad) is 90 px taller than the EPOCH 600 column the grid was sized for: on
+ * viewports shorter than 770 px (775 px when the status bar wraps to two rows, i.e. ≤ ~1150 px wide)
+ * scale the skin to the EPOCH 600 height (486 × 0.815 ≈ 396 px) so the 1024 × 700 minimum still fits —
+ * `zoom` scales layout too (unlike transform), and the A-scan canvas keeps its CSS box so the renderer
+ * needs no change. */
+@media (max-height: 769px), (max-height: 774px) and (max-width: 1150px) { #instrument .skin-epoch4 { zoom: 0.815; } }
+/* USK7: the instrument column shrinks to the small launcher panel */
+#main.usk7 { grid-template-columns: max-content minmax(0, 1fr); }
+#main.usk7 #instrument { min-width: 24px; }
+
+/* ------------------------------------------------------------------ status bar */
+/* Like the original (RcSqNFlOF4E.jpg, 5UovycItbKU.jpg) every cell is ONE 10 px line (§14.10 formats are
+ * single-line) in a 24 px sunken panel (`min-height`, so a cell that shares a row with a shorter one is
+ * still a full panel); v1/v2 fitted every cell on one 28 px row.
+ *
+ * SPEC NOTE (v3 QA r3, F14/F15/F39/F57): BOTH teaching cells must be readable — the verbatim hint
+ * (F39/F57) and the physics line with its two coloured brackets (F14/F15, shear_wave f045/f050, F59).
+ * They no longer fit on one row: F15 renamed `Comp'` to `Compression Wave Angle` and F14 filled the
+ * second bracket with real numbers, so the physics line is 839 px at the 45/60/70° presets and 861 px
+ * in the F14 case, against the 810 px the readouts (229) and the hint (223) leave inside the fixed
+ * 1280 px design box (1272 px of content) — every probe preset was ellipsised at `… Velo…`.
+ *
+ * The bar therefore REFLOWS instead of clipping, into the two rows the original itself uses: the physics
+ * line spans the whole width of the bar (shear_wave f045) and the readouts share their row with the
+ * right-aligned hint (the short `AMP= 34dB` cell + wide hint of plotting_beam_spread f080). #statusbar
+ * is `flex-wrap: wrap` and .sb-left is `flex: 1 1 100%`, so the readouts can never share the physics
+ * line's row and the physics cell always fills the full 1272 px — room for ≈ 275 characters against the
+ * 861 px worst case, i.e. no ellipsis at any angle, wave mode, material, UT set or language, and headroom
+ * for a longer wording later. The height is fixed at 57 px (1 border + 1 pad + 26 + 3 gap + 24 + 2 pad),
+ * so nothing jitters when the probe changes. #app/#main are already written for a two-line bar (see their
+ * comments): #main is the only flex item that gives way, and its `1fr` cross-section track absorbs the
+ * 27 px (at the 1024 × 700 minimum the cross-section floor still fits).
+ *
+ * Neither teaching cell is shrunk below its text: the readout group (.sb-mid) is never shrunk, the hint
+ * (.sb-right) is sized to its own text up to the original's ≈ 56% of the bar, and the physics line is
+ * clipped with an ellipsis only if it ever passes the whole bar width (its full text stays in the DOM
+ * and in `title` either way). Verified un-ellipsised (scrollWidth === clientWidth) for both cells at
+ * 0/45/60/70° and the F14 wedge-20° pair, in weld/iow/iow-plotted/v1/v2/tofd/aut/tky/lamination/trade,
+ * in en + ko, normal + high contrast, at 1680×1050 / 1400×900 / 1280×760 / 1024×640 (the design box is
+ * a fixed 1280 px, so it scales, not reflows). */
+#statusbar {
+  display: flex; flex-wrap: wrap; align-items: stretch; gap: 3px; flex: none;
+  min-height: 28px; padding: 1px 4px 2px;
+  background: #ececec; border-top: 1px solid #b0b0b0;
+  font-size: 10px; line-height: 11px; white-space: nowrap; overflow: hidden; user-select: none;
+}
+.sb-panel {
+  display: flex; align-items: center; min-height: 24px; padding: 0 6px;
+  border: 1px solid; border-color: #808080 #fff #fff #808080;
+  background: #ececec; overflow: hidden; flex: none;
+}
+/* the physics panel keeps a row to itself (basis 100% = the readouts can never share its line) and fills
+ * the whole width of the bar, as it does in the original (shear_wave f045) */
+.sb-left { flex: 1 1 100%; min-width: 90px; white-space: nowrap; display: block; text-overflow: ellipsis; line-height: 24px; overflow: hidden; }
+/* the readout group is never shrunk or cut */
+.sb-mid { display: flex; flex: 0 0 auto; gap: 3px; align-items: stretch; }
+/* the hint is sized to its own text (never shrunk) up to the original's ≈ 56% of the bar; past that it
+ * ellipsises like any other cell, with the full text still in the DOM (90-app mirrors it into `title`) */
+.sb-right { flex: 0 0 auto; min-width: 100px; max-width: 56%; margin-left: auto; display: block; text-overflow: ellipsis; }
+/* block (not flex) so the ellipsis applies; a full-height inline-block ghost keeps the text centred in the
+ * 24 px stretched panel */
+.sb-right::before { content: ''; display: inline-block; height: 100%; vertical-align: middle; }
+.sb-panel.empty { min-width: 40px; }
+
+/* ------------------------------------------------------------------ windows (Win-classic chrome) */
+.win {
+  position: absolute; z-index: 100;   /* inside #app (design px) — SPEC-v2 §5.4 */
+  background: #ececec; border: 1px solid #404040;
+  box-shadow: inset 1px 1px 0 #fff, inset -1px -1px 0 #808080, 4px 4px 10px rgba(0,0,0,0.45);
+  min-width: 160px; font-size: 12px; color: #111;
+}
+.win-title {
+  display: flex; align-items: center; height: 21px; padding: 0 2px 0 6px;
+  background: linear-gradient(90deg, #0a246a, #a6caf0);
+  color: #fff; font-weight: bold; font-size: 12px; cursor: move; user-select: none;
+}
+.win-title-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.win-close {
+  width: 17px; height: 15px; padding: 0; margin-left: 4px; line-height: 13px;
+  border: 1px solid; border-color: #fff #404040 #404040 #fff; background: #ececec; color: #000;
+  font-size: 11px; font-weight: bold; cursor: pointer;
+}
+.win-close:active { border-color: #404040 #fff #fff #404040; }
+.win-body { padding: 8px; overflow: auto; max-height: calc(100vh - 132px); } /* 100vh − toolbar bottom (≈102, 90 keeps floating windows below it) − title bar − padding: the whole body stays scrollable inside the viewport in 'fixed' mode (mirrors #app.scaled below) */
+.win.modal { z-index: 101; }
+.win-backdrop { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.25); z-index: 100; }
+.win-close:focus-visible { outline: 2px solid #ffd21e; }
+
+/* ------------------------------------------------------------------ buttons, fields */
+.btn {
+  display: inline-block; min-width: 64px; padding: 3px 10px; margin: 0;
+  border: 1px solid; border-color: #fff #404040 #404040 #fff; background: #e6e6e6; color: #111;
+  font-size: 12px; cursor: pointer; user-select: none; box-shadow: 0 0 0 1px #808080;
+}
+.btn:hover { background: #f2f2f2; }
+.btn:active, .btn.active, .btn.pressed { border-color: #404040 #fff #fff #404040; background: #d4d4d4; }
+.btn.primary { font-weight: bold; box-shadow: 0 0 0 1px #000; }
+.btn.small { min-width: 0; padding: 1px 6px; font-size: 11px; }
+.btn.disabled, .btn:disabled { opacity: 0.5; pointer-events: none; }
+.btn-row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; flex-wrap: wrap; }
+.btn-row.left { justify-content: flex-start; }
+.fld { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+.fld-label { flex: 0 0 150px; text-align: right; color: #222; }
+.fld-input {
+  flex: 1 1 auto; min-width: 60px; padding: 2px 4px;
+  border: 1px solid; border-color: #808080 #fff #fff #808080; background: #fff; font-size: 12px;
+}
+.fld-input[type=checkbox] { flex: 0 0 auto; width: 14px; height: 14px; }
+.fld-input[type=range] { padding: 0; border: none; background: transparent; }
+.fld-unit { color: #555; flex: 0 0 auto; }
+.fld-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+.fld-grid .fld-label { flex-basis: 110px; }
+.confirm-body { min-width: 260px; }
+.confirm-body p { margin: 4px 0 6px; }
+.alert-msg { white-space: pre-wrap; margin: 2px 0 4px; }
+.dlg-section { border: 1px solid #a0a0a0; padding: 6px 8px 8px; margin: 8px 0; position: relative; }
+.dlg-section > legend, .dlg-section > .dlg-legend { position: absolute; top: -8px; left: 8px; padding: 0 4px; background: #ececec; font-weight: bold; font-size: 11px; }
+.dlg-note { color: #444; font-size: 11px; margin: 4px 0; }
+.dlg-warn { color: #b00000; font-weight: bold; }
+.dlg-text { max-width: 560px; line-height: 1.45; }
+.dlg-text h3 { margin: 6px 0 2px; font-size: 13px; }
+.dlg-text p { margin: 3px 0; }
+.dlg-text .ko { color: #234; }
+.dlg-text table { border-collapse: collapse; margin: 4px 0; }
+.dlg-text td { padding: 1px 8px 1px 0; vertical-align: top; }
+.dlg-text kbd { display: inline-block; padding: 0 5px; border: 1px solid #888; border-radius: 3px; background: #fff; font: 11px monospace; }
+.dlg-textarea { width: 100%; min-height: 140px; font: 11px monospace; border: 1px solid #808080; background: #fff; }
+/* v3 F19: the 'UTsim' receiver-probe notice — one centred sentence over an OK button (utman_software f008) */
+.tt-line { padding: 12px 6px 14px; text-align: center; font-size: 12px; }
+/* v3 §6.5: Help ▸ Contents — the help pages as one index column */
+.help-index { display: flex; flex-direction: column; align-items: stretch; gap: 3px; margin: 6px 0; }
+.help-index .btn { justify-content: flex-start; text-align: left; }
+.export-img { max-width: 720px; border: 1px solid #333; background: #000; display: block; margin: 6px 0; }
+.wedge-readout { font: 12px monospace; white-space: pre; background: #d4d0c8; border: 1px solid #808080; padding: 4px 6px; margin: 6px 0; }
+.wedge-scale { position: relative; height: 22px; margin: 2px 0 8px; background: linear-gradient(90deg, #ffe9a8 0 34.6%, #d8f5d0 34.6% 72.1%, #f5d0d0 72.1%); border: 1px solid #808080; font-size: 10px; }
+.wedge-scale span { position: absolute; top: 3px; transform: translateX(-50%); white-space: nowrap; }
+.wedge-scale .crit { position: absolute; top: 0; bottom: 0; width: 1px; background: #b00; }
+
+/* ------------------------------------------------------------------ generic helpers */
+.disabled { opacity: 0.5; pointer-events: none; }
+.hidden { display: none !important; }
+.nowrap { white-space: nowrap; }
+.mono { font-family: Consolas, "Courier New", monospace; }
+.legend-box { position: absolute; right: 60px; top: 8px; font-size: 10px; background: rgba(255,255,255,0.8); border: 1px solid #666; padding: 2px 5px; pointer-events: none; }
+.legend-box i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; vertical-align: middle; border: 1px solid #333; }
+
+/* ------------------------------------------------------------------ focus rings (§5.7) */
+.btn:focus-visible, .fld-input:focus-visible, .tbar-btn:focus-visible, .prep-icon:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, [tabindex]:focus-visible { outline: 2px solid #0a246a; outline-offset: 1px; }
+#instrument:focus-visible { outline: 2px solid #0a246a; outline-offset: -2px; }
+
+/* ------------------------------------------------------------------ touch bar (SPEC-v2 §5.4, 44 px inside the design box) */
+#touchbar { display: none; flex: none; height: 44px; padding: 3px 6px; gap: 6px; align-items: stretch; background: #e4e4e4; border-top: 1px solid #b0b0b0; user-select: none; touch-action: manipulation; overflow: hidden; }
+#touchbar.shown { display: flex; }
+.tbar-btn {
+  flex: 1 1 0; min-width: 44px; max-width: 120px; padding: 0 4px; font-size: 15px; line-height: 1;
+  border: 1px solid; border-color: #fff #404040 #404040 #fff; background: #f0f0f0; color: #111; cursor: pointer; touch-action: none;
+}
+.tbar-btn.active, .tbar-btn[aria-pressed="true"] { background: #cfe0f7; border-color: #404040 #fff #fff #404040; }
+.tbar-btn[hidden] { display: none; }
+.tbar-btn.tbar-step { flex: 0 0 auto; font-size: 12px; min-width: 84px; }
+#app.with-touchbar #main { --cross-min: 110px; }
+
+/* ------------------------------------------------------------------ quick tour overlay (SPEC-v2 §5.6) */
+#tour { position: absolute; left: 0; top: 0; right: 0; bottom: 0; z-index: 300; display: none; }
+#tour .tour-spot { position: absolute; border: 2px solid #ffd21e; border-radius: 4px; box-shadow: 0 0 0 9999px rgba(0,0,0,0.45); pointer-events: none; }
+#tour .tour-card { position: absolute; left: 50%; bottom: 70px; transform: translateX(-50%); width: 520px; max-width: 90%; background: #fffdf0; color: #111; border: 1px solid #404040; box-shadow: 4px 4px 12px rgba(0,0,0,0.5); padding: 10px 12px; font-size: 13px; line-height: 1.45; }
+#tour .tour-head { display: flex; justify-content: space-between; margin-bottom: 4px; }
+#tour .tour-count { color: #666; }
+#app.reduced-motion #tour .tour-card { transition: none; }
+
+/* ------------------------------------------------------------------ v2 dialogs: weld preps, probe library, material, glossary */
+.prep-icons { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 6px; }
+.prep-icon { width: 44px; height: 32px; padding: 2px; border: 1px solid #808080; background: #fff; cursor: pointer; }
+.prep-icon.active { outline: 2px solid #0a246a; background: #dfe9ff; }
+.prep-icon svg { width: 36px; height: 24px; display: block; }
+.probelib table, .glossary table { border-collapse: collapse; width: 100%; font-size: 11px; }
+.probelib th, .probelib td, .glossary th, .glossary td { border: 1px solid #b5b5b5; padding: 2px 5px; text-align: left; vertical-align: top; }
+.probelib th, .glossary th { background: #dcdcdc; position: sticky; top: 0; }
+.probelib tr.cur td { background: #e2ecff; }
+.probelib .win-body, .glossary .g-scroll { max-height: 420px; overflow: auto; }
+.glossary .g-scroll { border: 1px solid #808080; background: #fff; }
+.glossary .g-term { white-space: nowrap; }
+.glossary .g-see { white-space: nowrap; }
+.glossary .g-see .btn { margin: 0 2px 2px 0; }
+.mat-list { border: 1px solid #808080; background: #fff; padding: 4px 6px; margin-bottom: 6px; }
+.mat-row { display: flex; gap: 8px; align-items: baseline; margin: 2px 0; }
+.mat-row.cur { background: #e2ecff; }
+.mat-row .mat-name { flex: 0 0 170px; font-weight: bold; }
+.mat-row .mat-num { flex: 1 1 auto; min-width: 0; color: #444; font-size: 11px; white-space: normal; }   /* wraps inside the 560 px window (no horizontal scroll) */
+#app.finger-tool #cv-cross { cursor: pointer; }
+
+/* ------------------------------------------------------------------ high contrast (display.highContrast → #app.hc) */
+#app.hc { background: #fff; color: #000; }
+#app.hc #titlebar, #app.hc #menubar, #app.hc #toolbar, #app.hc #statusbar, #app.hc #touchbar, #app.hc #main { background: #fff; color: #000; border-color: #000; }
+#app.hc .tb-btn, #app.hc .btn, #app.hc .tbar-btn, #app.hc .sb-panel, #app.hc .fld-input { border: 2px solid #000; background: #fff; color: #000; box-shadow: none; }
+#app.hc .tb-btn.active, #app.hc .btn.active, #app.hc .btn.pressed, #app.hc .tbar-btn.active { background: #000; color: #fff; }
+#app.hc .tb-btn.active .tb-ico svg { filter: brightness(1.6); }
+#app.hc .menu-item:hover, #app.hc .menu-item.open, #app.hc .menu-entry:hover, #app.hc .menu-entry.kb, #app.hc .menu-entry:focus { background: #000; color: #fff; }
+#app.hc .menu-drop, #app.hc .menu-sub { background: #fff; border: 2px solid #000; box-shadow: none; }
+#app.hc .win { border: 2px solid #000; background: #fff; box-shadow: none; }
+#app.hc .win-title { background: #000; color: #fff; }
+#app.hc #cv-plan, #app.hc #cv-cross, #app.hc #cv-ruler, #app.hc #cv-plotter { border: 1px solid #000; background: #fff; }
+#app.hc .tb-btn:focus-visible, #app.hc .btn:focus-visible, #app.hc .menu-item:focus-visible, #app.hc [tabindex]:focus-visible { outline: 3px solid #ff8800; }
+
+/* ------------------------------------------------------------------ reduced motion */
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: 0.001s !important; animation-duration: 0.001s !important; } }
+
+/* ------------------------------------------------------------------ print (div#print-root on body) */
+#print-root { display: none; }
+.print-report { font: 12px/1.4 "Segoe UI", Arial, sans-serif; color: #000; }
+.print-report h1 { font-size: 18px; margin: 0 0 4px; }
+.print-report .print-kv { border-collapse: collapse; margin: 6px 0; }
+.print-report .print-kv th, .print-report .print-kv td { border: 1px solid #666; padding: 2px 6px; text-align: left; vertical-align: top; }
+@media print {
+  html, body { background: #fff !important; color: #000; } /* white page behind the report (the cream app ground is only painted by #app itself) */
+  @page { margin: 12mm; }
+  #menubar, #toolbar, #statusbar, #touchbar, #tour, .win, .win-backdrop { display: none !important; }
+  body { min-width: 0; overflow: visible; }
+  html.scaled, html.scaled body { overflow: visible; height: auto; }
+  /* `top` is vh-based on screen (letterboxing); on paper 100vh is the page box, so pin the untransformed app to its top-left */
+  /* 90 centres the box with an inline `left` (not margin-left), so `left` needs neutralising too or a raw
+     Ctrl-P of the app prints it shifted right by up to 176 px. */
+  #app.scaled { transform: none !important; margin-left: 0 !important; left: 0 !important; top: 0 !important; width: auto; height: auto; }
+  body.print-report #app { display: none !important; }
+  body:has(#print-root:not(:empty)) #app { display: none !important; }
+  body.print-report #print-root, #print-root:not(:empty) { display: block; }
+}
