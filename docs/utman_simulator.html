@@ -37600,23 +37600,34 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
    * changes the live session only — the record under 'utsim.v1' is written by a deliberate File ▸ Save Setup,
    * never by apply() (which fires 'state' repeatedly and so armed 90-app's debounced scheduleSave).
    * Preferred path: 90-app's own switch `UT.app.suspendSave(fn)` when the build exposes one. Otherwise the
-   * record is flushed (`UT.app.saveNow()` also clears the pending debounce timer), snapshotted, `fn` runs, the
-   * debounce armed by `fn` is flushed the same way and the snapshot is written straight back — so nothing the
-   * scenario changed can reach localStorage. Fully guarded: a build without 90-app, or without localStorage
-   * (node), just runs `fn`.
+   * record is snapshotted (flushing first, so a debounce the viewer armed seconds earlier is committed — but
+   * only when a record already exists, since a viewer who never saved must not get one from a link), `fn` runs,
+   * the debounce armed by `fn` is flushed (`UT.app.saveNow()` also clears the pending timer) and the snapshot is
+   * written straight back — so nothing the scenario changed can reach localStorage. Fully guarded: a build
+   * without 90-app, or without localStorage (node), just runs `fn`.
    * @param {function():*} fn  the state-mutating work to protect
    * @returns {*} whatever `fn` returns
    */
   function withSaveSuspended(fn) {
     const suspend = has('app.suspendSave');
-    if (typeof suspend === 'function') return suspend(fn);
+    if (typeof suspend === 'function') {
+      // Only trust the export when it really runs the callback (a `suspendSave(on)` flag setter would not):
+      // if it does not, `fn` has NOT run yet and the local guard below still applies the scenario.
+      let ran = false, res;
+      try { suspend(function () { ran = true; res = fn(); return res; }); } catch (e) { if (ran) throw e; }
+      if (ran) return res;
+      console.warn('[UT.scenario] UT.app.suspendSave did not run the callback — using the local save guard');
+    }
     const ls = storage();
     const saveNow = has('app.saveNow');
     const flush = function () { if (typeof saveNow === 'function') { try { saveNow(); } catch (e) { /* ignore */ } } };
     if (!ls) return fn();
     let raw = null;
-    flush();                                   // commit anything the viewer changed before the scenario
     try { raw = ls.getItem(APP_STORE_KEY); } catch (e) { raw = null; }
+    if (raw !== null) {                        // an existing record: commit what the viewer changed just before
+      flush();                                 // (saveNow is unconditional, so a viewer WITHOUT a record keeps
+      try { raw = ls.getItem(APP_STORE_KEY); } catch (e) { /* keep the first read */ }
+    }                                          //  none — opening a teaching link must not create one)
     try {
       return fn();
     } finally {
