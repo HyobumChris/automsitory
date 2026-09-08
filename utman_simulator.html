@@ -29044,6 +29044,11 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
 // - HTML report strings are escaped with a local esc(); report() never reads the truth while the exam is locked.
 // - Practice runs in mode 'trade' (trade.active = true, trade.practice = true) without a timer; the practice window
 //   opens the trade window for the report rows.
+// - QA3 (a11y, SPEC-v2 §5.7): every control in the report row and in both window headers carries an aria-label —
+//   the <th> of the column does NOT name a control nested in the <td>. The labels reuse existing i18n keys
+//   ('z start (mm)', 'Length (mm)', 'Depth (top)', 'Height (mm)', 'Type', 'dB vs reference', 'Angle (°)', 'Side',
+//   'Disposition') so Korean comes for free; only 'Defect number' (the '#' column) is a new key. The practice
+//   window's seed field now carries the same title/aria-label as the trade window's.
 // - QA3 #1: submit() of a locked exam that already holds a result returns the STORED score (§4.2.3: one submission
 //   per attempt — re-scoring while the exam stays active/locked was a z-sweep score oracle); the trade window greys
 //   Submit / Row+ / Take from readout meanwhile.
@@ -30185,7 +30190,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     return api;
   }
   function difficultySelect(value, onchange) {
-    const sel = dom.h('select', { class: 'tr-diff', title: t('Difficulty'), onchange: function () { onchange(sel.value); } }, DIFF_KEYS.map(function (k) { return dom.h('option', { value: k, selected: k === value ? true : null, dataset: { i18n: k } }, t(k)); }));
+    const sel = dom.h('select', { class: 'tr-diff', title: t('Difficulty'), 'aria-label': t('Difficulty'), onchange: function () { onchange(sel.value); } }, DIFF_KEYS.map(function (k) { return dom.h('option', { value: k, selected: k === value ? true : null, dataset: { i18n: k } }, t(k)); }));
     return sel;
   }
   function rowsFromUi() {
@@ -30204,16 +30209,16 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const v = function (x) { return Number.isFinite(x) ? x : (x === undefined || x === null ? '' : x); };
     const tAdded = Number.isFinite(r.tAddedSec) ? r.tAddedSec : (s.trade.startedAt ? Math.round((trade._now() - s.trade.startedAt) / 1000) : 0);
     const trEl = dom.h('tr', { dataset: { tadded: tAdded } }, [
-      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.n), class: 'tr-n', min: 1, max: 32 })),
-      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.z), class: 'tr-z', step: 1 })),
-      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.length), class: 'tr-len', step: 1 })),
-      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.depth), class: 'tr-dep', step: 0.5 })),
-      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.height), class: 'tr-h', step: 0.5 })),
-      dom.h('td', {}, dom.h('select', { class: 'tr-type' }, TYPE_OPTIONS.map(function (o) { return dom.h('option', { value: o.id, selected: o.id === (normType(r.type) || 'planar') ? true : null }, typeLabel(o.id)); }))),
-      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.ampDb), class: 'tr-db', step: 0.5, title: t('dB vs reference') })),
-      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.angle), class: 'tr-ang', step: 1, min: 0, max: 80 })),
-      dom.h('td', {}, dom.h('select', { class: 'tr-side' }, [dom.h('option', { value: 1, selected: r.side !== -1 ? true : null }, 'A'), dom.h('option', { value: -1, selected: r.side === -1 ? true : null }, 'B')])),
-      dom.h('td', {}, dom.h('select', { class: 'tr-disp' }, DISPOSITIONS.map(function (d) { return dom.h('option', { value: d, selected: d === r.disposition ? true : null }, d ? t(d) : '—'); }))),
+      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.n), class: 'tr-n', min: 1, max: 32, 'aria-label': t('Defect number') })),
+      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.z), class: 'tr-z', step: 1, 'aria-label': t('z start (mm)') })),
+      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.length), class: 'tr-len', step: 1, 'aria-label': t('Length (mm)') })),
+      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.depth), class: 'tr-dep', step: 0.5, 'aria-label': t('Depth (top)') })),
+      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.height), class: 'tr-h', step: 0.5, 'aria-label': t('Height (mm)') })),
+      dom.h('td', {}, dom.h('select', { class: 'tr-type', 'aria-label': t('Type') }, TYPE_OPTIONS.map(function (o) { return dom.h('option', { value: o.id, selected: o.id === (normType(r.type) || 'planar') ? true : null }, typeLabel(o.id)); }))),
+      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.ampDb), class: 'tr-db', step: 0.5, title: t('dB vs reference'), 'aria-label': t('dB vs reference') })),
+      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.angle), class: 'tr-ang', step: 1, min: 0, max: 80, 'aria-label': t('Angle (°)') })),
+      dom.h('td', {}, dom.h('select', { class: 'tr-side', 'aria-label': t('Side') }, [dom.h('option', { value: 1, selected: r.side !== -1 ? true : null }, 'A'), dom.h('option', { value: -1, selected: r.side === -1 ? true : null }, 'B')])),
+      dom.h('td', {}, dom.h('select', { class: 'tr-disp', 'aria-label': t('Disposition') }, DISPOSITIONS.map(function (d) { return dom.h('option', { value: d, selected: d === r.disposition ? true : null }, d ? t(d) : '—'); }))),
       dom.h('td', { class: 'tr-chk' }, ''),
       dom.h('td', {}, dom.button('✕', function () { trEl.remove(); }, { class: 'btn tr-del', title: t('Remove row') })),
     ]);
@@ -30230,12 +30235,12 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     ui.rows = dom.h('tbody', {});
     ui.result = dom.h('div', { class: 'tr-result' });
     ui.examBox = dom.h('div', { class: 'tr-exam' });
-    const seedIn = dom.h('input', { type: 'number', class: 'tr-seedin', placeholder: t('seed'), title: t('Optional seed (same seed = same test)') });
-    const timeIn = dom.h('input', { type: 'number', class: 'tr-time', value: tr.timeLimitMin, min: 0.05, step: 1, title: t('Time limit (min)'), onchange: function () { configure({ timeLimitMin: timeIn.value }); } });
+    const seedIn = dom.h('input', { type: 'number', class: 'tr-seedin', placeholder: t('seed'), title: t('Optional seed (same seed = same test)'), 'aria-label': t('Optional seed (same seed = same test)') });
+    const timeIn = dom.h('input', { type: 'number', class: 'tr-time', value: tr.timeLimitMin, min: 0.05, step: 1, title: t('Time limit (min)'), 'aria-label': t('Time limit (min)'), onchange: function () { configure({ timeLimitMin: timeIn.value }); } });
     ui.timeIn = timeIn;
     const diffSel = difficultySelect(tr.difficulty, function (v) { configure({ difficulty: v }); timeIn.value = st().trade.timeLimitMin; });
     ui.diffSel = diffSel;
-    ui.nameIn = dom.h('input', { type: 'text', class: 'tr-name', placeholder: t('Candidate name'), value: tr.candidate || '', onchange: function () { trade.setCandidate(ui.nameIn.value); } });
+    ui.nameIn = dom.h('input', { type: 'text', class: 'tr-name', placeholder: t('Candidate name'), 'aria-label': t('Candidate name'), value: tr.candidate || '', onchange: function () { trade.setCandidate(ui.nameIn.value); } });
     const startFn = function () {
       const ex = st().trade.exam;
       if (ex && ex.nameRequired && !(ui.nameIn.value || '').trim()) { announce(t('Please enter the candidate name first')); return; }
@@ -30284,7 +30289,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     if (ui.timeIn) { ui.timeIn.disabled = cfgLocked; if (document.activeElement !== ui.timeIn || cfgLocked) ui.timeIn.value = cfgLocked ? timeLimitOf(tr) : tr.timeLimitMin; }
     ui.examBox.textContent = '';
     if (tr.exam) {
-      ui.codeIn = dom.h('input', { type: 'password', class: 'tr-code', placeholder: t('exam code'), maxlength: 8 });
+      ui.codeIn = dom.h('input', { type: 'password', class: 'tr-code', placeholder: t('exam code'), maxlength: 8, 'aria-label': t('exam code') });
       ui.examBox.appendChild(dom.h('div', { class: 'tr-exam-row' }, [
         tx('b', 'Exam mode'), dom.h('span', {}, ' ' + (tr.exam.title || '') + ' · ' + (tr.exam.locked && !tr.revealed ? t('truth locked') : t('unlocked'))),
         ui.nameIn, ui.codeIn,
@@ -30388,8 +30393,8 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   function buildPractice() {
     const tr = st().trade;
     pui.msg = dom.h('div', { class: 'tr-live tr-pmsg', 'aria-live': 'polite' }, '');
-    const seedIn = dom.h('input', { type: 'number', class: 'tr-seedin', placeholder: t('seed') });
-    const rowIn = dom.h('input', { type: 'number', class: 'tr-rowin', value: 1, min: 1, title: t('Row number') });
+    const seedIn = dom.h('input', { type: 'number', class: 'tr-seedin', placeholder: t('seed'), title: t('Optional seed (same seed = same test)'), 'aria-label': t('Optional seed (same seed = same test)') });
+    const rowIn = dom.h('input', { type: 'number', class: 'tr-rowin', value: 1, min: 1, title: t('Row number'), 'aria-label': t('Row number') });
     const diffSel = difficultySelect(tr.difficulty, function (v) { configure({ difficulty: v }); });
     pui.diffSel = diffSel;
     return dom.h('div', { class: 'tr' }, [
@@ -37224,6 +37229,10 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
 // - The object version stays `v: 2` (isScenarioObject accepts 2 / undefined): the v3 keys are optional additions,
 //   so a v3 link still loads in a v2 build and a v2 link still loads here.
 // - display.skips accepts 0.5…12 (F17 allows half skips; 90-app clamps 0.5…8).
+// - Persistence (v3 QA round 3): apply() runs inside withSaveSuspended(), so a shared '#scn=' link never
+//   rewrites the viewer's own 'utsim.v1' record — the live session changes, the saved calibration does not
+//   (File ▸ Save Setup is the deliberate way to keep a scenario). It uses UT.app.suspendSave(fn) when the
+//   build has one and otherwise flushes + restores the record itself; both paths are optional (guarded).
 (function (UT) {
   'use strict';
   const M = UT.math;
@@ -37584,6 +37593,37 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     UT.setIn('display', { hide: true }, { noRender: true });
     return started;
   }
+  // ------------------------------------------------------------------ persistence guard (v3 QA round 3)
+  const APP_STORE_KEY = 'utsim.v1';
+  /**
+   * Run `fn` without letting it rewrite the viewer's OWN persistence record: opening a shared teaching link
+   * changes the live session only — the record under 'utsim.v1' is written by a deliberate File ▸ Save Setup,
+   * never by apply() (which fires 'state' repeatedly and so armed 90-app's debounced scheduleSave).
+   * Preferred path: 90-app's own switch `UT.app.suspendSave(fn)` when the build exposes one. Otherwise the
+   * record is flushed (`UT.app.saveNow()` also clears the pending debounce timer), snapshotted, `fn` runs, the
+   * debounce armed by `fn` is flushed the same way and the snapshot is written straight back — so nothing the
+   * scenario changed can reach localStorage. Fully guarded: a build without 90-app, or without localStorage
+   * (node), just runs `fn`.
+   * @param {function():*} fn  the state-mutating work to protect
+   * @returns {*} whatever `fn` returns
+   */
+  function withSaveSuspended(fn) {
+    const suspend = has('app.suspendSave');
+    if (typeof suspend === 'function') return suspend(fn);
+    const ls = storage();
+    const saveNow = has('app.saveNow');
+    const flush = function () { if (typeof saveNow === 'function') { try { saveNow(); } catch (e) { /* ignore */ } } };
+    if (!ls) return fn();
+    let raw = null;
+    flush();                                   // commit anything the viewer changed before the scenario
+    try { raw = ls.getItem(APP_STORE_KEY); } catch (e) { raw = null; }
+    try {
+      return fn();
+    } finally {
+      flush();                                 // cancels the debounce armed by fn (writes the scenario record…)
+      try { if (raw === null) ls.removeItem(APP_STORE_KEY); else ls.setItem(APP_STORE_KEY, raw); } catch (e) { /* ignore */ }
+    }                                          // …which is immediately replaced by the viewer's own snapshot
+  }
   /**
    * Apply a scenario object: rebuilds the specimen through UT.modes.enter, restores probe/instrument/display/
    * standards/pa/tofd/aut/defects and the lesson; exams are started from their seed (no defects in the object).
@@ -37592,6 +37632,15 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
    * @returns {boolean} true when applied
    */
   function apply(obj, opts) {
+    return withSaveSuspended(function () { return applyScenario(obj, opts); });
+  }
+  /**
+   * apply() without the persistence guard (see withSaveSuspended).
+   * @param {object} obj  scenario object
+   * @param {{silentUI?:boolean, toast?:boolean}} [opts]
+   * @returns {boolean} true when applied
+   */
+  function applyScenario(obj, opts) {
     const o = opts || {};
     if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
     const sc = sanitise(obj);
@@ -38022,6 +38071,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       if (!same) f.push('b64url round trip');
       const ko = '초음파 탐상 시뮬레이터 — ✓ 😀';
       if (utf8Decode(utf8Encode(ko)) !== ko) f.push('utf8 round trip');
+      if (withSaveSuspended(function () { return 7; }) !== 7) f.push('withSaveSuspended return value');
       let bad = false;
       try { b64urlDecode('***'); } catch (e) { bad = true; }
       if (!bad) f.push('b64urlDecode accepts junk');

@@ -57,6 +57,11 @@
 // - HTML report strings are escaped with a local esc(); report() never reads the truth while the exam is locked.
 // - Practice runs in mode 'trade' (trade.active = true, trade.practice = true) without a timer; the practice window
 //   opens the trade window for the report rows.
+// - QA3 (a11y, SPEC-v2 §5.7): every control in the report row and in both window headers carries an aria-label —
+//   the <th> of the column does NOT name a control nested in the <td>. The labels reuse existing i18n keys
+//   ('z start (mm)', 'Length (mm)', 'Depth (top)', 'Height (mm)', 'Type', 'dB vs reference', 'Angle (°)', 'Side',
+//   'Disposition') so Korean comes for free; only 'Defect number' (the '#' column) is a new key. The practice
+//   window's seed field now carries the same title/aria-label as the trade window's.
 // - QA3 #1: submit() of a locked exam that already holds a result returns the STORED score (§4.2.3: one submission
 //   per attempt — re-scoring while the exam stays active/locked was a z-sweep score oracle); the trade window greys
 //   Submit / Row+ / Take from readout meanwhile.
@@ -1198,7 +1203,7 @@
     return api;
   }
   function difficultySelect(value, onchange) {
-    const sel = dom.h('select', { class: 'tr-diff', title: t('Difficulty'), onchange: function () { onchange(sel.value); } }, DIFF_KEYS.map(function (k) { return dom.h('option', { value: k, selected: k === value ? true : null, dataset: { i18n: k } }, t(k)); }));
+    const sel = dom.h('select', { class: 'tr-diff', title: t('Difficulty'), 'aria-label': t('Difficulty'), onchange: function () { onchange(sel.value); } }, DIFF_KEYS.map(function (k) { return dom.h('option', { value: k, selected: k === value ? true : null, dataset: { i18n: k } }, t(k)); }));
     return sel;
   }
   function rowsFromUi() {
@@ -1217,16 +1222,16 @@
     const v = function (x) { return Number.isFinite(x) ? x : (x === undefined || x === null ? '' : x); };
     const tAdded = Number.isFinite(r.tAddedSec) ? r.tAddedSec : (s.trade.startedAt ? Math.round((trade._now() - s.trade.startedAt) / 1000) : 0);
     const trEl = dom.h('tr', { dataset: { tadded: tAdded } }, [
-      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.n), class: 'tr-n', min: 1, max: 32 })),
-      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.z), class: 'tr-z', step: 1 })),
-      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.length), class: 'tr-len', step: 1 })),
-      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.depth), class: 'tr-dep', step: 0.5 })),
-      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.height), class: 'tr-h', step: 0.5 })),
-      dom.h('td', {}, dom.h('select', { class: 'tr-type' }, TYPE_OPTIONS.map(function (o) { return dom.h('option', { value: o.id, selected: o.id === (normType(r.type) || 'planar') ? true : null }, typeLabel(o.id)); }))),
-      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.ampDb), class: 'tr-db', step: 0.5, title: t('dB vs reference') })),
-      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.angle), class: 'tr-ang', step: 1, min: 0, max: 80 })),
-      dom.h('td', {}, dom.h('select', { class: 'tr-side' }, [dom.h('option', { value: 1, selected: r.side !== -1 ? true : null }, 'A'), dom.h('option', { value: -1, selected: r.side === -1 ? true : null }, 'B')])),
-      dom.h('td', {}, dom.h('select', { class: 'tr-disp' }, DISPOSITIONS.map(function (d) { return dom.h('option', { value: d, selected: d === r.disposition ? true : null }, d ? t(d) : '—'); }))),
+      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.n), class: 'tr-n', min: 1, max: 32, 'aria-label': t('Defect number') })),
+      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.z), class: 'tr-z', step: 1, 'aria-label': t('z start (mm)') })),
+      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.length), class: 'tr-len', step: 1, 'aria-label': t('Length (mm)') })),
+      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.depth), class: 'tr-dep', step: 0.5, 'aria-label': t('Depth (top)') })),
+      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.height), class: 'tr-h', step: 0.5, 'aria-label': t('Height (mm)') })),
+      dom.h('td', {}, dom.h('select', { class: 'tr-type', 'aria-label': t('Type') }, TYPE_OPTIONS.map(function (o) { return dom.h('option', { value: o.id, selected: o.id === (normType(r.type) || 'planar') ? true : null }, typeLabel(o.id)); }))),
+      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.ampDb), class: 'tr-db', step: 0.5, title: t('dB vs reference'), 'aria-label': t('dB vs reference') })),
+      dom.h('td', {}, dom.h('input', { type: 'number', value: v(r.angle), class: 'tr-ang', step: 1, min: 0, max: 80, 'aria-label': t('Angle (°)') })),
+      dom.h('td', {}, dom.h('select', { class: 'tr-side', 'aria-label': t('Side') }, [dom.h('option', { value: 1, selected: r.side !== -1 ? true : null }, 'A'), dom.h('option', { value: -1, selected: r.side === -1 ? true : null }, 'B')])),
+      dom.h('td', {}, dom.h('select', { class: 'tr-disp', 'aria-label': t('Disposition') }, DISPOSITIONS.map(function (d) { return dom.h('option', { value: d, selected: d === r.disposition ? true : null }, d ? t(d) : '—'); }))),
       dom.h('td', { class: 'tr-chk' }, ''),
       dom.h('td', {}, dom.button('✕', function () { trEl.remove(); }, { class: 'btn tr-del', title: t('Remove row') })),
     ]);
@@ -1243,12 +1248,12 @@
     ui.rows = dom.h('tbody', {});
     ui.result = dom.h('div', { class: 'tr-result' });
     ui.examBox = dom.h('div', { class: 'tr-exam' });
-    const seedIn = dom.h('input', { type: 'number', class: 'tr-seedin', placeholder: t('seed'), title: t('Optional seed (same seed = same test)') });
-    const timeIn = dom.h('input', { type: 'number', class: 'tr-time', value: tr.timeLimitMin, min: 0.05, step: 1, title: t('Time limit (min)'), onchange: function () { configure({ timeLimitMin: timeIn.value }); } });
+    const seedIn = dom.h('input', { type: 'number', class: 'tr-seedin', placeholder: t('seed'), title: t('Optional seed (same seed = same test)'), 'aria-label': t('Optional seed (same seed = same test)') });
+    const timeIn = dom.h('input', { type: 'number', class: 'tr-time', value: tr.timeLimitMin, min: 0.05, step: 1, title: t('Time limit (min)'), 'aria-label': t('Time limit (min)'), onchange: function () { configure({ timeLimitMin: timeIn.value }); } });
     ui.timeIn = timeIn;
     const diffSel = difficultySelect(tr.difficulty, function (v) { configure({ difficulty: v }); timeIn.value = st().trade.timeLimitMin; });
     ui.diffSel = diffSel;
-    ui.nameIn = dom.h('input', { type: 'text', class: 'tr-name', placeholder: t('Candidate name'), value: tr.candidate || '', onchange: function () { trade.setCandidate(ui.nameIn.value); } });
+    ui.nameIn = dom.h('input', { type: 'text', class: 'tr-name', placeholder: t('Candidate name'), 'aria-label': t('Candidate name'), value: tr.candidate || '', onchange: function () { trade.setCandidate(ui.nameIn.value); } });
     const startFn = function () {
       const ex = st().trade.exam;
       if (ex && ex.nameRequired && !(ui.nameIn.value || '').trim()) { announce(t('Please enter the candidate name first')); return; }
@@ -1297,7 +1302,7 @@
     if (ui.timeIn) { ui.timeIn.disabled = cfgLocked; if (document.activeElement !== ui.timeIn || cfgLocked) ui.timeIn.value = cfgLocked ? timeLimitOf(tr) : tr.timeLimitMin; }
     ui.examBox.textContent = '';
     if (tr.exam) {
-      ui.codeIn = dom.h('input', { type: 'password', class: 'tr-code', placeholder: t('exam code'), maxlength: 8 });
+      ui.codeIn = dom.h('input', { type: 'password', class: 'tr-code', placeholder: t('exam code'), maxlength: 8, 'aria-label': t('exam code') });
       ui.examBox.appendChild(dom.h('div', { class: 'tr-exam-row' }, [
         tx('b', 'Exam mode'), dom.h('span', {}, ' ' + (tr.exam.title || '') + ' · ' + (tr.exam.locked && !tr.revealed ? t('truth locked') : t('unlocked'))),
         ui.nameIn, ui.codeIn,
@@ -1401,8 +1406,8 @@
   function buildPractice() {
     const tr = st().trade;
     pui.msg = dom.h('div', { class: 'tr-live tr-pmsg', 'aria-live': 'polite' }, '');
-    const seedIn = dom.h('input', { type: 'number', class: 'tr-seedin', placeholder: t('seed') });
-    const rowIn = dom.h('input', { type: 'number', class: 'tr-rowin', value: 1, min: 1, title: t('Row number') });
+    const seedIn = dom.h('input', { type: 'number', class: 'tr-seedin', placeholder: t('seed'), title: t('Optional seed (same seed = same test)'), 'aria-label': t('Optional seed (same seed = same test)') });
+    const rowIn = dom.h('input', { type: 'number', class: 'tr-rowin', value: 1, min: 1, title: t('Row number'), 'aria-label': t('Row number') });
     const diffSel = difficultySelect(tr.difficulty, function (v) { configure({ difficulty: v }); });
     pui.diffSel = diffSel;
     return dom.h('div', { class: 'tr' }, [

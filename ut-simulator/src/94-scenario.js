@@ -54,6 +54,10 @@
 // - The object version stays `v: 2` (isScenarioObject accepts 2 / undefined): the v3 keys are optional additions,
 //   so a v3 link still loads in a v2 build and a v2 link still loads here.
 // - display.skips accepts 0.5…12 (F17 allows half skips; 90-app clamps 0.5…8).
+// - Persistence (v3 QA round 3): apply() runs inside withSaveSuspended(), so a shared '#scn=' link never
+//   rewrites the viewer's own 'utsim.v1' record — the live session changes, the saved calibration does not
+//   (File ▸ Save Setup is the deliberate way to keep a scenario). It uses UT.app.suspendSave(fn) when the
+//   build has one and otherwise flushes + restores the record itself; both paths are optional (guarded).
 (function (UT) {
   'use strict';
   const M = UT.math;
@@ -414,6 +418,37 @@
     UT.setIn('display', { hide: true }, { noRender: true });
     return started;
   }
+  // ------------------------------------------------------------------ persistence guard (v3 QA round 3)
+  const APP_STORE_KEY = 'utsim.v1';
+  /**
+   * Run `fn` without letting it rewrite the viewer's OWN persistence record: opening a shared teaching link
+   * changes the live session only — the record under 'utsim.v1' is written by a deliberate File ▸ Save Setup,
+   * never by apply() (which fires 'state' repeatedly and so armed 90-app's debounced scheduleSave).
+   * Preferred path: 90-app's own switch `UT.app.suspendSave(fn)` when the build exposes one. Otherwise the
+   * record is flushed (`UT.app.saveNow()` also clears the pending debounce timer), snapshotted, `fn` runs, the
+   * debounce armed by `fn` is flushed the same way and the snapshot is written straight back — so nothing the
+   * scenario changed can reach localStorage. Fully guarded: a build without 90-app, or without localStorage
+   * (node), just runs `fn`.
+   * @param {function():*} fn  the state-mutating work to protect
+   * @returns {*} whatever `fn` returns
+   */
+  function withSaveSuspended(fn) {
+    const suspend = has('app.suspendSave');
+    if (typeof suspend === 'function') return suspend(fn);
+    const ls = storage();
+    const saveNow = has('app.saveNow');
+    const flush = function () { if (typeof saveNow === 'function') { try { saveNow(); } catch (e) { /* ignore */ } } };
+    if (!ls) return fn();
+    let raw = null;
+    flush();                                   // commit anything the viewer changed before the scenario
+    try { raw = ls.getItem(APP_STORE_KEY); } catch (e) { raw = null; }
+    try {
+      return fn();
+    } finally {
+      flush();                                 // cancels the debounce armed by fn (writes the scenario record…)
+      try { if (raw === null) ls.removeItem(APP_STORE_KEY); else ls.setItem(APP_STORE_KEY, raw); } catch (e) { /* ignore */ }
+    }                                          // …which is immediately replaced by the viewer's own snapshot
+  }
   /**
    * Apply a scenario object: rebuilds the specimen through UT.modes.enter, restores probe/instrument/display/
    * standards/pa/tofd/aut/defects and the lesson; exams are started from their seed (no defects in the object).
@@ -422,6 +457,15 @@
    * @returns {boolean} true when applied
    */
   function apply(obj, opts) {
+    return withSaveSuspended(function () { return applyScenario(obj, opts); });
+  }
+  /**
+   * apply() without the persistence guard (see withSaveSuspended).
+   * @param {object} obj  scenario object
+   * @param {{silentUI?:boolean, toast?:boolean}} [opts]
+   * @returns {boolean} true when applied
+   */
+  function applyScenario(obj, opts) {
     const o = opts || {};
     if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
     const sc = sanitise(obj);
@@ -852,6 +896,7 @@
       if (!same) f.push('b64url round trip');
       const ko = '초음파 탐상 시뮬레이터 — ✓ 😀';
       if (utf8Decode(utf8Encode(ko)) !== ko) f.push('utf8 round trip');
+      if (withSaveSuspended(function () { return 7; }) !== 7) f.push('withSaveSuspended return value');
       let bad = false;
       try { b64urlDecode('***'); } catch (e) { bad = true; }
       if (!bad) f.push('b64urlDecode accepts junk');
