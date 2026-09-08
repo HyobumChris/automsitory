@@ -1687,6 +1687,30 @@ check('V3-3 auto-cal thickness entry and the on-LCD wizard (F3)', 'v3', async ({
     UT.test.autocal.field(20); UT.test.autocal.confirm();
     out.cap2 = UT.test.autocal.state().caption;
     UT.test.autocal.cancel();
+    // v3 QA round 3 regression guard (F3, 80-modes lcdWizard/acSync): every EPOCH skin already paints the
+    // wizard inside #cv-ascan, so the generic floating 'autocal' window must stay absent/hidden there — and
+    // both captions must still be reachable through UT.test.autocal.state(). The USK 7 skin has no on-LCD
+    // box, so there the window is the visible wizard.
+    out.skins = {};
+    for (const skin of ['epoch600', 'epoch4', 'epochltc', 'usk7']) {
+      UT.set({ utSet: skin });
+      try { if (UT.instruments && UT.instruments.setSkin) UT.instruments.setSkin(skin); } catch (e) { /* skinless build */ }
+      UT.renderNow();
+      UT.test.setInstrument({ range: 100, gain: 40, cal: { vel: 5.60, zero: 0.4 }, gates: [{ on: true, start: 14, width: 12, level: 15 }] });
+      UT.test.compute();
+      UT.test.autocal.start();
+      const w = UT.dom.wins.autocal, el = w && w.el;
+      const open = !!(w && w.isOpen && w.isOpen());
+      const vis = !!(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+      const s1 = UT.test.autocal.state();
+      UT.test.autocal.field(20); UT.test.autocal.confirm();
+      const s2 = UT.test.autocal.state();
+      out.skins[skin] = { open, vis, stage1: s1.stage, cap1: s1.caption, stage2: s2.stage, cap2: s2.caption };
+      UT.test.autocal.cancel();
+    }
+    UT.set({ utSet: 'epoch600' });
+    try { if (UT.instruments && UT.instruments.setSkin) UT.instruments.setSkin('epoch600'); } catch (e) { /* skinless build */ }
+    UT.renderNow();
     return out;
   });
   A.eq(r.field1, 16.5, 'autocal.field(16.50)');
@@ -1698,6 +1722,20 @@ check('V3-3 auto-cal thickness entry and the on-LCD wizard (F3)', 'v3', async ({
   A.ok(/AND THEN PRESS Calibration/.test(r.cap1 || ''), 'thin caption second line');
   A.ok(/ENTER VALUE FOR THICK STANDARD/.test(r.cap2 || ''), 'thick caption: ' + JSON.stringify(r.cap2));
   A.ok(/AND THEN PRESS ENTER/.test(r.cap2 || ''), 'thick caption second line');
+  // the on-LCD wizard owns the EPOCH skins; the floating window owns USK 7 — captions everywhere
+  for (const skin of ['epoch600', 'epoch4', 'epochltc']) {
+    const s = (r.skins || {})[skin] || {};
+    A.eq(s.open, false, `floating 'autocal' window not open on ${skin} (the on-LCD wizard is the visible one)`);
+    A.eq(s.vis, false, `floating 'autocal' window not laid out on ${skin}`);
+    A.eq(s.stage1, 1, `${skin} stage 1`); A.eq(s.stage2, 2, `${skin} stage 2`);
+    A.ok(/ENTER VALUE FOR THIN STANDARD/.test(s.cap1 || '') && /AND THEN PRESS Calibration/.test(s.cap1 || ''), `${skin} thin caption in autocal.state(): ${JSON.stringify(s.cap1)}`);
+    A.ok(/ENTER VALUE FOR THICK STANDARD/.test(s.cap2 || '') && /AND THEN PRESS ENTER/.test(s.cap2 || ''), `${skin} thick caption in autocal.state(): ${JSON.stringify(s.cap2)}`);
+  }
+  const usk = (r.skins || {}).usk7 || {};
+  A.eq(usk.open, true, "floating 'autocal' window open on usk7 (no on-LCD box in that skin)");
+  A.eq(usk.vis, true, "floating 'autocal' window laid out on usk7");
+  A.ok(/ENTER VALUE FOR THIN STANDARD/.test(usk.cap1 || ''), 'usk7 thin caption: ' + JSON.stringify(usk.cap1));
+  A.ok(/ENTER VALUE FOR THICK STANDARD/.test(usk.cap2 || ''), 'usk7 thick caption: ' + JSON.stringify(usk.cap2));
   return A.result();
 });
 
@@ -2563,6 +2601,31 @@ check('V3-29 editor captions, prompts, spinner and defaults (F29)', 'v3', async 
     const el = UT.dom.wins.defects && UT.dom.wins.defects.el;
     out.depthLabel = el ? /Depth = /.test(el.textContent || '') : false;
     out.circleCanvas = !!document.getElementById('cv-circle');
+    // v3 QA round 3 regression guard (F29, 80-modes editorCursorRefresh): the cross-section hover writes
+    // state.cursor with {noRender:true} (V3-63's frame budget), so the `Depth =` cell has to follow the
+    // 'state' event — not a render. Assert the exact text with NO render in between, plus the no-reading
+    // placeholder and the Korean form of the same key.
+    const depthCell = function () { const c = el && el.querySelector('.dfe-depth'); return c ? String(c.textContent || '').trim() : null; };
+    out.hasDepthCell = !!(el && el.querySelector('.dfe-depth'));
+    const noCursor = { x: null, y: null, view: null, tUs: null, depth: null, z: null };
+    UT.set({ cursor: noCursor }, { noRender: true });
+    out.depthNone = depthCell();
+    out.depthCells = [];
+    let renders = 0;
+    const onRender = function () { renders++; };
+    UT.bus.on('render', onRender);
+    [13.5, 18.5, 22.5].forEach(function (y) {
+      UT.set({ cursor: { x: 12, y, view: 'cross', tUs: null, depth: null, z: null } }, { noRender: true });
+      out.depthCells.push({ want: 'Depth = ' + y.toFixed(1) + 'mm', got: depthCell() });
+    });
+    UT.bus.off('render', onRender);
+    out.depthRenders = renders;
+    UT.test.lang('ko');
+    out.depthKo = depthCell();
+    out.untranslated = UT.test.untranslated ? UT.test.untranslated().length : null;
+    UT.test.lang('en');
+    out.depthEn = depthCell();
+    UT.set({ cursor: noCursor }, { noRender: true });
     // 6-inch pipe ring labels
     UT.test.loadSpecimen('pipe-weld', { od: 152.4, wt: 20 });
     UT.renderNow();
@@ -2587,6 +2650,13 @@ check('V3-29 editor captions, prompts, spinner and defaults (F29)', 'v3', async 
   if ((r.ring || []).length) { A.eq(String(r.ring[0]).replace(/\s+/g, ' ').trim(), '0 mm', 'first ring label'); A.eq(String(r.ring[r.ring.length - 1]).trim(), '440mm', 'last ring label'); }
   A.ok(!!r.spot, '45 mm spot stroke made a defect');
   if (r.spot) A.near(Math.max(r.spot.w, r.spot.h), 45, 3, 'spot bbox across');
+  A.eq(r.hasDepthCell, true, "the editor carries a '.dfe-depth' cell");
+  A.eq(r.depthNone, 'Depth = --.-mm', 'no-reading placeholder: ' + JSON.stringify(r.depthNone));
+  (r.depthCells || []).forEach(c => A.eq(c.got, c.want, 'depth cell follows state.cursor without a render'));
+  A.eq(r.depthRenders, 0, 'renders fired by the three {noRender:true} cursor writes');
+  A.eq(r.depthKo, '깊이 = 22.5mm', 'Korean depth cell: ' + JSON.stringify(r.depthKo));
+  A.eq(r.depthEn, 'Depth = 22.5mm', 'back to English: ' + JSON.stringify(r.depthEn));
+  A.eq(r.untranslated, 0, 'untranslated keys while ko with the editor open: ' + r.untranslated);
   return A.result();
 });
 
@@ -3269,27 +3339,48 @@ check('V3-47 TKY panel, layout and dialogs (F47)', 'v3', async ({ page, launchFr
   A.eq(r.menu, true, 'Weld ▸ Pipe Thickness… exists');
   A.ok(/Enter Thickness between 6mm and 40mm/.test(r.dlg || ''), 'dialog text: ' + JSON.stringify((r.dlg || '').slice(0, 120)));
   A.ok(!r.rej3, 'rejects 3 mm'); A.ok(!r.rej50, 'rejects 50 mm'); A.ok(!!r.ok20, 'accepts 20 mm');
-  // layout: at 1280 × 760 the panel must not sit on the drawn probe
-  const fresh = await launchFresh({ width: 1280, height: 760 });
-  const geo = await fresh.page.evaluate(() => {
+  // Layout regression guard (v3 QA round 3, F47 / 80-modes tkyPanelPos): at every supported viewport the
+  // ADJUST MODE panel must clear BOTH the drawn probe and the brace toe, and stay inside the #app design box.
+  // The geometry is read off the live '.win[data-win=tky]' element, so a panel that drifts back over the
+  // section — or off the scaled box — fails here.
+  const TKY_GEO = () => {
     UT.test.enterMode('tky'); UT.renderNow();
-    const el = UT.dom.wins.tky && UT.dom.wins.tky.el;
+    const el = document.querySelector('.win[data-win=tky]');
     const cv = document.getElementById('cv-cross');
-    if (!el || !cv) return null;
+    const app = document.getElementById('app');
+    if (!el || !cv || !app) return { missing: { el: !!el, cv: !!cv, app: !!app } };
     const k = UT.dom.scale ? UT.dom.scale() : 1;
     const rect = cv.getBoundingClientRect();
+    const toPage = (x, y) => { const p = UT.views.cross.toPx(x, y); return { x: rect.left + p.x * k, y: rect.top + p.y * k }; };
     const d = UT.frame.derived || {};
     const w = (d.shoeWidth || 20), h = (d.shoeHeight || 16);
     const p = UT.state.probe;
-    const a = UT.views.cross.toPx(p.x - w / 2, -h), b = UT.views.cross.toPx(p.x + w / 2, 0);
-    const probe = { left: rect.left + Math.min(a.x, b.x) * k, right: rect.left + Math.max(a.x, b.x) * k, top: rect.top + Math.min(a.y, b.y) * k, bottom: rect.top + Math.max(a.y, b.y) * k };
+    const a = toPage(p.x - w / 2, -h), b = toPage(p.x + w / 2, 0);
+    const probe = { left: Math.min(a.x, b.x), right: Math.max(a.x, b.x), top: Math.min(a.y, b.y), bottom: Math.max(a.y, b.y) };
+    const tky = (UT.state.specimen || {}).tky;
+    const toe = tky && tky.toe ? toPage(tky.toe.x, tky.toe.y || 0) : null;
     const pr = el.getBoundingClientRect();
     const panel = { left: pr.left, right: pr.right, top: pr.top, bottom: pr.bottom };
-    const overlap = !(panel.right <= probe.left || panel.left >= probe.right || panel.bottom <= probe.top || panel.top >= probe.bottom);
-    return { overlap, panel, probe };
-  });
-  await fresh.browser.close();
-  A.ok(geo && geo.overlap === false, 'the TKY panel does not cover the probe at 1280 × 760: ' + JSON.stringify(geo));
+    const ar = app.getBoundingClientRect();
+    return {
+      probeCovered: !(panel.right <= probe.left || panel.left >= probe.right || panel.bottom <= probe.top || panel.top >= probe.bottom),
+      toeCovered: toe ? (toe.x >= panel.left && toe.x <= panel.right && toe.y >= panel.top && toe.y <= panel.bottom) : false,
+      hasToe: !!toe,
+      inBox: panel.left >= ar.left - 1 && panel.right <= ar.right + 1 && panel.top >= ar.top - 1 && panel.bottom <= ar.bottom + 1,
+      panel, probe, toe,
+    };
+  };
+  for (const size of [{ width: 1280, height: 760 }, { width: 1400, height: 900 }, { width: 1024, height: 640 }]) {
+    const fresh = await launchFresh(size);
+    let geo = null;
+    try { geo = await fresh.page.evaluate(TKY_GEO); } finally { await fresh.browser.close(); }
+    const at = `${size.width} × ${size.height}`;
+    if (!A.ok(geo && !geo.missing, `TKY panel geometry readable at ${at}: ${JSON.stringify(geo)}`)) continue;
+    A.eq(geo.probeCovered, false, `the TKY panel does not cover the probe at ${at}: ${JSON.stringify(geo)}`);
+    A.eq(geo.hasToe, true, `the TKY joint has a drawn toe at ${at}`);
+    A.eq(geo.toeCovered, false, `the TKY panel does not cover the brace toe at ${at}: ${JSON.stringify(geo)}`);
+    A.eq(geo.inBox, true, `the TKY panel stays inside the #app box at ${at}: ${JSON.stringify(geo)}`);
+  }
   return A.result();
 });
 
