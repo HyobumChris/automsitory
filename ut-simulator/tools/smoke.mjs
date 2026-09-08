@@ -2,7 +2,7 @@
 // Usage: NODE_PATH=/opt/node22/lib/node_modules node tools/smoke.mjs [path/to/utman_simulator.html] [--shots dir]
 import path from 'node:path';
 import fs from 'node:fs';
-import { launch, TOOLBAR_IDS } from './qa-helpers.mjs';
+import { launch, TOOLBAR_IDS, dismissModals } from './qa-helpers.mjs';
 
 const args = process.argv.slice(2);
 const fileArg = args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--shots');
@@ -24,8 +24,12 @@ for (const id of ids) {
   await page.waitForTimeout(250);
   if (shots) await page.screenshot({ path: path.join(shots, id + '.png') });
   if (errors.length > before) console.log('errors after', id, errors.slice(before));
+  // v3: tb-dac / tb-plot open the F11 modal chooser on a real click — clear it before the next button
+  const dropped = await dismissModals(page);
+  if (dropped.length) console.log('dismissed modal after', id, dropped.join(','));
   await page.click('#' + id).catch(() => {}); // toggle back
   await page.waitForTimeout(100);
+  await dismissModals(page);
 }
 // Basic physics probes through the test API
 const probe = await page.evaluate(() => {

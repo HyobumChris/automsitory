@@ -113,6 +113,37 @@
 // - Twin-crystal angle-probe near-surface boost (§3.5, ×1.5 for path < 15 mm) is an amplitude law and is
 //   left to 30-raytrace (not applied here, to avoid double application).
 // - UT.test.echoes() rows carry tUs, mode and lenMm (null when the tracer does not provide them).
+// v3 (SPEC-v3 §4.11 F23, §6.3 F45, §6.5 F59)
+// - F23 `Depth =` data: UT.ascan.echoDepth(frame, state) → {y, source: 'gate'|'echo', kind, ampPct, path}
+//   or null; compute() stores the same object as `frame.depthEcho`, and 90-app renders the status cell
+//   from it (the cursor still wins, §4.11). A qualifying echo has kind ∈ DEPTH_ECHO_KINDS
+//   {defect, corner, tip, lamination} and ampPct ≥ DEPTH_ECHO_MIN_PCT (20). The gated echo wins when the
+//   ACTIVE gate has a reading attributed to a qualifying echo (GateReadout now also carries that echo's
+//   `y`), else the strongest qualifying entry of frame.echoes. Nothing qualifies → null → no cell.
+//   SPEC NOTE (§4.11 words it as "that echo's reflection point y"): the depth reported is the LEG-FOLDED
+//   depth of the echo's TRUE path, geometry(path, derived.refracted, T).dp. That equals the reflector's y
+//   for defect / tip / lamination echoes, and is the only correct value for a 'corner' echo, whose stored
+//   (x, y) is the DEFECT point the ray left (17.90 mm for the T 20 root crack) and not the corner itself
+//   (20.0 mm — the value V3-23 pins). Echo.y is the fallback when no angle/thickness is available.
+//   The same folded depth is attached to every mapped echo as `depth` (frame.echoes and UT.test.echoes()
+//   rows), so a consumer that walks the echo list reads the same number the cell shows.
+//   The gate branch applies the same qualification filter as the free-echo branch, so the cell disappears
+//   when the probe walks off the defect instead of latching onto a gated root-bead 'geometry' echo (V3-23
+//   requires exactly that), and `display.depthEcho === false` returns null.
+// - F45 rough surface (the 40 half only): traceOpts() adds ROUGH_TRANSFER_DB (4 dB, two-way) to
+//   opts.transferLossDb — the state value keeps its documented 0…8 clamp and the rough term is added on
+//   top (30-raytrace re-clamps the total to 8) — and synth() gains `grassFactor`, which multiplies the
+//   grass LEVEL only (compute() passes ROUGH_GRASS_FACTOR 2.5 via grassFactorOf(state); echo amplitudes,
+//   TCG, energy and the receiver band are untouched, as grass is an electronic-gain term, §3.4). Both
+//   terms are inert while weldOpts.roughSurface is false, so every v1/v2 number is unchanged.
+//   rootCorrosion / misalignmentMm / wtVariationMm are geometry (10-specimens) and tracer (30) work; 40
+//   does not touch them.
+// - F59 material wiring: nothing in 40 hardcodes a velocity or an attenuation — the time base follows
+//   derived.vel (so 'carbon-utman' 3.20 / 5.96 moves the readouts with the material) and the grass law
+//   follows material.grass (0.02 for both carbons, so the grass is unchanged). K_REF stays pinned to
+//   CARBON: calibrateK() now names material 'carbon' on its DAC block, so selecting 'carbon-utman'
+//   before the first (lazy) calibration cannot move the 80 %-at-34 dB reference. That was already the
+//   default; making it explicit is what keeps F59's "zero effect on the default numbers" true.
 (function (UT) {
   'use strict';
   const M = UT.math;
@@ -124,6 +155,10 @@
   const GRASS_REF_GAIN = 40;
   const GRASS_DEFAULT = 0.02;       // material.grass of carbon steel
   const WELD_GRASS_FACTOR = 3;      // austenitic weld metal window (§3.4)
+  const ROUGH_GRASS_FACTOR = 2.5;   // F45: scanning-surface roughness multiplies the grass level
+  const ROUGH_TRANSFER_DB = 4;      // F45: two-way transfer loss added by a rough scanning surface
+  const DEPTH_ECHO_KINDS = ['defect', 'corner', 'tip', 'lamination'];   // F23: kinds worth a Depth cell
+  const DEPTH_ECHO_MIN_PCT = 20;    // F23: minimum ampPct of the echo the Depth cell reports
   const PROVISIONAL_K = 2.64;
   const GATE_SLOTS = 2;   // G1 / G2 — the instrument model never carries more gates than the skins show
 
@@ -215,7 +250,7 @@
     _kSource = 'provisional';
     if (!(UT.rays && typeof UT.rays.trace === 'function' && UT.specimens && UT.specimens.dacBlock)) return _kRef;
     try {
-      const spec = UT.specimens.dacBlock({ T: 50 });
+      const spec = UT.specimens.dacBlock({ T: 50, material: 'carbon' });   // F59: the reference never follows state.material
       const hole = spec.holes.find(function (h) { return Math.abs(h.y - 25) < 1e-6; }) || spec.holes[1];
       const x0 = hole.x + hole.y * Math.tan(M.deg2rad(60));
       const display = { beam: true, skips: 3, colourCode: 'none', singleLine: false, focus: false, hide: false };
@@ -457,7 +492,8 @@
   // ------------------------------------------------------------------ A-scan synthesis
   /**
    * Synthesise the A-scan samples from tracer echoes.
-   * @param {object} o  {echoes, probe, derived, instrument, nSamples=1000, specimen?, material?, weldGrass?:{windows:[{from,to}], factor}}
+   * @param {object} o  {echoes, probe, derived, instrument, nSamples=1000, specimen?, material?,
+ *   weldGrass?:{windows:[{from,to}], factor}, grassFactor?:number (F45 rough surface, default 1)}
    * @returns {AscanResult}
    */
   function synth(o) {
@@ -526,7 +562,8 @@
     const noiseSeed = Math.round((probe.x || 0) * 7 + (probe.z || 0) * 13);
     const rnd = M.rng(noiseSeed);
     const material = materialOfOpt(o);
-    const grassLevel = grassLevelPct(material, derived.freq, inst.gain) * (inst.grassScale || 1);
+    const gFactor = Number.isFinite(o.grassFactor) && o.grassFactor > 0 ? o.grassFactor : 1;   // F45
+    const grassLevel = grassLevelPct(material, derived.freq, inst.gain) * (inst.grassScale || 1) * gFactor;
     const wg = o.weldGrass && Array.isArray(o.weldGrass.windows) && o.weldGrass.windows.length ? o.weldGrass : null;
     const wgWin = wg ? wg.windows.map(function (w) { return { from: dispPath(w.from, inst, derived), to: dispPath(w.to, inst, derived) }; }) : null;
     const wgFactor = wg && Number.isFinite(wg.factor) ? wg.factor : WELD_GRASS_FACTOR;
@@ -610,8 +647,11 @@
       for (const es of ascan.echoesOnScreen) {
         if (Math.abs(es.pDisp - pPeak) <= win && es.pDisp >= s0 - win && es.pDisp <= s1 + win && (!best || es.ampPct > best.ampPct)) best = es;
       }
-      let peakPct, path, pathDisp, xDiv, echoKind;
-      if (best) { peakPct = best.ampPct; path = best.echo.path; pathDisp = best.pDisp; xDiv = best.xDiv; echoKind = best.echo.kind || 'echo'; }
+      let peakPct, path, pathDisp, xDiv, echoKind, echoY = null;
+      if (best) {
+        peakPct = best.ampPct; path = best.echo.path; pathDisp = best.pDisp; xDiv = best.xDiv; echoKind = best.echo.kind || 'echo';
+        echoY = Number.isFinite(best.echo.y) ? best.echo.y : null;                   // F23: reflection point of the gated echo
+      }
       else {
         peakPct = peak; xDiv = (pPeak - delay) / range * 10; pathDisp = pPeak; path = derived ? truePath(pPeak, inst, derived) : pPeak;
         echoKind = ascan.initialZone && pPeak >= ascan.initialZone.from && pPeak <= ascan.initialZone.to ? 'initial' : 'noise';
@@ -624,7 +664,7 @@
         const curve = dacAt(inst, path);
         if (curve !== null && curve > 0) { dacPct = peakPct / curve * 100; dBToDac = M.lin2dB(peakPct / curve); }
       }
-      out.push({ peakPct, path, pathDisp, xDiv, sd: geo.sd, dp: geo.dp, leg: geo.leg, dacPct, dBToDac, echoKind });
+      out.push({ peakPct, path, pathDisp, xDiv, sd: geo.sd, dp: geo.dp, leg: geo.leg, dacPct, dBToDac, echoKind, y: echoY });
     }
     const ai = Number.isFinite(inst.activeGate) ? inst.activeGate : 0;
     const primary = out[ai] || null;
@@ -655,6 +695,70 @@
   function snapshot(frame) {
     const a = (frame || UT.frame) && (frame || UT.frame).ascan;
     return a && a.samples ? new Float32Array(a.samples) : null;
+  }
+
+  // ------------------------------------------------------------------ F23: echo-driven depth (§4.11)
+  /** Local thickness the depth fold uses: spec.thicknessAt(probe.x) → spec.T → extents.yMax → NaN. */
+  function thicknessFor(spec, probe) {
+    if (!spec) return NaN;
+    if (typeof spec.thicknessAt === 'function' && probe && Number.isFinite(probe.x)) {
+      const t = spec.thicknessAt(probe.x);
+      if (Number.isFinite(t) && t > 0) return t;
+    }
+    if (Number.isFinite(spec.T) && spec.T > 0) return spec.T;
+    const ym = spec.extents && spec.extents.yMax;
+    return Number.isFinite(ym) && ym > 0 ? ym : NaN;
+  }
+
+  /**
+   * Depth (mm below the scanning surface) of an echo: the leg-folded depth of its TRUE path
+   * (see the v3 header note — 'corner' echoes carry the defect point, not the corner), falling back to
+   * the stored reflection point y when the fold cannot be computed.
+   * @param {{path:number, y?:number}} echo
+   * @param {number} angleDeg  refracted angle (0 for a straight beam)
+   * @param {number} T  local thickness (mm; NaN → the y fallback)
+   * @returns {number|null}
+   */
+  function depthOfEcho(echo, angleDeg, T) {
+    if (!echo) return null;
+    if (Number.isFinite(echo.path) && Number.isFinite(T) && T > 0) return geometry(echo.path, angleDeg || 0, T, 0).dp;
+    return Number.isFinite(echo.y) ? echo.y : null;
+  }
+
+  /** Is this echo worth a `Depth =` cell? (kind ∈ DEPTH_ECHO_KINDS and ampPct ≥ DEPTH_ECHO_MIN_PCT) */
+  function depthEchoQualifies(kind, ampPct) {
+    return DEPTH_ECHO_KINDS.indexOf(kind) >= 0 && Number.isFinite(ampPct) && ampPct >= DEPTH_ECHO_MIN_PCT;
+  }
+
+  /**
+   * F23 — the depth the status bar reports when the cursor is away: the gated echo when the active gate
+   * has a qualifying reading, else the strongest qualifying entry of frame.echoes (§4.11).
+   * 90-app renders `Depth = ' + y.toFixed(1) + 'mm'` from `y`; the cursor and the F6 key hint still win.
+   * @param {object} [frame]  defaults to UT.frame
+   * @param {object} [state]  defaults to UT.state (for the specimen, the probe and display.depthEcho)
+   * @returns {{y:number, source:string, kind:string, ampPct:number, path:number}|null} null when nothing qualifies
+   */
+  function echoDepth(frame, state) {
+    const fr = frame || UT.frame;
+    const st = state || UT.state;
+    if (!fr || !st) return null;
+    if (st.display && st.display.depthEcho === false) return null;
+    const derived = (fr.paSelected && fr.paSelected.derived) || fr.derived || null;
+    const angle = derived && Number.isFinite(derived.refracted) ? derived.refracted : ((st.probe && st.probe.angle) || 0);
+    const T = thicknessFor(st.specimen, st.probe);
+    const R = fr.readouts && fr.readouts.primary;
+    if (R && depthEchoQualifies(R.echoKind, R.peakPct)) {
+      const y = depthOfEcho({ path: R.path, y: R.y }, angle, T);
+      if (Number.isFinite(y)) return { y, source: 'gate', kind: R.echoKind, ampPct: R.peakPct, path: R.path };
+    }
+    let best = null;
+    for (const e of (fr.echoes || [])) {
+      if (!e || !depthEchoQualifies(e.kind, e.ampPct)) continue;
+      if (!best || e.ampPct > best.ampPct) best = e;
+    }
+    if (!best) return null;
+    const y = depthOfEcho(best, angle, T);
+    return Number.isFinite(y) ? { y, source: 'echo', kind: best.kind, ampPct: best.ampPct, path: best.path } : null;
   }
 
   // ------------------------------------------------------------------ peak memory
@@ -713,7 +817,9 @@
       physics: { modeConv: ph.modeConv !== false, surfaceWave: ph.surfaceWave !== false, sideLobes: ph.sideLobes !== false, fanRays },
       damping: { tool: !!dm.tool, points: Array.isArray(dm.points) ? dm.points.slice(0, 3) : [] },
       weldMaterial: wo.weldMaterial || 'same',
-      transferLossDb: Number.isFinite(tl) ? M.clamp(tl, 0, 8) : 0,
+      // F45: the rough scanning surface costs a further 4 dB two-way, added on top of the state value's
+      // own 0…8 clamp (30-raytrace re-clamps the total, so a state 8 + rough stays at 8 there).
+      transferLossDb: (Number.isFinite(tl) ? M.clamp(tl, 0, 8) : 0) + (wo.roughSurface ? ROUGH_TRANSFER_DB : 0),
     };
   }
 
@@ -727,9 +833,27 @@
 
   function visibleDefects(state) { return (state.defects || []).filter(function (d) { return d && d.visible !== false; }); }
 
-  /** Map tracer echoes to on-screen amplitudes (before reject/clip), sorted by path. */
-  function mapEchoes(rays, inst, derived) {
-    const list = ((rays && rays.echoes) || []).map(function (e) { return Object.assign({}, e, { ampPct: ampPctOf(e.amp, inst, derived, e.path) }); });
+  /**
+   * F45 — grass multiplier of the scanning-surface condition: ROUGH_GRASS_FACTOR with
+   * weldOpts.roughSurface, else 1 (so every v1/v2 A-scan is unchanged).
+   * @param {object} state
+   * @returns {number}
+   */
+  function grassFactorOf(state) {
+    return state && state.weldOpts && state.weldOpts.roughSurface ? ROUGH_GRASS_FACTOR : 1;
+  }
+
+  /**
+   * Map tracer echoes to on-screen amplitudes (before reject/clip), sorted by path. Each row also gains
+   * `depth` — the leg-folded depth of its true path (F23; null when no thickness is known), so every
+   * consumer of frame.echoes reads the same depth the `Depth =` status cell reports.
+   */
+  function mapEchoes(rays, inst, derived, T) {
+    const ang = derived && Number.isFinite(derived.refracted) ? derived.refracted : 0;
+    const list = ((rays && rays.echoes) || []).map(function (e) {
+      const d = depthOfEcho(e, ang, T);
+      return Object.assign({}, e, { ampPct: ampPctOf(e.amp, inst, derived, e.path), depth: Number.isFinite(d) ? d : null });
+    });
     list.sort(function (a, b) { return a.path - b.path; });
     return list;
   }
@@ -792,7 +916,7 @@
       const d = UT.probe.derive(p, spec);
       const opts = Object.assign({}, base, { maxPath: (inst.delay || 0) + (inst.range || 100), fanCount: 5, maxLegs: Math.min(2, state.display.skips || 2) });
       const rays = spec ? safeTrace({ specimen: spec, probe: p, derived: d, display, defects, opts }) : null;
-      columns.push({ angle: a, echoes: mapEchoes(rays, inst, d) });
+      columns.push({ angle: a, echoes: mapEchoes(rays, inst, d, thicknessFor(spec, probe)) });
     }
     return { angles, columns, maxPath: (inst.delay || 0) + (inst.range || 100), T: spec ? spec.T : 0 };
   }
@@ -819,7 +943,7 @@
     const probe = state.probe;
     const inst = state.instrument;
     const derived = UT.probe.derive(probe, spec);
-    const frame = { ts: now(), mode: state.mode, derived, rays: null, echoes: [], ascan: null, readouts: null, tofd: null, aut: null, sscan: null, pa: null, paSelected: null };
+    const frame = { ts: now(), mode: state.mode, derived, rays: null, echoes: [], ascan: null, readouts: null, tofd: null, aut: null, sscan: null, pa: null, paSelected: null, depthEcho: null };
     if (spec) {
       if (state.mode === 'tofd') {
         if (UT.tofd && typeof UT.tofd.compute === 'function') {
@@ -838,7 +962,7 @@
           echoes.sort(function (a, b) { return a.path - b.path; });
           frame.echoes = echoes;
           frame.paSelected = { angle: sel.column.angle, index: sel.index, derived: d };
-          const ascan = synth({ echoes, probe: p, derived: d, instrument: inst, nSamples: N_SAMPLES, specimen: spec });
+          const ascan = synth({ echoes, probe: p, derived: d, instrument: inst, nSamples: N_SAMPLES, specimen: spec, grassFactor: grassFactorOf(state) });
           applyPeak(ascan, inst);
           frame.ascan = ascan;
           const instPa = Object.assign({}, inst, { trig: Object.assign({}, inst.trig, { angle: sel.column.angle }) });
@@ -847,8 +971,8 @@
       } else {
         const rays = safeTrace({ specimen: spec, probe, derived, display: state.display, defects: visibleDefects(state), opts: traceOpts(state, spec, probe) });
         frame.rays = rays;
-        frame.echoes = mapEchoes(rays, inst, derived);
-        const ascan = synth({ echoes: rays ? rays.echoes : [], probe, derived, instrument: inst, nSamples: N_SAMPLES, specimen: spec, weldGrass: weldGrassOf(state, spec, rays) });
+        frame.echoes = mapEchoes(rays, inst, derived, thicknessFor(spec, probe));
+        const ascan = synth({ echoes: rays ? rays.echoes : [], probe, derived, instrument: inst, nSamples: N_SAMPLES, specimen: spec, weldGrass: weldGrassOf(state, spec, rays), grassFactor: grassFactorOf(state) });
         applyPeak(ascan, inst);
         frame.ascan = ascan;
         frame.readouts = evalGates(ascan, inst, derived, spec, probe);
@@ -857,6 +981,7 @@
         }
       }
     }
+    frame.depthEcho = echoDepth(frame, state);        // F23: the `Depth =` status cell's echo source
     UT.frame = frame;
     return frame;
   }
@@ -931,6 +1056,9 @@
     if (q.z !== undefined) next.z = num(q.z, next.z, -1e4, 1e4);
     if (q.skew !== undefined) { const sk = num(q.skew, NaN, -1e6, 1e6); if (Number.isFinite(sk)) next.skew = ((sk % 360) + 360) % 360; }
     if (q.side !== undefined) { const sd = num(q.side, 0, -1e6, 1e6); if (sd !== 0) next.side = sd < 0 ? -1 : 1; }
+    // F19 (SPEC-v3 §4.7): the movable TT/tandem receiver. ±200 mm here; 30-raytrace re-clamps it to the
+    // receiving surface, so a QA repro written as UT.test.setProbe({rxOffset: 20}) moves the receiver.
+    if (q.rxOffset !== undefined) next.rxOffset = num(q.rxOffset, next.rxOffset || 0, -200, 200);
     if (q.freq !== undefined) next.freq = num(q.freq, next.freq, 0.5, 25);
     if (q.diameter !== undefined) {
       next.diameter = num(q.diameter, next.diameter, 1, 50);
@@ -1105,7 +1233,8 @@
   function testEchoes() {
     return (UT.frame.echoes || []).map(function (e) {
       return { path: e.path, ampPct: e.ampPct, amp: e.amp, kind: e.kind, leg: e.leg, x: e.x, y: e.y, defectId: e.defectId === undefined ? null : e.defectId, tag: e.tag || null, angleDev: e.angleDev === undefined ? null : e.angleDev,
-        tUs: Number.isFinite(e.tUs) ? e.tUs : null, mode: e.mode || null, lenMm: Number.isFinite(e.lenMm) ? e.lenMm : null };
+        tUs: Number.isFinite(e.tUs) ? e.tUs : null, mode: e.mode || null, lenMm: Number.isFinite(e.lenMm) ? e.lenMm : null,
+        depth: Number.isFinite(e.depth) ? e.depth : null };
     });
   }
 
@@ -1326,6 +1455,53 @@
       if (!ww || !ww.length || !(ww[0].from > 20 && ww[0].to <= 60 && ww[0].to > ww[0].from)) f.push('weldWindowsOf ' + JSON.stringify(ww));
       if (weldWindowsOf(UT.specimens.dacBlock ? UT.specimens.dacBlock({ T: 50 }) : null, rays) !== null && UT.specimens.dacBlock) f.push('weldWindowsOf block should be null');
     }
+    // --- v3 F45: rough surface = ×2.5 grass level + 4 dB two-way transfer loss, inert when off
+    {
+      const iR = Object.assign({}, inst, { gain: GRASS_REF_GAIN });
+      const gOff = synth({ echoes: [], probe, derived, instrument: iR, material: 'carbon' });
+      const gOn = synth({ echoes: [], probe, derived, instrument: iR, material: 'carbon', grassFactor: ROUGH_GRASS_FACTOR });
+      if (Math.abs(gOn.grassLevel / gOff.grassLevel - ROUGH_GRASS_FACTOR) > 1e-9) f.push('rough grass level ' + gOn.grassLevel);
+      if (!(gOn.grassPct >= 2 * gOff.grassPct)) f.push('rough grassPct ratio ' + (gOn.grassPct / gOff.grassPct));
+      const g1 = synth({ echoes: [], probe, derived, instrument: iR, material: 'carbon', grassFactor: 1 });
+      if (g1.grassLevel !== gOff.grassLevel) f.push('grassFactor 1 must be inert');
+      if (synth({ echoes: [], probe, derived, instrument: iR, material: 'carbon', grassFactor: 0 }).grassLevel !== gOff.grassLevel) f.push('grassFactor 0 ignored');
+      if (grassFactorOf({ weldOpts: { roughSurface: true } }) !== ROUGH_GRASS_FACTOR || grassFactorOf({ weldOpts: {} }) !== 1 || grassFactorOf(null) !== 1) f.push('grassFactorOf');
+      const sr = { instrument: { range: 100, delay: 0 }, display: { skips: 3 }, weldOpts: { roughSurface: true } };
+      if (traceOpts(sr, { kind: 'weld', T: 20 }, { angle: 60, x: 40 }).transferLossDb !== ROUGH_TRANSFER_DB) f.push('rough transfer loss');
+      const sr2 = { instrument: { range: 100, delay: 0 }, display: { skips: 3 }, weldOpts: { roughSurface: true, transferLossDb: 12 } };
+      if (traceOpts(sr2, { kind: 'weld', T: 20 }, { angle: 60, x: 40 }).transferLossDb !== 8 + ROUGH_TRANSFER_DB) f.push('rough transfer loss on top of the clamp');
+      if (traceOpts({ instrument: { range: 100, delay: 0 }, display: { skips: 3 }, weldOpts: { roughSurface: false } }, { kind: 'weld', T: 20 }, { angle: 60, x: 40 }).transferLossDb !== 0) f.push('rough off must be 0 dB');
+    }
+    // --- v3 F23: echo-driven depth (leg fold, gate priority, qualification, display flag)
+    {
+      const corner = { kind: 'corner', path: 40, ampPct: 40.34, y: 17.9 };
+      const tip = { kind: 'tip', path: 35.4, ampPct: 8, y: 17 };
+      const st23 = { specimen: { T: 20 }, probe: { angle: 60, x: 31 }, display: { depthEcho: true } };
+      const d60 = { refracted: 60 };
+      if (Math.abs(depthOfEcho(corner, 60, 20) - 20) > 0.01) f.push('depthOfEcho corner fold ' + depthOfEcho(corner, 60, 20));
+      if (Math.abs(depthOfEcho({ kind: 'lamination', path: 4 }, 0, 25) - 4) > 1e-9) f.push('depthOfEcho 0 deg');
+      if (Math.abs(depthOfEcho({ kind: 'corner', path: 56.6 }, 45, 20) - 0) > 0.05) f.push('depthOfEcho full skip');
+      if (depthOfEcho({ kind: 'defect', y: 9 }, 60, NaN) !== 9) f.push('depthOfEcho y fallback');
+      if (depthOfEcho(null, 60, 20) !== null) f.push('depthOfEcho null');
+      if (!depthEchoQualifies('corner', 40) || depthEchoQualifies('corner', 19) || depthEchoQualifies('backwall', 90) || depthEchoQualifies('geometry', 90)) f.push('depthEchoQualifies');
+      const fEcho = { derived: d60, echoes: [tip, corner], readouts: null };
+      const rE = echoDepth(fEcho, st23);
+      if (!rE || rE.source !== 'echo' || Math.abs(rE.y - 20) > 0.05) f.push('echoDepth strongest ' + JSON.stringify(rE));
+      const fGate = { derived: d60, echoes: [tip, corner], readouts: { primary: { echoKind: 'corner', peakPct: 40.34, path: 40, y: 17.9 } } };
+      const rG = echoDepth(fGate, st23);
+      if (!rG || rG.source !== 'gate' || Math.abs(rG.y - 20) > 0.05) f.push('echoDepth gated ' + JSON.stringify(rG));
+      const fWeak = { derived: d60, echoes: [tip], readouts: { primary: { echoKind: 'geometry', peakPct: 90, path: 26, y: 13 } } };
+      if (echoDepth(fWeak, st23) !== null) f.push('echoDepth must ignore weak/unqualified echoes');
+      if (echoDepth(fGate, { specimen: { T: 20 }, probe: { angle: 60 }, display: { depthEcho: false } }) !== null) f.push('echoDepth display flag');
+      if (echoDepth({ derived: d60, echoes: [], readouts: null }, st23) !== null) f.push('echoDepth empty frame');
+      if (echoDepth({ derived: d60, echoes: null, readouts: null }, { display: {} }) !== null) f.push('echoDepth guards');
+    }
+    // --- v3 F59: the optional UTman material moves no default number here
+    if (UT.specimens && UT.specimens.materials) {
+      const cu = UT.specimens.materials['carbon-utman'];
+      if (cu && Math.abs(grassLevelPct(cu, 5, GRASS_REF_GAIN) - GRASS_PCT) > 1e-9) f.push('carbon-utman grass level');
+      if (UT.specimens.dacBlock && UT.specimens.dacBlock({ T: 50, material: 'carbon' }).material.key !== 'carbon') f.push('K_REF block material');
+    }
     return f;
   }
 
@@ -1339,6 +1515,8 @@
     ampPctOf, dispPath, dispPathOfTime, dispPathOfEcho, truePath, trueTime, xDivOf, xDivOfDisp, sigmaOf, clearPeak, calibrateK,
     tcgGainAt, tcgActive, pulserDb, receiverDb, offsetDb, widthFactor, filterMismatch, dampingOhms, energyV, normEnergy, nearestOhms, filterOf,
     grassLevelPct, weldWindowsOf, traceOpts, autoGain, snapshot, selectColumn,
+    grassFactorOf, echoDepth, depthOfEcho, depthEchoQualifies,
+    ROUGH_GRASS_FACTOR, ROUGH_TRANSFER_DB, DEPTH_ECHO_MIN_PCT, DEPTH_ECHO_KINDS: DEPTH_ECHO_KINDS.slice(),
     /** Where K_REF came from: 'unset' | 'provisional' | 'traced'. */
     get kSource() { return _kSource; },
     __selftest,

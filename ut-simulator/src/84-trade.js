@@ -74,6 +74,20 @@
 //   ('single-v' → 'Single-V', Korean from the same table as the Weld dialog) and probes via UT.probe.libEntry(id).name
 //   ('gen-60-5-10' → 'Generic 60° 5 MHz ⌀10 (UTman default)'); the raw id stays as the fallback when a table is absent.
 //   The procedure line keeps the id (§4.2.2 'procedure id') and the acceptance/testing levels keep their code (AL2 / B).
+//
+// // SPEC NOTES v3 (SPEC-v3 §5.9 F33 — decisions where the spec is silent)
+// - F33 asks the defect editor's HIDE key lock to reuse 'the trade-test lock helper', so this file now owns the ONE
+//   comparison both locks use: UT.trade.lock(key[, {hash, seed}]) → the value to STORE (trimmed key, or null for
+//   NO KEY / an empty field; hash mode returns the exam-style codeHash), and UT.trade.unlock(key[, stored]) → boolean.
+//   trade.reveal() was rewritten to ask unlock() instead of comparing hashes itself, so a change to what counts as
+//   'the right code' cannot reach one lock without the other. Behaviour is byte-identical for exams: the 4–8 character
+//   rule and the raw (un-normalised) hash of the typed code are unchanged, because the hash is computed at share time
+//   and a code normalised afterwards would no longer verify (V2-20's token checks pin this).
+// - `stored` defaults to state.editing.keyLock (F33's HIDE lock) so 80-modes can call UT.trade.unlock(code) with one
+//   argument; a null/empty lock always opens (F33's 'NO KEY' default = today's free toggle). The plain-string mode
+//   trims and compares case-insensitively — an instructor who armed 'Abc ' and types 'abc' must not be locked out of
+//   their own screen — while exam codes stay exact for the reason above. lock()/unlock() never write state: 80 owns
+//   `editing`, 84 owns `trade`.
 (function (UT) {
   'use strict';
   const M = UT.math;
@@ -678,6 +692,11 @@
       detail: (res.detail || []).map(function (d) { return d.truth && byN[d.truth.n] ? Object.assign({}, d, { truth: byN[d.truth.n] }) : d; }),
     });
   }
+  // ---- v3 F33: ONE key-code lock for the whole app (the exam code and the defect editor's HIDE key)
+  /** Normalised typed key: trimmed; '' means NO KEY / no lock. */
+  function normKey(key) { return key === null || key === undefined ? '' : String(key).trim(); }
+  /** The HIDE lock currently armed (state.editing.keyLock), or null. */
+  function hideLock() { const e = st().editing; return e && e.keyLock ? e.keyLock : null; }
   /** Procedure specimen ({pipe, od, wt, T}) of the configured procedure, or null. */
   function procedureSpecimen() {
     const procs = cfg.procedureId ? has('standards.procedures') : null;
@@ -868,6 +887,40 @@
     return res.score;
   };
   /**
+   * Arm a key-code lock (SPEC-v3 F33). Returns the value to STORE — the trimmed key, or null for `NO KEY` / an empty
+   * field / a non-string — so `editing.keyLock` (the HIDE lock) and any other 'only the instructor may undo this'
+   * switch carry exactly what `unlock()` expects. Pure: the caller owns its own state slice.
+   * With `{hash: true, seed}` it returns the exam-style hash of the RAW key instead (what `makeExam` stores).
+   * @param {string|null} [key]
+   * @param {{hash?: boolean, seed?: number}} [opts]
+   * @returns {string|null} the stored lock (null = unlocked)
+   */
+  trade.lock = function (key, opts) {
+    const o = opts || {};
+    if (o.hash) return codeHashOf(key === null || key === undefined ? '' : String(key), (o.seed || 0) >>> 0);
+    return normKey(key) || null;
+  };
+  /**
+   * True when `key` opens `stored` — the ONE comparison the exam code and the HIDE key both use, so the two locks
+   * can never disagree about what counts as the right code.
+   * `stored` defaults to the armed HIDE lock (`editing.keyLock`); a null/empty lock always opens. Plain-string mode
+   * (F33) compares the trimmed keys case-insensitively: an instructor who typed `Abc ` must not be shut out of their
+   * own screen. Pass `{hash, seed}` for the exam mode, which compares the code exactly as typed (it is hashed at
+   * share time, so it cannot be normalised after the fact) with the same 4–8 character rule as `reveal()`.
+   * @param {string|null} key the code the user typed
+   * @param {string|null|{hash: string, seed?: number}} [stored]
+   * @returns {boolean}
+   */
+  trade.unlock = function (key, stored) {
+    const lock = stored === undefined ? hideLock() : stored;
+    if (lock && typeof lock === 'object') {
+      if (typeof key !== 'string' || key.length < 4 || key.length > 8) return false;
+      return codeHashOf(key, (lock.seed || 0) >>> 0) === lock.hash;
+    }
+    if (!lock) return true;
+    return normKey(key).toLowerCase() === normKey(lock).toLowerCase();
+  };
+  /**
    * Reveal the hidden defects. Exams require the code (4–8 chars): a wrong code returns false and leaves display.hide.
    * @param {string} [code]
    */
@@ -875,8 +928,7 @@
     const s = st();
     const tr = s.trade;
     if (tr.exam && tr.exam.locked) {
-      if (typeof code !== 'string' || code.length < 4 || code.length > 8) return false;
-      if (codeHashOf(code, tr.seed) !== tr.exam.codeHash) return false;
+      if (!trade.unlock(code, { hash: tr.exam.codeHash, seed: tr.seed })) return false;
       const submitted = tr.score !== null && tr.score !== undefined && !!tr.result;
       const result = submitted ? hydrateResult(tr.result, tr.truth || []) : tr.result;
       UT.set({ trade: Object.assign({}, tr, { revealed: true, exam: Object.assign({}, tr.exam, { locked: false }), result, active: submitted ? false : tr.active }), display: Object.assign({}, s.display, { hide: false }) });
@@ -1469,6 +1521,13 @@
       const tokC = tokenFor(res0, codeHashOf('1234', 7));
       if (verifyResult(tokC).ok || !verifyResult(tokC, '1234').ok || verifyResult(tokC, '9999').ok) f.push('token with code');
       if (verifyResult(tok, '1234').ok) f.push('empty-code token accepted with a code');
+      // v3 F33: the shared key-code lock (pure helpers — no state is written)
+      if (trade.lock('  1234 ') !== '1234' || trade.lock('') !== null || trade.lock(null) !== null || trade.lock(undefined) !== null) f.push('lock()');
+      if (trade.lock('1234', { hash: true, seed: 7 }) !== codeHashOf('1234', 7)) f.push('lock() hash mode');
+      if (!trade.unlock('anything', null) || !trade.unlock('', '') || !trade.unlock(null, null)) f.push('unlock() of an unlocked lock');
+      if (!trade.unlock('1234', '1234') || !trade.unlock(' 1234 ', '1234') || !trade.unlock('ABC', 'abc') || trade.unlock('0000', '1234') || trade.unlock('', '1234')) f.push('unlock() plain string');
+      const exLock = { hash: codeHashOf('1234', 7), seed: 7 };
+      if (!trade.unlock('1234', exLock) || trade.unlock('0000', exLock) || trade.unlock(' 1234 ', exLock) || trade.unlock('123', exLock) || trade.unlock(null, exLock)) f.push('unlock() exam mode');
       const strip = stripResult({ misses: [{ n: 2, zFrom: 5, type: 'crack' }], detail: [{ row: {}, truth: { n: 1, zFrom: 1 }, hit: true }, { row: {}, truth: null, hit: false }] });
       if (Object.keys(strip.misses[0]).join() !== 'n' || Object.keys(strip.detail[0].truth).join() !== 'n' || strip.detail[1].truth !== null) f.push('stripResult');
       const hyd = hydrateResult(strip, [{ n: 1, zFrom: 1 }, { n: 2, zFrom: 5, type: 'crack' }]);

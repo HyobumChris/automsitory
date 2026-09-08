@@ -15,6 +15,18 @@
 //   deliberately kept in Latin script inside translations, as on the real instruments and in Korean procedure text.
 // - Menu keys stay English data-keys (§5.3.3); their labels are translated through this table.
 // - The tour array carries both `selector` (task wording) and `target` (what 90-app reads); 90 shows ko/en by mem.lang.
+// - v3 QA r1 / V3-64: the failing `text === key` element was the F33 dialog TITLE 'HIDE' (80-modes), not the toolbar —
+//   90-app renders toolbar legends from `def.label` with no data-i18n, so a Korean value for 'HIDE' translates the
+//   dialog title and the lessons quiz choice while PLOT / DAMP / CLEAR / BEAM / HIDE stay Latin on the toolbar, as
+//   in the original. Short legends that double as prose therefore read '한국어 (LATIN)' — the convention already used
+//   by 'English': '영어 (English)'. The unlock twin of that dialog ('SHOW DEFECTS' + its two lines) is translated too.
+// - v3 QA r1 / V3-64 (cont.): the F19 ttinfo line 'SHIFT and LEFT or RIGHT CURSOR KEY TO MOVE RECEIVER PROBE' is
+//   translated here once and reaches both surfaces that show it — the ttinfo dialog (90-app) and the status-bar
+//   right hint, which 90 renders through t(). A sweep of every t('…') literal in src/*.js against this table then
+//   found three more v3 strings with no entry — the plotting-card captions '{a} degree' and
+//   'Beam spread half angle BS = {bs}°' (66-view-plotter draws them on the canvas, so untranslated() cannot see
+//   them) and the F29 defect-editor caption '{p}  Defect Num {n}, DRAW DEFECT ON CROSS SECTION BELOW'; all three
+//   are added below. Latin card/product tokens (BS, VOL / LOF via {p}) stay Latin per the note above.
 // - untranslated(): exemptions exactly per §5.3.4 — the two short-token regexes, the product-name set (whole key equals
 //   a product name, or the key is made only of product names / digits / punctuation), `.no-i18n` subtrees,
 //   `#statusbar .sb-left`, and probe library `name` strings (UT.probe.library[].name / label). Returns [] when lang != 'ko'.
@@ -56,7 +68,10 @@
 
     // ------------------------------------------------------------------ toolbar (90-app) labels + tooltips
     '0°': '0°', '45°': '45°', '60°': '60°', '70°': '70°', 'V2': 'V2', 'V1': 'V1', 'DAC': 'DAC', 'PLOT': 'PLOT', 'DAMP': 'DAMP', 'SIZE': 'SIZE', 'DEFECT': 'DEFECT',
-    'HIDE': 'HIDE', 'CLEAR': 'CLEAR', 'BEAM': 'BEAM', 'RAD': 'RAD', 'PIPE': 'PIPE', 'TKY': 'TKY', 'TOFD': 'TOFD', 'AUT': 'AUT',
+    // 'HIDE' is BOTH a toolbar legend (90-app renders `def.label` raw, with no data-i18n — it stays Latin like
+    // PLOT / DAMP / CLEAR) and the TITLE of the F33 key dialog (80-modes) plus a lesson-quiz choice, which are
+    // translated through this key; the Latin token is kept in parentheses so the quiz still names the button.
+    'HIDE': '숨기기 (HIDE)', 'CLEAR': 'CLEAR', 'BEAM': 'BEAM', 'RAD': 'RAD', 'PIPE': 'PIPE', 'TKY': 'TKY', 'TOFD': 'TOFD', 'AUT': 'AUT',
     '0° compression probe': '0° 수직(종파) 탐촉자', '45° shear probe': '45° 사각(횡파) 탐촉자', '60° shear probe': '60° 사각(횡파) 탐촉자', '70° shear probe': '70° 사각(횡파) 탐촉자',
     'V2 calibration block': 'V2 소형 표준 시험편 (STB-A3)', 'V1 calibration block': 'IIW V1 표준 시험편 (STB-A1)', 'DAC block (SDH)': 'DAC 대비 시험편 (횡공)',
     'Plot beam spread (IOW block)': '빔 확산 플롯 (IOW 시험편)', 'Damping': '감쇠', 'Sizing (6 dB / 20 dB drop)': '크기 측정 (6 dB / 20 dB 드롭)',
@@ -342,6 +357,232 @@
     'General': '일반', 'Exam sharing': '시험 공유', 'ASME VIII-1 App. 12 / ASME V Art. 4': 'ASME VIII-1 부록 12 / ASME V 제4장', 'AWS D1.1 Table 8.2': 'AWS D1.1 표 8.2',
     'ISO 11666:2018 Tables 2-4': 'ISO 11666:2018 표 2-4', 'ASME BPVC VIII-1 App.12 (12-3), ASME V Art.4': 'ASME BPVC VIII-1 부록 12 (12-3), ASME V 제4장',
     'AWS D1.1/D1.1M Table 8.2 (6.3 in :2010) — statically loaded': 'AWS D1.1/D1.1M 표 8.2 (2010판 6.3) — 정하중', 'statically loaded': '정하중',
+    // ------------------------------------------------------------------ v3 (SPEC-v3 §10): menus §8, new windows, dialog paragraphs
+    // menu bar — File / Probes / Step Wedge / Weld / Scale Mode / Tools / Options / About / Help
+    'Save screen shot (PNG)': '화면 저장 (PNG)', 'Scale Mode': '축척 모드', 'About': '정보',
+    'Run to UT Screen Range': 'UT 화면 범위까지', 'Half Skip': '반 스킵', 'Leg colours': '레그 색상',
+    'Steps 20-8 mm (2 mm)': '스텝 20-8 mm (2 mm)', 'A5 IOW block': 'A5 IOW 시험편',
+    'Root Corrosion': '루트 부식', 'Rough Surface': '표면 거칠기',
+    'Misalignment': '맞댐 어긋남 (하이-로우)', 'Misalignment…': '맞댐 어긋남…',
+    'Pipe Wall Thickness Variation…': '배관 두께 변동…', 'Pipe Thickness…': '배관 두께…',
+    'Adjust Scale…': '축척 조정…', 'Load Pic…': '그림 불러오기…', 'Capture': '캡처',
+    'Trace boundary': '경계 추적', 'Skip graduations': '스킵 눈금', 'Exit Scale Mode': '축척 모드 나가기',
+    'Draw palette…': '그리기 팔레트…',
+    'Show echo depth': '에코 깊이 표시', 'Show A-scan overlay text': 'A-스캔 오버레이 텍스트 표시',
+    'Always Show UT Controls': 'UT 조작부 항상 표시', 'Float instrument panel': '탐상기 패널 띄우기',
+    'Highlight pointer': '강조 포인터', 'UnCalibrate': '교정 해제', 'Delete EPOCH records': 'EPOCH 기록 삭제',
+    'Contents': '목차', 'Demo (OK splash)': '데모 (OK 화면)',
+    // procedure presets (Tools ▸ Procedures)
+    'ISO 17640 level B / ISO 11666 AL2 — plate 20 mm': 'ISO 17640 레벨 B / ISO 11666 AL2 — 평판 20 mm',
+    'ASME VIII App. 12 — pipe 6 in (WT 20)': 'ASME VIII 부록 12 — 배관 6 in (두께 20)',
+    'AWS D1.1 — 70° statically loaded (t ≤ 20)': 'AWS D1.1 — 70° 정하중 (t ≤ 20)',
+    // window: scale (85-scalemode, F41/F42)
+    'ADJUST SCALE': '축척 조정', 'Load Pic': '그림 불러오기', 'Protractor': '각도기', 'Trace': '추적',
+    // window: draw (86-annotate, F51)
+    'Pencil': '연필', 'Line': '직선', 'Eraser': '지우개',
+    'Left button draws red, right button draws blue. Arrow keys move the pen, Space draws, C clears.':
+      '왼쪽 버튼은 빨간색, 오른쪽 버튼은 파란색으로 그립니다. 화살표 키로 펜을 이동, Space로 그리기, C로 지우기.',
+    // window: pipethk (90-app, F47) / ttinfo (90-app, F19)
+    'Pipe Thickness': '배관 두께', 'Thickness': '두께',
+    'Enter Thickness between 6mm and 40mm': '6mm와 40mm 사이의 두께를 입력하세요',
+    'SHIFT and LEFT or RIGHT CURSOR KEY TO MOVE RECEIVER PROBE':
+      'SHIFT + 왼쪽/오른쪽 화살표 키로 수신 탐촉자를 이동합니다',
+    // window: defects (80-modes) — F34 storage toggle
+    'Browser storage': '브라우저 저장소',
+    // window: defect-steps (80-modes, F25) — the STEP 1–5 instruction paragraphs, one key per paragraph
+    'STEP 1. Draw a defect in the weld CROSS SECTION within the BLUE BOX.\nDrawing is activated by mouse click and drag over the weld.\n     Use RIGHT mouse to draw single line LOF defect. (right-click menu suppressed)\n     Use LEFT mouse to draw volumetric defects.\n     Use Alt or Ctrl with the RIGHT mouse to erase.':
+      'STEP 1. 파란 상자 안의 용접부 단면도에 결함을 그립니다.\n용접부 위에서 마우스를 누른 채 끌면 그리기가 시작됩니다.\n     오른쪽 버튼: 단일선 융합 불량(LOF) 결함 (오른쪽 클릭 메뉴는 억제됨)\n     왼쪽 버튼: 체적(볼륨) 결함\n     Alt 또는 Ctrl + 오른쪽 버튼: 지우기',
+    'STEP 2. Draw the defect position on the circle-view (in the gray pipe side view)\n     Eight defect regions can be drawn.\n     Select a defect via the Option buttons.':
+      'STEP 2. 원형도(회색 배관 측면도)에 결함 위치를 그립니다.\n     결함 영역은 8개까지 그릴 수 있습니다.\n     옵션 버튼으로 결함을 선택합니다.',
+    'STEP 3. Defects can be moved by shifted right/left cursor key to create\nlaminations.':
+      'STEP 3. SHIFT + 오른쪽/왼쪽 화살표 키로 결함을 이동하여\n라미네이션을 만들 수 있습니다.',
+    'STEP 4. Defect length and separation can set by entering values in the text\nboxes.':
+      'STEP 4. 결함 길이와 간격은 텍스트 상자에 값을 입력하여\n설정합니다.',
+    'STEP 5. Exit the draw-defect mode by clicking the OK button.':
+      'STEP 5. OK 버튼을 눌러 결함 그리기 모드를 끝냅니다.',
+    "To alter LOF defects use: SHIFT+ 'Z' or 'X' = Rotate, 'A' or 'S' = change size, 'Q'\nor 'W'":
+      "LOF 결함 변경: SHIFT+ 'Z' 또는 'X' = 회전, 'A' 또는 'S' = 크기 변경, 'Q'\n또는 'W'",
+    'All defects can be moved with: SHIFT+  LEFT or RIGHT cursor key':
+      '모든 결함 이동: SHIFT + 왼쪽 또는 오른쪽 화살표 키',
+    'Press F1 to redisplay these instructions': 'F1 키를 누르면 이 안내가 다시 표시됩니다',
+    // v3 terminology (§10 table) — used by lessons, the glossary and window hints
+    'Beam spread half angle': '빔 확산 반각', 'K factor': 'K 계수 (빔 확산 상수)',
+    'Stand-off': '스탠드오프 (입사점 거리)', '20 dB drop': '20 dB 드롭 (10 % 에지)',
+    'Root corrosion': '루트 부식', 'Rough surface': '표면 거칠기',
+    'Wall thickness variation': '두께 변동', 'Parallel scan': '평행 주사', 'Non-parallel scan': '비평행 주사',
+    'mm per pixel': '픽셀당 mm', 'Teaching aid drawing mode': '교육용 그리기 모드',
+    'Turn Probe': '탐촉자 돌리기', 'Draw region': '그리기 영역 (파란 상자)',
+    'Single-line LOF': '단일선 융합 불량', 'Key code': '키 코드',
+    'Chord': '코드(주관)', 'Brace': '브레이스(지관)',
+    'Thin standard': '얇은 기준편', 'Thick standard': '두꺼운 기준편', 'Screen shot': '화면 저장',
+    // ---- v3 wave 2: the strings the feature owners actually shipped (harvested from src/*.js and from
+    // untranslated() with every §8 window open). Grouped by owning module; §10 exemptions are NOT listed here
+    // (instrument key legends and softkeys, the on-LCD wizard captions, the plotter degree / BS / K captions
+    // and the editor's red canvas captions stay English by contract).
+    // 50-tofd (F43/F44)
+    'Non-Parallel Scan': '비평행 주사', 'Parallel Scan': '평행 주사', 'Show A-scan': 'A-스캔 표시',
+    'Show the TOFD RF A-scan window again': 'TOFD RF A-스캔 창을 다시 표시',
+    'Switch the RF A-scan off (the TOFD screen stays)': 'RF A-스캔 끄기 (TOFD 화면은 유지)',
+    '2x magnifier of the D-scan around the cursor': '커서 주변 D-스캔 2배 확대',
+    // 55-aut (F50) / 56-pa (F24)
+    'Set Gates Same Position': '게이트 위치 동일하게 설정',
+    'Shoe Stand Off (mm)': '슈 스탠드오프 (mm)', 'Shoe Height (mm)': '슈 높이 (mm)',
+    'Distance from the array centre back to the beam index point on the surface': '어레이 중심에서 표면의 입사점(빔 출사점)까지의 거리',
+    'Height of the array centre above the surface (the wedge path in the shoe)': '표면에서 어레이 중심까지의 높이 (슈 내부 쐐기 경로)',
+    // 10-specimens / 90-app (F45 weld conditions)
+    'High-low step (cap side)': '하이-로우 단차 (덧살 쪽)', 'High-low step (root side)': '하이-로우 단차 (루트 쪽)',
+    'High-low step': '하이-로우 단차', 'Variation (peak to peak)': '변동량 (피크 대 피크)',
+    'Pipe Wall Thickness Variation': '배관 두께 변동',
+    'The plate on the +x side of the weld sits this far low. A misaligned root looks like lack of penetration — that is the exercise. 0 = aligned.':
+      '용접부 +x 쪽 모재가 이만큼 낮게 놓입니다. 어긋난 루트는 용입 부족처럼 보이며, 그것을 구별하는 것이 이 연습입니다. 0 = 단차 없음.',
+    'Pipes only: the wall thins and thickens along the weld, so the backwall walks as the probe travels. 0 = a constant wall.':
+      '배관 전용: 용접선을 따라 두께가 얇아졌다 두꺼워지므로 탐촉자가 이동하면 저면 에코가 움직입니다. 0 = 균일한 두께.',
+    // 60-view-cross (F31) / 62-view-plan (F29)
+    'Draw inside the blue box — drag its edge to move the box': '파란 상자 안에 그리세요 — 상자 가장자리를 끌면 상자를 옮깁니다',
+    'Circle-View. Position {z}mm': '원형도. 위치 {z}mm', 'Plate. Position {z}mm': '평판. 위치 {z}mm',
+    // 70-instruments (F1/F2/F7/F40)
+    'Instrument switched on': '탐상기를 켰습니다',
+    'Instrument switched off — the trace is blanked; press OFF again to switch it back on':
+      '탐상기를 껐습니다 — 파형이 지워집니다. OFF를 다시 누르면 켜집니다',
+    'The set is out of calibration — recalibrate on V1, V2 or the step wedge':
+      '교정이 해제되었습니다 — V1, V2 또는 스텝 웨지에서 다시 교정하세요',
+    'EPOCH records deleted': 'EPOCH 기록을 삭제했습니다', 'Delete all stored records?': '저장된 기록을 모두 삭제할까요?',
+    'LEFT mouse button/drag to draw curve': '마우스 왼쪽 버튼 드래그로 커브를 그리세요',
+    'Auto Cal 2/2: press ENTER to confirm the thick standard': '자동 교정 2/2: ENTER를 눌러 두꺼운 기준편을 확정하세요',
+    'Flaw detector': '탐상기',
+    // 80-modes (F2/F3, F9, F11, F29, F33, F34, F47)
+    'Auto Cal 1/2: gate the {d} mm backwall echo, enter the thin standard and press ✓':
+      '자동 교정 1/2: {d} mm 저면 에코에 게이트를 맞추고 얇은 기준편 값을 입력한 뒤 ✓를 누르세요',
+    'Auto Cal 2/2: move gate 1 onto the {d} mm backwall echo, enter the thick standard and press ✓':
+      '자동 교정 2/2: 게이트 1을 {d} mm 저면 에코로 옮기고 두꺼운 기준편 값을 입력한 뒤 ✓를 누르세요',
+    'Turn the probe to face the other radius': '탐촉자를 돌려 반대쪽 반경을 향하게 합니다',
+    'Click to Select ASME or A5 Block': 'ASME 시험편과 A5 시험편 중에서 선택하세요',
+    'ASME Block': 'ASME 시험편', 'A5 Block IOW': 'A5 IOW 시험편',
+    'Calibrate for Amplitude and draw DAC': '에코 높이(감도)를 교정하고 DAC를 작성합니다',
+    'Plot Beam Spread on the Plotter and check Resolution': '플로터에서 빔 확산을 그리고 분해능을 확인합니다',
+    'KEY PREVENTS STUDENTS SEEING THE DEFECT': '키 코드를 걸면 교육생이 결함을 볼 수 없습니다',
+    'Key code will be used to SHOW the defect': '이 키 코드를 입력해야 결함이 다시 표시됩니다',
+    'NO KEY': '키 없음',
+    // F33 unlock path (80-modes hideKeyAsk(false)): its own window title and two lines
+    'SHOW DEFECTS': '결함 표시 (SHOW DEFECTS)',
+    'Enter the key code to SHOW the defects': '결함을 다시 표시하려면 키 코드를 입력하세요',
+    'The defects stay hidden until the key code matches': '키 코드가 일치할 때까지 결함은 계속 숨겨집니다',
+    'Spot size (mm)': '스폿 지름 (mm)',
+    'Procedure lock: only the probes of the applied procedure can be selected while the trade test runs.':
+      '절차서 잠금: 실기 시험 중에는 적용된 절차서의 탐촉자만 선택할 수 있습니다.',
+    'Load / Save through localStorage instead of a file': '파일 대신 브라우저 저장소(localStorage)로 불러오기/저장',
+    'Use LEFT mouse button to place the DEFECT on the joint.': '마우스 왼쪽 버튼으로 이음부에 결함을 배치하세요.',
+    'Click the DEFECT button to resume UT.': 'DEFECT 버튼을 누르면 UT 탐상으로 돌아갑니다.',
+    // 82-lessons (F58 video → lesson map)
+    'Video → lesson map': '비디오 → 레슨 대응표', 'Video': '비디오', 'Subject': '주제',
+    'UTsim has no video window: the 17 original UTman videos are reproduced step by step by the 25 guided lessons (Help ▸ Lessons…) and the echo quiz.':
+      'UTsim에는 비디오 창이 없습니다. 원본 UTman 비디오 17편의 내용은 25개 안내 레슨(도움말 ▸ 레슨…)과 에코 퀴즈로 단계별로 재현했습니다.',
+    'Lessons {list} have no video of their own (V1 block, AUT, trade test, reference level, transfer correction, sensitivity re-check).':
+      '레슨 {list}에는 대응하는 비디오가 없습니다 (V1 시험편, AUT, 실기 시험, 기준 레벨, 전달 손실 보정, 감도 재확인).',
+    'Basic UT controls: Range, X-shift, Amplitude': '기본 UT 조작: 측정 범위, X-시프트, 에코 높이',
+    'Plotting Beam Spread at 20 %': '20 %에서의 빔 확산 플로팅',
+    'Angleprobe Calibration (DAC and beam spread)': '사각 탐촉자 교정 (DAC와 빔 확산)',
+    // 84-trade
+    'Report already submitted — the exam is over': '보고서를 이미 제출했습니다 — 시험이 종료되었습니다',
+    // 85-scalemode (F41/F42)
+    'mm/px': 'mm/픽셀', 'Finer scale': '축척 정밀하게 (mm/픽셀 감소)', 'Coarser scale': '축척 거칠게 (mm/픽셀 증가)',
+    'Close the traced boundary': '추적한 경계 닫기', 'Graduation step in mm': '눈금 간격 (mm)',
+    '{n} points — double-click or OK to close': '{n}개 점 — 두 번 클릭하거나 확인을 눌러 닫습니다',
+    'Boundary: {n} points': '경계: {n}개 점',
+    'Load a picture or pick a shape, then Trace': '그림을 불러오거나 형상을 고른 뒤 경계를 추적하세요',
+    'Butt weld': '맞대기 용접부', 'Single-bevel prep': '단일 베벨 개선', 'Pipe ring': '배관 링', 'Ellipse': '타원',
+    'Step wedge': '스텝 웨지', 'OK letters': 'OK 글자',
+    // 86-annotate (F51)
+    'TEACHING AID DRAWING MODE — LEFT mouse draws red, RIGHT mouse draws blue. SHIFT+F12 again to clear and exit.':
+      '교육용 그리기 모드 — 마우스 왼쪽은 빨간색, 오른쪽은 파란색으로 그립니다. SHIFT+F12를 다시 누르면 지우고 나갑니다.',
+    '... you used SHIFT F12 secret control to DRAW on screen....': '... SHIFT F12 숨은 기능으로 화면에 그리기를 켰습니다 ....',
+    'press SHIFT F12 again to turn this feature off.': 'SHIFT F12를 다시 누르면 이 기능이 꺼집니다.',
+    'Right Mouse Blue,  Left mouse Red.': '오른쪽 버튼은 파란색, 왼쪽 버튼은 빨간색.',
+    'Ctrl+Shift+D does the same, and Tools ▸ Draw palette opens the pencil, line and eraser tools.':
+      'Ctrl+Shift+D도 같은 기능이며, 도구 ▸ 그리기 팔레트에서 연필·직선·지우개 도구를 엽니다.',
+    // 90-app (F54 capture, F55 Help ▸ Contents index)
+    'Nothing to capture yet.': '아직 캡처할 화면이 없습니다.',
+    'Help contents — the same pages the menus reach.': '도움말 목차 — 메뉴에서 열리는 것과 같은 항목입니다.',
+    'Welcome': '시작하기', 'User Interface': '사용자 인터페이스', 'Amplitude Gate': '에코 높이 게이트',
+    'MAPS': 'MAPS (B-스캔 맵)', 'Keys': '키 조작', 'UT Sets': 'UT 세트', 'License': '라이선스', 'Off': '끔',
+    // ---- v3 wave 3: strings reached through t() at run time (harvested by wrapping UT.i18n.t and driving every
+    // window, mode, menu and UT.test entry point) — status hints, tooltips, error/notice lines.
+    // 45-standards / 55-aut / 56-pa
+    'AWS requires 2–2.5 MHz, 15–25 mm crystals for the standard procedure': 'AWS 표준 절차는 2–2.5 MHz, 15–25 mm 진동자를 요구합니다',
+    'Width': '폭', 'C-scan (encoded)': 'C-스캔 (엔코더 기록)',
+    // 50-tofd tooltips (F43/F44)
+    'Mode-converted backwall (L-S Fermat path), S-S replica and converted tip signals': '모드 변환 저면 (L-S 페르마 경로), S-S 복제 및 변환된 팁 신호',
+    'Align the lateral wave of the D-scan to a flat line': 'D-스캔의 측면파를 수평 직선으로 정렬',
+    'Shade the lateral-wave and backwall dead zones': '측면파와 저면 불감대를 음영으로 표시',
+    'Press Run Scan to build the D-scan. Click on the D-scan to move the probe': 'Run Scan을 누르면 D-스캔이 만들어집니다. D-스캔을 클릭하면 탐촉자가 이동합니다',
+    // 66-view-plotter status hints (F35/F36)
+    'LEFT mouse button/Drag to mark points on plotter. Right button to mark Beam Spread': '마우스 왼쪽 버튼 드래그로 플로터에 점을 표시하고, 오른쪽 버튼으로 빔 확산을 표시합니다',
+    'RIGHT OR LEFT mouse button/Drag to PLOT Beam Spread on Plotter. Draw on Block to mark 10% Beam Edge': '마우스 오른쪽 또는 왼쪽 버튼 드래그로 플로터에 빔 확산을 그리고, 시험편 위에 10 % 빔 에지를 표시합니다',
+    'Use mouse button on the Plotter to plot Beam Spread. Draw on Block to mark 10% Beam Edge': '플로터에서 마우스 버튼으로 빔 확산을 그리고, 시험편 위에 10 % 빔 에지를 표시하세요',
+    // plotting-card captions drawn on the canvas (F49 / plotting_beam_spread_at_20): the angle legend and the
+    // BS read-out. '{a} degree' keeps the original's word 'degree' as 도; the BS token stays Latin (a card legend).
+    'Beam spread half angle BS = {bs}°': '빔 확산 반각 BS = {bs}°', '{a} degree': '{a} 도',
+    // 70-instruments (F1/F2/F5/F6 tips)
+    'Switch the set on / off (the trace is blanked while it is off)': '탐상기 켜기/끄기 (꺼져 있는 동안 파형이 지워집니다)',
+    'Set the range to {r} mm': '측정 범위를 {r} mm로 설정',
+    'Turn {k} down ×10': '{k} 10배 낮추기', 'Turn {k} up ×10': '{k} 10배 높이기',
+    'AMP — receiver gain (drag or wheel: ±0.5 dB, Shift ×10)': 'AMP — 수신 게인 (드래그 또는 휠: ±0.5 dB, Shift ×10)',
+    'Confirm the thin-standard value': '얇은 기준편 값 확정', 'Confirm the thick-standard value': '두꺼운 기준편 값 확정',
+    'Cancel the calibration': '교정 취소', 'Auto Cal is not available': '자동 교정을 사용할 수 없습니다',
+    'Place the probe on a step, then press Auto Cal (EPOCH 600) for the two-point calibration':
+      '탐촉자를 스텝 위에 놓고 Auto Cal (EPOCH 600)을 눌러 2점 교정을 실행하세요',
+    // 80-modes (F9, F28, F33, F34, F41, F45, F46)
+    // F29 defect-editor caption: {p} is the pending VOL / LOF prefix, {n} the defect slot (both stay verbatim).
+    '{p}  Defect Num {n}, DRAW DEFECT ON CROSS SECTION BELOW': '{p}  결함 번호 {n}, 아래 단면도에 결함을 그리십시오',
+    'Auto (from stroke)': '자동 (그린 획에서 판정)',
+    'Eraser: drag over a defect to remove its points': '지우개: 결함 위를 끌면 점이 지워집니다',
+    'LEFT or RIGHT mouse button to change probe direction': '마우스 왼쪽 또는 오른쪽 버튼으로 탐촉자 방향을 바꿉니다',
+    'Drag the probe onto the top face (100mm Radius) or the front face (25mm thickness)': '탐촉자를 윗면(반경 100 mm) 또는 앞면(두께 25 mm)으로 끌어 놓으세요',
+    'Drag the probe onto the top face (50mm Radius) or the front face (12.5mm thickness)': '탐촉자를 윗면(반경 50 mm) 또는 앞면(두께 12.5 mm)으로 끌어 놓으세요',
+    'Drag the probe onto the top face (25mm Radius) or the front face (12.5mm thickness)': '탐촉자를 윗면(반경 25 mm) 또는 앞면(두께 12.5 mm)으로 끌어 놓으세요',
+    'Adjust the brace angle in ADJUST MODE. LEFT mouse button/drag to move the UT Probe': '조정 모드에서 브레이스 각도를 맞추세요. 마우스 왼쪽 버튼 드래그로 탐촉자를 이동합니다',
+    'Set the gates (Level / Width / Start) then press Run Scan': '게이트(레벨 / 폭 / 시작)를 설정한 뒤 Run Scan을 누르세요',
+    // F41/F57 verbatim wording — re-keyed to match UT.modes.hints.scale (src/80-modes.js).
+    'Load a picture, set the scale, then LEFT mouse button/drag to move the UT Probe': '그림을 불러오고 축척을 설정한 뒤, 마우스 왼쪽 버튼 드래그로 탐촉자를 이동합니다',
+    'Plate chord: the flat chord of the v1 / v2 T-joint': '평판 코드: v1 / v2 T형 이음의 평평한 주관',
+    'T-joint: curved chord of the given diameter with an angled brace': 'T형 이음: 지정한 지름의 곡면 주관에 경사진 브레이스',
+    'Pipe: the complete ring, scanned on the OD': '배관: 완전한 링 — 외경 면에서 주사',
+    'Defects hidden': '결함을 숨겼습니다',
+    'Defects hidden — the key code is needed to show them again': '결함을 숨겼습니다 — 다시 표시하려면 키 코드가 필요합니다',
+    'Wrong key code': '키 코드가 틀렸습니다', 'Could not read that file': '파일을 읽을 수 없습니다',
+    // 82-lessons (v3 lesson steps)
+    'Angle check on the 5 mm hole (60° graduation)': '5 mm 횡공으로 각도 확인 (60° 눈금)',
+    'At the maximum the index point shows the true refracted angle on the scale.': '에코가 최대일 때 입사점이 눈금 위의 실제 굴절각을 가리킵니다.',
+    'The scale value under the index point at the maximum is the true angle.': '에코가 최대일 때 입사점 아래 눈금 값이 실제 굴절각입니다.',
+    // 85-scalemode (F41/F42)
+    'A traced boundary needs at least 3 points': '추적한 경계에는 점이 3개 이상 필요합니다',
+    'Click the boundary corners, then double-click or press OK to close it': '경계의 모서리를 차례로 클릭한 뒤, 두 번 클릭하거나 확인을 눌러 닫으세요',
+    'Boundary traced — LEFT mouse button/drag to move the UT Probe': '경계를 추적했습니다 — 마우스 왼쪽 버튼 드래그로 탐촉자를 이동하세요',
+    'Picture loaded — set mm per pixel, then trace the boundary': '그림을 불러왔습니다 — 픽셀당 mm를 설정한 뒤 경계를 추적하세요',
+    'Screen captured — set mm per pixel, then trace the boundary': '화면을 캡처했습니다 — 픽셀당 mm를 설정한 뒤 경계를 추적하세요',
+    'Only a picture file from this computer can be loaded': '이 컴퓨터에 있는 그림 파일만 불러올 수 있습니다',
+    'Picture too large — use one under 4 MB': '그림이 너무 큽니다 — 4 MB 미만인 파일을 사용하세요',
+    'That file could not be read as a picture': '그 파일은 그림으로 읽을 수 없습니다',
+    'That screen could not be captured': '화면을 캡처할 수 없습니다',
+    'There is nothing on screen to capture': '캡처할 화면 내용이 없습니다',
+    'This outline is too thin to carry a pipe wall': '이 외형은 너무 얇아 배관 두께를 만들 수 없습니다',
+    'Trace or choose a boundary first, then press Pipe': '먼저 경계를 추적하거나 형상을 고른 뒤 파이프를 누르세요',
+    'Drag the protractor by its face to move it, by its rim to turn it (Shift = 1° steps)': '각도기는 면을 끌면 이동하고 테두리를 끌면 회전합니다 (Shift = 1° 단위)',
+    // 86-annotate palette colours
+    'Red': '빨간색', 'Blue': '파란색',
+    // 90-app (F19/F54)
+    'Could not save the screen shot': '화면을 저장하지 못했습니다',
+    'Receiver off the scanning surface': '수신 탐촉자가 주사면을 벗어났습니다',
+    'You can attach this file to an email and send it to other UTsim users': '이 파일을 이메일에 첨부해 다른 UTsim 사용자에게 보낼 수 있습니다',
+    // ---- v3 wave 4: keys reached only while driving the 25 lessons, the echo quiz and the trade test
+    'Perspex insert': '퍼스펙스 삽입물', 'point-like (slightly extended)': '점상 (약간 연장된)',
+    'Corner (defect + surface)': '코너 (결함 + 표면)', 'cap-toe': '덧살 지단(토우)', 'not recordable': '기록 불요',
+    'Overall layout and the Options ▸ UT Set switch': '전체 화면 구성과 옵션 ▸ UT 세트 전환',
+    'DAC point {n} recorded at {path} mm, {amp}% — record another point': 'DAC {n}번째 점을 빔 노정 {path} mm, {amp}%에서 기록했습니다 — 다음 점을 기록하세요',
+    'DAC point {n} recorded at {path} mm, {amp}%': 'DAC {n}번째 점을 빔 노정 {path} mm, {amp}%에서 기록했습니다',
+    'DAC −6 dB (50 %) / −14 dB (20 %) curves drawn': 'DAC −6 dB (50 %) / −14 dB (20 %) 커브를 그렸습니다',
+    'Trade Test: find the hidden defects, fill in the report table and press Submit': '실기 시험: 숨겨진 결함을 찾아 보고서 표를 채우고 제출을 누르세요',
+    'Gate Setup': '게이트 설정',
     'UT SET: KRAUTKRÄMER USK 7 (analogue)': 'UT 세트: KRAUTKRÄMER USK 7 (아날로그)', '(analogue)': '(아날로그)', 'ASME text screen': 'ASME 텍스트 화면',
   };
 
@@ -445,6 +686,23 @@
     G('Share link', '공유 링크', 'URL that carries the whole scenario or a seed-only exam', '시나리오 전체 또는 시드만 담은 시험을 전달하는 URL', []),
     G('Plotting', '플로팅', 'drawing the beam path on the cross-section to locate an indication against the weld geometry', '단면도에 빔 경로를 그려 지시를 용접부 형상에 대응시키는 것', [8, 9]),
     G('Coverage', '주사 범위', 'fraction of the weld volume actually scanned from both sides', '실제로 양면에서 주사한 용접부 체적의 비율', [25]),
+    // v3 (SPEC-v3 §10) — new terminology required by the beam-spread, weld-condition and scale-mode features
+    G('Beam spread half angle', '빔 확산 반각', 'half the angle of the beam at the 20 dB (10 %) edge, measured on the plotting card', '플로팅 카드에서 20 dB(10 %) 에지로 측정한 빔 각도의 절반', [8]),
+    G('K factor', 'K 계수 (빔 확산 상수)', 'beam-spread constant: half-width of the beam per unit beam path at a stated drop', '규정된 드롭에서 빔 경로 단위길이당 빔 반폭을 주는 빔 확산 상수', [8]),
+    G('Stand-off', '스탠드오프 (입사점 거리)', 'distance from the probe index (beam exit) point to the weld centre-line on the scanning surface', '주사면에서 탐촉자 입사점부터 용접부 중심선까지의 거리', [8, 9]),
+    G('Root corrosion', '루트 부식', 'bumpy, corroded root bead that returns geometry echoes easily mistaken for a root defect', '울퉁불퉁하게 부식된 이면 비드 — 루트 결함으로 오인하기 쉬운 형상 에코를 냅니다', [11]),
+    G('Misalignment (high-low)', '맞댐 어긋남 (하이-로우)', 'step between the two plate surfaces at the joint; the step edge gives its own corner echo', '이음부에서 두 모재 표면 사이의 단차 — 단차 모서리가 자체 코너 에코를 냅니다', [11]),
+    G('Parallel scan', '평행 주사', 'TOFD scan along the weld axis with the probe pair straddling it, as opposed to the non-parallel scan across it', '탐촉자 쌍이 용접부를 사이에 두고 용접선 방향으로 이동하는 TOFD 주사 (횡단하는 비평행 주사와 대비)', [20]),
+    G('Corner echo at the scanning surface', '주사면 코너 에코', 'full corner reflection from a surface-breaking defect meeting the scanning surface at a right angle; tilting either face by α rotates the return by 2α out of the aperture', '주사면과 직각으로 만나는 표면 개구 결함의 완전한 코너 반사 — 어느 한 면이 α 기울면 반사는 2α 회전하여 개구를 벗어납니다', [12]),
+    G('Scale mode', '축척 모드', 'drawing mode in which an imported picture or traced outline is calibrated in mm per pixel and used as the specimen', '불러온 그림이나 추적한 외형을 픽셀당 mm로 교정하여 시험체로 사용하는 그리기 모드', []),
+    G('Protractor', '각도기', 'on-screen angle scale placed on the cross-section to measure drawn beam and defect angles', '단면도 위에 놓아 그려진 빔과 결함의 각도를 재는 화면 각도기', []),
+    G('Thin/thick standard', '얇은/두꺼운 기준편', 'the two known thicknesses (or backwall paths) an auto-calibration asks for before it solves velocity and zero', '자동 교정이 속도와 제로를 풀기 전에 요구하는 두 개의 기지 두께(또는 저면 경로)', [3]),
+    G('Rough surface', '표면 거칠기', 'as-welded or corroded scanning surface: it costs transfer, raises the grass and makes coupling unstable', '용접 그대로이거나 부식된 주사면 — 전달 손실이 커지고 임상 에코가 올라가며 접촉이 불안정해집니다', [11]),
+    G('Wall thickness variation', '두께 변동', 'pipe wall that thins and thickens along the weld, so the backwall echo walks as the probe travels', '용접선을 따라 얇아졌다 두꺼워지는 배관 두께 — 탐촉자가 이동하면 저면 에코가 움직입니다', [11]),
+    G('Teaching aid drawing mode', '교육용 그리기 모드', 'SHIFT+F12 overlay an instructor draws on: red with the left button, blue with the right', 'SHIFT+F12로 켜는 강사용 오버레이 — 왼쪽 버튼은 빨간색, 오른쪽 버튼은 파란색으로 그립니다', []),
+    G('Turn probe', '탐촉자 돌리기', 'facing the probe the other way on a calibration block or across the weld, so the beam looks at the other radius / the other side', '교정 시험편이나 용접부에서 탐촉자를 반대로 돌려 반대쪽 반경 또는 반대쪽 면을 향하게 하는 것', [4, 20]),
+    G('Draw region (blue box)', '그리기 영역 (파란 상자)', 'the blue rectangle beside the weld inside which defects may be drawn in the editor', '결함 편집기에서 결함을 그릴 수 있는, 용접부 옆의 파란 사각 영역', [15]),
+    G('Single-line LOF', '단일선 융합 불량', 'planar lack of fusion drawn as one straight stroke: it has an angle, a height and a top depth', '한 번의 직선 획으로 그리는 면상 융합 불량 — 각도, 높이, 상단 깊이를 가집니다', [15]),
   ];
 
   // ------------------------------------------------------------------ quick tour (8 steps; 90 reads `target`, task wording `selector`)
@@ -532,7 +790,7 @@
   // ------------------------------------------------------------------ UT.test.untranslated() — SPEC-v2 §5.3.4
   const SHORT_RE = /^[\d\s.,:%°+\-/×~()a-zA-Z]{0,3}$/;
   const NUMERIC_RE = /^[\d\s.,%°:+\-/()µ]+$/;
-  const PRODUCTS = ['EPOCH', 'EPOCH 600', 'EPOCH 4', 'USK7', 'USK 7', 'IIW', 'TOFD', 'DAC', 'AUT', 'PA', 'ASME', 'ISO', 'AWS', 'DGS', 'TCG', 'FBH', 'SDH', 'IOW', 'PCS', 'TKY', 'V1', 'V2', 'UTsim', 'UTman', 'UT', 'RF', 'ERS'];
+  const PRODUCTS = ['EPOCH', 'EPOCH 600', 'EPOCH 4', 'USK7', 'USK 7', 'IIW', 'TOFD', 'DAC', 'AUT', 'PA', 'ASME', 'ISO', 'AWS', 'DGS', 'TCG', 'FBH', 'SDH', 'IOW', 'PCS', 'TKY', 'V1', 'V2', 'UTsim', 'UTman', 'UT', 'RF', 'ERS', 'USK', 'LTC', 'RDTech', 'AccRej', 'BS', 'K'];   // v3 §10: new product / abbreviation exemptions
   /** True when the key is a product name or consists only of product names, digits and punctuation (e.g. 'ISO 11666', 'EPOCH 600'). */
   function isProductName(key) {
     const k = String(key).trim();

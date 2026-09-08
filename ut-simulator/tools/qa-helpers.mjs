@@ -44,8 +44,28 @@ export async function launch(opts = {}) {
   return { browser, page, errors, file, shot, errorsSince };
 }
 
-/** All toolbar button ids (SPEC §11). */
-export const TOOLBAR_IDS = ['tb-0', 'tb-45', 'tb-60', 'tb-70', 'tb-v2', 'tb-v1', 'tb-dac', 'tb-plot', 'tb-damp', 'tb-size', 'tb-defect', 'tb-hide', 'tb-clear', 'tb-beam', 'tb-rad', 'tb-pipe', 'tb-tky', 'tb-tofd', 'tb-aut'];
+/** All toolbar button ids (SPEC §11; SPEC-v3 §8 adds `tb-accrej` after `tb-rad` — 20 buttons). */
+export const TOOLBAR_IDS = ['tb-0', 'tb-45', 'tb-60', 'tb-70', 'tb-v2', 'tb-v1', 'tb-dac', 'tb-plot', 'tb-damp', 'tb-size', 'tb-defect', 'tb-hide', 'tb-clear', 'tb-beam', 'tb-rad', 'tb-accrej', 'tb-pipe', 'tb-tky', 'tb-tofd', 'tb-aut'];
+
+/**
+ * Dismiss every open modal dialog (SPEC-v3 F11 `blockpick`, F25 `defect-steps`, F33 `hidekey`, …).
+ * v3 turned two toolbar actions into modal choosers, so a script that drives the real UI must clear the
+ * `.win-backdrop` between gestures or the next click is swallowed. App behaviour is per spec; this is the
+ * harness catching up.
+ * @param {import('playwright').Page} page
+ * @returns {Promise<string[]>} names of the windows that were closed
+ */
+export async function dismissModals(page) {
+  return page.evaluate(() => {
+    const closed = [];
+    if (!window.UT || !UT.dom || !UT.dom.wins) return closed;
+    for (const k of Object.keys(UT.dom.wins)) {
+      const w = UT.dom.wins[k];
+      try { if (w && w.isOpen() && w.el && w.el.previousElementSibling && w.el.previousElementSibling.classList.contains('win-backdrop') && w.el.previousElementSibling.style.display !== 'none') { w.close(); closed.push(k); } } catch (e) { /* ignore */ }
+    }
+    return closed;
+  });
+}
 
 /** Enumerate every menu label path ('Probes/Number of Skips/2') by opening the menus in the page. */
 export async function allMenuPaths(page) {

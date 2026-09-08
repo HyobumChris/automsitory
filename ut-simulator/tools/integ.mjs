@@ -1,7 +1,7 @@
 // Integration drive: boots the built file, exercises toolbar, menus, windows, drags, keys, scans,
 // trade test, lessons; prints physics acceptance numbers; writes screenshots.
 // Usage: NODE_PATH=/opt/node22/lib/node_modules node tools/integ.mjs [--shots /tmp/utsim-integ/shots]
-import { launch, TOOLBAR_IDS, allMenuPaths } from './qa-helpers.mjs';
+import { launch, TOOLBAR_IDS, allMenuPaths, dismissModals } from './qa-helpers.mjs';
 
 const args = process.argv.slice(2);
 const si = args.indexOf('--shots');
@@ -62,7 +62,12 @@ await ev(() => UT.test.enterMode('weld'));
 // ---- menus: every item
 const paths = await allMenuPaths(page);
 log('menu paths', paths.length);
-const skip = /Print|^File\/New|Trade Test|Lamination Check|Language\/Korean|Delete All Defects|Exit Step Wedge|Auto Cal$/;
+const skip = /Print|^File\/New|Trade Test|Lamination Check|Language\/Korean|Delete All Defects|Exit Step Wedge|Exit Scale Mode|Auto Cal$/;
+// 'Exit Scale Mode' joins 'Exit Step Wedge' for the identical reason: it is an exit item guarded by
+// `enabled: () => scaleMode.on`, and the restore-to-weld below legitimately clears that flag, so by the
+// time the sweep reaches it the item is correctly disabled. (v3 F42 compounds it — `Skip graduations`
+// works in weld mode too per SPEC-v3 §6.2 SPEC NOTE 10, so it does not re-enter the sheet.) Scale Mode
+// entry/exit itself is covered by acceptance V3-41 and V3-53, not by this sweep.
 // Every path is exercised from weld mode: some items are mode toggles (Step Wedge ▸ Steps…/FBH block, Weld ▸ TKY Joint)
 // and v2's DISABLED table legitimately greys out whole menus in other modes (SPEC-v2 §8: DISABLED.fbh.menus =
 // ['weld','defects']), so a loop that stays in fbh mode would log the entire Weld/Defects menus as false negatives.
@@ -88,7 +93,7 @@ for (const p of paths) {
 log('menu mode switches (restored to weld / editor closed):', modeSwitches.join(' ') || 'none');
 await shot('after-menus');
 // back to defaults
-await ev(() => { UT.test.enterMode('weld'); UT.setIn('probe', { method: 'pe', angle: 60, mode: 'shear', crystal: 'single', freq: 5, diameter: 10 }); UT.setIn('display', { colourCode: 'none', singleLine: false, focus: false, skips: 3, units: 'mm', plan: true }); UT.setIn('damping', { tool: false, points: [] }); if (UT.app.closeTour) UT.app.closeTour(); /* Help ▸ Quick tour leaves its modal #tour overlay up */ UT.set({ utSet: 'epoch600' }); UT.app.applyLayout(); });
+await ev(() => { UT.test.enterMode('weld'); UT.setIn('probe', { method: 'pe', angle: 60, mode: 'shear', crystal: 'single', freq: 5, diameter: 10 }); UT.setIn('display', { colourCode: 'none', singleLine: false, focus: false, skips: 3, units: 'mm', plan: true }); UT.setIn('damping', { tool: false, points: [] }); if (UT.app.closeTour) UT.app.closeTour(); /* Help ▸ Quick tour leaves its modal #tour overlay up */ UT.set({ utSet: 'epoch600' }); if (UT.scalemode) { UT.scalemode.exit(); UT.scalemode.clearPicture(); UT.scalemode.clearTrace(); UT.scalemode.magnify(false); } if (UT.annotate) { UT.annotate.clear && UT.annotate.clear(); UT.annotate.torch && UT.annotate.torch(false); if (UT.state.annot && UT.state.annot.on && UT.annotate.toggle) UT.annotate.toggle(false); } UT.setIn('display', { alwaysShowControls: false, instrumentFloat: false, drawRegion: null, skipsToRange: false }); UT.setIn('weldOpts', { rootCorrosion: false, roughSurface: false, misalignmentMm: 0, wtVariationMm: 0 }); UT.app.applyLayout(); });
 log('mode after menus', await ev(() => UT.state.mode), 'utSet', await ev(() => UT.state.utSet));
 expect(!(await ev(() => UT.state.damping && UT.state.damping.tool)), 'finger damping tool is off after the menu loop reset');
 // Korean then back
@@ -278,6 +283,8 @@ log('data-win names', await ev(() => Array.from(document.querySelectorAll('.win'
   const k = errors.length;
   await ev(() => { UT.test.loadSpecimen('plate-weld', { T: 20 }); UT.test.setDefects([]); UT.modes.defectEditor.open(); });
   await page.waitForTimeout(100);
+  await dismissModals(page);   // v3 F25: the first editor open raises the modal STEP 1-5 dialog over the canvas
+  await page.waitForTimeout(50);
   const ks = await scaleK();
   const c = await ev(() => { const b = document.getElementById('cv-cross').getBoundingClientRect(); const p = UT.views.cross.toPx(0, 15); const q = UT.views.cross.toPx(0, 20); return { left: b.left, top: b.top, px0: p.x, py0: p.y, px1: q.x, py1: q.y }; });
   await page.mouse.move(c.left + c.px0 * ks, c.top + c.py0 * ks); await page.mouse.down(); await page.mouse.move(c.left + c.px1 * ks, c.top + c.py1 * ks, { steps: 6 }); await page.mouse.up();

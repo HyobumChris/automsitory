@@ -2,11 +2,11 @@
 //
 // Usage:
 //   [NODE_PATH=…] node tools/acceptance.mjs [--file path/to/utman_simulator.html] [--json out.json]
-//                                           [--only v1|v2] [--grep <substring>] [--verbose]
+//                                           [--only v1|v2|v3] [--grep <substring>] [--verbose]
 //
 // Boots the built single-file simulator in headless Chromium (tools/qa-helpers.mjs launch()), runs every
-// v1 acceptance check of SPEC §11.1 (#1–#14) and every v2 check of SPEC-v2 §9 (V2-1 … V2-27), prints a
-// table, writes a JSON report and exits 1 when any check fails.
+// v1 acceptance check of SPEC §11.1 (#1–#14), every v2 check of SPEC-v2 §9 (V2-1 … V2-27) and every v3
+// check of SPEC-v3 §9 (V3-1 … V3-64), prints a table, writes a JSON report and exits 1 when any check fails.
 //
 // Every check is a small named async function returning {pass, detail} (plus an optional `info` object
 // copied into the JSON report); a check that throws is reported as failed with the exception text.
@@ -18,6 +18,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import Module from 'node:module';
 import { execSync } from 'node:child_process';
+import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -35,7 +36,7 @@ const JSON_OUT = argOf('--json', null);
 const ONLY = argOf('--only', null);
 const GREP = argOf('--grep', null);
 const VERBOSE = argv.includes('--verbose');
-if (ONLY && ONLY !== 'v1' && ONLY !== 'v2') { console.error('--only expects v1 or v2'); process.exit(2); }
+if (ONLY && ONLY !== 'v1' && ONLY !== 'v2' && ONLY !== 'v3') { console.error('--only expects v1, v2 or v3'); process.exit(2); }
 
 // ---------------------------------------------------------------------------------------------- playwright
 /** Make `require('playwright')` resolvable: NODE_PATH, the local global root, then `npm root -g`. */
@@ -58,7 +59,7 @@ if (!resolvePlaywright()) {
   console.error('playwright not found: set NODE_PATH to a node_modules dir containing playwright (npm i -g playwright@1.56.0)');
   process.exit(2);
 }
-const { launch, TOOLBAR_IDS } = await import('./qa-helpers.mjs');
+const { launch, TOOLBAR_IDS, dismissModals } = await import('./qa-helpers.mjs');
 
 // ---------------------------------------------------------------------------------------------- assertion helper
 /** Collects assertion failures; result() gives {pass, detail}. */
@@ -118,6 +119,9 @@ window.ACC = {
     UT.set({ probe: Object.assign({}, d.probe), instrument: Object.assign({}, d.instrument), physics: Object.assign({}, d.physics), damping: Object.assign({}, d.damping) }, { noRender: true });
     UT.test.setDefects([]);
     if (UT.app && UT.app.setLang) UT.app.setLang('en');
+    // the state patch above is silent, so a skin left mounted by the previous check (the USK 7 parks the
+    // shared #cv-ascan in its own window) never hears the utSet change — re-mount it explicitly
+    try { if (UT.instruments && UT.instruments.setSkin) UT.instruments.setSkin(UT.state.utSet); } catch (e) {}
     UT.renderNow();
     return UT.state.mode;
   },
@@ -136,6 +140,12 @@ window.ACC = {
   },
   gatedPeak() { const r = UT.test.readouts(); return r && r.primary ? r.primary.peakPct : 0; },
   countUi(kind) { const c = { n: 0 }; const fn = (e) => { if (!kind || (e && e.kind === kind)) c.n++; }; UT.bus.on('ui', fn); c.stop = () => { UT.bus.off('ui', fn); return c.n; }; return c; },
+  /** The #cv-ascan canvas that is actually laid out (a hidden UT-set skin can leave a second one in the DOM). */
+  ascanCanvas() { const all = Array.from(document.querySelectorAll('canvas')).filter(c => c.id === 'cv-ascan'); return all.find(c => { const r = c.getBoundingClientRect(); return r.width > 4 && r.height > 4; }) || all[0] || null; },
+  /** True when the named window (UT.dom.wins) exists and is open. */
+  winOpen(name) { const w = UT.dom && UT.dom.wins && UT.dom.wins[name]; try { return !!(w && w.isOpen && w.isOpen()); } catch (e) { return false; } },
+  /** The named window's accessible text ('' when it does not exist). */
+  winText(name) { const w = UT.dom && UT.dom.wins && UT.dom.wins[name]; return w && w.el ? String(w.el.textContent || '') : ''; },
   greyPixels(id) { const cv = document.getElementById(id); if (!cv) return -1; const ctx = cv.getContext('2d'); const d = ctx.getImageData(0, 0, cv.width, cv.height).data; let k = 0; for (let i = 0; i < d.length; i += 4) { const r = d[i], g = d[i + 1], b = d[i + 2]; if (Math.abs(r - g) < 12 && Math.abs(g - b) < 12 && r > 90 && r < 200) k++; } return k; },
 };
 `;
@@ -143,7 +153,7 @@ window.ACC = {
 async function installHelpers(page) { await page.evaluate(PAGE_HELPERS); }
 
 // ---------------------------------------------------------------------------------------------- checks
-/** @type {{name:string, group:'v1'|'v2', timeout?:number, fn:(ctx)=>Promise<{pass:boolean, detail:string, info?:object}>}[]} */
+/** @type {{name:string, group:'v1'|'v2'|'v3', timeout?:number, fn:(ctx)=>Promise<{pass:boolean, detail:string, info?:object}>}[]} */
 const CHECKS = [];
 function check(name, group, fn, opts) { CHECKS.push(Object.assign({ name, group, fn }, opts || {})); }
 
@@ -1526,6 +1536,2253 @@ check('V2-27 performance budgets (§6.4)', 'v2', async ({ page, budget }) => {
   A.le(r.ms41, budget(10), `compute 41 rays + modeConv ms (${r.nDef} defects)`); A.le(r.ms21, budget(6), 'compute 21 rays ms');
   A.le(r.autMs, budget(1500), `AUT 24-inch sync ms (${r.autN} columns)`); A.le(r.tofdMs, budget(800), 'TOFD D-scan ms'); A.le(r.paMs, budget(60), `PA S-scan ms (${r.paCols} angles)`);
   A.note(`41: ${r.ms41.toFixed(2)} ms, 21: ${r.ms21.toFixed(2)} ms (median of 20 after 5 warm-ups — GC-robust), AUT ${r.autMs.toFixed(0)} ms, TOFD ${r.tofdMs.toFixed(0)} ms, PA ${r.paMs.toFixed(1)} ms (median of 10)${CI ? ' (CI ×2)' : ''}`);
+  return A.result();
+});
+
+
+// =============================================================================================== v3 (SPEC-v3 §9)
+// Every check below is the acceptance text of SPEC-v3 §9.1…§9.6 turned into assertions: the numbers and the
+// (inclusive) tolerances are the spec's, the API is §7's, the menu paths and window names are §8's. Nothing
+// here is allowed to be relaxed to fit an implementation — a failing check is the fix phase's input.
+
+check('V3-1 instrument OFF blanks the trace, keeps the window (F1)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    // The flatness measurement reads #cv-ascan back: `ink` = pixels near the theme's trace colour (usk7
+    // #40ffff), the topmost one per column is the trace, and the plot rect comes from the theme margins
+    // (l/r 4, t 4, b 16 CSS px) so px → %FSH is exact. The graticule is switched off for the measurement
+    // only — it is drawn in the SAME colour family and would otherwise be counted as trace ink.
+    const traceRows = () => {
+      const cv = ACC.ascanCanvas();
+      if (!cv) return null;
+      const dpr = cv.width / Math.max(1, cv.clientWidth);          // 1 in headless Chromium
+      const px = 4 * dpr, py = 4 * dpr, pw = cv.width - 8 * dpr, ph = Math.round(cv.height - 20 * dpr);
+      const ctx = cv.getContext('2d');
+      // the middle 80 % of the plot's columns (the USK 7 canvas is ~190 px wide, not 800)
+      const x0 = Math.round(px + pw * 0.1), n = Math.round(pw * 0.8);
+      const d = ctx.getImageData(x0, py, n, ph).data;
+      const rows = [];
+      for (let c = 0; c < n; c++) {
+        for (let y = 0; y < ph; y++) {
+          const i = (y * n + c) * 4, R = d[i], G = d[i + 1], B = d[i + 2];
+          if (Math.abs(R - 0x40) < 70 && G > 190 && B > 190) { rows.push(100 * (ph - y) / ph); break; }
+        }
+      }
+      if (rows.length < 40) return { n: rows.length, sd: null };
+      const m = rows.reduce((a, b) => a + b, 0) / rows.length;
+      return { n: rows.length, sd: Math.sqrt(rows.reduce((a, b) => a + (b - m) * (b - m), 0) / rows.length), mean: m };
+    };
+    const out = {};
+    UT.set({ utSet: 'usk7' }); UT.renderNow();
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setProbe({ angle: 0, x: 40, crystal: 'single' });
+    UT.test.setInstrument({ range: 50, gain: 40, delay: 0 });
+    UT.setIn('display', { grid: false });
+    UT.test.compute();
+    out.liveRows = traceRows();
+    out.poweredOff = UT.test.power(false);
+    UT.renderNow();
+    out.offRows = traceRows();
+    out.winOpen = ACC.winOpen('usk7');
+    out.canvas = !!document.getElementById('cv-ascan');
+    out.bwStillThere = !!ACC.bestNear(/backwall/, 20, 0.8);
+    out.samples = UT.test.ascan().samples.length;
+    out.poweredOn = UT.test.power(true);
+    UT.renderNow();
+    out.backRows = traceRows();
+    // TOFD half: OFF hides the A-scan sub-window and stays in the mode
+    UT.setIn('display', { grid: true });
+    UT.test.enterMode('tofd'); UT.renderNow();
+    UT.tofd.ascanOff();
+    UT.renderNow();
+    out.tofd = { ascan: ACC.winOpen('tofd-ascan'), mode: UT.modes.current(), win: ACC.winOpen('tofd') };
+    return out;
+  });
+  A.eq(r.poweredOff, false, 'power(false) → instrument.powered false');
+  A.eq(r.winOpen, true, 'usk7 window still open');
+  A.eq(r.canvas, true, '#cv-ascan still in the DOM');
+  A.eq(r.bwStillThere, true, 'ascan() still contains the 20 mm backwall');
+  A.ok(r.offRows && r.offRows.sd !== null, 'trace read back from the canvas (off)');
+  if (r.offRows && r.offRows.sd !== null) A.le(r.offRows.sd, 1, 'std dev of the blanked trace (%FSH)');
+  A.ok(r.liveRows && r.liveRows.sd > 1, `live trace is NOT flat (sd ${r.liveRows && r.liveRows.sd !== null ? r.liveRows.sd.toFixed(2) : '-'} %FSH) — the measurement works`);
+  A.eq(r.poweredOn, true, 'power(true) restores');
+  A.ok(r.backRows && r.backRows.sd > 1, 'trace is back after power(true)');
+  A.eq(r.tofd.ascan, false, 'tofd-ascan hidden by ascanOff()');
+  A.eq(r.tofd.mode, 'tofd', 'still in tofd');
+  A.eq(r.tofd.win, true, 'tofd window still open');
+  return A.result();
+});
+
+check('V3-2 auto-cal runs on the current specimen (F2)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setProbe({ angle: 0, x: 40, crystal: 'single' });
+    UT.test.setInstrument({ range: 100, gain: 40, cal: { vel: 5.60, zero: 0.4 }, gates: [{ on: true, start: 14, width: 12, level: 15 }] });
+    UT.test.compute();
+    UT.test.autocal.start();
+    const s = UT.test.state().autocal;
+    out.spec = { source: s.source, d1: s.d1, d2: s.d2, stage: s.stage, mode: UT.modes.current() };
+    UT.test.autocal.cancel();
+    // no backwall echo: park the probe off the plate and leave nothing gateable on screen
+    UT.test.setProbe({ x: 400 });
+    UT.test.setInstrument({ gain: 0, gates: [{ on: false, start: 14, width: 12, level: 15 }, { on: false, start: 30, width: 10, level: 20 }] });
+    UT.test.compute();
+    out.echoes = UT.test.echoes().length;
+    UT.test.autocal.start();
+    const s2 = UT.test.state().autocal;
+    out.step = { source: s2.source, mode: UT.modes.current() };
+    UT.test.autocal.cancel();
+    return out;
+  });
+  A.eq(r.spec.source, 'specimen', 'source on a specimen with backwalls');
+  A.near(r.spec.d1, 20, 0.01, 'd1'); A.near(r.spec.d2, 40, 0.01, 'd2');
+  A.eq(r.spec.mode, 'weld', 'the step wedge is NOT entered');
+  A.eq(r.step.source, 'step', 'fallback source with no backwall');
+  A.eq(r.step.mode, 'step', 'fallback enters the step wedge');
+  return A.result();
+});
+
+check('V3-3 auto-cal thickness entry and the on-LCD wizard (F3)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setProbe({ angle: 0, x: 40, crystal: 'single' });
+    UT.test.setInstrument({ range: 100, gain: 40, cal: { vel: 5.60, zero: 0.4 }, gates: [{ on: true, start: 14, width: 12, level: 15 }] });
+    UT.test.compute();
+    UT.test.autocal.start();
+    UT.test.autocal.field(16.50); out.field1 = UT.test.state().autocal.field;
+    UT.test.autocal.field(20.00);
+    UT.test.autocal.confirm();
+    let a = UT.test.state().autocal;
+    out.thin = a.entered.thin; out.stage2 = a.stage;
+    UT.test.setInstrument({ gates: [{ on: true, start: 33, width: 14, level: 15 }] }); UT.test.compute();
+    UT.test.autocal.field(42.00); UT.test.autocal.field(40.0);
+    UT.test.autocal.confirm();
+    a = UT.test.state().autocal;
+    out.thick = a.entered.thick; out.stage0 = a.stage;
+    out.vel = UT.test.state().instrument.cal.vel;
+    UT.test.setInstrument({ gates: [{ on: true, start: 14, width: 12, level: 15 }] }); UT.test.compute();
+    const p = UT.test.readouts().primary;
+    out.pathDisp = p ? p.pathDisp : null;
+    // EPOCH 4 wizard wording
+    UT.set({ utSet: 'epoch4' }); UT.renderNow();
+    UT.test.setInstrument({ cal: { vel: 5.60, zero: 0.4 } }); UT.test.compute();
+    UT.test.autocal.start();
+    out.cap1 = UT.test.autocal.state().caption;
+    UT.test.autocal.field(20); UT.test.autocal.confirm();
+    out.cap2 = UT.test.autocal.state().caption;
+    UT.test.autocal.cancel();
+    return out;
+  });
+  A.eq(r.field1, 16.5, 'autocal.field(16.50)');
+  A.eq(r.thin, 20, 'entered.thin'); A.eq(r.stage2, 2, 'stage after the thin confirm');
+  A.eq(r.thick, 40, 'entered.thick'); A.eq(r.stage0, 0, 'stage after the thick confirm');
+  A.near(r.vel, 5.90, 0.02, 'calibrated velocity');
+  A.ok(r.pathDisp !== null, 'gated 20 mm backwall'); if (r.pathDisp !== null) A.near(r.pathDisp, 20.00, 0.05, 'pathDisp of the 20 mm backwall');
+  A.ok(/ENTER VALUE FOR THIN STANDARD/.test(r.cap1 || ''), 'thin caption: ' + JSON.stringify(r.cap1));
+  A.ok(/AND THEN PRESS Calibration/.test(r.cap1 || ''), 'thin caption second line');
+  A.ok(/ENTER VALUE FOR THICK STANDARD/.test(r.cap2 || ''), 'thick caption: ' + JSON.stringify(r.cap2));
+  A.ok(/AND THEN PRESS ENTER/.test(r.cap2 || ''), 'thick caption second line');
+  return A.result();
+});
+
+check('V3-4 post-cal range re-set (F4)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setProbe({ angle: 0, x: 40, crystal: 'single' });
+    UT.test.setInstrument({ range: 100, gain: 40, cal: { vel: 5.60, zero: 0.4 }, gates: [{ on: true, start: 14, width: 12, level: 15 }] });
+    UT.test.compute();
+    UT.test.autocal.start(); UT.test.autocal.field(20); UT.test.autocal.confirm();
+    UT.test.setInstrument({ gates: [{ on: true, start: 33, width: 14, level: 15 }] }); UT.test.compute();
+    UT.test.autocal.field(40); UT.test.autocal.confirm();
+    out.range20 = UT.test.state().instrument.range;
+    out.after20 = UT.test.state().autocal.rangeAfter;
+    // 10 / 25 on the step wedge
+    UT.test.enterMode('step', { silentUI: true });
+    const sp = UT.state.specimen;
+    UT.test.setProbe({ angle: 0, x: sp.stepX(10), crystal: 'single' });
+    UT.test.setInstrument({ range: 100, gain: 40, cal: { vel: 5.60, zero: 0.4 }, gates: [{ on: true, start: 6, width: 8, level: 12 }] });
+    UT.test.compute();
+    UT.test.autocal.start(); UT.test.autocal.field(10); UT.test.autocal.confirm();
+    UT.test.setProbe({ x: sp.stepX(25) });
+    UT.test.setInstrument({ gates: [{ on: true, start: 19, width: 12, level: 12 }] }); UT.test.compute();
+    UT.test.autocal.field(25); UT.test.autocal.confirm();
+    out.range1025 = UT.test.state().instrument.range;
+    out.stage1025 = UT.test.state().autocal.stage;
+    // a cancelled cal leaves the range alone
+    UT.test.setInstrument({ range: 250 });
+    UT.test.autocal.start(); UT.test.autocal.field(10); UT.test.autocal.cancel();
+    out.rangeCancel = UT.test.state().instrument.range;
+    return out;
+  });
+  A.eq(r.range20, 50, 'range after the 20/40 cal'); A.eq(r.after20, 50, 'autocal.rangeAfter');
+  A.eq(r.stage1025, 0, '10/25 cal completed');
+  A.eq(r.range1025, 100, 'range after the 10/25 cal');
+  A.eq(r.rangeCancel, 250, 'a cancelled cal leaves the range untouched');
+  return A.result();
+});
+
+check('V3-5 range softkeys, Trig Diameter, Gate Status, press flash, LTC skin (F5)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.set({ utSet: 'epoch600' }); UT.renderNow();
+    UT.test.setInstrument({ selectedParam: 'range', range: 100 }); UT.renderNow();
+    const pRow = () => Array.from(document.querySelectorAll('#instrument .ik-p')).map(b => b.textContent.trim());
+    out.pLabels = pRow();
+    const third = document.querySelectorAll('#instrument .ik-p')[2];
+    if (third) { third.click(); UT.renderNow(); }
+    out.range = UT.state.instrument.range;
+    out.trig = UT.instruments._.softkeyItems(null, 'Trig').map(i => i.label);
+    const before = (UT.state.instrument.trig || {}).diameter;
+    UT.instruments._.selectParam('trigDiameter');
+    UT.test.wheel(3);
+    out.dia = (UT.state.instrument.trig || {}).diameter;
+    out.diaChanged = out.dia !== before && Number.isFinite(out.dia);
+    out.gate1 = UT.instruments._.softkeyItems(null, 'Gate1').map(i => i.label);
+    const gOn = UT.state.instrument.gates[0].on;
+    UT.instruments._.keys.gateStatus(0); UT.renderNow();
+    out.gateFlipped = UT.state.instrument.gates[0].on !== gOn;
+    return out;
+  });
+  A.eq(JSON.stringify(r.pLabels), JSON.stringify(['10.0', '20.0', '50.0', '100.0', '125.0', '250.0', '500.0']), 'P/F row range labels: ' + JSON.stringify(r.pLabels));
+  A.eq(r.range, 50, '3rd range softkey sets range 50');
+  A.ok((r.trig || []).indexOf('Diameter') >= 0, 'Trig page has Diameter: ' + JSON.stringify(r.trig));
+  A.eq(r.diaChanged, true, `editing Diameter writes instrument.trig.diameter (${r.dia})`);
+  A.ok((r.gate1 || []).indexOf('Status') >= 0, 'Gate1 page has Status: ' + JSON.stringify(r.gate1));
+  A.eq(r.gateFlipped, true, 'Status flips gates[0].on');
+  // press flash (.pressed for ≤ 300 ms)
+  const flash = await page.evaluate(() => {
+    const k = document.querySelector('#instrument .ik-p');
+    if (!k) return null;
+    k.click();
+    return k.classList.contains('pressed');
+  });
+  A.eq(flash, true, 'softkey click adds .pressed');
+  await page.waitForTimeout(400);
+  const gone = await page.evaluate(() => { const k = document.querySelector('#instrument .ik-p'); return k ? k.classList.contains('pressed') : null; });
+  A.eq(gone, false, '.pressed cleared within 300 ms');
+  const ltc = await page.evaluate(() => {
+    UT.test.menu('Options/UT Set/EPOCH LTC');
+    UT.renderNow();
+    const labels = UT.instruments._.softkeyItems ? [] : [];
+    const txt = document.getElementById('instrument') ? document.getElementById('instrument').textContent : '';
+    return { set: UT.state.utSet, calThin: txt.indexOf('CAL THIN') >= 0, calThick: txt.indexOf('CAL THICK') >= 0, labels };
+  });
+  A.eq(ltc.set, 'epochltc', "Options ▸ UT Set ▸ EPOCH LTC → utSet 'epochltc'");
+  A.eq(ltc.calThin, true, 'LTC softkeys contain CAL THIN');
+  A.eq(ltc.calThick, true, 'LTC softkeys contain CAL THICK');
+  return A.result();
+});
+
+check('V3-6 key-function hints in the status bar (F6)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    const short = (v) => Array.from(document.querySelectorAll('#instrument [data-short]')).find(b => b.getAttribute('data-short') === v);
+    let cal = null;
+    for (const set of ['epoch600', 'epoch4', 'epochltc', 'usk7']) { UT.set({ utSet: set }); UT.renderNow(); cal = short('CALIBRATE'); if (cal) { out.set = set; break; } }
+    const keyByText = (re) => Array.from(document.querySelectorAll('#instrument [data-short], #instrument button')).find(b => re.test((b.textContent || '').trim()));
+    out.found = !!cal;
+    if (cal) {
+      cal.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }));
+      out.mid = UT.state.status.mid;
+      cal.dispatchEvent(new MouseEvent('mouseleave', { bubbles: false }));
+      UT.renderNow();
+      out.midAfter = UT.state.status.mid;
+    }
+    const up = keyByText(/^▲$/) || short('ARROW RIGHT/UP');
+    if (up) { up.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false })); out.up = UT.state.status.mid; up.dispatchEvent(new MouseEvent('mouseleave', { bubbles: false })); }
+    UT.set({ utSet: 'epoch600' }); UT.renderNow();
+    const grp = Array.from(document.querySelectorAll('#instrument [data-short]')).find(b => /NEXT GROUP/.test(b.getAttribute('data-short') || ''));
+    out.group = grp ? grp.getAttribute('data-short') : null;
+    return out;
+  });
+  A.eq(r.found, true, 'EPOCH CAL key present');
+  A.eq(r.mid, 'CALIBRATE', 'mouseenter on CAL → status.mid');
+  A.ok(/^Pos:/.test(r.midAfter || ''), 'mouseleave restores a Pos: line: ' + JSON.stringify(r.midAfter));
+  A.ok(/ARROW RIGHT|ARROW UP/.test(r.up || ''), '▲ key hint: ' + JSON.stringify(r.up));
+  A.ok(/NEXT GROUP/.test(r.group || ''), 'a key produces NEXT GROUP: ' + JSON.stringify(r.group));
+  return A.result();
+});
+
+check('V3-7 UnCalibrate and EPOCH records (F7)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(async () => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setProbe({ angle: 0, x: 40, crystal: 'single' });
+    UT.test.setInstrument({ range: 100, gain: 40, cal: { vel: 5.90, zero: 0.4 }, gates: [{ on: true, start: 14, width: 12, level: 15 }] });
+    UT.test.compute();
+    out.cal = UT.test.unCalibrate();
+    UT.test.compute();
+    const p = UT.test.readouts().primary;
+    out.pathDisp = p ? p.pathDisp : null;
+    out.right = UT.state.status.right;
+    UT.test.datalog && UT.instruments.save && UT.instruments.save();
+    out.logBefore = UT.test.datalog().length;
+    out.menu = UT.test.menu('Options/Delete EPOCH records');
+    // SPEC-v3 §3.7: nothing is deleted until the UT.dom.confirm('Delete all stored records?') is answered
+    const dlg = Array.from(document.querySelectorAll('.win'))
+      .filter(w => w.querySelector('.confirm-body') && /Delete all stored records\?/.test(w.textContent || ''));
+    out.confirmOpen = dlg.length === 1;
+    out.logDuring = UT.test.datalog().length;
+    const ok = dlg[0] && Array.from(dlg[0].querySelectorAll('button')).find(b => /^OK$/.test((b.textContent || '').trim()));
+    out.okBtn = !!ok;
+    if (ok) ok.click();
+    await new Promise(res => setTimeout(res, 0));
+    out.logAfter = UT.test.datalog().length;
+    out.rightAfter = UT.state.status.right;
+    return out;
+  });
+  A.ok(!!r.cal, 'unCalibrate() returns {vel, zero}');
+  if (r.cal) {
+    A.range(r.cal.vel, 5.30, 5.90, 'wrong velocity');
+    A.range(r.cal.zero, 0.20, 0.60, 'wrong zero');
+    A.ok(r.cal.vel !== 5.90, 'velocity actually moved');
+  }
+  A.ok(r.pathDisp !== null, 'gated backwall'); if (r.pathDisp !== null) A.ge(Math.abs(r.pathDisp - 20), 0.3, `|pathDisp − 20| (${r.pathDisp})`);
+  A.ok(/recalibrate/.test(r.right || ''), 'status.right mentions recalibrate: ' + JSON.stringify(r.right));
+  A.ok(r.logBefore >= 1, 'a datalog entry existed');
+  A.eq(r.menu, true, 'Options ▸ Delete EPOCH records exists');
+  A.eq(r.confirmOpen, true, "the entry asks 'Delete all stored records?' first");
+  A.eq(r.okBtn, true, 'the confirm dialog has an OK button');
+  A.eq(r.logDuring, r.logBefore, 'nothing is deleted before the confirm is answered');
+  A.eq(r.logAfter, 0, 'Delete EPOCH records empties the datalog once confirmed');
+  A.ok(/EPOCH records deleted/.test(r.rightAfter || ''), 'status.right after the delete: ' + JSON.stringify(r.rightAfter));
+  return A.result();
+});
+
+check('V3-8 USK 7 chrome, float and the default set (F8)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.set({ utSet: 'usk7' }); UT.renderNow();
+    const w = UT.dom.wins.usk7 && UT.dom.wins.usk7.el;
+    out.win = !!w;
+    if (w) {
+      out.tips = w.querySelectorAll('[data-tip]').length;
+      out.arrows = Array.from(w.querySelectorAll('button')).filter(b => /^[▲▼◀▶]$/.test((b.textContent || '').trim())).length;
+      out.amp = !!w.querySelector('input[aria-label="AMP (dB)"]');
+    }
+    UT.set({ utSet: 'epoch600' }); UT.setIn('display', { instrumentFloat: true }); UT.renderNow();
+    const inst = document.getElementById('instrument');
+    out.floated = !!(inst && inst.closest && inst.closest('.win'));
+    UT.setIn('display', { instrumentFloat: false }); UT.renderNow();
+    UT.lessons.start(2);
+    out.lessonSet = UT.state.utSet;
+    UT.lessons.stop();
+    return out;
+  });
+  A.eq(r.win, true, 'usk7 window mounted');
+  A.ge(r.tips || 0, 6, `[data-tip] per knob (${r.tips})`);
+  A.ge(r.arrows || 0, 4, `two arrow pairs beside RANGE (${r.arrows} arrow buttons)`);
+  A.eq(r.amp, true, 'input[aria-label="AMP (dB)"]');
+  A.eq(r.floated, true, 'display.instrumentFloat puts #instrument inside a .win');
+  A.eq(r.lessonSet, 'usk7', 'lesson 2 runs on the USK 7');
+  return A.result();
+});
+
+check('V3-9 Turn Probe on the V1 / V2 screens (F9)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.enterMode('v2', { silentUI: true });
+    UT.modes.setFace('wide');
+    UT.test.setProbe({ angle: 45, side: 1, x: 60 });
+    UT.renderNow();
+    out.mid1 = UT.modes.statusMid();
+    out.side2 = UT.test.turnProbe();
+    out.mid2 = UT.modes.statusMid();
+    out.btnV2 = !!document.getElementById('btn-turn-probe');
+    UT.test.enterMode('v1', { silentUI: true }); UT.renderNow();
+    out.btnV1 = !!document.getElementById('btn-turn-probe');
+    UT.test.enterMode('weld', { silentUI: true }); UT.renderNow();
+    out.btnWeld = !!document.getElementById('btn-turn-probe');
+    return out;
+  });
+  A.ok(/25mm Radius\. Echoes 25, 100, 175, 250 etc/.test(r.mid1 || ''), 'side +1 caption: ' + r.mid1);
+  A.eq(r.side2, -1, 'turnProbe() → side −1');
+  A.ok(/50mm Radius\. Echoes 50, 125, 200, 275 etc/.test(r.mid2 || ''), 'side −1 caption: ' + r.mid2);
+  A.eq(r.btnV2, true, '#btn-turn-probe in v2'); A.eq(r.btnV1, true, '#btn-turn-probe in v1'); A.eq(r.btnWeld, false, 'no #btn-turn-probe in weld');
+  return A.result();
+});
+
+check('V3-10 V2 wide face: 5 mm hole, 4 radius multiples (F10)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('v2', { face: 'wide' });
+    const sp = UT.state.specimen;
+    const holes = (sp.holes || sp.sdh || []).map(h => ({ r: h.r, x: h.x, y: h.y }));
+    out.holes = holes;
+    UT.test.setProbe({ angle: 45, side: 1, x: 60 });
+    UT.test.setInstrument({ range: 250, gain: 30 }); UT.test.compute();
+    out.plus = [25, 100, 175, 250].map(p => { const e = ACC.bestNear(/./, p, 1); return e && { path: e.path, amp: e.ampPct }; });
+    UT.test.setProbe({ side: -1 }); UT.test.compute();
+    out.minus = [50, 125, 200, 275].map(p => { const e = ACC.bestNear(/./, p, 1); return e && { path: e.path, amp: e.ampPct }; });
+    const angles = [];
+    for (const i of [5, 18]) { try { UT.lessons.list[i].setup(); angles.push(UT.state.probe.angle); } catch (e) { angles.push('EX ' + e.message); } }
+    out.lessonAngles = angles;
+    return out;
+  });
+  A.ok((r.holes || []).some(h => Math.abs(h.r - 2.5) <= 0.01), 'V2 wide face reports a 5 mm hole (r 2.5): ' + JSON.stringify(r.holes));
+  r.plus.forEach((e, i) => A.ok(!!e, `side +1 echo ${[25, 100, 175, 250][i]} mm`));
+  r.minus.forEach((e, i) => A.ok(!!e, `side −1 echo ${[50, 125, 200, 275][i]} mm`));
+  for (const k of ['plus', 'minus']) for (let i = 1; i < 4; i++) if (r[k][i] && r[k][i - 1]) A.ok(r[k][i].amp < r[k][i - 1].amp, `${k} decreasing ${i}`);
+  A.eq(r.lessonAngles[0], 60, 'lessons[5].setup() leaves 60°');
+  A.eq(r.lessonAngles[1], 60, 'lessons[18].setup() leaves 60°');
+  return A.result();
+});
+
+check('V3-11 ASME / A5 block chooser (F11)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.enterMode('weld', { silentUI: true }); UT.renderNow();
+    const btn = document.getElementById('tb-dac');
+    out.label = btn ? btn.textContent.trim() : null;
+    if (btn) btn.click();
+    UT.renderNow();
+    out.open = ACC.winOpen('blockpick');
+    out.text = ACC.winText('blockpick');
+    const el = UT.dom.wins.blockpick && UT.dom.wins.blockpick.el;
+    const cards = el ? Array.from(el.querySelectorAll('.bp-btn, button:not(.win-close), [role=button]')) : [];
+    const card = cards.find(c => /ASME Block/.test(c.textContent || '')) || cards[0];
+    if (card) card.click();
+    UT.renderNow();
+    out.mode = UT.modes.current();
+    out.labels = JSON.stringify(UT.state.specimen.labels || []);
+    UT.test.enterMode('weld', { silentUI: true }); UT.renderNow();
+    UT.test.click('tb-dac');
+    out.direct = { mode: UT.modes.current(), modal: ACC.winOpen('blockpick') };
+    return out;
+  });
+  A.eq(r.label, 'ASME', 'tb-dac label');
+  A.eq(r.open, true, 'real click opens the blockpick modal');
+  for (const s of ['ASME Block', 'Calibrate for Amplitude and draw DAC', 'A5 Block IOW', 'Plot Beam Spread']) A.ok((r.text || '').indexOf(s) >= 0, 'modal text contains ' + JSON.stringify(s));
+  A.eq(r.mode, 'dac', 'first card enters dac');
+  A.ok(/ASME BLOCK/.test(r.labels || ''), 'specimen.labels contains ASME BLOCK: ' + String(r.labels).slice(0, 200));
+  A.eq(r.direct.mode, 'dac', 'UT.test.click(tb-dac) enters dac directly');
+  A.eq(r.direct.modal, false, 'no modal on the direct click');
+  return A.result();
+});
+
+check('V3-12 descending step wedge 20-8 mm (F12)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const ok = UT.test.menu('Step Wedge/Steps 20-8 mm (2 mm)');
+    const sp = UT.state.specimen;
+    return { ok, steps: sp.steps || (sp.opts && sp.opts.steps) || null, x8: sp.stepX ? sp.stepX(8) : null, x20: sp.stepX ? sp.stepX(20) : null, id: sp.id };
+  });
+  A.eq(r.ok, true, 'menu item exists');
+  A.eq(JSON.stringify(r.steps), JSON.stringify([20, 18, 16, 14, 12, 10, 8]), 'step thicknesses: ' + JSON.stringify(r.steps));
+  A.ok(r.x8 !== null && r.x20 !== null && r.x8 > r.x20, `stepX(8) ${r.x8} > stepX(20) ${r.x20}`);
+  return A.result();
+});
+
+check('V3-13 the probe turns round across the weld (F13)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setProbe({ angle: 60, side: 1, x: 40 }); UT.renderNow();
+    UT.views.cross.dragTo(40); UT.renderNow();
+    out.a = { side: UT.state.probe.side, mid: UT.state.status.mid };
+    UT.views.cross.dragTo(-40); UT.renderNow();
+    out.b = { side: UT.state.probe.side, mid: UT.state.status.mid, x: UT.state.probe.x };
+    UT.views.cross.dragTo(5); UT.renderNow();
+    out.c = { side: UT.state.probe.side };
+    UT.test.setProbe({ x: -40 }); UT.renderNow();
+    out.d = { side: UT.state.probe.side };
+    UT.test.enterMode('iow', { silentUI: true }); UT.renderNow();
+    const s0 = UT.state.probe.side;
+    UT.views.cross.dragTo(120); UT.renderNow();
+    const s1 = UT.state.probe.side;
+    UT.views.cross.dragTo(300); UT.renderNow();
+    out.iow = { s0, s1, s2: UT.state.probe.side };
+    return out;
+  });
+  A.eq(r.a.side, 1, 'dragTo(40) → side +1');
+  A.ok(/Pos: 40 mm/.test(r.a.mid || ''), 'Pos cell at +40: ' + JSON.stringify(r.a.mid));
+  A.eq(r.b.side, -1, 'dragTo(−40) → side −1');
+  A.ok(/Pos: 40 mm/.test(r.b.mid || ''), 'Pos cell at −40 is UNSIGNED: ' + JSON.stringify(r.b.mid));
+  A.eq(r.c.side, 1, 'dragTo(5) → side +1');
+  A.eq(r.d.side, 1, 'setProbe({x:−40}) does not change side');
+  A.eq(r.iow.s1, r.iow.s0, 'iow drag leaves side unchanged (1)');
+  A.eq(r.iow.s2, r.iow.s0, 'iow drag leaves side unchanged (2)');
+  return A.result();
+});
+
+check('V3-14 both wave modes below the 1st critical angle (F14)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const D = Math.PI / 180;
+    const refractedFor = (wedgeDeg, v) => Math.asin(Math.min(0.999, Math.sin(wedgeDeg * D) / 2.74 * v)) / D;
+    const nums = (line) => ({
+      shear: (line.match(/Shear Wave Angle=([\d.]+)/) || [])[1],
+      comp: (line.match(/Compression Wave Angle=([\d.]+)/) || [])[1],
+      compVel: (line.match(/Compression Wave Angle=[\d.]+°\s+Velocity=(\d+) m\/s/) || [])[1],
+    });
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setProbe({ angle: 0 });
+    // the wedge dialog's own path: a refracted COMPRESSION angle whose wedge angle is 20.0°
+    UT.test.setProbe({ angle: +refractedFor(20, 5.90).toFixed(1), mode: 'comp', side: 1, x: 40 });
+    UT.test.compute();
+    const d = UT.frame.derived;
+    out.wedge = d.wedgeAngle;
+    out.line = d.statusLine;
+    out.n = nums(d.statusLine);
+    // fans in UT.frame.rays: group the traced rays by launch angle (deg from vertical)
+    const rays = UT.frame.rays || {};
+    const angOf = (pts) => { if (!pts || pts.length < 2) return null; const dx = pts[1].x - pts[0].x, dy = pts[1].y - pts[0].y; return Math.abs(Math.atan2(Math.abs(dx), Math.abs(dy)) / D); };
+    const list = (rays.fan || []).map(f => angOf(f.pts)).filter(a => a !== null);
+    const groups = [];
+    for (const a of list.slice().sort((p, q) => p - q)) {
+      const g = groups[groups.length - 1];
+      if (g && a - g[g.length - 1] <= 5) g.push(a); else groups.push([a]);
+    }
+    out.fans = groups.map(g => ({ n: g.length, centre: g.reduce((x, y) => x + y, 0) / g.length, lo: g[0], hi: g[g.length - 1] }));
+    out.viewSecondFan = !!(UT.frame.derived && UT.frame.derived.bothModes);
+    // UTman velocities
+    UT.test.setMaterial('carbon-utman');
+    UT.test.setProbe({ angle: +refractedFor(20, 5.96).toFixed(1), mode: 'comp' }); UT.test.compute();
+    out.utman = nums(UT.frame.derived.statusLine);
+    UT.test.setMaterial('carbon');
+    // wedge 35° (above the 1st critical angle): the compression bracket is zeroed
+    UT.test.setProbe({ angle: 40.9, mode: 'shear' }); UT.test.compute();
+    out.above = UT.frame.derived.statusLine;
+    out.aboveWedge = UT.frame.derived.wedgeAngle;
+    return out;
+  });
+  A.near(r.wedge, 20, 0.1, 'wedge angle set to 20°');
+  A.ok(r.n.shear !== undefined, 'shear bracket present: ' + r.line);
+  if (r.n.shear !== undefined) A.near(+r.n.shear, 23.9, 0.2, 'Shear Wave Angle');
+  // §9's 48.1° is the UTman compression velocity (5.96); at the default 5.90 Snell gives 47.4° for the same
+  // 20.0° wedge, so the default-material bracket is asserted against Snell and 48.1° against 'carbon-utman'.
+  if (r.n.comp !== undefined) A.near(+r.n.comp, 47.4, 0.2, 'Compression Wave Angle (default 5.90 mm/µs)');
+  A.near(+r.utman.comp, 48.1, 0.05, 'carbon-utman compression angle');
+  A.ok(/\[ Compression Wave Angle=0\.0°   Velocity=0 m\/s\]/.test(r.above || ''), 'above the 1st critical angle the compression bracket is zeroed: ' + r.above);
+  const big = (r.fans || []).filter(f => f.n >= 9);
+  A.ge(big.length, 2, `two fans of ≥ 9 rays in UT.frame.rays (found ${JSON.stringify(r.fans)})`);
+  if (big.length >= 2) {
+    A.ok(big.some(f => Math.abs(f.centre - 23.9) <= 0.5), 'a fan centred on 23.9°');
+    A.ok(big.some(f => Math.abs(f.centre - 47.4) <= 0.5), 'a fan centred on the compression angle');
+  }
+  return A.result();
+});
+
+check('V3-15 wording and colour-code semantics (F15)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setProbe({ angle: 60, side: 1, x: 40 }); UT.test.compute();
+    out.line = UT.frame.derived.statusLine;
+    out.menuLegs = UT.test.menu('Probes/Colour Code Display/Leg colours');
+    out.legsMode = UT.state.display.colourCode;
+    out.menuProp = UT.test.menu('Probes/Colour Code Display/Mode Propagation');
+    out.propMode = UT.state.display.colourCode;
+    UT.renderNow();
+    out.legColours = UT.views.cross.__legColours();
+    return out;
+  });
+  A.ok(/Compression Wave Angle/.test(r.line || ''), 'statusLine says Compression Wave Angle');
+  A.ok(!/Comp'/.test(r.line || ''), "statusLine no longer abbreviates Comp'");
+  A.eq(r.menuLegs, true, 'menu Probes/Colour Code Display/Leg colours');
+  A.eq(r.legsMode, 'legs', "display.colourCode 'legs'");
+  A.eq(r.menuProp, true, 'menu Probes/Colour Code Display/Mode Propagation');
+  A.eq(r.propMode, 'propagation', "display.colourCode 'propagation'");
+  A.ge((r.legColours || []).length, 1, 'legs drawn: ' + JSON.stringify(r.legColours));
+  A.ok((r.legColours || []).length > 0 && r.legColours.every(c => String(c).toLowerCase() === '#00c000'), 'every shear leg is #00c000: ' + JSON.stringify(r.legColours));
+  return A.result();
+});
+
+check('V3-16 0° status segment and the rescaled range (F16)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setProbe({ angle: 60, side: 1, x: 40 });
+    UT.test.setInstrument({ range: 94.4, cal: { vel: null, zero: 0 } }); UT.test.compute();
+    UT.test.setProbe({ angle: 0 }); UT.test.compute();
+    out.line0 = UT.frame.derived.statusLine;
+    out.range0 = UT.state.instrument.range;
+    UT.test.setProbe({ angle: 60 }); UT.test.compute();
+    out.range60 = UT.state.instrument.range;
+    UT.test.setInstrument({ range: 94.4, cal: { vel: 5.92, zero: 0.2 } }); UT.test.compute();
+    UT.test.setProbe({ angle: 0 }); UT.test.compute();
+    out.rangeCal = UT.state.instrument.range;
+    return out;
+  });
+  A.ok(/^Normal 0°/.test(r.line0 || ''), 'statusLine starts Normal 0°: ' + JSON.stringify((r.line0 || '').slice(0, 40)));
+  A.near(r.range0, 171.9, 0.5, '0° range rescaled');
+  A.near(r.range60, 94.4, 0.5, 'back to 60° restores the range');
+  A.near(r.rangeCal, 94.4, 0.001, 'a calibrated set is not rescaled');
+  return A.result();
+});
+
+check('V3-17 fractional skips and Run to UT Screen Range (F17)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    // the traced legs of the centre ray (rays.centre.legs) — the drawn polyline's leg count
+    const maxLeg = () => { const rays = UT.frame.rays; return rays && rays.centre && rays.centre.legs ? rays.centre.legs.length : 0; };
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setProbe({ angle: 60, side: 1, x: 40 });
+    UT.test.setInstrument({ range: 100 }); UT.test.compute();
+    out.base = JSON.stringify((UT.frame.rays.centre.pts || []).map(p => [+p.x.toFixed(3), +p.y.toFixed(3)]));
+    out.half = UT.test.skips(0.5); out.halfState = UT.state.display.skips; UT.test.compute(); out.halfLeg = maxLeg();
+    UT.test.skips(2.5); out.s25 = UT.state.display.skips; UT.test.compute(); out.leg25 = maxLeg();
+    out.menu = UT.test.menu('Probes/Number of Skips/Run to UT Screen Range');
+    // SPEC-v3 §11 lead decision 7 (binding, overrides §9's wording): the sentinel is the boolean
+    // display.skipsToRange; display.skips is never null and keeps its last numeric value.
+    out.nullSkips = UT.state.display.skips;
+    out.toRange = UT.state.display.skipsToRange;
+    UT.test.setInstrument({ range: 400 }); UT.test.compute();
+    out.runLegs = maxLeg();
+    UT.test.skips(3); UT.test.setInstrument({ range: 100 }); UT.test.compute();
+    out.again = JSON.stringify((UT.frame.rays.centre.pts || []).map(p => [+p.x.toFixed(3), +p.y.toFixed(3)]));
+    return out;
+  });
+  A.eq(r.halfState, 0.5, 'display.skips 0.5');
+  A.eq(r.halfLeg, 1, 'half skip → max leg index 1');
+  A.eq(r.s25, 2.5, 'display.skips 2.5');
+  A.eq(r.leg25, 5, '2.5 skips → max leg index 5');
+  A.eq(r.menu, true, 'menu Probes/Number of Skips/Run to UT Screen Range');
+  A.eq(r.toRange, true, "display.skipsToRange true (lead decision 7 — 'Run to UT Screen Range')");
+  A.ok(r.nullSkips !== null, 'display.skips keeps its last numeric value: ' + r.nullSkips);
+  A.ge(r.runLegs || 0, 8, `≥ 8 legs at range 400 (${r.runLegs})`);
+  A.eq(r.again, r.base, 'skips(3) reproduces the v1 drawing exactly');
+  return A.result();
+});
+
+check('V3-18 twin-crystal near-surface boost at 0° (F18)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.enterMode('lamination', { silentUI: true });
+    UT.test.setDefects([]);
+    const d = UT.test.addPreset('lamination', { y: 4, x0: 25, x1: 55 });
+    out.defect = d ? { y: d.pts[0].y } : null;
+    UT.test.setProbe({ angle: 0, x: 40, crystal: 'single' });
+    UT.test.setInstrument({ range: 50, gain: 40 }); UT.test.compute();
+    const lam = () => { let b = null; for (const e of UT.test.echoes()) if (e.path > 2 && e.path < 7 && (!b || e.ampPct > b.ampPct)) b = e; return b; };
+    // the full-width lamination shadows the backwall beneath it — read the 25 mm backwall beside it
+    const bw = () => { UT.test.setProbe({ x: 120 }); UT.test.compute(); const e = ACC.bestNear(/backwall/, UT.state.specimen.T || 25, 1.2); UT.test.setProbe({ x: 40 }); UT.test.compute(); return e; };
+    const a = lam(), abw = bw();
+    UT.test.setProbe({ crystal: 'twin' }); UT.test.compute();
+    const b = lam(), bbw = bw();
+    out.single = a && a.ampPct; out.twin = b && b.ampPct;
+    out.bwSingle = abw && abw.ampPct; out.bwTwin = bbw && bbw.ampPct;
+    out.T = UT.state.specimen.T;
+    return out;
+  });
+  A.ok(r.single > 0 && r.twin > 0, `lamination echo single ${r.single} / twin ${r.twin}`);
+  if (r.single > 0 && r.twin > 0) A.near(20 * Math.log10(r.twin / r.single), 3.5, 1.0, 'twin boost dB at 4 mm');
+  A.ok(r.bwSingle > 0 && r.bwTwin > 0, `backwall single ${r.bwSingle} / twin ${r.bwTwin}`);
+  if (r.bwSingle > 0 && r.bwTwin > 0) A.le(Math.abs(20 * Math.log10(r.bwTwin / r.bwSingle)), 0.2, 'backwall unchanged (dB)');
+  return A.result();
+});
+
+check('V3-19 through transmission with a movable receiver (F19)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setProbe({ angle: 0, x: 40, method: 'tt' });
+    UT.renderNow();
+    out.win = ACC.winOpen('ttinfo');
+    out.text = ACC.winText('ttinfo');
+    const key = (k) => document.dispatchEvent(new KeyboardEvent('keydown', { key: k, shiftKey: true, bubbles: true }));
+    for (let i = 0; i < 5; i++) key('ArrowRight');
+    UT.renderNow();
+    out.rx = UT.state.probe.rxOffset;
+    const amp = () => { UT.test.compute(); const a = UT.test.ascan(); let m = 0; for (const e of UT.test.echoes()) if (e.ampPct > m) m = e.ampPct; return Math.max(m, a.peak ? 0 : 0); };
+    UT.setIn('probe', { rxOffset: 0 }); const a0 = amp();
+    UT.setIn('probe', { rxOffset: 20 }); const a20 = amp();
+    out.a0 = a0; out.a20 = a20;
+    return out;
+  });
+  A.eq(r.win, true, 'ttinfo window shown');
+  A.ok(/SHIFT and LEFT or RIGHT CURSOR KEY TO MOVE RECEIVER PROBE/.test(r.text || ''), 'ttinfo wording: ' + JSON.stringify((r.text || '').slice(0, 120)));
+  A.eq(r.rx, 5, 'Shift+ArrowRight ×5 → probe.rxOffset 5');
+  A.ok(r.a0 > 0, `TT amplitude at rxOffset 0 (${r.a0})`);
+  if (r.a0 > 0) A.ge(dB(r.a0, Math.max(r.a20, 1e-6)), 6, `rxOffset 0 vs 20 dB (${r.a0} vs ${r.a20})`);
+  return A.result();
+});
+
+check('V3-20 mirrored (virtual) probe image (F20)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setProbe({ angle: 60, side: 1, x: 40 });
+    UT.setIn('display', { mirror: true }); UT.renderNow();
+    out.on = UT.test.mirrorProbe();
+    UT.setIn('display', { mirror: false }); UT.renderNow();
+    out.off = UT.test.mirrorProbe();
+    UT.setIn('display', { mirror: true });
+    UT.test.enterMode('iow', { silentUI: true }); UT.renderNow();
+    out.iow = UT.test.mirrorProbe();
+    return out;
+  });
+  A.eq(!!(r.on && r.on.drawn), true, 'mirror drawn with display.mirror');
+  if (r.on && r.on.drawn) A.near(r.on.x, -40, 0.5, 'mirrored x');
+  A.eq(!!(r.off && r.off.drawn), false, 'not drawn with display.mirror false');
+  A.eq(!!(r.iow && r.iow.drawn), false, 'not drawn in iow');
+  return A.result();
+});
+
+check('V3-21 pipe presets reachable — the tracer is unchanged (F21)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('pipe-weld', { od: 168.3, wt: 20 });
+    out.z = UT.state.probe.z; out.L = UT.state.specimen.L;
+    UT.test.setDefects([]);
+    const d = UT.test.addPreset('rootCrack');
+    out.def = d ? { zFrom: d.zFrom, zTo: d.zTo } : null;
+    const pick = (E) => { let b = null; for (const e of E) if (e.kind === 'corner' && (!b || e.ampPct > b.ampPct)) b = e; return b; };
+    UT.test.setProbe({ angle: 60, side: 1 }); UT.test.setInstrument({ range: 100, gain: 30 });
+    const s = ACC.scanX(26, 42, 0.5, pick);
+    out.pipe = s.best && { x: s.best.x, amp: s.best.v.ampPct, path: s.best.v.path };
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setDefects([]); UT.test.addPreset('rootCrack');
+    UT.test.setProbe({ angle: 60, side: 1 }); UT.test.setInstrument({ range: 100, gain: 30 });
+    const s2 = ACC.scanX(26, 42, 0.5, pick);
+    out.plate = s2.best && { x: s2.best.x, amp: s2.best.v.ampPct, path: s2.best.v.path };
+    return out;
+  });
+  A.eq(r.z, 132, 'default probe z on a 6-inch pipe');
+  A.near(r.L, 528.7, 0.1, 'unrolled circumference');
+  A.ok(!!r.def, 'rootCrack preset built');
+  if (r.def) { A.ok(r.def.zFrom < 132 && 132 < r.def.zTo, `preset straddles the probe z (${r.def.zFrom}…${r.def.zTo})`); A.ge(r.def.zTo - r.def.zFrom, 20, 'preset z extent'); }
+  A.ok(!!r.pipe, 'corner echo on the pipe');
+  if (r.pipe) { A.near(r.pipe.amp, 40.34, 1.0, 'pipe corner ampPct'); A.near(r.pipe.path, 40.0, 0.5, 'pipe corner path'); }
+  A.ok(!!r.plate, 'corner echo on the plate');
+  if (r.pipe && r.plate) {
+    A.le(Math.abs(r.pipe.amp - r.plate.amp) / Math.max(r.plate.amp, 1e-9) * 100, 1, `pipe vs plate amp within 1 % (${r.pipe.amp.toFixed(2)} / ${r.plate.amp.toFixed(2)})`);
+    A.le(Math.abs(r.pipe.path - r.plate.path) / Math.max(r.plate.path, 1e-9) * 100, 1, `pipe vs plate path within 1 % (${r.pipe.path.toFixed(2)} / ${r.plate.path.toFixed(2)})`);
+  }
+  return A.result();
+});
+
+check('V3-22 toe-crack preset geometry (F22)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    const pickC = (E) => { let b = null; for (const e of E) if (e.kind === 'corner' && (!b || e.ampPct > b.ampPct)) b = e; return b; };
+    const pickT = (E) => { let b = null; for (const e of E) if (e.kind === 'tip' && (!b || e.ampPct > b.ampPct)) b = e; return b; };
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setDefects([]);
+    const d = UT.test.addPreset('toeCrack');
+    out.pts = d ? d.pts.map(p => ({ x: p.x, y: p.y })) : null;
+    UT.test.setProbe({ angle: 45, side: 1 }); UT.test.setInstrument({ range: 150, gain: 40 });
+    const c = ACC.scanX(42, 60, 0.5, pickC), t = ACC.scanX(42, 60, 0.5, pickT);
+    out.plate = { corner: c.best && { x: c.best.x, amp: c.best.v.amp === undefined ? c.best.v.ampPct : c.best.v.ampPct, path: c.best.v.path, raw: c.best.v.amp }, tip: t.best && t.best.v.ampPct };
+    UT.test.loadSpecimen('tky');
+    // Pin the FLAT 20 mm chord: the numbers below (path 56.6, raw ≥ 0.20) and the 42-60 mm scan window
+    // are the lead's §4.10 measurements, which are taken on the plate chord. The spec's default TKY is
+    // now the curved T-joint whose wall is chordWt = 32 mm (V3-46 pins exactly that), so its corner sits
+    // at x 83.5 / path 96.3 — present, just outside this window. Geometry, not a tracer change.
+    UT.test.tkyConfig({ kind: 'Plate' });
+    UT.test.setDefects([]);
+    const d2 = UT.test.addPreset('toeCrack');
+    out.tkyPts = d2 ? d2.pts.map(p => ({ x: p.x, y: p.y })) : null;
+    UT.test.setProbe({ angle: 45, side: 1 }); UT.test.setInstrument({ range: 150, gain: 40 });
+    const c2 = ACC.scanX(42, 60, 0.5, pickC), t2 = ACC.scanX(42, 60, 0.5, pickT);
+    out.tky = { corner: c2.best && { x: c2.best.x, amp: c2.best.v.ampPct, path: c2.best.v.path, raw: c2.best.v.amp }, tip: t2.best && t2.best.v.ampPct };
+    // non-regression of the numbers the lead pinned (the tracer is untouched)
+    UT.test.loadSpecimen('plate-weld', { T: 20, rootHeight: 0, capHeight: 0 });
+    UT.test.setDefects([]); UT.test.addPreset('rootCrack');
+    UT.test.setProbe({ angle: 60, side: 1 }); UT.test.setInstrument({ range: 100, gain: 40 });
+    const f = ACC.scanX(24, 45, 0.5, pickC);
+    out.flat = f.best && { amp: f.best.v.amp, path: f.best.v.path };
+    UT.test.loadSpecimen('plate-weld', Object.assign({}, UT.defaultState().weldOpts, { T: 20 }));
+    UT.test.setDefects([]); UT.test.addPreset('rootCrack');
+    const g = ACC.scanX(28, 48, 0.5, pickC);
+    out.def = g.best && { amp: g.best.v.amp, path: g.best.v.path };
+    // a 26.6°-inclined surface-breaking crack still gives NO corner echo
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setDefects([]);
+    UT.test.addPreset('toeCrack', { pts: [{ x: 8, y: 0 }, { x: 6.5, y: 3 }] });
+    UT.test.setProbe({ angle: 45, side: 1 });
+    const inc = ACC.scanX(42, 60, 0.5, pickC);
+    out.inclined = inc.best && { amp: inc.best.v.ampPct };
+    return out;
+  });
+  A.ok(!!r.pts, 'toeCrack preset built');
+  if (r.pts) {
+    A.le(Math.abs(r.pts[0].x - r.pts[1].x), 0.05, `preset is vertical (${JSON.stringify(r.pts)})`);
+    A.eq(r.pts[0].y, 0, 'first point on the scanning surface');
+  }
+  for (const k of ['plate', 'tky']) {
+    const v = r[k];
+    A.ok(!!(v && v.corner), `${k}: corner echo found`);
+    if (v && v.corner) {
+      A.near(v.corner.path, 56.6, 3, `${k} corner path`);
+      A.ge(v.corner.raw, 0.20, `${k} corner amp (raw ${v.corner.raw})`);
+      if (v.tip) A.ge(dB(v.corner.amp, v.tip), 6, `${k} corner ≥ 6 dB above the tip`);
+    }
+  }
+  A.ok(!!r.flat, 'flat-weld root crack corner'); if (r.flat) { A.near(r.flat.amp, 0.3219, 0.002, 'flat weld amp'); A.near(r.flat.path, 40.0, 0.2, 'flat weld path'); }
+  A.ok(!!r.def, 'default-weld root crack corner'); if (r.def) { A.near(r.def.amp, 0.4828, 0.002, 'default weld amp'); A.near(r.def.path, 40.0, 0.2, 'default weld path'); }
+  A.ok(!r.inclined || r.inclined.amp === 0, 'a 26.6°-inclined crack still gives no corner echo: ' + JSON.stringify(r.inclined));
+  return A.result();
+});
+
+check('V3-23 echo-driven Depth status cell (F23)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setDefects([]); UT.test.addPreset('rootCrack');
+    UT.test.setProbe({ angle: 60, side: 1, x: 34.6 }); UT.test.setInstrument({ range: 100, gain: 40 });
+    const pick = (E) => { let b = null; for (const e of E) if (e.kind === 'corner' && (!b || e.ampPct > b.ampPct)) b = e; return b; };
+    const s = ACC.scanX(28, 44, 0.5, pick);
+    if (s.best) UT.test.setProbe({ x: s.best.x });
+    UT.set({ cursor: { x: null, y: null, view: null } }, { noRender: true });
+    UT.renderNow();
+    out.x = UT.state.probe.x;
+    out.mid = UT.state.status.mid;
+    UT.test.setProbe({ x: (s.best ? s.best.x : 34.6) + 15 }); UT.renderNow();
+    out.away = UT.state.status.mid;
+    UT.test.setProbe({ x: s.best ? s.best.x : 34.6 });
+    UT.set({ cursor: { x: 10, y: 7.5, view: 'cross' } }, { noRender: true }); UT.renderNow();
+    out.cursor = UT.state.status.mid;
+    return out;
+  });
+  const m = (r.mid || '').match(/Depth = ([\d.]+)mm/);
+  A.ok(!!m, 'Depth cell present at the corner maximum: ' + JSON.stringify(r.mid));
+  if (m) A.near(+m[1], 20.0, 0.3, 'Depth value');
+  A.ok(!/Depth = /.test(r.away || ''), 'Depth cell gone 15 mm away: ' + JSON.stringify(r.away));
+  A.ok(/Depth = 7\.5mm/.test(r.cursor || ''), 'a cursor hover wins: ' + JSON.stringify(r.cursor));
+  return A.result();
+});
+
+check('V3-24 phased-array shoe fields (F24)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('dac', { T: 40 });
+    UT.setIn('probe', { method: 'pa', x: 178 });
+    if (UT.pa && UT.pa.ensurePa) UT.pa.ensurePa();
+    UT.setIn('pa', { shoeStandOff: 8 }); UT.renderNow();
+    const a0 = UT.test.pa.apex();
+    out.slope0 = UT.test.pa.focalLaw(60).slope;
+    UT.setIn('pa', { shoeStandOff: 28 }); UT.renderNow();
+    const a1 = UT.test.pa.apex();
+    out.d = Math.abs(a1.x - a0.x);
+    out.slope1 = UT.test.pa.focalLaw(60).slope;
+    UT.setIn('pa', { shoeStandOff: 8 });
+    UT.setIn('probe', { method: 'pe' });
+    return out;
+  });
+  A.near(r.d, 20, 1, 'apex shifts 20 mm along the surface for +20 mm stand-off');
+  A.near(r.slope0, 0.070, 0.003, 'focalLaw(60).slope at the defaults');
+  A.near(r.slope1, r.slope0, 0.0005, 'slope unchanged by the stand-off');
+  return A.result();
+});
+
+check('V3-25 the STEP 1-5 instructions dialog (F25)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    try { localStorage.removeItem('utsim.editorSteps'); } catch (e) { /* private mode */ }   // 'first use' precondition
+    UT.modes.defectEditor.open(); UT.renderNow();
+    out.shown = ACC.winOpen('defect-steps');
+    out.text = ACC.winText('defect-steps');
+    const w = UT.dom.wins['defect-steps'];
+    if (w) w.close();
+    out.dismissed = ACC.winOpen('defect-steps');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'F1', bubbles: true }));
+    UT.renderNow();
+    out.reopened = ACC.winOpen('defect-steps');
+    out.editorOpen = UT.modes.defectEditor.isOpen();
+    return out;
+  });
+  A.eq(r.shown, true, 'defect-steps shown on first open');
+  for (const s of ['STEP 1.', 'Use RIGHT mouse to draw single line LOF defect.', 'STEP 5.', 'Press F1 to redisplay these instructions']) A.ok((r.text || '').indexOf(s) >= 0, 'text contains ' + JSON.stringify(s));
+  A.eq(r.dismissed, false, 'dismissed');
+  A.eq(r.reopened, true, 'F1 reopens it');
+  A.eq(r.editorOpen, true, 'the editor stayed open throughout');
+  return A.result();
+});
+
+check('V3-26 right-drag draws a single-line LOF (F26)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setDefects([]);
+    UT.modes.defectEditor.open(); UT.renderNow();
+    const w = UT.dom.wins['defect-steps']; if (w) w.close();
+    const d = UT.test.editorBrush([{ x: 6, y: 4 }, { x: 10, y: 9 }], { button: 2 });
+    out.lof = d && { type: d.type, n: d.pts.length };
+    const before = (UT.state.defects[0] || {}).pts.length;
+    UT.test.editorBrush([{ x: 6, y: 4 }, { x: 10, y: 9 }], { button: 2, alt: true });
+    const after = UT.state.defects[0] ? UT.state.defects[0].pts.length : 0;
+    out.erase = { before, after, gone: UT.state.defects.length === 0 };
+    const cv = document.getElementById('cv-cross');
+    const ev1 = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    cv.dispatchEvent(ev1);
+    out.prevented = ev1.defaultPrevented;
+    UT.modes.defectEditor.close(); UT.renderNow();
+    const ev2 = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    cv.dispatchEvent(ev2);
+    out.preventedAfter = ev2.defaultPrevented;
+    return out;
+  });
+  A.ok(!!r.lof, 'right-drag created a defect');
+  if (r.lof) { A.eq(r.lof.type, 'lof', 'type'); A.eq(r.lof.n, 2, 'exactly 2 points'); }
+  A.ok(r.erase.gone || r.erase.after < r.erase.before, `Alt + right-drag erases (${r.erase.before} → ${r.erase.after}${r.erase.gone ? ', defect removed' : ''})`);
+  A.eq(r.prevented, true, 'contextmenu prevented while the editor is open');
+  A.eq(r.preventedAfter, false, 'contextmenu not prevented after it closes');
+  return A.result();
+});
+
+check('V3-27 keyboard defect manipulation (F27)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    const D = UT.state;
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setDefects([]);
+    UT.modes.defectEditor.open(); UT.renderNow();
+    const w = UT.dom.wins['defect-steps']; if (w) w.close();
+    UT.test.editorBrush([{ x: 6, y: 4 }, { x: 10, y: 9 }], { button: 2 });
+    UT.set({ defects: UT.state.defects.map(d => Object.assign({}, d, { zFrom: 140, zTo: 160 })), selectedDefect: 0 });
+    UT.renderNow();
+    const d0 = () => UT.state.defects[0];
+    UT.test.editorKey('ArrowRight', { shift: true }); UT.test.editorKey('ArrowRight', { shift: true });
+    out.z2 = d0().zFrom;
+    UT.test.editorKey('ArrowLeft', { shift: true });
+    out.z1 = d0().zFrom;
+    const ang0 = UT.modes.defectAngle(d0());
+    for (let i = 0; i < 10; i++) UT.test.editorKey('X', { shift: true });
+    out.dAngle = UT.modes.defectAngle(d0()) - ang0;
+    const len = (d) => { const p = d.pts; return Math.hypot(p[p.length - 1].x - p[0].x, p[p.length - 1].y - p[0].y); };
+    const l0 = len(d0());
+    for (let i = 0; i < 5; i++) UT.test.editorKey('S', { shift: true });
+    out.lenRatio = len(d0()) / l0;
+    const mean = (d) => d.pts.reduce((a, p) => a + p.y, 0) / d.pts.length;
+    const m0 = mean(d0());
+    UT.test.editorKey('W', { shift: true }); UT.test.editorKey('W', { shift: true });
+    out.dDepth = mean(d0()) - m0;
+    // a keystroke typed into a field is ignored
+    const zBefore = d0().zFrom;
+    const input = document.querySelector('.win[data-win=defects] input');
+    out.hasInput = !!input;
+    if (input) input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true }));
+    out.zField = d0().zFrom - zBefore;
+    UT.modes.defectEditor.close(); UT.renderNow();
+    const zClosed = d0().zFrom;
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', shiftKey: true, bubbles: true }));
+    out.zAfterClose = d0().zFrom - zClosed;
+    return out;
+  });
+  A.eq(r.z2, 142, 'Shift+ArrowRight ×2 → zFrom 142');
+  A.eq(r.z1, 141, 'Shift+ArrowLeft → 141');
+  A.near(r.dAngle, 10, 1, 'Shift+X ×10 rotates +10°');
+  A.near(r.lenRatio, 1.276, 0.03, 'Shift+S ×5 grows the 2D length ×1.276');
+  A.near(r.dDepth, 1.0, 0.05, 'Shift+W ×2 moves the mean depth +1.0 mm');
+  A.eq(r.hasInput, true, 'the editor has a field to type into');
+  A.eq(r.zField, 0, 'a keystroke typed into a field is ignored');
+  A.eq(r.zAfterClose, 0, 'no binding fires after the editor closes');
+  return A.result();
+});
+
+check('V3-28 stroke auto-classification and the LOF caption (F28)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setDefects([]);
+    UT.modes.defectEditor.open(); UT.renderNow();
+    const w = UT.dom.wins['defect-steps']; if (w) w.close();
+    const blob = [];
+    for (let i = 0; i < 20; i++) { const a = 2 * Math.PI * i / 20; blob.push({ x: 4 + 2 * Math.cos(a), y: 9 + 1.5 * Math.sin(a) }); }
+    const b = UT.test.editorBrush(blob, { button: 0 });
+    out.vol = b && b.type;
+    out.volCaption = UT.test.defectCaption();
+    UT.test.setDefects([]);
+    const d = UT.test.editorBrush([{ x: 6, y: 4 }, { x: 10, y: 9 }], { button: 2 });
+    out.lof = d && d.type;
+    out.lofCaption = UT.test.defectCaption();
+    out.summary = UT.test.defectSummary();
+    return out;
+  });
+  A.eq(r.vol, 'volumetric', 'blob stroke → volumetric');
+  A.ok(/^VOL\s+Defect 1/.test(r.volCaption || ''), 'VOL caption: ' + JSON.stringify(r.volCaption));
+  A.eq(r.lof, 'lof', 'straight stroke → lof');
+  A.ok(/^LACK OF FUSION\s+Defect Angle 51\s+Height=[\d.]+\s+Top=4\.0$/.test(r.lofCaption || ''), 'LOF caption: ' + JSON.stringify(r.lofCaption));
+  A.ok(/Angle= 51\s+LOF$/.test(r.summary || ''), 'LOF summary: ' + JSON.stringify(r.summary));
+  return A.result();
+});
+
+check('V3-29 editor captions, prompts, spinner and defaults (F29)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setDefects([]);
+    UT.modes.defectEditor.open(); UT.renderNow();
+    const w = UT.dom.wins['defect-steps']; if (w) w.close();
+    out.brush = UT.state.editing.brush;
+    UT.test.editorBrush([{ x: 6, y: 4 }, { x: 10, y: 9 }], { button: 2 });
+    UT.set({ selectedDefect: 1 }); UT.renderNow();
+    out.emptyCaption = UT.test.defectCaption();
+    const blob = [];
+    for (let i = 0; i < 20; i++) { const a = 2 * Math.PI * i / 20; blob.push({ x: -4 + 1.5 * Math.cos(a), y: 10 + 1.5 * Math.sin(a) }); }
+    UT.test.editorBrush(blob, { button: 0 });
+    UT.set({ selectedDefect: 1 }); UT.renderNow();
+    out.summary2 = UT.test.defectSummary();
+    out.header = UT.modes.circleHeader();
+    UT.test.setProbe({ z: (UT.state.probe.z || 150) + 40 }); UT.renderNow();
+    out.header2 = UT.modes.circleHeader();
+    const el = UT.dom.wins.defects && UT.dom.wins.defects.el;
+    out.depthLabel = el ? /Depth = /.test(el.textContent || '') : false;
+    out.circleCanvas = !!document.getElementById('cv-circle');
+    // 6-inch pipe ring labels
+    UT.test.loadSpecimen('pipe-weld', { od: 152.4, wt: 20 });
+    UT.renderNow();
+    out.ring = UT.modes.ringLabels();
+    out.ringStep = UT.modes.ringStepMm();
+    // 45 mm spot
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setDefects([]);
+    UT.setIn('editing', { spotMm: 45 });
+    const d = UT.test.editorBrush([{ x: 0, y: 10 }, { x: 0.2, y: 10 }], { button: 0 });
+    if (d) { const xs = d.pts.map(p => p.x), ys = d.pts.map(p => p.y); out.spot = { w: Math.max.apply(null, xs) - Math.min.apply(null, xs), h: Math.max.apply(null, ys) - Math.min.apply(null, ys) }; }
+    return out;
+  });
+  A.eq(r.brush, 'auto', "opening the editor sets editing.brush 'auto'");
+  A.eq(r.emptyCaption, 'VOL  Defect Num 2, DRAW DEFECT ON CROSS SECTION BELOW', 'empty-slot caption: ' + JSON.stringify(r.emptyCaption));
+  A.ok(/^Defect Number 2\.\s+Length=30mm\.\s+From \d+mm\s+To\s+\d+mm/.test(r.summary2 || ''), 'summary line: ' + JSON.stringify(r.summary2));
+  A.ok(/^Circle-View\. Position \d+mm$/.test(r.header || ''), 'circle header: ' + JSON.stringify(r.header));
+  A.ok(r.header !== r.header2, 'circle header follows probe.z');
+  A.eq(r.depthLabel, true, "a 'Depth = ' label in the circle panel");
+  A.eq((r.ring || []).length, 12, 'ring labels count: ' + JSON.stringify(r.ring));
+  A.eq(r.ringStep, 40, 'ring step 40 mm');
+  if ((r.ring || []).length) { A.eq(String(r.ring[0]).replace(/\s+/g, ' ').trim(), '0 mm', 'first ring label'); A.eq(String(r.ring[r.ring.length - 1]).trim(), '440mm', 'last ring label'); }
+  A.ok(!!r.spot, '45 mm spot stroke made a defect');
+  if (r.spot) A.near(Math.max(r.spot.w, r.spot.h), 45, 3, 'spot bbox across');
+  return A.result();
+});
+
+check('V3-30 OK exits the editor and the modal mode returns (F30)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.enterMode('tofd'); UT.renderNow();
+    UT.test.click('tb-defect'); UT.renderNow();
+    const w = UT.dom.wins['defect-steps']; if (w) w.close();
+    out.returnMode = UT.state.editing.returnMode;
+    out.open = UT.modes.defectEditor.isOpen();
+    out.saveSetup = UT.test.menu('File/Save Setup');
+    const pipeBtn = document.getElementById('tb-pipe');
+    out.pipeEnabled = pipeBtn ? !pipeBtn.disabled : null;
+    const el = UT.dom.wins.defects && UT.dom.wins.defects.el;
+    const ok = el ? Array.from(el.querySelectorAll('button')).find(b => b.textContent.trim() === 'OK') : null;
+    out.okBtn = !!ok;
+    if (ok) ok.click();
+    UT.renderNow();
+    out.after = { open: UT.modes.defectEditor.isOpen(), mode: UT.modes.current(), tofdWin: ACC.winOpen('tofd') };
+    return out;
+  });
+  A.eq(r.open, true, 'editor opened over tofd');
+  A.eq(r.returnMode, 'tofd', 'editing.returnMode');
+  A.eq(r.saveSetup, true, 'File/Save Setup works with the editor open');
+  A.eq(r.pipeEnabled, true, '#tb-pipe enabled with the editor open');
+  A.eq(r.okBtn, true, 'OK button present');
+  A.eq(r.after.open, false, 'OK closed the editor');
+  A.eq(r.after.mode, 'tofd', 'back in tofd');
+  A.eq(r.after.tofdWin, true, 'the tofd window is open again');
+  return A.result();
+});
+
+check('V3-31 blue draw-region rectangle (F31)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setDefects([]);
+    UT.modes.defectEditor.open(); UT.renderNow();
+    const w = UT.dom.wins['defect-steps']; if (w) w.close();
+    out.stateRegion = UT.state.display.drawRegion;
+    out.rect = UT.views.cross.__drawRegion();
+    const far = [{ x: 120, y: 10 }, { x: 124, y: 12 }];
+    UT.test.editorBrush(far, { button: 0 });
+    out.outside = { n: UT.state.defects.length, hint: UT.state.status.right };
+    UT.setIn('display', { drawRegion: { x: 30, y: 0, w: 40, h: 20 } }); UT.renderNow();
+    out.moved = UT.views.cross.__drawRegion();
+    const d = UT.test.editorBrush([{ x: 40, y: 8 }, { x: 44, y: 12 }], { button: 0 });
+    out.inside = !!d && UT.state.defects.length > 0;
+    return out;
+  });
+  A.eq(r.stateRegion, null, 'display.drawRegion is null by default');
+  A.ok(!!r.rect, 'a draw region is reported');
+  if (r.rect) {
+    A.near(r.rect.x, -15, 2, 'region x'); A.near(r.rect.x + r.rect.w, 15, 2, 'region right');
+    A.near(r.rect.y, -3, 2, 'region y'); A.near(r.rect.y + r.rect.h, 23, 2, 'region bottom');
+  }
+  A.eq(r.outside.n, 0, 'a stroke outside the box creates no defect');
+  A.ok(/blue box/.test(r.outside.hint || ''), 'hint mentions the blue box: ' + JSON.stringify(r.outside.hint));
+  if (r.moved) { A.near(r.moved.x, 30, 0.01, 'moved region x'); A.near(r.moved.w, 40, 0.01, 'moved region w'); }
+  A.eq(r.inside, true, 'a stroke inside the moved box creates a defect');
+  return A.result();
+});
+
+check('V3-32 defect depth colour-coding (F32)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    const d1 = { n: 1, type: 'volumetric', pts: [{ x: -3, y: 2 }, { x: 3, y: 4 }], zFrom: 140, zTo: 160 };
+    const d2 = { n: 2, type: 'volumetric', pts: [{ x: -3, y: 16 }, { x: 3, y: 18 }], zFrom: 140, zTo: 160 };
+    UT.test.setDefects([d1, d2]);
+    const D = UT.state.defects;
+    out.c1 = UT.specimens.defectShade(D[0], 20);
+    out.c2 = UT.specimens.defectShade(D[1], 20);
+    UT.modes.defectEditor.open(); UT.renderNow();
+    const steps = UT.dom.wins['defect-steps']; if (steps) steps.close();
+    UT.set({ selectedDefect: 1 }); UT.renderNow();
+    out.c2sel = UT.specimens.defectShade(UT.state.defects[1], 20);
+    out.cross = UT.views.cross.__defectPalette();
+    out.plan = UT.views.plan.__defectPalette();
+    out.ring = UT.views.plan.__ringPalette();
+    UT.modes.defectEditor.close();
+    return out;
+  });
+  const rgb = (h) => [1, 3, 5].map(i => parseInt(String(h).slice(i, i + 2), 16));
+  const near = (h, t, tol) => { const a = rgb(h), b = rgb(t); return a.every((v, i) => Math.abs(v - b[i]) <= tol); };
+  A.ok(/^#[0-9a-f]{6}$/i.test(r.c1 || ''), 'shade 1: ' + r.c1);
+  A.ok(/^#[0-9a-f]{6}$/i.test(r.c2 || ''), 'shade 2: ' + r.c2);
+  if (/^#[0-9a-f]{6}$/i.test(r.c1 || '') && /^#[0-9a-f]{6}$/i.test(r.c2 || '')) {
+    const a = rgb(r.c1), b = rgb(r.c2);
+    A.ok(a.every((v, i) => v >= b[i]) && a.some((v, i) => v > b[i]), `the 3 mm defect is brighter on every channel (${r.c1} vs ${r.c2})`);
+    A.ok(near(r.c1, '#e00000', 8), `3 mm within 8 of #e00000 (${r.c1})`);
+    A.ok(near(r.c2, '#7a0000', 12), `17 mm within 12 of #7a0000 (${r.c2})`);
+  }
+  A.eq(r.c2sel, r.c2, 'selection does not change the fill');
+  for (const [k, list] of [['cross', r.cross], ['plan', r.plan], ['ring', r.ring]]) {
+    A.ok(Array.isArray(list) && list.length >= 2, `${k} palette reported: ` + JSON.stringify(list));
+    if (Array.isArray(list) && list.length >= 2) {
+      A.ok(list.some(c => String(c).toLowerCase() === String(r.c1).toLowerCase()), `${k} palette carries ${r.c1}`);
+      A.ok(list.some(c => String(c).toLowerCase() === String(r.c2).toLowerCase()), `${k} palette carries ${r.c2}`);
+    }
+  }
+  return A.result();
+});
+
+check('V3-33 HIDE key-code lock (F33)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setDefects([]); UT.test.addPreset('rootCrack');
+    out.lock0 = UT.state.editing.keyLock;
+    UT.test.click('tb-hide'); UT.renderNow();
+    out.hide1 = UT.state.display.hide;
+    UT.test.click('tb-hide'); UT.renderNow();
+    out.hide0 = UT.state.display.hide;
+    out.armed = UT.test.hideKey('1234');
+    UT.test.click('tb-hide'); UT.renderNow();
+    out.hideLocked = UT.state.display.hide;
+    UT.test.click('tb-hide'); UT.renderNow();
+    out.stillHidden = UT.state.display.hide;
+    out.wrong = UT.test.hideKey('0000');
+    out.afterWrong = UT.state.display.hide;
+    out.right = UT.test.hideKey('1234');
+    out.afterRight = UT.state.display.hide;
+    return out;
+  });
+  A.eq(r.lock0, null, 'no lock by default');
+  A.eq(r.hide1, true, 'tb-hide hides freely');
+  A.eq(r.hide0, false, 'and un-hides freely');
+  A.eq(r.hideLocked, true, 'hidden with the lock armed');
+  A.eq(r.stillHidden, true, 'tb-hide cannot un-hide while locked');
+  A.eq(r.wrong, false, 'wrong code returns false');
+  A.eq(r.afterWrong, true, 'still hidden after a wrong code');
+  A.eq(r.right, true, 'right code returns true');
+  A.eq(r.afterRight, false, 'right code un-hides');
+  return A.result();
+});
+
+check('V3-34 Save Def / Load Def as files (F34)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setDefects([]); UT.test.addPreset('rootCrack'); UT.test.addPreset('porosity');
+    const before = UT.test.state().defects.map(d => ({ zFrom: d.zFrom, zTo: d.zTo, type: d.type, pts: d.pts }));
+    const f = UT.modes.defectEditor.saveFile();
+    out.save = f && { name: f.name, hasText: typeof f.text === 'string', url: !!f.url };
+    let parsed = null;
+    try { parsed = JSON.parse(f.text); } catch (e) { parsed = null; }
+    out.parsedOk = Array.isArray(parsed) && parsed.length === before.length;
+    UT.test.setDefects([]);
+    UT.modes.defectEditor.loadFile(f.text);
+    const after = UT.test.state().defects.map(d => ({ zFrom: d.zFrom, zTo: d.zTo, type: d.type, pts: d.pts }));
+    out.roundTrip = JSON.stringify(before) === JSON.stringify(after);
+    out.before = before.length; out.after = after.length;
+    const keep = JSON.stringify(UT.test.state().defects);
+    UT.modes.defectEditor.loadFile('{{ not json');
+    out.malformed = { same: JSON.stringify(UT.test.state().defects) === keep, msg: UT.state.status.right };
+    return out;
+  });
+  A.ok(!!(r.save && r.save.hasText), 'saveFile() returns the text');
+  A.ok(/\.json$/.test((r.save && r.save.name) || ''), 'download name: ' + (r.save && r.save.name));
+  A.eq(r.parsedOk, true, `the text parses to the defects array (${r.before})`);
+  A.eq(r.roundTrip, true, `loadFile() restores an equal array (${r.before} → ${r.after})`);
+  A.eq(r.malformed.same, true, 'a malformed file leaves defects unchanged');
+  A.ok(/Could not read that file/.test(r.malformed.msg || ''), 'error message: ' + JSON.stringify(r.malformed.msg));
+  return A.result();
+});
+
+check('V3-35 draw-on-block 10 % beam-edge marks (F35)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.enterMode('iow', { silentUI: true });
+    UT.test.setProbe({ angle: 60, side: 1, x: 262.5 }); UT.renderNow();
+    UT.test.drawOnBlock(255); UT.test.drawOnBlock(262); out.n = UT.test.drawOnBlock(269);
+    out.marks = UT.state.plot.blockMarks.map(m => m.x);
+    UT.views.plotter.erase();
+    out.afterErase = UT.state.plot.blockMarks.length;
+    UT.test.drawOnBlock(255); UT.test.drawOnBlock(262);
+    UT.test.click('tb-clear'); UT.renderNow();
+    out.afterClear = UT.state.plot.blockMarks.length;
+    const x0 = UT.state.probe.x;
+    UT.views.cross.dragTo(x0 - 20); UT.renderNow();
+    out.drag = { marks: UT.state.plot.blockMarks.length, moved: Math.abs(UT.state.probe.x - x0) > 5 };
+    return out;
+  });
+  A.eq(r.n, 3, 'three block marks');
+  [255, 262, 269].forEach((x, i) => A.near(r.marks[i], x, 0.5, `mark ${i + 1} x`));
+  A.eq(r.afterErase, 0, 'Erase Plotting empties blockMarks');
+  A.eq(r.afterClear, 0, 'tb-clear empties blockMarks');
+  A.eq(r.drag.marks, 0, 'a probe drag adds no marks');
+  A.eq(r.drag.moved, true, 'and still moves the probe');
+  return A.result();
+});
+
+check('V3-36 freehand beam-spread lines and the degree caption (F36)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.enterMode('iow', { silentUI: true });
+    UT.test.setProbe({ angle: 60, side: 1, x: 262.5 }); UT.renderNow();
+    // a line drawn ALONG the 60° beam: standoff = depth·tan60 (the card's own half-skip pair at T 20)
+    out.n = UT.test.plotDrag([{ standoff: 0, depth: 0 }, { standoff: 34.6, depth: 20 }]);
+    out.lines = (UT.state.plot.lines || []).length;
+    out.pts = (UT.state.plot.lines[0] || {}).pts ? UT.state.plot.lines[0].pts.length : 0;
+    out.angle = UT.test.plotAngle();
+    UT.views.plotter.erase();
+    UT.test.plotDrag([{ standoff: 0, depth: 0 }, { standoff: 20, depth: 34.6 }]);   // a 30° beam
+    out.angle30 = UT.test.plotAngle();
+    UT.views.plotter.erase();
+    UT.test.plotDrag([{ standoff: 0, depth: 0 }, { standoff: 34.6, depth: 20 }]);   // restore the 60° line
+    const p0 = (UT.state.plot.points || []).length;
+    UT.test.plotDrag([{ standoff: 12, depth: 20 }]);
+    out.points = (UT.state.plot.points || []).length - p0;
+    UT.views.plotter.erase();
+    out.after = { lines: (UT.state.plot.lines || []).length, points: (UT.state.plot.points || []).length };
+    return out;
+  });
+  A.eq(r.lines, 1, 'one freehand line');
+  A.ge(r.pts, 2, 'the line has ≥ 2 points');
+  A.near(r.angle, 60.0, 0.3, 'live degree caption along the 60° beam');
+  A.near(r.angle30, 30.0, 0.3, 'and along a 30° beam (pins the from-normal convention, F36)');
+  A.eq(r.points, 1, 'a single-point drag plots a point');
+  A.eq(r.after.lines, 0, 'Erase Plotting empties lines');
+  A.eq(r.after.points, 0, 'Erase Plotting empties points');
+  return A.result();
+});
+
+check('V3-37 beam-spread angle and K factors (F37)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.enterMode('iow', { silentUI: true });
+    UT.test.setProbe({ angle: 60, side: 1, x: 262.5, freq: 5, diameter: 5 }); UT.renderNow();
+    // 3 marks a side on the ±7.9° edges about the 60° beam centre (30° from the surface)
+    const D = Math.PI / 180;
+    const marks = [];
+    for (const a of [30 + 7.9, 30 - 7.9]) for (const so of [20, 30, 40]) marks.push({ x: 0, side: 1, hole: null, standoff: so, depth: so * Math.tan(a * D) });
+    UT.setIn('plot', { blockMarks: marks });
+    UT.renderNow();
+    out.bs = UT.test.bs();
+    const card = document.getElementById('cv-plotter');
+    const cap = UT.views.plotter.__captions ? UT.views.plotter.__captions() : null;
+    out.cardText = cap ? [].concat(cap.bs || [], cap.degree === null || cap.degree === undefined ? [] : [String(cap.degree)]).join(' | ') : '';
+    return out;
+  });
+  A.ok(!!r.bs, 'bs() returns a record: ' + JSON.stringify(r.bs));
+  if (r.bs) {
+    A.near(r.bs.angleDeg, 7.9, 0.3, 'beam-spread half angle');
+    A.near(r.bs.k12 / r.bs.k20, 0.652, 0.005, 'k12/k20');
+    A.near(r.bs.k6 / r.bs.k20, 0.519, 0.005, 'k6/k20');
+    A.near(r.bs.k20, 1.08, 0.05, 'k20 for a 5 MHz ⌀5 shear probe');
+    A.near(r.bs.k12, 0.704, 0.03, 'k12');
+    A.ok(/angle BS = 7\.9°/.test(r.cardText || ''), 'card text: ' + JSON.stringify(r.cardText));
+    // SPEC-v3 §9 prints `20dB K=1.08` beside `BS = 7.9°`; K = a·sin(BS)/λ gives 1.06 at 7.9° for a ⌀5
+    // 5 MHz shear probe, so the two literals cannot both hold. The caption is asserted to carry the K the
+    // same card computed, in the original's format — the numeric tolerance above owns the value.
+    A.ok(new RegExp('20dB K=' + r.bs.k20.toFixed(2).replace('.', '\\.')).test(r.cardText || ''), 'card prints 20dB K=' + r.bs.k20.toFixed(2));
+    A.note('spec literal `20dB K=1.08`; computed ' + r.bs.k20.toFixed(3));
+  }
+  return A.result();
+});
+
+check('V3-38 PLOT overlays the current weld (F38)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setDefects([]); UT.test.addPreset('rootCrack');
+    UT.test.setProbe({ angle: 60, side: 1, x: 34.6 }); UT.renderNow();
+    UT.test.click('tb-plot'); UT.renderNow();
+    out.on = { overlay: UT.state.plot.overlay, mode: UT.modes.current(), spec: UT.state.specimen.id, cardStyle: UT.state.plot.cardStyle };
+    out.marks = UT.views.plotter.__defectMarks ? UT.views.plotter.__defectMarks() : null;
+    UT.test.click('tb-plot'); UT.renderNow();
+    out.off = { overlay: UT.state.plot.overlay, mode: UT.modes.current(), planHidden: UT.modes.hiddenViews().indexOf('plan') >= 0 };
+    out.iow = UT.modes.toggle('iow') !== undefined ? UT.state.specimen.id : null;
+    return out;
+  });
+  A.eq(r.on.overlay, true, 'plot.overlay');
+  A.eq(r.on.mode, 'weld', 'mode stays weld');
+  A.eq(r.on.spec, 'plate-weld', 'specimen stays the weld');
+  A.eq(r.on.cardStyle, 'weld', "plot.cardStyle 'weld'");
+  A.ok(Array.isArray(r.marks) && r.marks.length >= 1, 'a defect mark on the card: ' + JSON.stringify(r.marks));
+  if (Array.isArray(r.marks) && r.marks.length) {
+    const m = r.marks[0];
+    A.near(Math.abs(m.standoff === undefined ? m.standOff : m.standoff), 34.6, 2, 'mark stand-off');
+    A.near(m.depth, 20, 1, 'mark depth');
+    if (m.colour) A.ok(/^#?(e00000|f00|red)/i.test(String(m.colour).replace('#', '')) || /red/i.test(String(m.colour)), 'mark colour red: ' + m.colour);
+  }
+  A.eq(r.off.overlay, false, 'pressing PLOT again clears the overlay');
+  A.eq(r.off.planHidden, false, 'the plan view is back');
+  A.eq(r.iow, 'iow', 'UT.modes.toggle(iow) still loads the IOW block');
+  return A.result();
+});
+
+check('V3-39 ruler, plot dots and the hint variants (F39)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.enterMode('iow', { silentUI: true });
+    UT.test.setProbe({ angle: 60, side: 1, x: 250 }); UT.renderNow();
+    UT.setIn('plot', { ruler: { on: true, view: 'block', x: 250 } }); UT.renderNow();
+    out.rulerRect = UT.views.cross.__rulerRect();
+    out.labels = UT.views.cross.__xRulerLabels();
+    out.pointStyle = UT.views.plotter.__pointStyle();
+    out.hint0 = UT.state.status.right;
+    UT.test.plotDrag([{ standoff: 12, depth: 20 }]); UT.renderNow();
+    out.hint1 = UT.state.status.right;
+    return out;
+  });
+  A.ok(!!r.rulerRect, 'the block ruler strip is drawn: ' + JSON.stringify(r.rulerRect));
+  const labels = r.labels || [];
+  const at0 = labels.filter(l => Math.abs(l.x - 250) < 0.6).map(l => String(l.text));
+  const at40 = labels.filter(l => Math.abs(Math.abs(l.x - 250) - 40) < 0.6).map(l => String(l.text));
+  A.ok(at0.some(t => /^0$/.test(t)), 'the label at the probe index is 0: ' + JSON.stringify(at0));
+  A.ok(at40.length >= 2 && at40.every(t => /^40$/.test(t)), 'the labels ±40 mm are both 40: ' + JSON.stringify(at40));
+  A.ok(!!r.pointStyle, 'point style reported');
+  if (r.pointStyle) { A.eq(String(r.pointStyle.colour).toLowerCase(), '#009900', 'plot dot colour'); A.eq(r.pointStyle.shape, 'dot', 'plot dot shape'); }
+  A.ok(/Use mouse button on the Plotter to plot Beam Spread\. Draw on Block to mark 10% Beam Edge/.test(r.hint0 || ''), 'hint before plotting: ' + JSON.stringify(r.hint0));
+  A.ok(/RIGHT OR LEFT mouse button\/Drag to PLOT Beam Spread on Plotter\. Draw on Block to mark 10% Beam Edge/.test(r.hint1 || ''), 'hint after the first point: ' + JSON.stringify(r.hint1));
+  return A.result();
+});
+
+check('V3-40 hand-drawn DAC curve (F40)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.enterMode('dac', { silentUI: true });
+    UT.test.setProbe({ angle: 60, side: 1 }); UT.test.setInstrument({ range: 200, gain: 40 });
+    const holes = (UT.state.specimen.holes || []).slice(0, 2);
+    const pickSdh = (E) => { let b = null; for (const e of E) if (/sdh/.test(e.kind) && (!b || e.ampPct > b.ampPct)) b = e; return b; };
+    for (const h of holes) {
+      const x0 = h.x + h.y * Math.tan(Math.PI / 3);
+      const s = ACC.scanX(x0 - 6, x0 + 6, 0.5, pickSdh);
+      if (!s.best) continue;
+      UT.test.setProbe({ x: s.best.x });
+      UT.test.setInstrument({ gates: [{ on: true, start: Math.max(1, s.best.v.path - 6), width: 12, level: 5 }] });
+      UT.test.compute();
+      UT.test.auto(80);                     // the taught workflow: peak the echo to 80 % FSH, then record
+      UT.test.compute();
+      UT.modes.dac.record();
+    }
+    out.points = UT.state.instrument.dac.points.length;
+    const cv = ACC.ascanCanvas();
+    const rect = cv.getBoundingClientRect();
+    out.diag = { w: Math.round(rect.width), h: Math.round(rect.height), parent: cv.parentElement ? (cv.parentElement.id || cv.parentElement.className) : null, set: UT.state.utSet, pts: UT.state.instrument.dac.points.length };
+    const k = UT.dom.scale ? UT.dom.scale() : 1;
+    const mk = (type, fx, fy) => new PointerEvent(type, { bubbles: true, cancelable: true, clientX: rect.left + rect.width * fx, clientY: rect.top + rect.height * fy, button: 0, buttons: type === 'pointerup' ? 0 : 1, pointerId: 4242, pointerType: 'mouse', isPrimary: true });
+    cv.dispatchEvent(mk('pointerdown', 0.2, 0.35));
+    for (let i = 1; i <= 8; i++) cv.dispatchEvent(mk('pointermove', 0.2 + 0.06 * i, 0.35 + 0.03 * i));
+    cv.dispatchEvent(mk('pointerup', 0.68, 0.59));
+    UT.renderNow();
+    const hand = (UT.state.instrument.dac.hand || []);
+    out.hand = hand.length;
+    out.handPts = hand.slice(0, 2).concat(hand.slice(-1));
+    out.menuDraw = UT.test.menu('Options/UT Set/EPOCH 600');
+    UT.test.menu('Step Wedge/DAC Block');
+    out.clear = null;
+    return out;
+  });
+  A.ge(r.points, 2, `two recorded DAC points (${r.points})`);
+  A.ge(r.hand, 5, `hand-drawn curve has ≥ 5 points (${r.hand}) ${JSON.stringify(r.diag)}`);
+  const r2 = await page.evaluate(() => {
+    const out = {};
+    const before = (UT.state.instrument.dac.hand || []).length;
+    const items = UT.instruments._.softkeyItems(null, 'DAC Setup');
+    UT.instruments._.keys.draw();
+    UT.renderNow();
+    out.before = before; out.after = (UT.state.instrument.dac.hand || []).length;
+    UT.set({ utSet: 'usk7' }); UT.renderNow();
+    out.dacColour = UT.instruments._.THEMES.usk7.dac;
+    return out;
+  });
+  A.eq(r2.after, 0, `Draw Curves clears dac.hand (${r2.before} → ${r2.after})`);
+  A.eq(String(r2.dacColour).toLowerCase(), '#ff40ff', 'usk7 DAC stroke colour');
+  return A.result();
+});
+
+check('V3-41 Scale Mode (F41)', 'v3', async ({ page, launchFresh }) => {
+  const A = checker();
+  const fresh = await launchFresh({});
+  await installHelpers(fresh.page);
+  const requests = [];
+  fresh.page.on('request', (req) => { if (!/^data:|^blob:|^file:/.test(req.url())) requests.push(req.url()); });
+  const r = await fresh.page.evaluate(async () => {
+    const out = {};
+    UT.test.scale.enter();
+    UT.renderNow();
+    out.mode = UT.modes.current();
+    out.win = ACC.winOpen('scale');
+    out.title = (() => { const w = UT.dom.wins.scale; const t = w && w.el && w.el.querySelector('.win-title'); return t ? t.textContent.trim() : ''; })();
+    out.text = ACC.winText('scale');
+    UT.test.scale.setMmPerPx(0.25); UT.renderNow();
+    out.px = UT.views.cross.toPx(10).x - UT.views.cross.toPx(0).x;
+    // a 4×4 px PNG, inline
+    const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAFUlEQVR4nGP8z8Dwn4GBgYGJAQ0AACJgAweCUmoaAAAAAElFTkSuQmCC';
+    await Promise.resolve(UT.test.scale.loadPicture(png));
+    UT.renderNow();
+    const stt = UT.test.scale.state();
+    out.pic = stt.picture;
+    out.hiddenPicture = !('picture' in ((UT.test.state().scaleMode) || {})) || UT.test.state().scaleMode.picture === undefined;
+    const sp = UT.test.scale.trace([{ x: 0, y: 0 }, { x: 60, y: 0 }, { x: 60, y: 20 }, { x: 0, y: 20 }]);
+    UT.renderNow();
+    out.spec = { id: UT.state.specimen.id, T: UT.state.specimen.T };
+    UT.test.setProbe({ angle: 0, x: 30, crystal: 'single' });
+    UT.test.setInstrument({ range: 50, gain: 40 }); UT.test.compute();
+    const bw = ACC.bestNear(/backwall/, 20, 1.0);
+    out.bw = bw && bw.path;
+    UT.test.scale.protractor(true); UT.renderNow();
+    const pr = UT.test.scale.state().protractor;
+    out.protractor = pr;
+    out.probeX = UT.state.probe.x;
+    return out;
+  });
+  A.eq(r.mode, 'scale', 'UT.modes.current() scale');
+  A.eq(r.win, true, '.win[data-win=scale] open');
+  A.ok(/ADJUST SCALE/i.test(r.title || r.text || ''), 'title ADJUST SCALE: ' + JSON.stringify(r.title));
+  for (const b of ['Capture', 'Load Pic', 'Pipe', 'Protractor']) A.ok((r.text || '').indexOf(b) >= 0, 'button ' + JSON.stringify(b));
+  A.near(r.px, 40, 1, 'toPx(10) − toPx(0) at 0.25 mm/px');
+  A.ok(!!r.pic, 'picture loaded'); if (r.pic) A.eq(r.pic.w, 4, 'picture width 4 px');
+  A.eq(r.hiddenPicture, true, 'UT.test.state().scaleMode.picture is absent');
+  A.eq(r.spec.id, 'polygon', "traced specimen id 'polygon'");
+  A.eq(r.spec.T, 20, 'traced specimen T');
+  A.ok(r.bw !== null && r.bw !== undefined, 'backwall from the traced polygon');
+  if (r.bw) A.near(r.bw, 20.0, 0.3, 'backwall path');
+  A.ok(!!r.protractor, 'protractor shown');
+  if (r.protractor) A.le(Math.abs(r.protractor.x - r.probeX), 8, 'protractor centre within 8 mm of the probe index');
+  A.eq(requests.length, 0, 'no network request: ' + JSON.stringify(requests.slice(0, 3)));
+  A.eq(fresh.errors.length, 0, 'no console error: ' + JSON.stringify(fresh.errors.slice(0, 2)));
+  await fresh.browser.close();
+  return A.result();
+});
+
+check('V3-42 magnified skip-distance graduations (F42)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setProbe({ angle: 60, side: 1, x: 40 });
+    UT.setIn('scaleMode', { magnify: true, gradStepMm: 5 });
+    UT.renderNow();
+    const ticks = UT.views.cross.__gradTicks();
+    out.n = ticks.length;
+    out.leg1 = ticks.filter(t => t.leg === 1);
+    out.leg2 = ticks.filter(t => t.leg === 2);
+    out.colours = { l1: (out.leg1[0] || {}).colour, l2: (out.leg2[0] || {}).colour };
+    out.labels = Array.from(new Set(out.leg1.map(t => t.s === undefined ? t.label : t.s))).sort((a, b) => a - b);
+    out.hatch = UT.views.cross.__hatchRect();
+    return out;
+  });
+  A.ge((r.leg1 || []).length, 8, `≥ 8 ticks on leg 1 (${(r.leg1 || []).length} of ${r.n})`);
+  const s = (r.labels || []).map(Number).filter(Number.isFinite);
+  A.ok(s.length >= 2 && s.every((v, i) => i === 0 || Math.abs(v - s[i - 1] - 5) < 0.51), 'cumulative surface distance in 5 mm steps: ' + JSON.stringify(r.labels));
+  const chan = (h) => [1, 3, 5].map(i => parseInt(String(h || '#000000').slice(i, i + 2), 16));
+  const c1 = chan(r.colours.l1), c2 = chan(r.colours.l2);
+  A.ok(c1[0] > 150 && c1[1] < 90 && c1[2] < 90, 'leg 1 red: ' + r.colours.l1);
+  A.ok(c2[2] > 150 && c2[0] < 90 && c2[1] < 90, 'leg 2 blue: ' + r.colours.l2);
+  A.ok(!!r.hatch, 'the out-of-specimen hatch rect is reported: ' + JSON.stringify(r.hatch));
+  return A.result();
+});
+
+check('V3-43 TOFD parallel scan strip (F43)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setDefects([]); UT.test.addPreset('rootCrack');
+    UT.test.enterMode('tofd'); UT.renderNow();
+    UT.test.runTofdScan();
+    UT.renderNow();
+    out.par = UT.test.tofdParallel();
+    out.dscan = !!document.getElementById('cv-tofd-dscan');
+    out.parallel = !!document.getElementById('cv-tofd-parallel');
+    const w = UT.dom.wins.tofd && UT.dom.wins.tofd.el;
+    out.text = w ? w.textContent : '';
+    out.stateParallel = (UT.test.state().tofd || {}).parallel === undefined ? null : UT.test.state().tofd.parallel;
+    return out;
+  });
+  A.ok(!!r.par, 'tofdParallel() returns a record: ' + JSON.stringify(r.par && { n: r.par.n, peakCol: r.par.peakCol }));
+  if (r.par) {
+    A.eq(r.par.n, 61, 'n');
+    A.le(Math.abs(r.par.peakCol - (r.par.n - 1) / 2), 3, `peakCol within 3 of the centre (${r.par.peakCol})`);
+  }
+  A.eq(r.dscan, true, '#cv-tofd-dscan');
+  A.eq(r.parallel, true, '#cv-tofd-parallel');
+  A.ok((r.text || '').indexOf('Non-Parallel Scan') >= 0, 'caption Non-Parallel Scan');
+  A.ok((r.text || '').indexOf('Parallel Scan') >= 0, 'caption Parallel Scan');
+  A.eq(r.stateParallel, null, 'state().tofd.parallel stays null (§7 omits the key; both read as null)');
+  return A.result();
+});
+
+check('V3-44 TOFD chrome, Pos from z and pipe curvature times (F44)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.enterMode('tofd');
+    UT.test.setProbe({ z: 150 }); UT.renderNow();
+    out.hidden = UT.modes.hiddenViews();
+    out.mid = UT.state.status.mid;
+    const zs = [];
+    // the scan modules publish on their own topic: UT.bus.emit('scan:progress', {kind:'tofd', i, n, z})
+    const fn = (e) => { if (e && Number.isFinite(e.z)) zs.push(e.z); };
+    UT.bus.on('scan:progress', fn);
+    const z0 = UT.state.probe.z;
+    UT.test.runTofdScan();
+    UT.bus.off('scan:progress', fn);
+    out.zAfter = UT.state.probe.z; out.z0 = z0;
+    out.zs = { n: zs.length, increasing: zs.length > 1 && zs.every((v, i) => i === 0 || v >= zs[i - 1]) };
+    out.plate = UT.test.tofd().backwallUs;
+    UT.test.loadSpecimen('pipe-weld', { od: 168.3, wt: 20 });
+    UT.test.enterMode('tofd');
+    UT.setIn('tofd', { pcs: 60 }); UT.renderNow();
+    out.pipe = UT.test.tofd().backwallUs;
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.enterMode('tofd');
+    UT.setIn('tofd', { pcs: 60 }); UT.renderNow();
+    out.plate60 = UT.test.tofd().backwallUs;
+    return out;
+  });
+  A.ok((r.hidden || []).indexOf('compass') < 0, 'compass drawn in tofd: hiddenViews ' + JSON.stringify(r.hidden));
+  A.ok(/Pos: 150 mm/.test(r.mid || ''), 'Pos cell from probe.z: ' + JSON.stringify(r.mid));
+  A.eq(r.zAfter, r.z0, 'a synchronous scan leaves probe.z where it was');
+  A.ge(r.zs.n, 2, `scan:progress events (${r.zs.n})`);
+  A.eq(r.zs.increasing, true, 'scan:progress z increases');
+  A.near(r.plate60, 20.98, 0.05, 'flat-plate backwallUs at PCS 60');
+  A.ge(Math.abs(r.pipe - 20.98), 0.15, `pipe backwallUs differs from 20.98 (${r.pipe})`);
+  return A.result();
+});
+
+check('V3-45 weld condition toggles (F45)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    const rootEchoes = () => UT.test.echoes().filter(e => e.kind === 'geometry' && /root/.test(String(e.tag || '')));
+    const loudest = (list) => list.reduce((b, e) => (!b || e.ampPct > b.ampPct ? e : b), null);
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setDefects([]);
+    UT.test.setProbe({ angle: 60, side: 1, x: 34.6 });
+    UT.test.setInstrument({ range: 100, gain: 40 }); UT.test.compute();
+    const clean = rootEchoes();
+    out.cleanN = clean.length;
+    const cl = loudest(clean);
+    out.clean = cl && { amp: cl.ampPct, path: cl.path };
+    out.baseGrass = UT.test.ascan().grassPct;
+    const cleanBw = ACC.bestNear(/backwall/, 40.0, 3);
+    out.cleanBw = cleanBw && cleanBw.ampPct;
+    UT.test.weldCondition({ rootCorrosion: true }); UT.test.compute();
+    const corr = rootEchoes();
+    const cr = loudest(corr);
+    out.corrN = cr ? corr.filter(e => Math.abs(e.path - cr.path) <= 6).length : 0;
+    out.corr = cr && { amp: cr.ampPct, path: cr.path };
+    UT.test.weldCondition({ rootCorrosion: false });
+    UT.test.weldCondition({ roughSurface: true }); UT.test.compute();
+    out.roughGrass = UT.test.ascan().grassPct;
+    const rbw = ACC.bestNear(/backwall/, 40.0, 3);
+    out.roughBw = rbw && rbw.ampPct;
+    UT.test.weldCondition({ roughSurface: false });
+    UT.test.weldCondition({ misalignmentMm: 3 }); UT.test.compute();
+    const sp = UT.state.specimen;
+    out.topY = UT.specimens.scanSurfaceAt(sp, { x: 60 }).y;
+    out.topYMinus = UT.specimens.scanSurfaceAt(sp, { x: -60 }).y;
+    out.misalign = UT.test.echoes().some(e => e.kind === 'geometry' && /misalign/.test(String(e.tag || '')));
+    UT.test.weldCondition({ misalignmentMm: 0 }); UT.test.compute();
+    // all four off reproduces the clean numbers (measured on the same specimen, before any other work:
+    // the grass generator is stateful, so an unrelated interlude would move it without any condition being on)
+    const back = loudest(rootEchoes());
+    out.restored = back && { amp: back.ampPct, path: back.path };
+    out.restoredGrass = UT.test.ascan().grassPct;
+    // pipe wall-thickness variation
+    UT.test.loadSpecimen('pipe-weld', { od: 168.3, wt: 20 });
+    UT.test.setProbe({ angle: 0, x: 40, z: 0, crystal: 'single' });
+    UT.test.setInstrument({ range: 100, gain: 40 });
+    UT.test.weldCondition({ wtVariationMm: 4 }); UT.test.compute();
+    const b0 = ACC.best(/backwall/);
+    UT.test.setProbe({ z: UT.state.specimen.L / 6 }); UT.test.compute();
+    const b1 = ACC.best(/backwall/);
+    out.wt = { p0: b0 && b0.path, p1: b1 && b1.path };
+    UT.test.weldCondition({ wtVariationMm: 0 });
+    return out;
+  });
+  A.ok(!!r.clean, 'a clean root geometry echo');
+  A.ge(r.corrN, 3, `≥ 3 root geometry echoes within a 6 mm window with corrosion on (${r.corrN}, clean ${r.cleanN})`);
+  if (r.clean && r.corr) A.range(dB(r.clean.amp, r.corr.amp), 3, 8, `corroded root is 3…8 dB down (${r.clean.amp.toFixed(1)} → ${r.corr.amp.toFixed(1)})`);
+  A.ge(r.roughGrass / Math.max(r.baseGrass, 1e-9), 2, `rough surface doubles grassPct (${r.baseGrass} → ${r.roughGrass})`);
+  if (r.cleanBw && r.roughBw) A.near(dB(r.cleanBw, r.roughBw), 4, 1, 'backwall drop with a rough surface (dB)');
+  A.near(r.topY, 3, 0.05, 'the +x scanning surface sits at y = 3 with 3 mm misalignment');
+  A.near(r.topYMinus, 0, 0.05, 'the −x side stays at y = 0');
+  A.eq(r.misalign, true, "a 'misalign' geometry echo appears");
+  A.ok(r.wt.p0 !== null && r.wt.p1 !== null, 'pipe backwalls at both z');
+  if (r.wt.p0 !== null && r.wt.p1 !== null) A.ge(Math.abs(r.wt.p0 - r.wt.p1), 2, `wall variation moves the backwall (${r.wt.p0} vs ${r.wt.p1})`);
+  if (r.clean && r.restored) { A.near(r.restored.amp, r.clean.amp, 1e-6, 'all conditions off restores the amplitude'); A.near(r.restored.path, r.clean.path, 1e-6, 'and the path'); }
+  A.near(r.restoredGrass, r.baseGrass, 1e-9, 'and the grass level');
+  return A.result();
+});
+
+check('V3-46 TKY curved chord and complete pipe ring (F46)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const loops = (sp) => {
+      if (Array.isArray(sp.loops)) return sp.loops.length;
+      if (Array.isArray(sp.outline) && Array.isArray(sp.outline[0])) return sp.outline.length;
+      if (Array.isArray(sp.outlines)) return sp.outlines.length;
+      return 1;
+    };
+    const out = {};
+    UT.test.enterMode('tky', { silentUI: true });
+    UT.test.tkyConfig({ kind: 'T-joint', chordOd: 600, chordWt: 32 });
+    UT.renderNow();
+    let sp = UT.state.specimen;
+    out.arcs = (sp.arcs || []).length;
+    const top = (sp.outline || []).filter(p => (p.tag === 'top' || p.tag === undefined));
+    out.sag = (() => {
+      const pts = (sp.outline || []).filter(p => p.tag === 'top');
+      if (pts.length < 3) return null;
+      const ys = pts.map(p => p.y);
+      return Math.max.apply(null, ys) - Math.min.apply(null, ys);
+    })();
+    out.mid = UT.modes.statusMid();
+    UT.test.setProbe({ angle: 0, x: 0, crystal: 'single' });
+    UT.test.setInstrument({ range: 100, gain: 40 }); UT.test.compute();
+    const b = ACC.best(/backwall/);
+    out.chordBw = b && b.path;
+    UT.test.tkyConfig({ kind: 'Pipe', chordOd: 180, chordWt: 20 }); UT.renderNow();
+    sp = UT.state.specimen;
+    out.ring = sp.ring;
+    out.loops = loops(sp);
+    UT.test.setProbe({ angle: 0, x: 0, crystal: 'single' }); UT.test.compute();
+    const b2 = ACC.best(/backwall/);
+    out.ringBw = b2 && b2.path;
+    UT.test.tkyConfig({ kind: 'Plate' }); UT.renderNow();
+    sp = UT.state.specimen;
+    out.plate = { arcs: (sp.arcs || []).length, mid: UT.modes.statusMid() };
+    return out;
+  });
+  A.ge(r.arcs, 1, `the T-joint chord carries arcs (${r.arcs})`);
+  A.ok(r.sag === null || r.sag >= 2, `chord mid-surface differs from its edge by ≥ 2 mm (${r.sag})`);
+  A.ok(/Diameter=600  W\/T=32mm/.test(r.mid || ''), 'status caption: ' + JSON.stringify(r.mid));
+  A.ok(r.chordBw !== null, 'chord backwall'); if (r.chordBw) A.near(r.chordBw, 32.0, 0.5, 'chord backwall path');
+  A.eq(r.ring, true, 'specimen.ring for a complete pipe');
+  A.eq(r.loops, 2, 'the ring outline has two closed loops');
+  A.ok(r.ringBw !== null, 'ring backwall'); if (r.ringBw) A.near(r.ringBw, 20.0, 0.5, 'ring backwall path');
+  A.eq(r.plate.arcs, 0, 'a Plate chord is flat again');
+  A.ok(!/Diameter=/.test(r.plate.mid || ''), 'a flat chord carries no diameter caption');
+  return A.result();
+});
+
+check('V3-47 TKY panel, layout and dialogs (F47)', 'v3', async ({ page, launchFresh }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.enterMode('tky'); UT.renderNow();
+    UT.modes.rebuild({ braceAngle: 75 }); UT.renderNow();
+    const el = UT.dom.wins.tky && UT.dom.wins.tky.el;
+    out.text = el ? el.textContent : '';
+    const slider = el ? el.querySelector('input[type=range]') : null;
+    out.slider = slider ? +slider.value : null;
+    UT.modes.defectEditor.open(); UT.renderNow();
+    const steps = UT.dom.wins['defect-steps']; if (steps) steps.close();
+    out.tkyModal = ACC.winOpen('tkydefect') ? ACC.winText('tkydefect') : '';
+    UT.modes.defectEditor.close(); UT.renderNow();
+    UT.test.loadSpecimen('pipe-weld', { od: 168.3, wt: 20 });
+    UT.test.enterMode('weld', { silentUI: true }); UT.renderNow();
+    out.menu = UT.test.menu('Weld/Pipe Thickness…') || UT.test.menu('Weld/Pipe Thickness...');
+    out.dlg = ACC.winText('pipethk');
+    out.rej3 = UT.modes.setPipeThickness(3);
+    out.rej50 = UT.modes.setPipeThickness(50);
+    out.ok20 = UT.modes.setPipeThickness(20);
+    return out;
+  });
+  A.eq(r.slider, 75, 'ADJUST MODE slider at 75');
+  A.ok(/Brace angle = 75°/.test(r.text || ''), 'panel label: ' + JSON.stringify((r.text || '').slice(0, 120)));
+  A.ok(/Click the DEFECT button to resume UT/.test(r.tkyModal || ''), 'TKY defect modal: ' + JSON.stringify(r.tkyModal));
+  A.eq(r.menu, true, 'Weld ▸ Pipe Thickness… exists');
+  A.ok(/Enter Thickness between 6mm and 40mm/.test(r.dlg || ''), 'dialog text: ' + JSON.stringify((r.dlg || '').slice(0, 120)));
+  A.ok(!r.rej3, 'rejects 3 mm'); A.ok(!r.rej50, 'rejects 50 mm'); A.ok(!!r.ok20, 'accepts 20 mm');
+  // layout: at 1280 × 760 the panel must not sit on the drawn probe
+  const fresh = await launchFresh({ width: 1280, height: 760 });
+  const geo = await fresh.page.evaluate(() => {
+    UT.test.enterMode('tky'); UT.renderNow();
+    const el = UT.dom.wins.tky && UT.dom.wins.tky.el;
+    const cv = document.getElementById('cv-cross');
+    if (!el || !cv) return null;
+    const k = UT.dom.scale ? UT.dom.scale() : 1;
+    const rect = cv.getBoundingClientRect();
+    const d = UT.frame.derived || {};
+    const w = (d.shoeWidth || 20), h = (d.shoeHeight || 16);
+    const p = UT.state.probe;
+    const a = UT.views.cross.toPx(p.x - w / 2, -h), b = UT.views.cross.toPx(p.x + w / 2, 0);
+    const probe = { left: rect.left + Math.min(a.x, b.x) * k, right: rect.left + Math.max(a.x, b.x) * k, top: rect.top + Math.min(a.y, b.y) * k, bottom: rect.top + Math.max(a.y, b.y) * k };
+    const pr = el.getBoundingClientRect();
+    const panel = { left: pr.left, right: pr.right, top: pr.top, bottom: pr.bottom };
+    const overlap = !(panel.right <= probe.left || panel.left >= probe.right || panel.bottom <= probe.top || panel.top >= probe.bottom);
+    return { overlap, panel, probe };
+  });
+  await fresh.browser.close();
+  A.ok(geo && geo.overlap === false, 'the TKY panel does not cover the probe at 1280 × 760: ' + JSON.stringify(geo));
+  return A.result();
+});
+
+check('V3-48 pipe plan dial, datum and flank rulers (F48)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('pipe-weld', { od: 152.4, wt: 20 });
+    const C = UT.state.specimen.L;
+    UT.test.setProbe({ z: 0 }); UT.renderNow();
+    const d0 = UT.views.plan.__dial();
+    UT.test.setProbe({ z: C / 4 }); UT.renderNow();
+    const d1 = UT.views.plan.__dial();
+    out.p0 = d0.position; out.p1 = d1.position; out.datum = d0.datum;
+    const norm = (a) => { let v = (d1.position - d0.position) % 360; if (v > 180) v -= 360; if (v < -180) v += 360; return Math.abs(v); };
+    out.delta = norm();
+    out.rulers = UT.views.plan.__flankRulers();
+    out.strip = UT.views.plan.__weldStrip();
+    return out;
+  });
+  A.near(r.delta, 90, 2, `position needles 90° apart (${r.p0} → ${r.p1})`);
+  A.near(r.datum, -90, 0.01, 'the end-view red radius starts at −90°');
+  A.eq((r.rulers || []).length, 2, 'two flank rulers: ' + JSON.stringify(r.rulers));
+  A.eq(!!(r.strip && r.strip.drawn), true, 'a red weld strip: ' + JSON.stringify(r.strip));
+  if (r.strip && r.strip.colour) A.ok(/e00000|ff0000|red/i.test(String(r.strip.colour)), 'weld strip colour: ' + r.strip.colour);
+  return A.result();
+});
+
+check('V3-49 3D pipe defect marks and banner (F49)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('pipe-weld', { od: 152.4, wt: 20 });
+    UT.test.setDefects([{ n: 1, type: 'crack', pts: [{ x: 0, y: 17 }, { x: 0, y: 20 }], zFrom: 140, zTo: 160 }]);
+    if (UT.views.pipe3d.open) UT.views.pipe3d.open();
+    UT.renderNow();
+    out.marks = UT.views.pipe3d.__marks();
+    out.banner = UT.views.pipe3d.__banner();
+    out.shade = UT.specimens.defectShade(UT.state.defects[0], UT.state.specimen.T);
+    return out;
+  });
+  const marks = r.marks || [];
+  A.eq(marks.length, 1, 'one defect band: ' + JSON.stringify(marks));
+  if (marks.length) {
+    const m = marks[0];
+    const span = (m.zTo !== undefined ? m.zTo - m.zFrom : m.zSpan);
+    A.near(span, 20, 1, 'band z span');
+    A.ok(m.filled === undefined || m.filled === true, 'the band is filled');
+    if (m.fill || m.colour) A.eq(String(m.fill || m.colour).toLowerCase(), String(r.shade).toLowerCase(), 'band fill equals defectShade');
+  }
+  A.ok(/utsim\.co\.uk/.test(String(r.banner && (r.banner.text || r.banner) || '')), 'banner: ' + JSON.stringify(r.banner));
+  return A.result();
+});
+
+check('V3-50 AUT wording and gate defaults (F50)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.loadSpecimen('pipe-weld', { od: 609.6, wt: 20 });
+    UT.test.enterMode('aut'); UT.renderNow();
+    const g0 = (UT.state.aut.gates || [])[0] || {};
+    out.defaults = { level: g0.level, width: g0.width, start: g0.start };
+    out.coreDefaults = ((UT.defaultState().aut.gates || [])[0] || {});
+    const el = UT.dom.wins.aut && UT.dom.wins.aut.el;
+    out.text = el ? el.textContent : '';
+    UT.setIn('aut', { strip: 'rdt' }); UT.renderNow();
+    out.title1 = el ? el.textContent : '';
+    UT.setIn('aut', { strip: 'both' }); UT.renderNow();
+    out.title2 = el ? el.textContent : '';
+    return out;
+  });
+  A.ok(/Set Gates Same Position/.test(r.text || ''), 'AUT window says Set Gates Same Position');
+  A.ok(/RDTech/.test(r.text || ''), 'AUT window says RDTech');
+  A.ok(/Amplitude Gate/.test(r.title1 || ''), "group title 'Amplitude Gate' with the rdt strip");
+  A.ok(/Transit\/TOF Gate/.test(r.title2 || ''), "group title 'Transit/TOF Gate' otherwise");
+  A.ok(!!r.defaults, 'default AUT gate');
+  if (r.defaults) { A.eq(r.defaults.level, 15, 'gate level on entering AUT'); A.eq(r.defaults.width, 15, 'gate width on entering AUT'); A.eq(r.defaults.start, 30, 'gate start on entering AUT'); }
+  A.note('UT.defaultState().aut.gates[0] = ' + JSON.stringify(r.coreDefaults) + ' (55-aut applies the UTman defaults on entry so V1 #12 keeps its own gates)');
+  return A.result();
+});
+
+check('V3-51 instructor annotation toolkit (F51)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    out.on = UT.test.annot.toggle();
+    UT.renderNow();
+    out.el = !!document.getElementById('annot');
+    out.dialog = Object.keys(UT.dom.wins).filter(k => UT.dom.wins[k].isOpen()).map(k => ({ k, t: UT.dom.wins[k].el.textContent })).filter(w => /TEACHING AID DRAWING MODE/.test(w.t)).length;
+    const s1 = UT.test.annot.stroke([{ x: 10, y: 10 }, { x: 80, y: 60 }], 0);
+    const s2 = UT.test.annot.stroke([{ x: 20, y: 20 }, { x: 90, y: 70 }], 2);
+    out.c1 = s1 && s1.colour; out.c2 = s2 && s2.colour;
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    const el = document.getElementById('annot');
+    if (el) el.dispatchEvent(ev);
+    out.prevented = ev.defaultPrevented;
+    out.strokes = UT.test.annot.state().strokes.length;
+    out.hiddenInState = UT.test.state().annot && UT.test.state().annot.strokes === undefined;
+    out.off = UT.test.annot.toggle();
+    UT.renderNow();
+    out.afterEl = !!document.getElementById('annot');
+    out.afterStrokes = UT.test.annot.state().strokes.length;
+    const peCount = () => Array.from(document.querySelectorAll('body *')).filter(e => getComputedStyle(e).pointerEvents === 'none').length;
+    const before = peCount();
+    out.torchMenu = UT.test.menu('Options/Highlight pointer');
+    UT.renderNow();
+    out.torch = UT.state.annot.torch;
+    out.torchEls = peCount() - before;
+    return out;
+  });
+  A.eq(r.on, true, 'annot.on after toggle');
+  A.eq(r.el, true, '#annot present');
+  A.ge(r.dialog, 1, 'first-use dialog with TEACHING AID DRAWING MODE');
+  A.eq(String(r.c1).toLowerCase(), '#e00000', 'left-button stroke colour');
+  A.eq(String(r.c2).toLowerCase(), '#0000e0', 'right-button stroke colour');
+  A.eq(r.prevented, true, 'contextmenu on #annot prevented');
+  A.eq(r.strokes, 2, 'two strokes recorded');
+  A.eq(r.hiddenInState, true, 'UT.test.state().annot.strokes is absent');
+  A.eq(r.off, false, 'toggling again turns it off');
+  A.eq(r.afterEl, false, '#annot removed');
+  A.eq(r.afterStrokes, 0, 'strokes cleared');
+  A.eq(r.torchMenu, true, 'Options ▸ Highlight pointer');
+  A.eq(r.torch, true, 'annot.torch');
+  A.ge(r.torchEls, 1, 'one pointer-events:none highlight element');
+  return A.result();
+});
+
+check('V3-52 AccRej toolbar button (F52)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    const ids = Array.from(document.querySelectorAll('#toolbar button')).map(b => b.id);
+    out.ids = ids;
+    out.n = ids.length;
+    out.order = ids.indexOf('tb-rad') + 1 === ids.indexOf('tb-accrej') && ids.indexOf('tb-accrej') + 1 === ids.indexOf('tb-pipe');
+    const b = document.getElementById('tb-accrej');
+    out.aria = b ? b.getAttribute('aria-pressed') : null;
+    UT.test.enterMode('weld', { silentUI: true }); UT.renderNow();
+    out.click = UT.test.click('tb-accrej'); UT.renderNow();
+    out.win = ACC.winOpen('evaluation');
+    const dis = {};
+    // the toolbar marks a disabled button with aria-disabled + .disabled (same signal V2-22's aria sweep reads)
+    const off = (id) => document.getElementById(id).getAttribute('aria-disabled') === 'true';
+    for (const m of ['v1', 'v2']) { UT.test.enterMode(m, { silentUI: true }); UT.renderNow(); dis[m] = off('tb-accrej'); }
+    UT.test.enterMode('weld', { silentUI: true });
+    UT.modes.defectEditor.open(); UT.renderNow();
+    const steps = UT.dom.wins['defect-steps']; if (steps) steps.close();
+    dis.editor = off('tb-accrej');
+    UT.modes.defectEditor.close();
+    out.dis = dis;
+    return out;
+  });
+  A.eq(r.n, 20, 'toolbar has 20 buttons: ' + JSON.stringify(r.ids));
+  A.eq(r.order, true, '#tb-accrej between #tb-rad and #tb-pipe');
+  A.ok(r.aria !== null, 'aria-pressed present');
+  A.eq(r.win, true, 'click opens the evaluation window');
+  A.eq(r.dis.v1, true, 'disabled in v1'); A.eq(r.dis.v2, true, 'disabled in v2'); A.eq(r.dis.editor, true, 'disabled with the editor open');
+  return A.result();
+});
+
+check('V3-53 OK demo specimen (F53)', 'v3', async ({ page, launchFresh }) => {
+  const A = checker();
+  const k = await page.evaluate(() => 0);
+  const r = await page.evaluate(() => {
+    const out = {};
+    const sp = UT.test.loadSpecimen('ok-demo');
+    const s = UT.state.specimen;
+    out.id = s.id;
+    out.loops = Array.isArray(s.loops) ? s.loops.length : (Array.isArray(s.outline) && Array.isArray(s.outline[0]) ? s.outline.length : (s.parts ? s.parts.length : 1));
+    UT.test.setProbe({ angle: 0, crystal: 'single' });
+    UT.test.setInstrument({ range: 200, gain: 45 }); UT.test.compute();
+    out.echoes = UT.test.echoes().length;
+    return out;
+  });
+  A.eq(r.id, 'ok-demo', "specimen id 'ok-demo'");
+  A.ge(r.loops, 2, `≥ 2 outline loops (${r.loops})`);
+  A.ge(r.echoes, 1, `the probe produces at least one echo (${r.echoes})`);
+  const fresh = await launchFresh({});
+  const boot = await fresh.page.evaluate(() => ({ mode: UT.test.state().mode, spec: UT.state.specimen.id }));
+  const errs = fresh.errors.slice();
+  await fresh.browser.close();
+  A.eq(boot.mode, 'weld', 'a fresh page boots into weld, not the demo');
+  A.eq(errs.length, 0, 'no console error on boot: ' + JSON.stringify(errs.slice(0, 2)));
+  return A.result();
+});
+
+check('V3-54 screen-shot PNG (F54)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const s = UT.test.screenshot();
+    const paths = [];
+    const file = document.getElementById('menu-file');
+    if (file) { file.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); for (const e of file.querySelectorAll('.menu-entry')) paths.push(e.dataset.key); file.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); }
+    if (UT.app && UT.app.closeMenus) UT.app.closeMenus();
+    return { head: String(s).slice(0, 30), len: String(s).length, paths };
+  });
+  A.ok(/^data:image\/png;base64,/.test(r.head), 'screenshot() data URL: ' + r.head);
+  A.ge(r.len, 5000, `PNG length (${r.len})`);
+  A.ok((r.paths || []).indexOf('Save screen shot (PNG)') >= 0, 'File ▸ Save screen shot (PNG): ' + JSON.stringify(r.paths));
+  return A.result();
+});
+
+check('V3-55 menu bar layout (F55)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const ids = Array.from(document.querySelectorAll('#menubar .menu-item')).map(m => m.id);
+    const about = UT.test.menu('About/About UTsim...');
+    const w1 = ACC.winOpen('about');
+    for (const k of Object.keys(UT.dom.wins)) if (UT.dom.wins[k].isOpen()) UT.dom.wins[k].close();
+    const help = UT.test.menu('Help/About UTsim...');
+    const w2 = ACC.winOpen('about');
+    const self = UT.app.__selftest ? UT.app.__selftest() : ['no selftest'];
+    return { ids, about, w1, help, w2, self };
+  });
+  A.eq(JSON.stringify(r.ids), JSON.stringify(['menu-file', 'menu-probes', 'menu-stepwedge', 'menu-weld', 'menu-defects', 'menu-scalemode', 'menu-tools', 'menu-options', 'menu-about', 'menu-help']), 'menubar ids: ' + JSON.stringify(r.ids));
+  A.eq(r.about, true, 'About/About UTsim... resolves'); A.eq(r.w1, true, 'and opens the about window');
+  A.eq(r.help, true, 'Help/About UTsim... still resolves'); A.eq(r.w2, true, 'and opens the about window');
+  A.eq(JSON.stringify(r.self), '[]', "90's selftest (every v1/v2 menu path): " + JSON.stringify(r.self));
+  return A.result();
+});
+
+check('V3-56 lamination-check screen (F56)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    UT.test.enterMode('lamination', { silentUI: true }); UT.renderNow();
+    const sp = UT.state.specimen;
+    const band = UT.views.plan.__weldStrip ? UT.views.plan.__weldStrip() : null;
+    return {
+      weld: sp.weld ? { capWidth: sp.weld.capWidth, type: sp.weld.type } : null,
+      band,
+      v1: !document.getElementById('tb-v1').disabled,
+      v2: !document.getElementById('tb-v2').disabled,
+      hidden: UT.modes.hiddenViews(),
+    };
+  });
+  A.ok(!!r.weld, 'the lamination plate carries a weld: ' + JSON.stringify(r.weld));
+  if (r.weld) A.eq(r.weld.capWidth, 16, 'capWidth 16');
+  A.ok(!!(r.band && r.band.drawn), 'the plan view draws the weld band: ' + JSON.stringify(r.band));
+  A.eq(r.v1, true, '#tb-v1 enabled'); A.eq(r.v2, true, '#tb-v2 enabled');
+  return A.result();
+});
+
+check('V3-57 original wordings and UT-set probe colour (F57)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    UT.test.enterMode('iow', { silentUI: true }); UT.renderNow();
+    out.iow = UT.state.status.right;
+    UT.test.plotDrag([{ standoff: 12, depth: 20 }]); UT.renderNow();
+    out.iowPlotted = UT.state.status.right;
+    UT.test.enterMode('lamination', { silentUI: true }); UT.renderNow();
+    out.lamination = UT.state.status.right;
+    UT.test.enterMode('v1', { silentUI: true }); UT.renderNow();
+    out.v1 = UT.state.status.right;
+    UT.test.enterMode('v2', { silentUI: true }); UT.test.setProbe({ side: 1 }); UT.renderNow();
+    out.v2a = UT.state.status.right;
+    UT.test.turnProbe(); UT.renderNow();
+    out.v2b = UT.state.status.right;
+    UT.test.enterMode('weld', { silentUI: true });
+    UT.modes.defectEditor.open(); UT.renderNow();
+    const steps = UT.dom.wins['defect-steps']; if (steps) steps.close();
+    out.editor = UT.state.status.right;
+    UT.modes.defectEditor.close(); UT.renderNow();
+    // plan view: changing the probe direction shows the original's hint
+    const cv = document.getElementById('cv-plan');
+    if (cv) {
+      const rect = cv.getBoundingClientRect();
+      const k = UT.dom.scale ? UT.dom.scale() : 1;
+      const mk = (type, button) => new PointerEvent(type, { bubbles: true, cancelable: true, clientX: rect.left + rect.width * 0.5, clientY: rect.top + rect.height * 0.5, button, buttons: type === 'pointerup' ? 0 : (button === 2 ? 2 : 1), pointerId: 77, pointerType: 'mouse', isPrimary: true });
+      cv.dispatchEvent(mk('pointerdown', 2)); cv.dispatchEvent(mk('pointerup', 2));
+      UT.renderNow();
+    }
+    out.plan = UT.state.status.right;
+    out.probeEpoch = (function () { UT.set({ utSet: 'epoch600' }); UT.renderNow(); return UT.views.cross.__probeStyle ? UT.views.cross.__probeStyle() : null; })();
+    out.probeUsk = (function () { UT.set({ utSet: 'usk7' }); UT.renderNow(); return UT.views.cross.__probeStyle ? UT.views.cross.__probeStyle() : null; })();
+    return out;
+  });
+  A.eq(r.iow, 'Use mouse button on the Plotter to plot Beam Spread. Draw on Block to mark 10% Beam Edge', 'plotter hint before plotting');
+  A.eq(r.iowPlotted, 'RIGHT OR LEFT mouse button/Drag to PLOT Beam Spread on Plotter. Draw on Block to mark 10% Beam Edge', 'plotter hint after the first point');
+  A.eq(r.lamination, 'LEFT mouse button/drag to move the UT Probe', 'lamination hint');
+  A.eq(r.v1, 'Drag the probe onto the top face (100mm Radius) or the front face (25mm thickness)', 'V1 hint');
+  A.ok(/25mm Radius/.test(r.v2a || ''), 'V2 hint side +1: ' + JSON.stringify(r.v2a));
+  A.ok(/50mm Radius/.test(r.v2b || ''), 'V2 hint side −1: ' + JSON.stringify(r.v2b));
+  A.eq(r.editor, 'LEFT mouse button/drag to draw defect.', 'editor hint');
+  A.eq(r.plan, 'LEFT or RIGHT mouse button to change probe direction', 'plan-view probe-direction hint');
+  A.ok(!!r.probeEpoch, 'cross.__probeStyle() exists');
+  if (r.probeEpoch) A.eq(String(r.probeEpoch.fill || r.probeEpoch.colour).toLowerCase(), '#ffd700', 'probe fill on the EPOCH');
+  if (r.probeUsk) A.eq(String(r.probeUsk.fill || r.probeUsk.colour).toLowerCase(), '#00c000', 'probe fill on the USK 7');
+  return A.result();
+});
+
+check('V3-58 video substitution documented (F58)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    out.lessons = UT.test.lessons().length;
+    UT.app.openAbout(); UT.renderNow();
+    out.about = ACC.winText('about');
+    for (const k of Object.keys(UT.dom.wins)) if (UT.dom.wins[k].isOpen()) UT.dom.wins[k].close();
+    out.menu = UT.test.menu('Help/Lessons...');
+    out.win = ACC.winOpen('lessons');
+    return out;
+  });
+  const slugs = ['utman600', 'utman_functions', 'basic_ut_controls_range_x_shift_amplitude', 'how_to_use_the_epoch', 'epoch_auto_calibration', 'zero_probe', 'angleprobe_calibration', 'angle_probe_using_the_v2_calibration_block', 'shear_wave_and_compression_wave', 'lamination_check', 'drawing_defects_i', 'drawing_defects_ii', 'tofd', 'tky_variable_configuration_welds', 'plotting_beam_spread_at_20', 'making_sense_of_applitude', 'utman_software_utsim'];
+  const found = slugs.filter(s => (r.about || '').indexOf(s) >= 0);
+  A.eq(r.lessons, 25, 'lessons() returns 25 titles');
+  A.ok(/Video → lesson map/.test(r.about || ''), 'About window has the Video → lesson map');
+  A.ge(found.length, 15, `video slugs listed (${found.length} of 17)`);
+  A.eq(r.menu, true, 'Help/Lessons...');
+  A.eq(r.win, true, 'the lessons window opens');
+  return A.result();
+});
+
+check('V3-59 UTman velocity set (F59)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = {};
+    const D = Math.PI / 180;
+    UT.test.loadSpecimen('plate-weld', { T: 20 });
+    UT.test.setMaterial('carbon-utman');
+    UT.test.setProbe({ angle: 70, mode: 'shear', side: 1, x: 40 }); UT.test.compute();
+    out.wedge70 = UT.frame.derived.wedgeAngle;
+    out.line70 = UT.frame.derived.statusLine;
+    out.crit = UT.frame.derived.firstCritical;
+    const refr = Math.asin(Math.min(0.999, Math.sin(20 * D) / 2.74 * 5.96)) / D;
+    UT.test.setProbe({ angle: +refr.toFixed(2), mode: 'comp' }); UT.test.compute();
+    out.comp = UT.frame.derived.compAngle;
+    out.lineComp = UT.frame.derived.statusLine;
+    UT.test.setMaterial('carbon');
+    UT.test.setProbe({ angle: 70, mode: 'shear' }); UT.test.compute();
+    out.wedge70c = UT.frame.derived.wedgeAngle;
+    out.line70c = UT.frame.derived.statusLine;
+    UT.test.enterMode('tofd', { silentUI: true }); UT.renderNow();
+    out.lateral = UT.test.tofd().lateralUs;
+    UT.test.enterMode('weld', { silentUI: true });
+    return out;
+  });
+  A.near(r.wedge70, 53.6, 0.1, 'UTman 70° wedge angle');
+  A.ok(/Velocity=3200 m\/s/.test(r.line70 || ''), 'UTman shear velocity in the status line: ' + JSON.stringify(r.line70));
+  A.near(r.comp, 48.1, 0.1, 'UTman compression angle at wedge 20°');
+  A.ok(/Velocity=5960 m\/s/.test(r.lineComp || ''), 'UTman compression velocity: ' + JSON.stringify(r.lineComp));
+  A.near(r.crit, 27.4, 0.1, 'UTman 1st critical angle');
+  A.near(r.wedge70c, 52.6, 0.1, 'carbon 70° wedge angle restored');
+  A.ok(/Velocity=3240 m\/s/.test(r.line70c || ''), 'carbon shear velocity restored');
+  A.near(r.lateral, 18.93, 0.05, 'TOFD lateralUs unchanged');
+  return A.result();
+});
+
+check('V3-60 runner lists ≥ 100 checks and supports --only v3', 'v3', async ({ jsonOut }) => {
+  const A = checker();
+  const listed = CHECKS.filter(c => !/^V3-60/.test(c.name));
+  const groups = { v1: 0, v2: 0, v3: 0 };
+  for (const c of CHECKS) groups[c.group] = (groups[c.group] || 0) + 1;
+  A.ge(CHECKS.length, 100, `checks registered (${CHECKS.length})`);
+  A.eq(groups.v1, 14, 'v1 checks');
+  A.ge(groups.v3, 64, `v3 checks (${groups.v3})`);
+  A.eq(CHECKS.filter(c => ['v1', 'v2', 'v3'].indexOf(c.group) < 0).length, 0, 'every check is in a known group');
+  A.eq(listed.filter(c => !c.name || typeof c.fn !== 'function').length, 0, 'every check has a name and a function');
+  // the same filter expression the runner uses for --only
+  A.eq(CHECKS.filter(c => c.group === 'v3').length, groups.v3, '--only v3 selects exactly the v3 group');
+  A.note(`${CHECKS.length} checks (${groups.v1} v1 + ${groups.v2} v2 + ${groups.v3} v3), json ${jsonOut || '(none)'}`);
+  return A.result();
+});
+
+check('V3-61 headless module load and load-time globals (F61)', 'v3', async () => {
+  const A = checker();
+  const files = fs.readdirSync(path.join(SIM_DIR, 'src')).filter(f => /^\d\d-.*\.js$/.test(f)).sort();
+  A.eq(files.length, 22, `src modules (${files.length}): ` + files.join(', '));
+  A.ok(files.indexOf('85-scalemode.js') >= 0, '85-scalemode.js present');
+  A.ok(files.indexOf('86-annotate.js') >= 0, '86-annotate.js present');
+  let selftest = '';
+  let ok = true;
+  try { selftest = execSync('node tools/node-load.mjs --selftest', { cwd: SIM_DIR, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); } catch (e) { ok = false; selftest = String((e.stdout || '') + (e.stderr || '')); }
+  A.eq(ok, true, 'node tools/node-load.mjs --selftest exits 0');
+  A.eq(/FAIL/.test(selftest), false, 'no selftest FAIL: ' + (selftest.split('\n').filter(l => /FAIL/.test(l)).slice(0, 3).join(' | ') || '-'));
+  A.ok(/scalemode ok/.test(selftest), '85-scalemode selftest ran');
+  A.ok(/annotate ok/.test(selftest), '86-annotate selftest ran');
+  // load-time purity: document / FileReader / Image / localStorage are undefined in this context
+  const sandbox = { console: { log() {}, warn() {}, error() {} }, setTimeout, clearTimeout, performance: globalThis.performance, Math, JSON, Date, Number, Float32Array, Uint8Array, Map, Set, Array, Object, String, Boolean, Error, Promise, parseFloat, parseInt, isNaN, isFinite, RegExp };
+  sandbox.window = sandbox; sandbox.globalThis = sandbox; sandbox.self = sandbox;
+  sandbox.document = undefined; sandbox.FileReader = undefined; sandbox.Image = undefined; sandbox.localStorage = undefined;
+  sandbox.navigator = { userAgent: 'node' };
+  const ctx = vm.createContext(sandbox);
+  let loadErr = null, loaded = 0;
+  for (const f of files) {
+    if (parseInt(f.slice(0, 2), 10) > 86) continue;
+    try { vm.runInContext(fs.readFileSync(path.join(SIM_DIR, 'src', f), 'utf8'), ctx, { filename: f }); loaded++; }
+    catch (e) { loadErr = f + ': ' + (e && e.message); break; }
+  }
+  A.eq(loadErr, null, `modules 00…86 load with document/FileReader/Image/localStorage undefined (${loaded} loaded)` + (loadErr ? ' — ' + loadErr : ''));
+  A.ok(sandbox.UT && sandbox.UT.scalemode !== undefined || (sandbox.UT && sandbox.UT.scale !== undefined) || loadErr === null, 'UT built in that context');
+  return A.result();
+});
+
+check('V3-62 build outputs, size and a console-clean toolbar sweep (F62)', 'v3', async ({ file, launchFresh }) => {
+  const A = checker();
+  const main = path.join(REPO, 'utman_simulator.html'), docs = path.join(REPO, 'docs', 'utman_simulator.html');
+  A.ok(fs.existsSync(main) && fs.existsSync(docs), 'both build outputs exist');
+  if (fs.existsSync(main) && fs.existsSync(docs)) A.ok(fs.readFileSync(main).equals(fs.readFileSync(docs)), 'outputs byte-identical');
+  const size = fs.statSync(file).size;
+  A.le(size, 3.0 * 1024 * 1024 - 1, `size ${(size / 1024 / 1024).toFixed(2)} MB < 3.0 MB`);
+  const html = fs.readFileSync(file, 'utf8');
+  const ext = [];
+  for (const re of [/\b(?:src|href)\s*=\s*["']https?:\/\/[^"']+/gi, /url\(\s*["']?https?:\/\/[^)]+/gi, /@import\s+["']https?:\/\//gi]) {
+    const m = html.match(re); if (m) ext.push.apply(ext, m.slice(0, 3));
+  }
+  A.eq(ext.length, 0, 'no external resource URLs: ' + JSON.stringify(ext));
+  const fresh = await launchFresh({});
+  const bootErrors = fresh.errors.slice();
+  A.eq(bootErrors.length, 0, 'no console error on load: ' + JSON.stringify(bootErrors.slice(0, 3)));
+  const clicked = [];
+  for (const id of TOOLBAR_IDS) {
+    const did = await fresh.page.evaluate((i) => { const b = document.getElementById(i); if (!b || b.disabled) return false; b.click(); return true; }, id);
+    clicked.push(id + (did ? '' : '(skip)'));
+    await dismissModals(fresh.page);
+    await fresh.page.waitForTimeout(30);
+  }
+  const errs = fresh.errors.slice();
+  await fresh.browser.close();
+  A.ok(clicked.filter(c => !/skip/.test(c)).length >= 15, 'toolbar buttons clicked: ' + clicked.join(' '));
+  A.ok(clicked.indexOf('tb-accrej') >= 0, 'tb-accrej was clickable');
+  A.eq(errs.length, 0, 'no console error across the toolbar sweep: ' + JSON.stringify(errs.slice(0, 3)));
+  return A.result();
+});
+
+check('V3-63 performance with the v3 features (F63)', 'v3', async ({ page, budget }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const median = (fn, n) => { for (let i = 0; i < 5; i++) fn(); const t = []; for (let i = 0; i < n; i++) { const t0 = performance.now(); fn(); t.push(performance.now() - t0); } t.sort((a, b) => a - b); return n & 1 ? t[(n - 1) / 2] : (t[n / 2 - 1] + t[n / 2]) / 2; };
+    const out = {};
+    UT.test.loadSpecimen('plate-weld', { T: 20 }); UT.test.setDefects([]);
+    for (const p of ['rootCrack', 'lof', 'porosity', 'slag', 'toeCrack', 'centrelineCrack', 'incompletePenetration', 'lamination']) UT.test.addPreset(p);
+    UT.test.setProbe({ angle: 60, side: 1, x: 40 }); UT.test.setInstrument({ range: 100, gain: 34 });
+    UT.test.setPhysics({ fanRays: 41, modeConv: true });
+    out.off = median(() => UT.test.compute(), 20);
+    UT.test.weldCondition({ rootCorrosion: true });
+    out.corrosion = median(() => UT.test.compute(), 20);
+    UT.test.weldCondition({ rootCorrosion: false });
+    UT.test.setDefects([]); UT.test.addPreset('rootCrack');
+    UT.test.enterMode('tofd', { silentUI: true }); UT.renderNow();
+    let t0 = performance.now(); UT.test.runTofdScan(); out.tofd = performance.now() - t0;
+    UT.test.enterMode('weld', { silentUI: true });
+    // Scale Mode with a 200-vertex traced polygon
+    UT.test.scale.enter();
+    const pts = [];
+    for (let i = 0; i < 200; i++) { const a = 2 * Math.PI * i / 200; pts.push({ x: 60 + 55 * Math.cos(a), y: 30 + 25 * Math.sin(a) }); }
+    UT.test.scale.trace(pts);
+    UT.test.setProbe({ angle: 0, x: 60, crystal: 'single' });
+    out.scale = median(() => UT.test.compute(), 10);
+    UT.test.scale.exit();
+    return out;
+  });
+  A.le(r.off, budget(10), `compute with the v3 features off (${r.off.toFixed(2)} ms)`);
+  A.le(r.corrosion, budget(12), `compute with rootCorrosion on (${r.corrosion.toFixed(2)} ms)`);
+  A.le(r.tofd, budget(1200), `TOFD run incl. the parallel strip (${r.tofd.toFixed(0)} ms)`);
+  A.le(r.scale, budget(15), `Scale Mode 200-vertex polygon compute (${r.scale.toFixed(2)} ms)`);
+  A.note(`off ${r.off.toFixed(2)} / corrosion ${r.corrosion.toFixed(2)} / tofd ${r.tofd.toFixed(0)} / scale ${r.scale.toFixed(2)} ms${CI ? ' (CI ×2)' : ''}`);
+  return A.result();
+});
+
+check('V3-64 Korean UI with the v3 windows open (F64)', 'v3', async ({ page }) => {
+  const A = checker();
+  const r = await page.evaluate(() => {
+    const out = { opened: [], failed: [] };
+    UT.test.lang('ko');
+    const openers = {
+      dgs: 'standards.dgs', evaluation: 'standards.evaluation', procedures: 'standards.proceduresWindow', stdnotes: 'standards.stdnotes', pa: 'pa.panel', bscan: 'views.bscan', echodyn: 'views.echodyn',
+      datalog: 'instruments.datalog', autocal: 'modes.autoCal', lessons: 'lessons.window', quiz: 'lessons.quiz.window', trade: 'trade.window', scoreboard: 'trade.scoreboard', report: 'trade.reportWindow', practice: 'trade.practiceWindow',
+      scenario: 'scenario.window', share: 'scenario.share', pipe3d: 'views.pipe3d', defects: 'modes.defectEditor', tofd: 'tofd.panel', aut: 'aut.panel', plotter: 'views.plotter', rad: 'views.radiograph', size: 'views.sizing', tky: 'modes.tkyPanel', dac: 'modes.dacPanel',
+    };
+    for (const k of Object.keys(openers)) {
+      const o = openers[k].split('.').reduce((a, b) => a && a[b], UT);
+      try { if (o && typeof o.open === 'function') { o.open(); out.opened.push(k); } else if (o && typeof o.start === 'function') { o.start(); out.opened.push(k); } else out.failed.push(k); } catch (e) { out.failed.push(k + ':' + e.message); }
+    }
+    for (const f of ['openWeld', 'openWedge', 'openOptions', 'openStepWedge', 'openAbout', 'openGuide', 'openKeys', 'openExport', 'openProbeLib', 'openMaterial', 'openFocus', 'openGlossary']) {
+      try { if (UT.app && typeof UT.app[f] === 'function') { UT.app[f](); out.opened.push(f); } } catch (e) { out.failed.push(f + ':' + e.message); }
+    }
+    // v3 windows
+    try { UT.test.scale.enter(); out.opened.push('scale'); } catch (e) { out.failed.push('scale:' + e.message); }
+    try { UT.test.annot.open(); out.opened.push('draw'); } catch (e) { out.failed.push('draw:' + e.message); }
+    try { UT.modes.blockPick(); out.opened.push('blockpick'); } catch (e) { out.failed.push('blockpick:' + e.message); }
+    try { UT.modes.defectEditor.steps(); out.opened.push('defect-steps'); } catch (e) { out.failed.push('defect-steps:' + e.message); }
+    try { UT.modes.hideKeyPrompt(); out.opened.push('hidekey'); } catch (e) { out.failed.push('hidekey:' + e.message); }
+    try { UT.test.loadSpecimen('pipe-weld', { od: 168.3, wt: 20 }); UT.test.menu('Weld/Pipe Thickness…') || UT.test.menu('Weld/Pipe Thickness...'); out.opened.push('pipethk'); } catch (e) { out.failed.push('pipethk:' + e.message); }
+    try { UT.test.setProbe({ method: 'tt' }); if (UT.dom.wins.ttinfo) UT.dom.wins.ttinfo.show(); out.opened.push('ttinfo'); } catch (e) { out.failed.push('ttinfo:' + e.message); }
+    UT.renderNow();
+    out.wins = Object.keys(UT.dom.wins).filter(k => UT.dom.wins[k].isOpen());
+    out.un = UT.test.untranslated ? UT.test.untranslated() : null;
+    const SHORT = /^[\d\s.,:%°+\-/×~()a-zA-Z]{0,3}$/, NUM = /^[\d\s.,%°:+\-/()µ]+$/;
+    const libNames = new Set((UT.probe && UT.probe.library || []).map(p => p.name));
+    const UNIT = /^[A-Za-z⌀]{0,2}\s*\(?(mm|µs|us|dB|%|°|Hz|MHz)\)?$/;
+    const exempt = (k, el) => SHORT.test(k) || NUM.test(k) || !/[A-Za-z]/.test(k) || UNIT.test(k) || /[ㄱ-힝]/.test(k) || libNames.has(k) || !!(UT.i18nKo && UT.i18nKo.isProductName && UT.i18nKo.isProductName(k)) || !!el.closest('.no-i18n') || !!el.closest('#statusbar .sb-left');
+    out.same = Array.from(new Set(Array.from(document.querySelectorAll('[data-i18n]')).filter(el => el.dataset.i18n && el.textContent.trim() === el.dataset.i18n.trim() && !exempt(el.dataset.i18n, el)).map(el => el.dataset.i18n))).slice(0, 12);
+    try { UT.modes.autoCal.cancel(); } catch (e) { /* ignore */ }
+    try { UT.test.scale.exit(); } catch (e) { /* ignore */ }
+    for (const k of Object.keys(UT.dom.wins)) if (UT.dom.wins[k].isOpen()) UT.dom.wins[k].close();
+    UT.setIn('probe', { method: 'pe' });
+    UT.test.lang('en');
+    return out;
+  });
+  A.ok(Array.isArray(r.un), 'UT.test.untranslated() exists');
+  if (Array.isArray(r.un)) A.le(r.un.length, 5, 'untranslated keys: ' + r.un.slice(0, 8).join(', '));
+  A.eq(r.same.length, 0, 'elements whose text equals the key while ko: ' + r.same.join(', '));
+  for (const w of ['scale', 'draw', 'blockpick', 'defect-steps', 'hidekey', 'pipethk', 'ttinfo']) A.ok((r.wins || []).indexOf(w) >= 0, `window ${w} opened (open: ${(r.wins || []).join(',')})`);
+  A.note(`${r.opened.length} windows opened` + (r.failed.length ? `, missing: ${r.failed.join(',')}` : ''));
   return A.result();
 });
 

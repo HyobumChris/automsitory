@@ -363,10 +363,30 @@ cell echoes the key function (`ARROW LEFT/DOWN`, `ARROW RIGHT/UP`, `CALIBRATE` �
 
 **Original.** f016 → f022: `RANGE 77.6` before the cal, `RANGE 50.0` after it, so the calibrated 20/40 mm
 echoes land on graticule divisions 4.0 and 8.0.
-**Required.** On a **successful** two-point cal, 80-modes sets
-`range = min(r ∈ {10, 20, 50, 100, 125, 250, 500} : r ≥ 2·d2 · 1.1)` (nearest preset covering ~2×`d2`
-with 10 % headroom; 500 when none fits) and records it in `autocal.rangeAfter`. `delay` is left alone.
-With `d1/d2 = 20/40` this gives **50.0** exactly as in the video. Cancelling a cal never changes the range.
+**Required.** On a **successful** two-point cal, 80-modes sets the range to the smallest preset that still
+shows the **deepest path the cal itself had to display**, with 10 % headroom — one rule, two inputs:
+
+```
+deepest = (twoMultiple ? d2 : 2·d2)                       // mm
+range   = min(r ∈ {10, 20, 50, 100, 125, 250, 500} : r ≥ 1.1 · deepest)   // 500 when none fits
+twoMultiple = autocal.source ≠ 'step' and d1 > 0 and |d2 − 2·d1| ≤ 0.05·d1
+```
+
+`twoMultiple` is the **one-position** cal of §3.2: the probe never moves, `d1` is the backwall and `d2` is
+its own 2nd multiple, so the deepest echo the trainee had to gate *is* `d2` and the screen only has to reach
+it. Two **separate** standards (`source === 'step'`, or any `d2` that is not ≈ 2·`d1`) are gated one at a
+time on their own backwalls, and the set is left able to show the thick standard's 2nd multiple, so the
+deepest path is `2·d2`. The result is recorded in `autocal.rangeAfter`; `delay` is left alone.
+
+Worked examples (rows 1–2 are asserted by V3-4, §9.1; all three by 80-modes' `__selftest`):
+
+| `source` | `d1 / d2` | `twoMultiple` | `deepest` | `1.1 · deepest` | `range` |
+| --- | --- | --- | --- | --- | --- |
+| `specimen` | 20 / 40 | yes | 40 | 44.0 | **50.0** — the video (f022) |
+| `step` | 10 / 25 | no | 50 | 55.0 | **100.0** |
+| `specimen` | 10 / 25 | no (25 ≠ 2·10) | 50 | 55.0 | **100.0** |
+
+Cancelling a cal never changes the range.
 
 ### 3.5 F5 — Softkey and key detail
 
@@ -528,7 +548,11 @@ prominent (the shear branch appears as faint dashed converted rays); the dialog 
 
 - 20-probe `derive()`: when `wedgeAngle < firstCritical`, compute **both**
   `snellAngle(wedgeAngle, vWedge, vShear)` and `snellAngle(wedgeAngle, vWedge, vComp)` and put both into
-  `statusLine` in the §14.10 format with their real values (no zeroed bracket). Above the 1st critical
+  `statusLine` in the §14.10 format with their real values (no zeroed bracket). The numerals above are the
+  **original's**, printed with its 3.20/5.96 steel; with our default 3.24/5.90 (§11.7) the same wedge 20°
+  reads `Shear Wave Angle=23.9°` / `Compression Wave Angle=47.4°   Velocity=5900 m/s`, and only
+  `setMaterial('carbon-utman')` reproduces the 23.5° / 48.1° / 5960 m/s of the frame. Both are correct
+  physics for their own steel; V3-14 asserts the default pair and V3-59 the UTman pair. Above the 1st critical
   angle the compression bracket reverts to `0.0°` / `0 m/s` exactly as v1/v2 (SPEC §14.10 unchanged for
   the 45/60/70° presets, so V1 #3 and the verbatim-status guards still hold).
   `derived.shearAngle` / `derived.compAngle` are exposed for the views.
@@ -571,8 +595,11 @@ original's list; `4` is kept at the end for v1/v2 compatibility). `display.skips
 30-raytrace's leg budget uses `ceil(2·skips)` legs and the drawing stops mid-leg at
 `floor(2·skips)` complete legs plus the half. `Run to UT Screen Range` sets
 `display.skips = null`, and the tracer then uses `maxLegs = max(2, ceil(2·opts.maxPath/T) + 2)` and the
-views draw every leg inside `instrument.delay + instrument.range`. Values 1, 2, 3, 4 keep their v1 meaning
-exactly, so V1 #1–#14 are unaffected.
+views draw every leg inside `instrument.delay + instrument.range`. The menu speaks one unit: one skip is a
+full V, so every entry draws `ceil(2·skips)` legs (0.5→1, 1→2, 1.5→3, 2→4, 2.5→5, 3→6, 4→8). The ladder is
+strictly increasing and no two entries draw the same polyline. The integer entries therefore no longer carry
+v1's `legs == skips` meaning; V1 #1–#14 are unaffected anyway because the extra legs lie beyond `opts.maxPath`
+at every v1 range.
 
 ### 4.6 F18 — Twin-crystal near-surface boost at 0°
 
@@ -919,8 +946,13 @@ the card's **top-left**, on the graticule. Either mouse button plots; the status
   A **click** (travel < 3 px) still plots a point (F39).
 - While dragging, 66 draws `${a.toFixed(1)} degree` in 12 px `#c00000` at (8, 14) px of the card, where
   `a` is the angle of the straight line from the drag's first to its current point, measured from the
-  **surface** (0° = along the surface, 90° = straight down) so a line drawn along a 60° beam reads
-  `60.0 degree`. The caption persists showing the last completed line's angle until `Erase Plotting`.
+  **normal** in the card plane (0° = straight down, 90° = along the surface), i.e.
+  `a = |atan2(Δstandoff, Δdepth)|` folded into 0…90, so a line drawn along a 60° beam reads
+  `60.0 degree` and along a 70° beam `70.0 degree`. (LEAD CORRECTION, QA round 3: the first draft said
+  "from the surface" in the same breath as the 60° worked example, which is its complement and therefore
+  self-contradictory. plotting_beam_spread f080 settles it — the caption reads `60.0 degree` while the
+  instructor draws along the 60° probe's beam, and 60° is the operator's from-normal probe angle. F37's
+  internal edge fit keeps `UT.math.fitLine`'s own from-surface `angleDeg`; only this caption is from-normal.) The caption persists showing the last completed line's angle until `Erase Plotting`.
 - Both buttons draw; `Alt`+click removes the nearest point/line (F39).
 
 #### F37 — BS angle and K-factor captions
@@ -1382,6 +1414,9 @@ V1 #1–#14 and V2-1…V2-27 unchanged. Quantities that legitimately change:
 - AUT gate **defaults** move to 15 % / 15 mm / 30 mm (F50); V1 #12 sets its own gates and is unaffected —
   QA to confirm.
 - Twin-crystal 0° amplitudes rise below 15 mm (F18); no v1/v2 check asserts a twin 0° defect amplitude.
+- The `Number of Skips` ladder is renumbered to `legs = 2·skips` (F17, §4.5); the drawn beam for the integer
+  entries 1/2/3/4 is twice as long as in v1/v2. No v1 or v2 acceptance number moves (the extra legs are past
+  `maxPath` at every range those checks use) — measured, 112/112.
 - Nothing else. In particular **no plate number moves** because of F21 (`defaultProbe.z = L/2 = 150` on
   plates) and **no bottom-corner number moves** because of F22.
 
@@ -1450,10 +1485,14 @@ V1 #1–#14 and V2-1…V2-27 unchanged. Quantities that legitimately change:
   `UT.test.setProbe({x:-40})` does **not** change `side`.
 - **V3-14 Both modes below the 1st critical angle** (F14): `setProbe({angle:0})` then set the wedge angle
   to 20° through the wedge dialog API → `derived.statusLine` contains both
-  `Shear Wave Angle=23.9°` and `Compression Wave Angle=48.1°` (±0.2° with the default 3.24/5.90; with
-  `setMaterial('carbon-utman')` the second reads 48.1° exactly); at wedge 35° the compression bracket is
-  `0.0°` / `0 m/s`. `UT.frame.rays` contains two fans whose centre-ray angles are 23.9° and 48.1° ± 0.5°,
-  both with ≥ 9 rays.
+  `Shear Wave Angle=23.9°` and `Compression Wave Angle=47.4°`, each ±0.2° with the default 3.24/5.90:
+  asin(sin 20° × 5.90/2.74) = 47.43°, **not** the original's 48.1°, which is the 5.96 figure. With
+  `setMaterial('carbon-utman')` applied **before** the wedge is dialled (the stored nominal refracted
+  angle re-solves the shoe angle when the velocities change, so a material switch after the fact leaves
+  the shoe at 19.8° and reads 47.5°) the same wedge 20° gives `Shear Wave Angle=23.5°` /
+  `Compression Wave Angle=48.1°   Velocity=5960 m/s` — the frame's numerals, see V3-59. At wedge 35° the
+  compression bracket is `0.0°` / `0 m/s`. `UT.frame.rays` contains two fans whose centre-ray angles are
+  23.9° and 47.4° ± 0.5° (23.5°/48.1° ± 0.5° under `carbon-utman`), both with ≥ 9 rays.
 - **V3-15 Wording and colour code** (F15): `derived.statusLine` contains `Compression Wave Angle` and does
   not contain `Comp'`; `menu('Probes/Colour Code Display/Leg colours')` sets
   `display.colourCode === 'legs'`; with `'propagation'` and a 60° shear probe every drawn leg uses
@@ -1788,6 +1827,14 @@ V1 #1–#14 and V2-1…V2-27 unchanged. Quantities that legitimately change:
     ASME DAC block's three-hole T/4-T/2-3T/4 layout (more standard-correct than the original's two), the
     V1 caption's pixel position, and the external-spreadsheet habit (our Datalogger and Print report cover
     it).
+
+14. **F4's post-cal range is one rule with two inputs, not two examples** (QA round 3). The draft §3.4
+    printed `r ≥ 1.1·2·d2` and then claimed 50.0 for the video's 20/40 cal, which that formula gives as 100;
+    the shipped code was right and the sentence was wrong. §3.4 now states the rule as implemented — the
+    deepest path the cal had to display is `d2` for a one-position two-multiple cal (`source ≠ 'step'` and
+    `|d2 − 2·d1| ≤ 0.05·d1`) and `2·d2` for two separate standards — so 20/40 gives 50.0 (f022) and
+    10/25 gives 100.0 with no special case. `rangeAfterCal()` in 80-modes and V3-4 are unchanged; only the
+    prose moved.
 
 **Lead decisions on the open points (taken — these are binding; the reasoning is recorded so a later
 reader can reopen one with evidence rather than preference):**

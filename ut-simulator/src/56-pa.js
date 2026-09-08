@@ -46,6 +46,28 @@
 //    rebuilds the content. compute() only evaluates the E-scan while pa.view === 'E' (performance);
 //    UT.test.pa.escan() always does.
 // 9. Angle sets longer than 181 entries are decimated (step raised) so a sweep never exceeds 181 traces.
+// 10. v3 F24 (SPEC-v3 §4.12) — shoe stand-off / shoe height. pa.shoeStandOff (default 8 mm) and
+//    pa.shoeHeight (default 12 mm) describe the wedge the array sits on: the array centre (the APERTURE
+//    ORIGIN, `apexOf()`) is shoeStandOff BEHIND the index point along the surface (behind = +side, since
+//    the beam travels toward −side) and shoeHeight above it along the wedge normal. probe.x stays the
+//    index point — that is the tracer's origin — so the fields never move the beam entry, only:
+//      · the wedge path/delay of every S-scan column. The sound crosses the REAL wedge leg — the straight
+//        line from the array centre (standOff behind, height above) down to the index point — so
+//        wedgeLeg = √(standOff² + height²) (derived.wedgePath = wedgeLeg, wedgeDelayUs = 2·wedgeLeg/vWedge,
+//        law.origin.wedgePathMm the same). At the 8/12 defaults that is 14.4222 mm, NOT the 'pa-16-1.0'
+//        library's 12 mm: a stand-off that moves the array centre must lengthen the Perspex path it moved
+//        it along. Only the two-way wedge TIME changes; 40's display mapping subtracts the same
+//        wedgeDelayUs that trueTime() adds, the tracer never reads wedgePath, and the column samples are
+//        binned on TRUE path — so every v1/v2 echo path, amplitude and focal-law delay is unchanged
+//        (V2-11's SDH angle, TCG spread and delays included);
+//      · frame.pa.aperture (x0/x1/x/y now sit on the offset origin) and sscan().apex;
+//      · the drawn shoe in the panel's S-scan image (a grey wedge from the apex to the index point).
+//    The E-scan is a CONTACT L probe (SPEC-v2 §3.10) — no wedge — so the shoe is not applied to it.
+//    Focal-law timing uses the offset origin through law.origin/law.wedgeDelayUs; the per-element delays
+//    are DIFFERENTIAL (min-normalised, or (max d − d_i)/v_w when focused), so the common wedge term
+//    cancels and law.slope is unchanged at any stand-off/height — as §4.12 requires for V2-11.
+//    pa.shoeStandOff / pa.shoeHeight are extra pa.* fields like pa.angle (SPEC NOTE 2): 56 supplies the
+//    defaults, 00-core's defaultState does not carry them and 94 does not persist them.
 (function (UT) {
   'use strict';
   const M = UT.math;
@@ -65,6 +87,8 @@
   const CLIP_PCT = 120;
   const PA_LIB_ID = 'pa-16-1.0';
   const VIEWS = ['S', 'E', 'C'];
+  const SHOE = { standOff: 8, height: 12 };          // F24 defaults (mm)
+  const SHOE_LIMITS = { standOff: [0, 100], height: [1, 60] };
   const IMG = { w: 320, h: 200 };
   const LAW = { w: 320, h: 64 };
   const DEF_PA = UT.defaultState().pa;
@@ -87,6 +111,8 @@
       freq: clampNum(pa.freq, 0.5, 20, 5),
       focusDepth: Number.isFinite(fd) && fd > 0 ? fd : null,
       escanAngle: clampNum(pa.escanAngle, 0, 89, 60),
+      shoeStandOff: clampNum(pa.shoeStandOff, SHOE_LIMITS.standOff[0], SHOE_LIMITS.standOff[1], SHOE.standOff),
+      shoeHeight: clampNum(pa.shoeHeight, SHOE_LIMITS.height[0], SHOE_LIMITS.height[1], SHOE.height),
       tcg: !!pa.tcg,
       view: VIEWS.indexOf(pa.view) >= 0 ? pa.view : 'S',
       angle: Number.isFinite(+pa.angle) ? +pa.angle : null,
@@ -95,6 +121,44 @@
 
   /** Full material record of a specimen (UT.specimens.materialOf; carbon steel when spec/material is missing). */
   function materialOf(spec) { return UT.specimens.materialOf(spec && spec.material); }
+
+  /**
+   * F24: the phased-array shoe of a state — {standOff, height} in mm (defaults 8 / 12).
+   * @param {object} [state]  UT.state-like
+   * @returns {{standOff:number, height:number}}
+   */
+  function shoeOf(state) {
+    const arr = arrayOf(state || UT.state);
+    return { standOff: arr.shoeStandOff, height: arr.shoeHeight };
+  }
+
+  /**
+   * F24: the wedge leg of a shoe — the straight Perspex path from the array centre (standOff behind the
+   * index point, height above it) down to the index point, √(standOff² + height²) mm.
+   * @param {{standOff:number, height:number}|null} shoe
+   * @returns {number} mm (0 for a missing/flat shoe)
+   */
+  function wedgeLegOf(shoe) {
+    if (!shoe) return 0;
+    const so = +shoe.standOff || 0, h = +shoe.height || 0;
+    return Math.hypot(so, h);
+  }
+
+  /**
+   * F24: the aperture origin (array centre) of a state — the index point (probe.x, 0) offset by the shoe:
+   * `standOff` mm BEHIND it along the surface (+side, the beam runs toward −side) and `height` mm above it
+   * (y < 0 is above the scanning surface).
+   * @param {object} [state]  UT.state-like
+   * @returns {{x:number, y:number, standOff:number, height:number, side:number}}
+   */
+  function apexOf(state) {
+    const s = state || UT.state;
+    const sh = shoeOf(s);
+    const probe = s.probe || {};
+    const side = probe.side === -1 ? -1 : 1;
+    const x = (+probe.x || 0) + side * sh.standOff;
+    return { x, y: -sh.height, standOff: sh.standOff, height: sh.height, side };
+  }
 
   /** Angle set of the sweep from probe.paFrom/paTo/paStep (SPEC NOTE 1, 9). */
   function sweepOf(state) {
@@ -185,7 +249,13 @@
     const theta = clampNum(thetaDeg, -89, 89, 0);
     const xs = elementXs(n, pitch);
     const w = wedgeOf(theta, escan, mat);
-    if (!w.valid) return { angle: theta, delaysUs: xs.map(function () { return 0; }), slope: 0, valid: false, thetaW: null, thetaRel: null, vW: w.vW, xEl: xs, F: null };
+    const shoe = escan ? { standOff: 0, height: 0 } : shoeOf(state);
+    // F24: the timing origin is the offset aperture origin — a COMMON wedge term for every element
+    // (differential delays below are unchanged, so `slope` never moves; §4.12 / V2-11).
+    const originLegMm = wedgeLegOf(shoe);
+    const originDelayUs = originLegMm > 0 ? 2 * originLegMm / w.vW : 0;
+    const origin = { standOff: shoe.standOff, height: shoe.height, wedgePathMm: originLegMm, wedgeDelayUs: originDelayUs };
+    if (!w.valid) return { angle: theta, delaysUs: xs.map(function () { return 0; }), slope: 0, valid: false, thetaW: null, thetaRel: null, vW: w.vW, xEl: xs, F: null, origin, wedgeDelayUs: originDelayUs };
     const sinRel = Math.sin(rad(w.thetaRel));
     const slope = Math.abs(sinRel) / w.vW;
     const fdRaw = o.focusDepth === undefined ? arr.focusDepth : o.focusDepth;
@@ -204,7 +274,7 @@
       delays = delays.map(function (v) { return v - mn; });
     }
     delays = delays.map(function (v) { return v < 0 ? 0 : v; });
-    return { angle: theta, delaysUs: delays, slope, valid: true, thetaW: w.thetaW, thetaRel: w.thetaRel, vW: w.vW, xEl: xs, F };
+    return { angle: theta, delaysUs: delays, slope, valid: true, thetaW: w.thetaW, thetaRel: w.thetaRel, vW: w.vW, xEl: xs, F, origin, wedgeDelayUs: originDelayUs };
   }
 
   /**
@@ -233,6 +303,8 @@
       angle: thetaDeg, method: 'pe', mode: escan ? 'comp' : 'shear', crystal: 'single',
       freq: arr.freq, diameter: ap.a, crystalDims: { a: ap.a, b: CRYSTAL_B, shape: 'rect' }, libId: PA_LIB_ID,
       wedgeVel: escan ? mat.vComp : V_WEDGE, focus,
+      // F24: the shoe rides with the S-scan columns only (the E-scan is a contact L probe, no wedge)
+      paShoe: escan ? null : { standOff: arr.shoeStandOff, height: arr.shoeHeight },
       x: (probe.x || 0) + (xOff || 0), paFrom: probe.paFrom, paTo: probe.paTo, paStep: probe.paStep,
     });
   }
@@ -255,8 +327,27 @@
   }
 
   /** Trace one column: {derived, echoes (raw tracer echoes)}. */
+  /**
+   * F24: put the wedge path/delay of a derived probe on the shoe's WEDGE LEG — the beam travels
+   * √(standOff² + height²) mm of Perspex from the array centre down to the index point, so a stand-off
+   * lengthens the wedge path exactly as much as it moves the array centre back (8/12 → 14.4222 mm).
+   * @param {object} derived  UT.probe.derive() result (mutated in place — it is freshly built per column)
+   * @param {{standOff:number, height:number}|null} shoe
+   * @returns {object} derived
+   */
+  function applyShoe(derived, shoe) {
+    if (!derived || !shoe) return derived;
+    const leg = wedgeLegOf(shoe);
+    if (!(leg > 0)) return derived;
+    const vW = derived.vWedge > 0 ? derived.vWedge : V_WEDGE;
+    if (Math.abs((derived.wedgePath || 0) - leg) < 1e-9) return derived;
+    derived.wedgePath = leg;
+    derived.wedgeDelayUs = 2 * leg / vW;
+    return derived;
+  }
+
   function traceColumn(state, spec, p, defects, opts) {
-    const derived = UT.probe.derive(p, spec);
+    const derived = applyShoe(UT.probe.derive(p, spec), p && p.paShoe);
     let rays = null;
     if (spec && UT.rays && typeof UT.rays.trace === 'function') {
       try { rays = UT.rays.trace({ specimen: spec, probe: p, derived, display: Object.assign({}, state.display || {}, { skips: opts.maxLegs }), defects, opts }); }
@@ -309,7 +400,7 @@
     const hole = block.holes.reduce(function (best, h) { return (!best || Math.abs(h.y - block.T / 2) < Math.abs(best.y - block.T / 2)) ? h : best; }, null);
     if (!hole) return zero;
     const ph = state.physics || {};
-    const key = JSON.stringify([angles, arr.elements, arr.pitch, arr.freq, arr.focusDepth, block.T, hole.x, hole.y, (block.material && block.material.key) || 'carbon', ph.modeConv !== false, ph.fanRays]);
+    const key = JSON.stringify([angles, arr.elements, arr.pitch, arr.freq, arr.focusDepth, arr.shoeStandOff, arr.shoeHeight, block.T, hole.x, hole.y, (block.material && block.material.key) || 'carbon', ph.modeConv !== false, ph.fanRays]);
     if (tcgCache.key === key && tcgCache.table) return tcgCache.table;
     const raw = angles.map(function (theta) {
       const x = hole.x + hole.y * Math.tan(rad(theta));
@@ -383,7 +474,7 @@
       const echoes = mapColumn(res.echoes, res.derived, inst, tcg[i], { angle: theta });
       return { angle: theta, echoes, samples: columnSamples(echoes, res.derived, inst), valid: true, tcgDb: tcg[i], aperture: res.derived.crystalA, nearField: res.derived.nearField };
     });
-    return { angles, columns, selected: selectedIndex(angles, s), maxPath, T: spec ? (spec.T || 0) : 0, delay, range, side: (s.probe && s.probe.side) || 1, tcgDb: tcg, from: sweep.from, to: sweep.to, step: sweep.step };
+    return { angles, columns, selected: selectedIndex(angles, s), maxPath, T: spec ? (spec.T || 0) : 0, delay, range, side: (s.probe && s.probe.side) || 1, tcgDb: tcg, from: sweep.from, to: sweep.to, step: sweep.step, apex: apexOf(s) };
   }
 
   /**
@@ -427,11 +518,14 @@
     const law = arr.view === 'E' ? focalLaw(arr.escanAngle, { state: s, escan: true }) : focalLaw(selAngle === null ? 60 : selAngle, { state: s });
     const A = arr.elements * arr.pitch;
     const fp = A * Math.cos(rad(WEDGE_BETA));
-    const px = (s.probe && s.probe.x) || 0;
+    // F24: the aperture origin is the array centre on the shoe (E-scan = contact, no shoe).
+    const apex = apexOf(s);
+    const px = arr.view === 'E' ? ((s.probe && s.probe.x) || 0) : apex.x;
+    const py = arr.view === 'E' ? 0 : apex.y;
     return {
-      view: arr.view, sscan: ss, escan: es,
-      focalLaws: { angle: law.angle, delaysUs: law.delaysUs, slope: law.slope, valid: law.valid, thetaW: law.thetaW, thetaRel: law.thetaRel, escan: arr.view === 'E' },
-      aperture: { x0: px - fp / 2, x1: px + fp / 2, A, elements: arr.elements, pitch: arr.pitch, footprint: fp },
+      view: arr.view, sscan: ss, escan: es, apex,
+      focalLaws: { angle: law.angle, delaysUs: law.delaysUs, slope: law.slope, valid: law.valid, thetaW: law.thetaW, thetaRel: law.thetaRel, escan: arr.view === 'E', origin: law.origin, wedgeDelayUs: law.wedgeDelayUs },
+      aperture: { x0: px - fp / 2, x1: px + fp / 2, x: px, y: py, standOff: apex.standOff, height: apex.height, A, elements: arr.elements, pitch: arr.pitch, footprint: fp },
       selected: selAngle === null ? null : { angle: selAngle, index: ss.selected },
     };
   }
@@ -682,7 +776,11 @@
 
   function numField(label, key, opts) {
     const o = opts || {};
-    const f = UT.dom.field(label, { type: 'number', value: o.value, min: o.min, max: o.max, step: o.step, title: o.title ? t(o.title) : null, onchange: o.onchange });
+    // F24 note: `plain` labels are translated HERE (t at build time) instead of through the live
+    // data-i18n marker — the panel rebuilds its whole content on the 'lang' event, so they still follow
+    // the language, and a key 92-i18n-ko has not translated yet does not masquerade as a live marker.
+    const lab = o.plain ? UT.dom.h('span', {}, t(label)) : label;
+    const f = UT.dom.field(lab, { type: 'number', value: o.value, min: o.min, max: o.max, step: o.step, title: o.title ? t(o.title) : null, onchange: o.onchange });
     ui.inputs[key] = f.input;
     return f;
   }
@@ -727,6 +825,8 @@
       numField('Focus depth (mm)', 'focusDepth', { value: arr.focusDepth === null ? 0 : arr.focusDepth, min: 0, max: 300, step: 1, title: 'Focus depth in the material (0 = unfocused; F ≤ near field)', onchange: function (v) { setArray({ focusDepth: v }); } }),
       numField('Selected angle (°)', 'angle', { value: sw.angles[selectedIndex(sw.angles, s)], min: 0, max: 89, step: sw.step, title: 'Angle whose A-scan is shown on the instrument', onchange: function (v) { setArray({ angle: v }); } }),
       numField('E-scan angle (°)', 'escanAngle', { value: arr.escanAngle, min: 0, max: 89, step: 1, title: 'Fixed steering angle of the electronic scan (contact L)', onchange: function (v) { setArray({ escanAngle: v }); } }),
+      numField('Shoe Stand Off (mm)', 'shoeStandOff', { plain: true, value: arr.shoeStandOff, min: SHOE_LIMITS.standOff[0], max: SHOE_LIMITS.standOff[1], step: 1, title: 'Distance from the array centre back to the beam index point on the surface', onchange: function (v) { setArray({ shoeStandOff: v }); } }),
+      numField('Shoe Height (mm)', 'shoeHeight', { plain: true, value: arr.shoeHeight, min: SHOE_LIMITS.height[0], max: SHOE_LIMITS.height[1], step: 1, title: 'Height of the array centre above the surface (the wedge path in the shoe)', onchange: function (v) { setArray({ shoeHeight: v }); } }),
       (function () { const f = UT.dom.field('Per-angle TCG', { type: 'checkbox', value: arr.tcg, title: t('Flatten the DAC-block SDH response across the sweep'), onchange: function (v) { setArray({ tcg: v }); } }); ui.inputs.tcg = f.input; return f; })(),
     ]);
     const runBtn = UT.dom.button('Run', function () { if (!isScanning()) startScan(); syncInputs(); }, { class: 'btn small pa-run', title: t('Encoded C-scan along the weld at the current probe x') });
@@ -767,6 +867,7 @@
     set('from', sw.from); set('to', sw.to); set('step', sw.step);
     set('focusDepth', arr.focusDepth === null ? 0 : arr.focusDepth);
     set('escanAngle', arr.escanAngle);
+    set('shoeStandOff', arr.shoeStandOff); set('shoeHeight', arr.shoeHeight);
     set('angle', sw.angles[selectedIndex(sw.angles, s)]);
     if (ui.inputs.tcg && ui.inputs.tcg.checked !== arr.tcg) ui.inputs.tcg.checked = arr.tcg;
     ui.tabs.forEach(function (b) { const on = b.dataset.view === arr.view; b.classList.toggle('active', on); b.setAttribute('aria-selected', on ? 'true' : 'false'); });
@@ -784,12 +885,21 @@
     const depthMax = Math.min(maxPath, Math.max(T * 1.05, maxPath * Math.cos(rad(a1)) * 1.05));
     const xMax = maxPath * Math.sin(rad(a1)) * 1.02;
     const side = ss.side || 1;
-    const mL = 22, mT = 14, mB = 16, mR = 6;
+    // F24: reserve a little room behind (+side) and above the index point so the shoe is visible; the
+    // pads are fixed px (the mm→px scale is derived from the margins, so they cannot depend on it) and
+    // the drawn apex is clamped into the canvas when a big stand-off would leave it.
+    const shoe = ss.apex || { standOff: 0, height: 0 };
+    const padBack = shoe.standOff > 0 ? 14 : 0, padTop = shoe.height > 0 ? 10 : 0;
+    const mL = 22 + (side > 0 ? 0 : padBack), mT = 14 + padTop, mB = 16, mR = 6 + (side > 0 ? padBack : 0);
     const scale = Math.min((W - mL - mR) / Math.max(1, xMax), (H - mT - mB) / Math.max(1, depthMax));
     const ox = side > 0 ? W - mR : mL, oy = mT;
     const toX = function (lat) { return ox - side * lat * scale; };
     const toY = function (d) { return oy + d * scale; };
-    ui.sector = { ox, oy, scale, side, a0, a1 };
+    // F24: the aperture origin (array centre) sits `standOff` mm behind and `height` mm above the index
+    // point — the shoe is drawn as a grey wedge from that apex down to it.
+    const apexX = M.clamp(ox + side * shoe.standOff * scale, 3, W - 3);
+    const apexY = M.clamp(oy - shoe.height * scale, 3, H - 3);
+    ui.sector = { ox, oy, scale, side, a0, a1, apex: { x: apexX, y: apexY, mm: shoe } };
     ctx.fillStyle = '#101830'; ctx.beginPath(); ctx.moveTo(ox, oy);
     for (let a = a0; a <= a1 + 1e-9; a += 1) ctx.lineTo(toX(maxPath * Math.sin(rad(a))), toY(maxPath * Math.cos(rad(a))));
     ctx.lineTo(toX(maxPath * Math.sin(rad(a1))), toY(maxPath * Math.cos(rad(a1))));
@@ -819,6 +929,14 @@
     }
     ctx.fillStyle = '#d0d0d0'; ctx.font = '9px Segoe UI, Arial, sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     for (let d = 0; d <= depthMax + 1e-9; d += depthMax > 60 ? 20 : 10) ctx.fillText(String(Math.round(d)), mL - 2, toY(d));
+    if (shoe.height > 0 || shoe.standOff > 0) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(190,190,190,0.55)'; ctx.strokeStyle = '#9aa4b4'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(apexX, apexY); ctx.lineTo(apexX + side * 4, oy); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#ffd070'; ctx.fillRect(apexX - 2, apexY - 2, 4, 4);   // the array centre (apex)
+      ctx.restore();
+    }
     ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.fillText('S ' + a0.toFixed(0) + '°–' + a1.toFixed(0) + '°' + (arrayOf(s).tcg ? ' TCG' : ''), 2, 1);
     ctx.textAlign = 'right';
@@ -1001,13 +1119,14 @@
       return { kind: e.kind, path: e.path, ampPct: e.ampPct, leg: e.leg, x: e.x, y: e.y, tUs: Number.isFinite(e.tUs) ? e.tUs : null, mode: e.mode || null, angle: e.angle, defectId: e.defectId, tag: e.tag };
     });
   }
-  /** UT.test.pa.sscan(): run one S-scan sweep on the current focal law. @returns {{angles:number[], selected:number, maxPath:number, T:number, tcgDb:number[], from:number, to:number, step:number, columns:{angle:number, valid:boolean, tcgDb:number, aperture:object, nearField:number, echoes:object[], samples:number[]}[]}} */
+  /** UT.test.pa.sscan(): run one S-scan sweep on the current focal law. @returns {{angles:number[], selected:number, maxPath:number, T:number, tcgDb:number[], from:number, to:number, step:number, apex:{x:number, y:number, standOff:number, height:number}, columns:{angle:number, valid:boolean, tcgDb:number, aperture:object, nearField:number, echoes:object[], samples:number[]}[]}} */
   function testSscan() {
     ensurePa({ noRender: true });
     const frame = UT.renderNow();
     const ss = (frame.pa && frame.pa.sscan) || sscan(UT.state);
     return {
       angles: ss.angles.slice(), selected: ss.selected, maxPath: ss.maxPath, T: ss.T, tcgDb: ss.tcgDb.slice(), from: ss.from, to: ss.to, step: ss.step,
+      apex: Object.assign({}, ss.apex || apexOf(UT.state)),
       columns: ss.columns.map(function (c) { return { angle: c.angle, valid: c.valid, tcgDb: c.tcgDb, aperture: c.aperture, nearField: c.nearField, echoes: echoRows(c.echoes), samples: Array.from(c.samples) }; }),
     };
   }
@@ -1031,11 +1150,14 @@
     for (let i = 0; i < sc.map.length; i++) { const v = sc.map[i]; if (Number.isFinite(v) && v > 0) { nonEmpty++; if (v > max) max = v; } }
     return { z0: sc.z0, z1: sc.z1, step: sc.step, n: sc.n, xBins: sc.xBins, latMax: sc.latMax, nonEmpty, max, map: Array.from(sc.map) };
   }
-  /** UT.test.pa.focalLaw(θ, {escan, focusDepth}): focal law of one steering angle (deg in steel) for the current state. @returns {{angle:number, delaysUs:number[], slope:number, valid:boolean, thetaW:number, thetaRel:number, vW:number, F:number, xEl:number[]}} */
+  /** UT.test.pa.focalLaw(θ, {escan, focusDepth}): focal law of one steering angle (deg in steel) for the current state. @returns {{angle:number, delaysUs:number[], slope:number, valid:boolean, thetaW:number, thetaRel:number, vW:number, F:number, xEl:number[], origin:object, wedgeDelayUs:number}} */
   function testFocalLaw(theta, opts) {
     const law = focalLaw(theta, Object.assign({}, opts || {}, { state: UT.state }));
-    return { angle: law.angle, delaysUs: law.delaysUs.slice(), slope: law.slope, valid: law.valid, thetaW: law.thetaW, thetaRel: law.thetaRel, vW: law.vW, F: law.F, xEl: law.xEl.slice() };
+    return { angle: law.angle, delaysUs: law.delaysUs.slice(), slope: law.slope, valid: law.valid, thetaW: law.thetaW, thetaRel: law.thetaRel, vW: law.vW, F: law.F, xEl: law.xEl.slice(), origin: Object.assign({}, law.origin), wedgeDelayUs: law.wedgeDelayUs };
   }
+
+  /** UT.test.pa.apex(): F24 aperture origin (array centre) of the current state, mm. @returns {{x:number, y:number, standOff:number, height:number, side:number}} */
+  function testApex() { return apexOf(UT.state); }
 
   // ================================================================== selftest
   function selftest() {
@@ -1059,6 +1181,25 @@
       if (!ap || Math.abs(ap.a - 16 * Math.cos(rad(11.1)) * 0.5 / Math.cos(rad(47.1))) > 0.1) f.push('aperture 60 ' + (ap && ap.a));
       const apE = apertureOf(60, arrayOf(base), true, materialOf(null));
       if (!apE || Math.abs(apE.a - 8 * Math.cos(rad(60))) > 1e-6) f.push('escan aperture ' + (apE && apE.a));
+      // ---- v3 F24: shoe stand-off / height (pure geometry + focal-law invariance)
+      const sh0 = shoeOf({});
+      if (sh0.standOff !== 8 || sh0.height !== 12) f.push('shoe defaults ' + JSON.stringify(sh0));
+      const shoed = { probe: { x: 100, side: 1 }, pa: { shoeStandOff: 20, shoeHeight: 30 } };
+      const ax = apexOf(shoed);
+      if (Math.abs(ax.x - 120) > 1e-9 || ax.y !== -30 || ax.standOff !== 20) f.push('apexOf +side ' + JSON.stringify(ax));
+      const axM = apexOf({ probe: { x: 100, side: -1 }, pa: { shoeStandOff: 20 } });
+      if (Math.abs(axM.x - 80) > 1e-9) f.push('apexOf -side ' + axM.x);
+      if (Math.abs(apexOf({ probe: { x: 40, side: 1 } }).x - 48) > 1e-9) f.push('apexOf default stand-off');
+      const lShoe = focalLaw(60, { state: Object.assign({}, base, { pa: Object.assign({}, base.pa, { shoeStandOff: 20, shoeHeight: 30 }) }) });
+      if (lShoe.slope !== l60.slope || lShoe.delaysUs.some(function (v, i) { return Math.abs(v - l60.delaysUs[i]) > 1e-12; })) f.push('shoe moved the focal law');
+      const legShoe = Math.hypot(20, 30), legDef = Math.hypot(8, 12);
+      if (Math.abs(lShoe.wedgeDelayUs - 2 * legShoe / lShoe.vW) > 1e-9 || Math.abs(l60.wedgeDelayUs - 2 * legDef / l60.vW) > 1e-9) f.push('shoe wedgeDelayUs ' + lShoe.wedgeDelayUs);
+      if (!lShoe.origin || lShoe.origin.standOff !== 20 || Math.abs(lShoe.origin.wedgePathMm - legShoe) > 1e-9) f.push('law origin');
+      // F24: the stand-off must lengthen the wedge path (bug fix — it used to track the height alone)
+      const lTall = focalLaw(60, { state: Object.assign({}, base, { pa: Object.assign({}, base.pa, { shoeStandOff: 0, shoeHeight: 30 }) }) });
+      if (!(lShoe.origin.wedgePathMm > lTall.origin.wedgePathMm + 1e-6) || Math.abs(lTall.origin.wedgePathMm - 30) > 1e-9) f.push('stand-off ignored by the wedge path');
+      if (Math.abs(lShoe.slope - l60.slope) > 1e-12 || Math.abs(lTall.slope - l60.slope) > 1e-12) f.push('shoe moved the focal-law slope');
+      if (focalLaw(60, { state: base, escan: true }).wedgeDelayUs !== 0) f.push('escan law has no shoe');
       if (sweepOf({ probe: { paFrom: 35, paTo: 75, paStep: 1 } }).angles.length !== 41) f.push('sweep 35..75');
       if (sweepOf({ probe: { paFrom: 0, paTo: 89, paStep: 0.25 } }).angles.length > MAX_ANGLES) f.push('sweep cap');
       if (!(UT.rays && UT.rays.trace && UT.specimens && UT.specimens.dacBlock && UT.ascan)) return f;
@@ -1078,6 +1219,24 @@
       if (!(ss.columns[25].samples instanceof Float32Array) || ss.columns[25].samples.length !== COL_SAMPLES) f.push('samples');
       if (Math.max.apply(null, Array.from(ss.columns[25].samples)) < 5) f.push('samples empty at 60°');
       if (ss.selected !== 25) f.push('selected index ' + ss.selected);
+      // F24: every S-scan column travels the shoe's WEDGE LEG √(standOff² + height²) of Perspex (8/12 →
+      // 14.4222 mm); a taller or further-back shoe re-times the wedge, and the E-scan (contact L) has none.
+      const pShoe = columnProbe(st, 60, 0, false);
+      const dShoe = applyShoe(UT.probe.derive(pShoe, st.specimen), pShoe.paShoe);
+      if (!pShoe.paShoe || pShoe.paShoe.height !== 12 || Math.abs(dShoe.wedgePath - Math.hypot(8, 12)) > 1e-9) f.push('default shoe wedgePath ' + dShoe.wedgePath);
+      const st20 = Object.assign({}, st, { pa: Object.assign({}, st.pa, { shoeHeight: 20, shoeStandOff: 20 }) });
+      const p20 = columnProbe(st20, 60, 0, false);
+      const d20 = applyShoe(UT.probe.derive(p20, st20.specimen), p20.paShoe);
+      const leg20 = Math.hypot(20, 20);
+      if (Math.abs(d20.wedgePath - leg20) > 1e-9 || Math.abs(d20.wedgeDelayUs - 2 * leg20 / d20.vWedge) > 1e-9) f.push('shoe 20 wedgePath ' + d20.wedgePath);
+      const stFlat = Object.assign({}, st, { pa: Object.assign({}, st.pa, { shoeHeight: 20, shoeStandOff: 0 }) });
+      const pFlat = columnProbe(stFlat, 60, 0, false);
+      const dFlat = applyShoe(UT.probe.derive(pFlat, stFlat.specimen), pFlat.paShoe);
+      if (!(d20.wedgePath > dFlat.wedgePath + 1e-6)) f.push('column wedgePath ignores the stand-off');
+      if (Math.abs(p20.x - pShoe.x) > 1e-9) f.push('shoe moved the index point');
+      if (columnProbe(st, 60, 0, true).paShoe !== null) f.push('escan column carries a shoe');
+      const ssApex = sscan(st20).apex;
+      if (Math.abs(ssApex.x - (st20.probe.x + 20)) > 1e-9 || ssApex.y !== -20) f.push('sscan apex ' + JSON.stringify(ssApex));
       const es = escan(st);
       if (es.columns.length < 8 || es.columns.length !== 9) f.push('escan columns ' + es.columns.length);
       if (Math.abs(es.columns[0].xOff + 4) > 1e-9 || Math.abs(es.columns[8].xOff - 4) > 1e-9) f.push('escan offsets');
@@ -1120,7 +1279,7 @@
   UT.pa = {
     WEDGE_BETA, ESCAN_ELEMENTS, COL_SAMPLES, X_BINS, COLS_PER_FRAME, VIEWS,
     compute, sscan, escan, runScan, startScan, stopScan, isScanning,
-    focalLaw, focalLaws, wedgeOf, apertureOf, tcgTable, sweepOf, arrayOf, columnProbe,
+    focalLaw, focalLaws, wedgeOf, apertureOf, tcgTable, sweepOf, arrayOf, columnProbe, shoeOf, apexOf, wedgeLegOf, SHOE, SHOE_LIMITS,
     setSweep, setArray, ensurePa,
     panel, css,
     /** Window-registry alias (§8: menu → UT.<owner>.<win>.toggle()). */
@@ -1136,5 +1295,5 @@
     __selftest: selftest,
   };
 
-  Object.assign(UT.test, { pa: { sscan: testSscan, escan: testEscan, runScan: testRunScan, focalLaw: testFocalLaw } });
+  Object.assign(UT.test, { pa: { sscan: testSscan, escan: testEscan, runScan: testRunScan, focalLaw: testFocalLaw, apex: testApex } });
 })(window.UT = window.UT || {});

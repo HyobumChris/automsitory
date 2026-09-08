@@ -3,8 +3,9 @@
  *
  * // SPEC NOTES (decisions where the spec is silent)
  * - USK7: the skin is a floating window (`data-win="usk7"`) holding the CRT canvas `cv-ascan`; while it is the
- *   active UT set `#instrument` shows a small dark panel with a "Show USK 7" button (the window can be closed
- *   with its OFF button and re-opened from that panel or Options ▸ UT Set).  Only one `#cv-ascan` exists at a time.
+ *   active UT set `#instrument` shows a small dark panel with a "Show USK 7" button (v3: the window is closed with
+ *   its titlebar ✕ — OFF is a power key — and re-opened from that panel or Options ▸ UT Set; the button hides itself
+ *   while the window is open).  Only one `#cv-ascan` exists at a time.
  * - `UT.instruments.window` is a lazy getter: the window is created on first access (needs a document).
  *   In v1/v2 the USK7 is parked bottom-right (§14.8); leaving those modes restores the position it had before.
  * - 2ND F is a latch: it highlights until the next key consumes it (dB → refGain = gain; ▲▼ → 6 dB gain steps;
@@ -93,13 +94,77 @@
  *   `.no-i18n` elements, as do numeric value cells.
  * - Test API: UT.test.datalog() (clone of the entries), autoPct(v?) (get / set), auto(pct) → gain, storeRef() → refGain,
  *   wheel(n) → the selected parameter's new value.
+ *
+ * // SPEC NOTES v3 (SPEC-v3 §3.1 F1, §3.3 F3, §3.5 F5, §3.6 F6, §3.7 F7, §3.8 F8, §6.1 F40)
+ * - F1 power: `instrument.powered === false` blanks the TRACE only — drawAscan still paints the frame, the graticule,
+ *   the bezel strip and (on the USK 7) the CRT text line, and draws the same flat baseline as the "no samples" case
+ *   (utman_functions f020 shows a grid-only CRT). Gates, DAC, peak memory, compare and the badges are skipped; the
+ *   window, panel, knobs and softkeys stay mounted and live. USK 7 `OFF` and the EPOCH ⏻ / ON-OFF keys are power
+ *   toggles (the titlebar ✕ still closes the window); `frame.ascan` is untouched, so physics keeps running.  The
+ *   USK 7 `OFF` key therefore carries the power tip (TIPS.ON, 'Switch the set on / off …') and the dock's
+ *   'Show USK 7' button is hidden (`hidden`) whenever the window is open, so neither promises a window close.
+ * - F3 wizard: the on-LCD box is drawn by drawAscan (theme flag `calBox`) from the state written by 80-modes
+ *   (`autocal.stage/field`); 70 owns only the drawing, the field stepping and the confirm/cancel keys. Because a
+ *   canvas carries no accessible text the box's three lines are ALSO written to `#cv-ascan`'s aria-label
+ *   (`UT.instruments.calText()` is the single source, used by both). Field text: 2 decimals while > 0, `0` at zero
+ *   (f006). ▲▼ / wheel step 0.10 mm, 2ND F (or the coarse ◀ ▶) 1.00 mm, clamped 0…500; digits, '.' and Backspace
+ *   typed while the wizard is up edit the field directly. Confirm goes through UT.modes.autoCal.confirm() when 80
+ *   provides it and falls back to the v2 .step().
+ * - F5 P-row: the relabelled row is the PHYSICAL P1…P7 key row (`.ik-p`), not the LCD's bottom dB cells — the dB
+ *   cells are a v1 contract (V1-6 clicks them by their `10.0dB` text). EPOCH 600 labels are the bare numbers
+ *   (`10.0`…`500.0`, V3-5); the EPOCH 4 / LTC quick-range row keeps the `10.0mm` form of f028.
+ * - F5 Trig: `trig.diameter` (mm, default weldOpts.od) and `trig.csc` (bool) are added to `instrument.trig` by this
+ *   module; they are NOT in defaultState, so a restored record drops them (90's coerceLike keeps the default shape).
+ *   `CSC On` corrects the SD / DP shown ON THE INSTRUMENT SCREENS only (law of cosines from the pipe centre) —
+ *   `frame.readouts` is owned by 40-ascan and is never rewritten from here.
+ * - F5 EPOCH LTC (`utSet 'epochltc'`) is a cosmetic skin over the epoch600 canvas theme: green LCD, the
+ *   `BASE | GATES | PULSER | RECEIVER` tab row, the VEL/ZERO/ANGLE + THICK/CSA/DIA parameter lines, the quick-range
+ *   row and the `CAL THIN | CAL THICK | CANCEL` softkeys of f028/f036. It shares every action of the EPOCH 600.
+ * - F6 shorts: TIPS values stay i18n KEY strings (relabelTips compares them), so the upper-case short forms live in
+ *   the parallel `SHORTS` map with the same ui ids, are written to each key's `data-short` attribute and are echoed
+ *   into `status.mid` on mouseenter / focus. The previous mid line is remembered per element and restored on
+ *   mouseleave / blur (90's onRender only rewrites the mid when ITS computed line changes, so the restore has to be
+ *   explicit). Key legends are never translated (F6).
+ *   SPEC NOTE (v3 QA r1): §3.6's `UT.status({mid: short})` is the STATE contract (V3-6 reads `status.mid`), not the
+ *   painted row — on its own it wiped Pos / Range / AMP, which the original never does (epoch_auto_calibration f010
+ *   paints `Pos: 118 mm | ARROW LEFT/DOWN`, f022 `Pos: 118 mm | PULSAR`). So the hint ALSO writes
+ *   `status.segments` — 90's renderStatus already prefers it over splitting `status.mid` — with the normal cells
+ *   minus their trailing `Depth = …` cell (§4.11: the hint takes exactly that cell) plus the short form. The depth
+ *   cell is recognised through the three t() templates rendered with a sentinel, so it is found in Korean too.
+ *   `segments` is cleared (null) on every restore, and a 'status' event we did not write while a hint is armed
+ *   re-bases the remembered line, so 90 rebuilding the mid under the cursor can leave neither cells nor restore stale.
+ * - F7 UnCalibrate: `zero = 0.4 + 0.4·(rnd − 0.5)` — §3.7's `0.4 + 0.4·rnd` cannot produce the 0.20…0.60 µs range it
+ *   asks for in the same sentence (V3-7 asserts the range). The velocity is additionally pushed ≥ 0.12 mm/µs away
+ *   from the true velocity so the set is visibly out of calibration (≥ 0.4 mm at the 20 mm backwall).
+ * - F7 Delete EPOCH records: `deleteRecords()` is the whole action — it writes the empty list into
+ *   `instrument.datalog` (via `datalogClear()`, which now reports how many entries it removed), refreshes the
+ *   datalogger window and sets `status.right`. §3.7 gates it behind `UT.dom.confirm('Delete all stored records?')`,
+ *   so a bare call clears nothing until the dialog is answered (V3-7 asserts exactly that); `{confirm: false}`
+ *   is the documented non-interactive path, and a dialog layer that is missing, throws or rejects falls through to
+ *   the same clear rather than swallowing the menu command.
+ *   `Always Show UT Controls`: the USK 7 window is re-shown on every mode entry and its OFF button only powers the
+ *   set down; ✕ still hides it (it comes back on the next mode entry) — a window that cannot be dismissed at all
+ *   would trap the screen at 1024 × 640.
+ * - F8 float: `display.instrumentFloat` MOVES the `#instrument` element into a `.win[data-win=instrument]` and puts
+ *   it back on exit; #main gets the class `inst-float` (injected CSS collapses the 470 px column so the views take
+ *   the freed width). Closing the float window un-floats rather than hiding the instrument.
+ * - F8 chrome: the `0 2 4 6 8 10` bezel labels are painted on a strip BELOW the glass (theme `bezel`), the on-glass
+ *   magenta text line follows `display.ascanText` (default on when the key is absent), the AMP slider becomes a red
+ *   rotary knob with an `input[aria-label="AMP (dB)"]` kept for the keyboard and for tests, and RANGE / X-SHIFT get
+ *   a second ×10 arrow pair (10 % / 10 mm).
+ * - F40 hand DAC: a pointer drag on `#cv-ascan` with ≥ 2 recorded DAC points writes `instrument.dac.hand`
+ *   ([{xDiv, pct}], xDiv = graticule division 0…10); the ends snap to a recorded point within 6 px and the stroke is
+ *   resampled to ≥ 5 points so a two-move drag still produces a curve. `Draw` / `Draw Curves` clears it.
  */
 (function (UT) {
   'use strict';
   const M = UT.math;
   const C = UT.consts.COLOURS;
   const RANGE_PRESETS = [50, 100, 200, 400];
-  const LEGAL_PARAMS = ['gain', 'range', 'delay', 'reject', 'g1start', 'g1width', 'g1level', 'g2start', 'g2width', 'g2level', 'velocity', 'zero', 'trigAngle', 'trigThick', 'autoPct'];
+  // v3 F5: quick-range softkey rows — EPOCH 600 P1…P7 and the EPOCH 4 / LTC F1…F4 row of f028
+  const QUICK_RANGES = [10, 20, 50, 100, 125, 250, 500];
+  const QUICK_RANGES_E4 = [10, 20, 50, 100];
+  const LEGAL_PARAMS = ['gain', 'range', 'delay', 'reject', 'g1start', 'g1width', 'g1level', 'g2start', 'g2width', 'g2level', 'velocity', 'zero', 'trigAngle', 'trigThick', 'autoPct', 'trigDiameter'];
   // v2 option lists (§3.7) — identical to 40-ascan's tables; UT.ascan's copies win when loaded
   const ENERGIES = [100, 200, 300, 400];
   const DAMPING_OHMS = [50, 100, 150, 200, 400];
@@ -115,7 +180,9 @@
     secondF: false, subPage: null, gateMode: 'Peak', focused: false, refLock: false, uskWin: null, uskParked: null, drag: null,
     lastTexts: {}, ledOn: true,
     // v2
-    compare: null, alarmWas: [], alarmNow: false, datalogWin: null, datalogKey: '', touch: false, mq: null, uiCount: 0,
+    compare: null, alarmWas: [], alarmNow: false, datalogWin: null, datalogKey: '', deletePending: null, touch: false, mq: null, uiCount: 0,
+    // v3: F6 status-hint stack, F8 float window, F40 hand-DAC drag, F3 typing buffer
+    midSaved: null, midShown: null, hintWriting: false, floatWin: null, floatHome: null, dacDrag: null, calType: '', calAria: '',
   };
 
   // ------------------------------------------------------------------ small helpers
@@ -242,6 +309,13 @@
     zero: { label: 'Zero', get(ins) { const c = (ins || inst()).cal; return (c && c.zero) || 0; }, set(v) { setInst({ cal: Object.assign({}, inst().cal, { zero: M.clamp(v, -50, 50) }) }); }, step: 0.01, coarse: 0.1, fmt(v) { return v.toFixed(2) + 'us'; } },
     trigAngle: { label: 'Angle', get(ins) { return (ins || inst()).trig.angle; }, set(v) { setInst({ trig: Object.assign({}, inst().trig, { angle: M.clamp(v, 0, 89) }) }); UT.setIn('display', { autoTrig: false }); }, step: 0.1, coarse: 1, fmt(v) { return v.toFixed(1) + '°'; } },
     trigThick: { label: 'Thick', get(ins) { return (ins || inst()).trig.thick; }, set(v) { setInst({ trig: Object.assign({}, inst().trig, { thick: M.clamp(v, 1, 1000) }) }); UT.setIn('display', { autoTrig: false }); }, step: 0.1, coarse: 1, fmt(v) { return v.toFixed(1); } },
+    // v3 (F5): Trig ▸ Diameter — the curved-surface-correction diameter (mm); defaults to the weld's OD
+    trigDiameter: {
+      label: 'Diameter',
+      get(ins) { const tr = (ins || inst()).trig || {}; const d = +tr.diameter; return Number.isFinite(d) && d > 0 ? d : (st().weldOpts && +st().weldOpts.od) || 168.3; },
+      set(v) { setInst({ trig: Object.assign({}, inst().trig, { diameter: M.clamp(Math.round(v * 10) / 10, 5, 5000) }) }); },
+      step: 0.5, coarse: 10, fmt(v) { return v.toFixed(1); },
+    },
     // v2: AUTO XX % target (2ND F + GATES)
     autoPct: { label: 'AUTO %', get(ins) { const v = (ins || inst()).autoPct; return Number.isFinite(v) ? v : 80; }, set(v) { setInst({ autoPct: M.clamp(Math.round(v), 10, 100) }); }, step: 1, coarse: 10, fmt(v) { return Math.round(v) + '%'; } },
   };
@@ -251,6 +325,61 @@
     PARAMS['g' + n + 'width'] = { label: 'G' + n + 'Width', gate: gi, get(ins) { return gateOf(gi, ins).width; }, set(v) { patchGate(gi, { width: M.clamp(v, 1, 1000), on: true }); }, step: 1, coarse: 10, fmt(v) { return M.fmt2(v); } };
     PARAMS['g' + n + 'level'] = { label: 'G' + n + 'Level', gate: gi, get(ins) { return gateOf(gi, ins).level; }, set(v) { patchGate(gi, { level: M.clamp(Math.round(v), 1, 100), on: true }); }, step: 1, coarse: 10, fmt(v) { return Math.round(v) + '%'; } };
   });
+
+  // ------------------------------------------------------------------ F3: the auto-cal thickness-entry wizard (drawn here, driven by 80)
+  /** Live auto-cal wizard stage (1 thin | 2 thick | 0 idle) — mirrored into state by 80-modes. */
+  function calStage() { const a = st().autocal; const s = a && +a.stage; return s === 1 || s === 2 ? s : 0; }
+  /** The value of the on-LCD entry field (mm). */
+  function calField() { const a = st().autocal || {}; const v = +a.field; return Number.isFinite(v) ? v : 0; }
+  /** Field text: two decimals while above zero, a bare `0` at exactly zero (epoch_auto_calibration f006). */
+  function calFieldText(v) { const f = Number.isFinite(v) ? v : 0; return f > 0 ? f.toFixed(2) : '0'; }
+  /**
+   * The three lines of the on-LCD entry box (SPEC-v3 §3.3, epoch_auto_calibration f009 / f020).
+   * @param {number} [stage]  1 = thin standard, 2 = thick standard (default: the live stage)
+   * @returns {{stage:number, title:string, value:string, confirm:string, text:string}|null} null while idle
+   */
+  function calText(stage) {
+    const s = stage === undefined ? calStage() : stage;
+    if (s !== 1 && s !== 2) return null;
+    const title = s === 1 ? 'ENTER VALUE FOR THIN STANDARD' : 'ENTER VALUE FOR THICK STANDARD';
+    const confirm = s === 1 ? 'AND THEN PRESS Calibration' : 'AND THEN PRESS ENTER';
+    const value = calFieldText(calField());
+    return { stage: s, title, value, confirm, text: title + '  ' + value + '  ' + confirm };
+  }
+  /** Write the entry field (through 80's state machine when it is loaded). Returns the stored value. */
+  function setCalField(mm) {
+    const v = M.clamp(Math.round((Number(mm) || 0) * 100) / 100, 0, 500);
+    if (UT.modes && UT.modes.autoCal && typeof UT.modes.autoCal.setField === 'function') { UT.modes.autoCal.setField(v); return calField(); }
+    UT.setIn('autocal', { field: v });
+    return calField();
+  }
+  /** ▲▼ / wheel while the wizard is up: 0.10 mm per click, 1.00 mm with 2ND F or a coarse step. */
+  function stepCalField(dir, coarse) {
+    const step = (coarse || mem.secondF) ? 1 : 0.1;
+    if (mem.secondF) setSecondF(false);
+    mem.calType = '';
+    setCalField(calField() + dir * step);
+    return true;
+  }
+  /** Confirm the current wizard stage (CAL / ✓ / ENTER); falls back to the v2 `step()` when 80 is older. */
+  function calConfirm() {
+    const ac = UT.modes && UT.modes.autoCal;
+    if (!ac) return null;
+    mem.calType = '';
+    if (typeof ac.confirm === 'function') return ac.confirm();
+    if (typeof ac.step === 'function') return ac.step();
+    return null;
+  }
+  /** Cancel the wizard (Esc / CANCEL softkey) — `instrument.cal` is left untouched by 80. */
+  function calCancel() { const ac = UT.modes && UT.modes.autoCal; mem.calType = ''; if (ac && typeof ac.cancel === 'function') ac.cancel(); }
+  /** Digits / '.' / Backspace typed into the field while the wizard is up. Returns true when consumed. */
+  function calTypeKey(k) {
+    if (!calStage()) return false;
+    if (k === 'Backspace') { mem.calType = mem.calType.slice(0, -1); setCalField(parseFloat(mem.calType) || 0); return true; }
+    if (k === '.' && mem.calType.indexOf('.') < 0) { mem.calType = (mem.calType || '0') + '.'; return true; }
+    if (/^[0-9]$/.test(k)) { const s = (mem.calType + k).slice(0, 6); if (!(parseFloat(s) > 500)) mem.calType = s; setCalField(parseFloat(mem.calType) || 0); return true; }
+    return false;
+  }
 
   /** Select a parameter for ▲▼ / wheel adjustment. */
   function selectParam(name) {
@@ -263,6 +392,7 @@
   }
   /** Step the selected (or given) parameter: dir ±1, coarse = big step. */
   function adjust(name, dir, coarse) {
+    if (!name && calStage()) return stepCalField(dir, coarse);   // F3: ▲▼ edit the on-LCD entry field
     const p = PARAMS[name || inst().selectedParam];
     if (!p) return false;
     const cur = p.get();
@@ -288,6 +418,11 @@
     const clicks = Math.round(Number(n) || 0);
     const dir = clicks < 0 ? -1 : 1;
     const coarse = !!(o && o.coarse);
+    if (calStage()) {   // F3: the rotary wheel edits the entry field while the wizard is up
+      for (let i = 0; i < Math.abs(clicks); i++) stepCalField(dir, coarse);
+      emitUi('wheel', 'calField');
+      return calField();
+    }
     if (name === 'gain' || !PARAMS[name]) {
       const step = coarse ? 6 : 1;
       if (clicks !== 0) PARAMS.gain.set(PARAMS.gain.get() + clicks * step);
@@ -352,18 +487,37 @@
     prf() { setInst({ pulser: Object.assign(pulserOf(), { prf: nextIn(listOf('PRF_LIST', PRF_LIST), nearestIn(listOf('PRF_LIST', PRF_LIST), prfOf())) }) }); },
     compare() { setSecondF(false); compare(); },
     secondF() { setSecondF(!mem.secondF); },
-    escape() { if (mem.secondF) { setSecondF(false); return; } if (mem.subPage) { mem.subPage = null; rebuildSoftkeys(); return; } if (UT.modes && UT.modes.autoCal && UT.modes.autoCal.cancel) UT.modes.autoCal.cancel(); },
-    enter() { if (UT.modes && UT.modes.autoCal && UT.modes.autoCal.step && UT.modes.autoCal.state && UT.modes.autoCal.state()) UT.modes.autoCal.step(); setSecondF(false); },
+    escape() { if (mem.secondF) { setSecondF(false); return; } if (calStage()) { calCancel(); return; } if (mem.subPage) { mem.subPage = null; rebuildSoftkeys(); return; } if (UT.modes && UT.modes.autoCal && UT.modes.autoCal.cancel) UT.modes.autoCal.cancel(); },
+    /** ✓ / ENTER — stage-2 confirm of the F3 wizard (v2: the generic next step). */
+    enter() { if (calStage()) { calConfirm(); setSecondF(false); return; } if (UT.modes && UT.modes.autoCal && UT.modes.autoCal.step && UT.modes.autoCal.state && UT.modes.autoCal.state()) UT.modes.autoCal.step(); setSecondF(false); },
     up() { adjust(null, +1, false); },
     down() { adjust(null, -1, false); },
     left() { adjust(null, -1, true); },
     right() { adjust(null, +1, true); },
     nextGroup() { mem.subPage = null; setInst({ page: (inst().page % 5) + 1 }); },
-    autoCal() { if (UT.modes && UT.modes.autoCal && UT.modes.autoCal.start) UT.modes.autoCal.start(); else UT.status({ right: 'Auto Cal is not available' }); },
+    /** CAL / Auto Cal: starts the wizard, and confirms the THIN stage while it is up (F3). */
+    autoCal() {
+      if (calStage() === 1) { calConfirm(); return; }
+      if (calStage() === 2) { UT.status({ right: t('Auto Cal 2/2: press ENTER to confirm the thick standard') }); return; }
+      if (UT.modes && UT.modes.autoCal && UT.modes.autoCal.start) UT.modes.autoCal.start(); else UT.status({ right: 'Auto Cal is not available' });
+    },
+    /** F3 softkeys: CAL THIN (stage 1 confirm), CAL THICK (stage 2 confirm), CANCEL. */
+    calThin() { if (calStage() === 1) calConfirm(); else if (!calStage() && UT.modes && UT.modes.autoCal && UT.modes.autoCal.start) UT.modes.autoCal.start(); },
+    calThick() { if (calStage() === 2) calConfirm(); else if (calStage() === 1) calConfirm(); },
+    calCancel() { calCancel(); },
+    /** F1: power the set on / off — the window, panel and softkeys stay, only the trace goes (§3.1). */
+    power(on) { power(on === undefined ? !(inst().powered !== false) : !!on); },
+    /** F5: a quick-range softkey (P1…P7 / F1…F4) applies its preset. */
+    quickRange(mm) { setInst({ range: M.clamp(+mm || 100, 10, 1000), selectedParam: 'range' }); },
+    /** F5: Trig ▸ CSC — curved-surface correction of the SD / DP readouts for `trig.diameter`. */
+    csc() { setInst({ trig: Object.assign({}, inst().trig, { csc: !cscOn() }) }); },
+    /** F5: Gate ▸ Status — turn the gate on / off. */
+    gateStatus(gi) { patchGate(gi, { on: !gateOf(gi).on }); },
     record() { if (UT.modes && UT.modes.dac && UT.modes.dac.record) UT.modes.dac.record(); else UT.status({ right: 'DAC record is not available' }); },
-    erase() { if (UT.modes && UT.modes.dac && UT.modes.dac.erase) UT.modes.dac.erase(); else setInst({ dac: { points: [], on: false, refDb: null, curves: inst().dac.curves } }); },
+    erase() { if (UT.modes && UT.modes.dac && UT.modes.dac.erase) UT.modes.dac.erase(); else setInst({ dac: { points: [], on: false, refDb: null, curves: inst().dac.curves } }); handDac(null); },
     curve() { setInst({ dac: Object.assign({}, inst().dac, { on: !inst().dac.on }) }); },
-    draw() { if (UT.modes && UT.modes.dac && UT.modes.dac.curves) UT.modes.dac.curves(); else setInst({ dac: Object.assign({}, inst().dac, { curves: !inst().dac.curves }) }); },
+    /** Draw Curves — the interpolated −6/−14 dB curves; clears any hand-drawn DAC (F40). */
+    draw() { if (UT.modes && UT.modes.dac && UT.modes.dac.curves) UT.modes.dac.curves(); else setInst({ dac: Object.assign({}, inst().dac, { curves: !inst().dac.curves }) }); handDac(null); },
     rectify() { const order = ['full', 'half+', 'half-', 'rf']; const i = order.indexOf(inst().rectify); setInst({ rectify: order[(i + 1) % order.length] }); },
     grid() { UT.setIn('display', { grid: !st().display.grid }); },
     units() { UT.setIn('display', { units: isInch() ? 'mm' : 'inch' }); },
@@ -381,6 +535,108 @@
     setGain(g) { setInst({ gain: M.clamp(g, 0, 110), selectedParam: 'gain' }); },
     readout(name) { setInst({ readout: name }); },
   };
+
+  // ------------------------------------------------------------------ v3 public actions (F1 power, F5 CSC, F7 UnCalibrate / records, F40 hand DAC)
+  /** True while the set is powered (the F1 default is on; an absent key counts as on). */
+  function powered(ins) { return (ins || inst()).powered !== false; }
+  /**
+   * F1: power the set on / off. `instrument.powered === false` blanks the trace and the gate / DAC overlays; the
+   * window, panel, knobs and softkeys stay mounted and the physics keeps running (`frame.ascan` is untouched).
+   * @param {boolean} [on]  omit to toggle
+   * @returns {boolean} the new powered state
+   */
+  function power(on) {
+    const want = on === undefined ? !powered() : !!on;
+    setInst({ powered: want });
+    emitUi('softkey', want ? 'ON' : 'OFF');
+    UT.status({ right: want ? t('Instrument switched on') : t('Instrument switched off — the trace is blanked; press OFF again to switch it back on') });
+    return want;
+  }
+  /** F5: whether the curved-surface correction is active on the instrument readouts. */
+  function cscOn(ins) { const tr = (ins || inst()).trig || {}; return !!tr.csc; }
+  /**
+   * F5: curved-surface correction of a readout pair for `trig.diameter` (law of cosines from the pipe centre).
+   * Display-only — `frame.readouts` (40-ascan) is never rewritten.
+   * @param {{path:number, sd:number, dp:number}} p  the primary readout
+   * @param {object} [ins]  instrument (default: state) — lets the self-test evaluate a local copy
+   * @returns {{sd:number, dp:number}} corrected surface distance and depth (mm)
+   */
+  function cscCorrect(p, ins) {
+    const I = ins || inst();
+    const S = Number(p && p.path);
+    const dia = PARAMS.trigDiameter.get(I);
+    const ang = M.deg2rad((I.trig && I.trig.angle) || 0);
+    const R = dia / 2;
+    if (!(S > 0) || !(R > 0)) return { sd: p && p.sd, dp: p && p.dp };
+    const r2 = R * R + S * S - 2 * R * S * Math.cos(ang);
+    const r = Math.sqrt(Math.max(0, r2));
+    const dp = M.clamp(R - r, 0, 2 * R);
+    const s = r > 0 ? M.clamp(S * Math.sin(ang) / r, -1, 1) : 0;
+    return { sd: R * Math.asin(s), dp };
+  }
+  /** Readout pair for the instrument screens: the frame's own numbers, curved-surface corrected while CSC is On. */
+  function readPair(p, ins) {
+    if (!p) return { sd: null, dp: null };
+    if (!cscOn(ins)) return { sd: p.sd, dp: p.dp };
+    return cscCorrect(p, ins);
+  }
+  /**
+   * F7 `Options ▸ UnCalibrate`: knock the set out of calibration (a wrong velocity in the step-wedge family and a
+   * wrong zero) so the trainee has to recalibrate. Gain, range and gates are untouched.
+   * @returns {{vel:number, zero:number}} the wrong calibration now in `instrument.cal`
+   */
+  function unCalibrate() {
+    const rnd = M.rng((Date.now() & 0xffff) || 1);
+    let vel = 5.60 + 0.6 * (rnd() - 0.5);
+    const zero = Math.round((0.4 + 0.4 * (rnd() - 0.5)) * 100) / 100;
+    // stay visibly out of calibration: ≥ 0.12 mm/µs from the true velocity is ≥ 0.4 mm at a 20 mm backwall
+    let vTrue = 5.90;
+    try { const d = derived(); if (d && Number.isFinite(d.vel) && d.vel > 0) vTrue = d.vel; } catch (e) { /* keep 5.90 */ }
+    if (Math.abs(vel - vTrue) < 0.12) vel = vel <= vTrue ? Math.max(5.30, vTrue - 0.2) : Math.min(5.89, vTrue + 0.2);
+    vel = M.clamp(Math.round(vel * 100) / 100, 5.30, 5.89);
+    setInst({ cal: { vel, zero: M.clamp(zero, 0.20, 0.60) } });
+    UT.status({ right: t('The set is out of calibration — recalibrate on V1, V2 or the step wedge') });
+    return { vel, zero: M.clamp(zero, 0.20, 0.60) };
+  }
+  /**
+   * F7 `Options ▸ Delete EPOCH records`: clear the stored setups / datalog after a confirmation.
+   * The empty entry list is written into `instrument.datalog` through `datalogClear()`, the datalogger window is
+   * refreshed and `status.right` reports the deletion. SPEC-v3 §3.7 puts a `UT.dom.confirm` in front of it, so a
+   * bare call deletes NOTHING until that dialog is answered; non-interactive callers (automation, a build without a
+   * dialog layer) pass `{confirm: false}` to clear straight away.
+   * @param {{confirm?: boolean}} [opts] `{confirm: false}` skips the dialog and clears synchronously
+   * @returns {Promise<number|false>} the number of records removed, or false when the confirmation was cancelled
+   */
+  function deleteRecords(opts) {
+    const done = function () {
+      const n = datalogClear();
+      refreshDatalogWindow(true);
+      UT.status({ right: t('EPOCH records deleted') });
+      return n;
+    };
+    const ask = !(opts && opts.confirm === false) && UT.dom && typeof UT.dom.confirm === 'function' && typeof document !== 'undefined';
+    if (!ask) return Promise.resolve(done());
+    if (mem.deletePending) return mem.deletePending;      // one dialog at a time (a second menu click re-uses it)
+    let dlg = null;
+    try { dlg = UT.dom.confirm(t('Delete all stored records?'), { title: 'Delete EPOCH records' }); } catch (e) { dlg = null; }
+    if (!dlg || typeof dlg.then !== 'function') return Promise.resolve(done());   // no usable dialog → still delete
+    const p = dlg.then(function (ok) { mem.deletePending = null; return ok ? done() : false; },
+      function () { mem.deletePending = null; return done(); });
+    mem.deletePending = p;
+    return p;
+  }
+  /**
+   * F40: set / clear the hand-drawn DAC polyline (`instrument.dac.hand` = [{xDiv, pct}]).
+   * @param {Array<{xDiv:number, pct:number}>|null} pts
+   * @returns {number} the number of points stored
+   */
+  function handDac(pts) {
+    const cur = inst().dac || {};
+    const list = Array.isArray(pts) && pts.length >= 2 ? pts : null;
+    if (!list && !cur.hand) return 0;
+    setInst({ dac: Object.assign({}, cur, { hand: list }) });
+    return list ? list.length : 0;
+  }
 
   // ------------------------------------------------------------------ v2 public actions (F2: AUTO %, ref gain, compare, datalog)
   /**
@@ -478,16 +734,28 @@
     // v2 §3.7: functional Pulsar / Rcvr pages (option lists of the EPOCH 600)
     'Pulsar': function (ins) { return [act('Freq', null, (st().probe.freq || 5).toFixed(1) + 'MHz'), act('Energy', keys.energy, energyV(ins) + 'V'), act('Damping', keys.dampCycle, dampingOhms(ins) + 'Ω'), act('PRF', keys.prf, prfOf(ins) + 'Hz')]; },
     'Rcvr': function (ins) { return [act('Filter', keys.filter, filterLabel(filterOf(ins))), act('Rectify', keys.rectify, rectLabel(ins)), pk('Reject', 'reject')]; },
-    'Trig': function (ins) { return [pk('Angle', 'trigAngle'), pk('Thick', 'trigThick'), act('X Value', null, ins.trig.xValue.toFixed(1)), act('CSC', null, 'Off')]; },
+    // v3 F5: CSC is functional (Off | On) and Diameter feeds the curved-surface correction
+    'Trig': function (ins) { return [pk('Angle', 'trigAngle'), pk('Thick', 'trigThick'), act('X Value', null, ins.trig.xValue.toFixed(1)), act('CSC', keys.csc, cscOn(ins) ? 'On' : 'Off'), pk('Diameter', 'trigDiameter')]; },
     'Gate1': function (ins) { return gatePage(0, ins); },
     'Gate2': function (ins) { return gatePage(1, ins); },
     'Gate Setup': function (ins) { return [act('Mode', keys.gateMode, mem.gateMode), act('Measure', keys.measure, ins.readout === 'sp' ? 'SP' : 'Depth'), pk('AUTO %', 'autoPct')]; },
     'DAC Setup': function (ins) { return [act('DAC', keys.curve, ins.dac.on ? 'On' : 'Off'), act('Ref dB', null, ins.dac.refDb === null || ins.dac.refDb === undefined ? '--' : fmtGain(ins.dac.refDb)), act('Points', null, String(ins.dac.points.length)), act('Curves', keys.draw, ins.dac.curves ? 'On' : 'Off'), act('TCG', keys.tcg, tcgLabel(ins))]; },
   };
-  function gatePage(gi, ins) { const n = gi + 1; return [act('Zoom', null, 'Off'), pk('Start', 'g' + n + 'start'), pk('Width', 'g' + n + 'width'), pk('Level', 'g' + n + 'level'), act('Alarm', function () { keys.alarm(gi); }, gateOf(gi, ins).alarm ? 'On' : 'Off')]; }
+  /** Gate 1 / Gate 2 sub-page — v3 F5 adds the `Status` cell (gate on / off). */
+  function gatePage(gi, ins) { const n = gi + 1; return [act('Zoom', null, 'Off'), pk('Start', 'g' + n + 'start'), pk('Width', 'g' + n + 'width'), pk('Level', 'g' + n + 'level'), act('Alarm', function () { keys.alarm(gi); }, gateOf(gi, ins).alarm ? 'On' : 'Off'), act('Status', function () { keys.gateStatus(gi); }, gateOf(gi, ins).on ? 'On' : 'Off')]; }
   function rectLabel(ins) { const r = (ins || inst()).rectify; return r === 'rf' ? 'RF' : r === 'half+' ? 'Half+' : r === 'half-' ? 'Half−' : 'Full'; }
   /** TCG softkey value: Off | On (active) | On* (on but fewer than 2 DAC points → no effect). */
   function tcgLabel(ins) { const I = ins || inst(); if (!(I.tcg && I.tcg.on)) return 'Off'; return tcgActive(I) ? 'On' : 'On*'; }
+  /** F3: the softkey column while the auto-cal thickness wizard is up (epoch_auto_calibration f036 / f044). */
+  function CAL_PAGE() {
+    const s = calStage();
+    return [
+      { kind: 'hdr', label: s === 2 ? 'CAL THICK' : 'CAL THIN' },
+      act('CAL THIN', keys.calThin, s === 1 ? '<' : ''),
+      act('CAL THICK', keys.calThick, s === 2 ? '<' : ''),
+      act('CANCEL', keys.calCancel),
+    ];
+  }
   function pk(label, param) { return { kind: 'param', label, param }; }
   function sub(label) { return { kind: 'sub', label }; }
   function act(label, fn, value) { return { kind: 'act', label, fn, value }; }
@@ -499,6 +767,8 @@
   function softkeyItems(ins, subPage) {
     ins = ins || inst();
     const sp = subPage === undefined ? mem.subPage : subPage;
+    // v3 F3: while the thickness-entry wizard is up the column becomes CAL THIN | CAL THICK | CANCEL
+    if (subPage === undefined && calStage()) return CAL_PAGE();
     if (sp && SUBPAGES[sp]) return [{ kind: 'back', label: sp }].concat(SUBPAGES[sp](ins));
     const page = M.clamp(Math.round(ins.page) || 1, 1, 5);
     return PAGES[page](ins);
@@ -545,16 +815,124 @@
     'VEL': 'Select the velocity', 'ANGLE': 'Select the probe angle (2ND F + ANGLE = thickness)',
     'OPTION': 'Option (no function)', 'ID': 'ID (no function)', 'ON/OFF': 'Power (decorative LED)',
     // USK 7
-    'ERASE DAC': 'Erase the DAC curve', 'OFF': 'Close the USK 7 window', 'Show USK 7': 'Re-open the USK 7 window',
+    'ERASE DAC': 'Erase the DAC curve', 'Show USK 7': 'Re-open the USK 7 window',   // F1: 'OFF' is a power key — its tip is TIPS.ON
     'knob-': 'Turn {k} down', 'knob+': 'Turn {k} up',
+    // v3
+    'ON': 'Switch the set on / off (the trace is blanked while it is off)',
+    'P-range': 'Set the range to {r} mm', 'F-range': 'Set the range to {r} mm',
+    'knob10-': 'Turn {k} down ×10', 'knob10+': 'Turn {k} up ×10',
+    'AMP': 'AMP — receiver gain (drag or wheel: ±0.5 dB, Shift ×10)',
+    'CAL THIN': 'Confirm the thin-standard value', 'CAL THICK': 'Confirm the thick-standard value', 'CANCEL': 'Cancel the calibration',
   };
+  /**
+   * F6: the upper-case short form echoed into the status bar's middle cell on hover / focus, keyed by the same ui id
+   * as TIPS. Instrument legends stay English (F6), so these are NOT translated.
+   */
+  const SHORTS = {
+    'dB': 'GAIN', 'SAVE': 'SAVE', 'up': 'ARROW RIGHT/UP', 'down': 'ARROW LEFT/DOWN', 'left': 'ARROW LEFT/DOWN', 'right': 'ARROW RIGHT/UP',
+    'enter': 'ENTER', 'freeze': 'FREEZE', 'escape': 'ESCAPE', 'GATES': 'GATES', 'RANGE': 'RANGE', '2ND F': '2ND F',
+    'PEAK MEM': 'PEAK MEM', 'power': 'ON/OFF', 'ON': 'ON/OFF', 'NEXT GROUP': 'NEXT GROUP',
+    'GATE 1': 'GATE 1', 'GATE 2': 'GATE 2', 'PULSER': 'PULSAR', 'DISPLAY': 'DISPLAY', 'DEPTH %AMP': 'DEPTH / %AMP',
+    'CAL': 'CALIBRATE', 'ZERO OFFSET': 'ZERO OFFSET', 'RANGE-e4': 'RANGE', 'VEL': 'VELOCITY', 'ANGLE': 'ANGLE',
+    'OPTION': 'OPTION', 'ID': 'ID', 'ON/OFF': 'ON/OFF', 'ERASE DAC': 'ERASE DAC', 'OFF': 'ON/OFF',
+    'CAL THIN': 'CAL THIN', 'CAL THICK': 'CAL THICK', 'CANCEL': 'CANCEL',
+  };
+  /** Short form for a ui id (P{n} / F{n} share one entry). */
+  function shortOf(uiId) {
+    if (!uiId) return '';
+    if (SHORTS[uiId]) return SHORTS[uiId];
+    if (/^P[1-7]$/.test(uiId)) return 'NEXT GROUP';
+    if (/^F[1-5]$/.test(uiId)) return 'SOFTKEY ' + uiId;
+    return '';
+  }
+  /** The mid-cell templates 90-app formats the depth into (F23) — the ONE cell a key hint takes over (F6). */
+  const DEPTH_KEYS = ['Depth = {d}mm', 'Depth = {d}in', 'Depth: {d}'];
+  /**
+   * True when a status mid cell is a `Depth = …` cell, in ANY language: each template is rendered with a
+   * sentinel in place of the number and the cell is matched against the text around it (the English form is
+   * also matched directly, for a build without the i18n dictionary).
+   * @param {string} seg one status mid cell
+   * @returns {boolean}
+   */
+  function isDepthCell(seg) {
+    const s = String(seg || '');
+    if (!s) return false;
+    if (/^Depth\s*[:=]/.test(s)) return true;
+    for (let i = 0; i < DEPTH_KEYS.length; i++) {
+      const parts = t(DEPTH_KEYS[i], { d: '\u0001' }).split('\u0001');
+      if (parts.length !== 2) continue;
+      const pre = parts[0], post = parts[1];
+      if (!pre) continue;
+      if (s.indexOf(pre) === 0 && (!post || s.slice(-post.length) === post)) return true;
+    }
+    return false;
+  }
+  /**
+   * F6: the cells the hint keeps beside it — the normal mid line minus its trailing Depth cell.
+   * @param {string} line the joined mid line
+   * @returns {string[]} the surviving cells (Pos / Range / AMP / mode extras)
+   */
+  function hintCells(line) {
+    const segs = String(line || '').split(' | ').filter(Boolean);
+    while (segs.length && isDepthCell(segs[segs.length - 1])) segs.pop();
+    return segs;
+  }
+  /**
+   * F6: write the armed hint out — `status.mid` is the bare short form (§3.6), while `status.segments`
+   * carries the cells 90-app paints, so Pos / Range / AMP survive beside it and only the Depth cell goes.
+   */
+  function applyHint() {
+    if (mem.midShown === null) return;
+    const cells = hintCells(mem.midSaved);
+    cells.push(mem.midShown);
+    mem.hintWriting = true;
+    try { UT.status({ mid: mem.midShown, segments: cells }); } finally { mem.hintWriting = false; }
+  }
+  /** F6: echo a key's short function into the status bar's middle cell, remembering the line it replaced. */
+  function hintOn(text) {
+    if (!text) return;
+    const cur = (st().status && st().status.mid) || '';
+    if (mem.midShown === null) mem.midSaved = cur;
+    mem.midShown = text;
+    applyHint();
+  }
+  /** F6: put the normal mid line back (90 only rewrites it when ITS computed line changes). */
+  function hintOff() {
+    if (mem.midShown === null) return;
+    const back = mem.midSaved || '';
+    mem.midShown = null; mem.midSaved = null;
+    mem.hintWriting = true;
+    try { UT.status({ mid: back, segments: null }); } finally { mem.hintWriting = false; }
+    UT.requestRender();
+  }
+  /**
+   * F6: 90-app rebuilt the mid line while a hint is armed — keep the remembered line fresh and repaint the
+   * hint over the new cells, so neither the hint nor the restore ever shows a stale Pos / Range / AMP.
+   * @param {object} status state.status as emitted on the 'status' bus event
+   */
+  function onStatus(status) {
+    if (mem.hintWriting || mem.midShown === null) return;
+    const mid = (status && status.mid) || '';
+    if (mid === mem.midShown) return;
+    mem.midSaved = mid;
+    applyHint();
+  }
   /** Set title + aria-label from an i18n key (+ params) and remember the key on the element for relabelTips(). */
-  function tip(el, key, params) {
+  function tip(el, key, params, uiId) {
     if (!el || !key) return el;
     el.dataset.tip = key;
     if (params) el.dataset.tipParams = JSON.stringify(params); else delete el.dataset.tipParams;
     const s = t(key, params);
     el.setAttribute('title', s); el.setAttribute('aria-label', s);
+    // F6: hovering / focusing a key echoes its function into the status bar's middle cell
+    const short = shortOf(uiId);
+    if (short && !el.dataset.short) {
+      el.dataset.short = short;
+      el.addEventListener('mouseenter', function () { hintOn(el.dataset.short); });
+      el.addEventListener('mouseleave', hintOff);
+      el.addEventListener('focus', function () { hintOn(el.dataset.short); });
+      el.addEventListener('blur', hintOff);
+    } else if (short) el.dataset.short = short;
     return el;
   }
   /** Re-apply every [data-tip] title / aria-label of the mounted skins (on 'lang' and when autoPct changes). */
@@ -580,8 +958,14 @@
     const a = Object.assign({}, attrs || {});
     const tk = a.tip || TIPS[uiId || label]; let tp = a.tipParams || null; delete a.tip; delete a.tipParams;
     if (tk === TIPS.GATES) tp = { pct: PARAMS.autoPct.get() };
-    const el = h('button', Object.assign({ class: 'ik no-i18n ' + (cls || ''), type: 'button', onclick: function (e) { e.preventDefault(); mem.focused = true; emitUi('softkey', uiId || label); onClick && onClick(e); } }, a), label);
-    return tip(el, tk, tp);
+    const el = h('button', Object.assign({ class: 'ik no-i18n ' + (cls || ''), type: 'button', onclick: function (e) { e.preventDefault(); mem.focused = true; flashKey(el); emitUi('softkey', uiId || label); onClick && onClick(e); } }, a), label);
+    return tip(el, tk, tp, uiId || label);
+  }
+  /** F5: light a pressed P / F key for 200 ms (`.pressed`, the original's lit key in how_to_use_the_epoch). */
+  function flashKey(el) {
+    if (!el || !el.classList || !/\bik-f\b|\bik-p\b|\be4-f\b|\bltc-f\b/.test(el.className)) return;
+    el.classList.add('pressed');
+    setTimeout(function () { if (el.classList) el.classList.remove('pressed'); }, 200);
   }
   function arrowPad(cls) {
     return h('div', { class: 'ik-pad ' + (cls || '') }, [
@@ -652,9 +1036,15 @@
       R.bottom,
     ]);
     const centre = h('div', { class: 'e6-centre' }, [
-      h('div', { class: 'e6-top no-i18n' }, [h('span', { class: 'e6-leds' }, R.leds), h('span', { class: 'e6-olympus' }, 'OLYMPUS'), key('⏻', function () { mem.ledOn = !mem.ledOn; R.leds[0].classList.toggle('on', mem.ledOn); }, 'ik-power', null, 'power')]),
+      h('div', { class: 'e6-top no-i18n' }, [h('span', { class: 'e6-leds' }, R.leds), h('span', { class: 'e6-olympus' }, 'OLYMPUS'), key('⏻', function () { keys.power(); mem.ledOn = powered(); R.leds[0].classList.toggle('on', mem.ledOn); }, 'ik-power', null, 'power')]),
       screen,
-      h('div', { class: 'e6-prow no-i18n' }, ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7'].map(function (p) { return key(p, function () { const n = parseInt(p.slice(1), 10); mem.subPage = null; if (n <= 5) setInst({ page: n }); rebuildSoftkeys(); }, 'ik-p', { tip: TIPS.P, tipParams: { n: p.slice(1) } }); })),
+      // F5: while `range` is the selected parameter the P row becomes the quick-range presets of §3.5
+      h('div', { class: 'e6-prow no-i18n' }, (R.pkeys = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7'].map(function (p, i) {
+        return key(p, function () {
+          if (inst().selectedParam === 'range') { keys.quickRange(QUICK_RANGES[i]); rebuildSoftkeys(); return; }
+          const n = i + 1; mem.subPage = null; if (n <= 5) setInst({ page: n }); rebuildSoftkeys();
+        }, 'ik-p', { tip: TIPS.P, tipParams: { n: String(i + 1) } });
+      }))),
     ]);
     const right = h('div', { class: 'e6-right no-i18n' }, [key('NEXT GROUP', keys.nextGroup, 'ik-next'), h('div', { class: 'e6-fkeys' }, ['F1', 'F2', 'F3', 'F4', 'F5'].map(function (f, i) { return key(f, function () { softkeyPress(i + (mem.subPage ? 1 : 0)); }, 'ik-f', { tip: TIPS.F, tipParams: { n: i + 1 } }); }))]);
     const body = h('div', { class: 'skin skin-epoch600' + (mem.touch ? ' touch' : '') }, [leftPad, centre, right]);
@@ -676,15 +1066,18 @@
     else if (it.kind === 'back') { mem.subPage = null; rebuildSoftkeys(); }
     else if (it.kind === 'act' && it.fn) { it.fn(); rebuildSoftkeys(); }
   }
+  /** Key identifying the softkey column's current content (page, sub-page and the F3 wizard stage). */
+  function pageKey() { return inst().page + '|' + (mem.subPage || '') + '|c' + calStage(); }
   function rebuildSoftkeys() {
     const col = mem.refs.softCol; if (!col) return;
-    col.dataset.page = inst().page + '|' + (mem.subPage || '');
+    col.dataset.page = pageKey();
     col.textContent = '';
     const items = softkeyItems();
     const sel = inst().selectedParam;
     items.forEach(function (it, idx) {
       const cell = h('div', { class: 'e6-sk' + (it.kind === 'param' && it.param === sel ? ' sel' : '') + (it.kind === 'hdr' || it.kind === 'back' ? ' hdr' : '') + (it.kind === 'sub' ? ' sub' : ''), dataset: { sk: it.label }, role: 'button', tabindex: '0', 'aria-label': t(it.label) });
-      cell.appendChild(tx('span', 'e6-skl', it.label));
+      // all-caps legends (the F3 CAL THIN | CAL THICK | CANCEL page) are product key legends: never translated (F6)
+      cell.appendChild(/^[A-Z0-9 ]{4,}$/.test(it.label) ? h('span', { class: 'e6-skl no-i18n' }, it.label) : tx('span', 'e6-skl', it.label));
       if (it.kind === 'param') cell.appendChild(h('span', { class: 'e6-skv no-i18n' + (it.param === 'gain' && refLocked() ? ' ref' : ''), dataset: { param: it.param } }, valueOf(it.param)));
       else if (it.kind === 'act' && it.value !== undefined) cell.appendChild(h('span', { class: 'e6-skv no-i18n' }, it.value));
       cell.addEventListener('click', function () { softkeyAction(it); });
@@ -728,13 +1121,14 @@
     const ro = frame && frame.readouts; const p = ro && ro.primary;
     const gi = inst().activeGate + 1;
     setText(R.boxSP.firstChild, gi + '▶'); setText(R.boxSD.firstChild, gi + '⇒'); setText(R.boxDP.firstChild, gi + '↓'); setText(R.boxAmp.firstChild, gi + '%');
-    setText(R.readSP, p ? fmtRead(Number.isFinite(p.pathDisp) ? p.pathDisp : p.path) : '--.--'); setText(R.readSD, p ? fmtRead(p.sd) : '--.--'); setText(R.readDP, p ? fmtRead(p.dp) : '--.--');
+    const rp = readPair(p);   // F5: curved-surface corrected while Trig ▸ CSC is On
+    setText(R.readSP, p ? fmtRead(Number.isFinite(p.pathDisp) ? p.pathDisp : p.path) : '--.--'); setText(R.readSD, p ? fmtRead(rp.sd) : '--.--'); setText(R.readDP, p ? fmtRead(rp.dp) : '--.--');
     setText(R.readAmp, p ? Math.min(999, Math.round(p.peakPct)) + '%' : '0%');
     const which = inst().readout || 'dp';
     const icons = { sp: '▶', sd: '⇒', dp: '↓', amp: '%' };
     setText(R.bigIcon, gi + (icons[which] || '↓'));
     let big = '--.--', unit = unitLabel();
-    if (p) { if (which === 'amp') { big = Math.min(999, Math.round(p.peakPct)); unit = '%'; } else big = fmtRead(which === 'sp' ? (Number.isFinite(p.pathDisp) ? p.pathDisp : p.path) : which === 'sd' ? p.sd : p.dp); }
+    if (p) { if (which === 'amp') { big = Math.min(999, Math.round(p.peakPct)); unit = '%'; } else big = fmtRead(which === 'sp' ? (Number.isFinite(p.pathDisp) ? p.pathDisp : p.path) : which === 'sd' ? rp.sd : rp.dp); }
     setText(R.big, String(big)); setText(R.bigUnit, unit);
     [R.boxSP, R.boxSD, R.boxDP, R.boxAmp].forEach(function (b) { b.classList.toggle('sel', b.dataset.ro === which); });
     const leg = p && p.leg ? p.leg : 1;
@@ -742,7 +1136,7 @@
     setText(R.pageInd, inst().page + '/5');
     // softkey values / selection (cheap in-place refresh; rebuild when the page changed)
     const col = R.softCol;
-    if (col.dataset.page !== inst().page + '|' + (mem.subPage || '')) { col.dataset.page = inst().page + '|' + (mem.subPage || ''); rebuildSoftkeys(); }
+    if (col.dataset.page !== pageKey()) { col.dataset.page = pageKey(); rebuildSoftkeys(); }
     const sel = inst().selectedParam;
     Array.prototype.forEach.call(col.querySelectorAll('.e6-sk'), function (cell) {
       const v = cell.querySelector('.e6-skv[data-param]');
@@ -754,7 +1148,33 @@
       if (mem.tipPct !== PARAMS.autoPct.get()) { mem.tipPct = PARAMS.autoPct.get(); relabelTips(); }
     }
     R.leds[1].classList.toggle('on', !!inst().freeze); R.leds[2].classList.toggle('on', !!inst().peakMem);
+    R.leds[0].classList.toggle('on', powered() && mem.ledOn);
+    relabelPRow();
     drawMiniIcon(frame);
+  }
+  /**
+   * F5: the labels the P row is showing (pure) — the quick-range presets while `range` is selected, `P1…P7` else.
+   * @param {object} [ins]
+   * @returns {string[]} seven labels
+   */
+  function pRowLabels(ins) {
+    const ranged = (ins || inst()).selectedParam === 'range';
+    return QUICK_RANGES.map(function (r, i) { return ranged ? r.toFixed(1) : 'P' + (i + 1); });
+  }
+  /**
+   * F5: write `pRowLabels()` onto the physical P1…P7 keys and re-point their tooltips — quick-range presets
+   * (`10.0`…`500.0`) while `range` is selected, the product legends otherwise.
+   */
+  function relabelPRow() {
+    const row = mem.refs.pkeys; if (!row) return;
+    const ranged = inst().selectedParam === 'range';
+    row.forEach(function (b, i) {
+      const label = ranged ? QUICK_RANGES[i].toFixed(1) : 'P' + (i + 1);
+      setText(b, label);
+      b.classList.toggle('ranged', ranged);
+      if (ranged) tip(b, TIPS['P-range'], { r: QUICK_RANGES[i].toFixed(1) }, 'P' + (i + 1));
+      else tip(b, TIPS.P, { n: String(i + 1) }, 'P' + (i + 1));
+    });
   }
 
   // ---- EPOCH 4 ---------------------------------------------------------------
@@ -786,11 +1206,12 @@
         h('div', {}, [h('span', {}, 'THICK '), R.thick]), h('div', {}, R.method), h('div', {}),
       ]),
       h('table', { class: 'e4-gates' }, [h('tr', {}, ['Gate', 'Start', 'Width', 'Level', 'Alarm'].map(function (t) { return h('th', {}, t); }))].concat(gateRows)),
+      // F5: the row carries the gate softkeys, or the quick-range presets `10.0mm … 100.0mm` of f028 while `range` is selected
       h('div', { class: 'e4-soft' }, [
-        h('span', { class: 'e4-sk', dataset: { sk: 'START' }, onclick: function () { mem.focused = true; selectParam('g' + (inst().activeGate + 1) + 'start'); } }, '1-START'),
-        h('span', { class: 'e4-sk', dataset: { sk: 'WIDTH' }, onclick: function () { mem.focused = true; selectParam('g' + (inst().activeGate + 1) + 'width'); } }, '1-WIDTH'),
-        h('span', { class: 'e4-sk', dataset: { sk: 'LEVEL' }, onclick: function () { mem.focused = true; selectParam('g' + (inst().activeGate + 1) + 'level'); } }, '1-LEVEL'),
-        h('span', { class: 'e4-sk' }, ''),
+        h('span', { class: 'e4-sk', dataset: { sk: 'START' }, onclick: function () { mem.focused = true; if (rangeRow(0)) return; selectParam('g' + (inst().activeGate + 1) + 'start'); } }, '1-START'),
+        h('span', { class: 'e4-sk', dataset: { sk: 'WIDTH' }, onclick: function () { mem.focused = true; if (rangeRow(1)) return; selectParam('g' + (inst().activeGate + 1) + 'width'); } }, '1-WIDTH'),
+        h('span', { class: 'e4-sk', dataset: { sk: 'LEVEL' }, onclick: function () { mem.focused = true; if (rangeRow(2)) return; selectParam('g' + (inst().activeGate + 1) + 'level'); } }, '1-LEVEL'),
+        h('span', { class: 'e4-sk', onclick: function () { mem.focused = true; rangeRow(3); } }, ''),
         h('span', { class: 'e4-sk', dataset: { sk: 'AUTO-80' }, onclick: function () { mem.focused = true; emitUi('softkey', 'AUTO-80'); keys.auto80(); } }, 'AUTO-80'),
       ]),
     ]);
@@ -809,7 +1230,7 @@
         kp('GATE 2', function () { setInst({ activeGate: 1, selectedParam: 'g2start' }); if (!gateOf(1).on) patchGate(1, { on: true }); }, 'red', 'ALARM 2'), kp('PEAK MEM', keys.peakMem, 'red'), kp('DEPTH %AMP', function () { setInst({ readout: inst().readout === 'amp' ? 'dp' : 'amp' }); }, 'orange', 'ECHO-ECHO'),
         kp('CAL', keys.autoCal, 'yellow', 'CONTRAST'), kp('ZERO OFFSET', function () { selectParam('zero'); }, 'yellow', '# DIV'), kp('RANGE', function () { if (mem.secondF) keys.range(); else selectParam('range'); }, 'yellow', 'ZOOM', null, TIPS['RANGE-e4']),
         kp('VEL', function () { selectParam('velocity'); }, 'yellow', 'REJECT'), kp('ANGLE', function () { selectParam(mem.secondF ? 'trigThick' : 'trigAngle'); setSecondF(false); }, 'yellow', 'THICKNESS'), h('div', { class: 'e4-kc' }, [h('span', { class: 'e4-cap' }, ' '), R.secondF]),
-        kp('OPTION', null, 'grey'), kp('ID', null, 'blue'), kp('ON/OFF', function () { mem.ledOn = !mem.ledOn; }, 'green'),
+        kp('OPTION', null, 'grey'), kp('ID', null, 'blue'), kp('ON/OFF', function () { keys.power(); mem.ledOn = powered(); }, 'green'),
       ]),
     ]);
     const body = h('div', { class: 'skin skin-epoch4' }, [
@@ -824,10 +1245,11 @@
     const R = mem.refs; if (!R.gain) return;
     const I = inst(); const ro = frame && frame.readouts; const p = ro && ro.primary; const d = (frame && frame.derived) || derived();
     setText(R.gain, 'GAIN ' + fmtGain(I.gain)); setText(R.rej, 'REJ ' + I.reject + ' %');
-    setText(R.minDepth, 'MIN DEPTH ' + (p ? fmtRead(p.dp) : '--.--'));
+    const rp = readPair(p);   // F5: curved-surface corrected while Trig ▸ CSC is On
+    setText(R.minDepth, 'MIN DEPTH ' + (p ? fmtRead(rp.dp) : '--.--'));
     setText(R.range, 'RANGE ' + I.range.toFixed(1));
     const which = I.readout || 'dp';
-    const bigVal = !p ? '--.--' : which === 'amp' ? Math.min(999, Math.round(p.peakPct)) + ' %' : fmtRead(which === 'sp' ? (Number.isFinite(p.pathDisp) ? p.pathDisp : p.path) : which === 'sd' ? p.sd : p.dp) + ' ' + unitLabel();
+    const bigVal = !p ? '--.--' : which === 'amp' ? Math.min(999, Math.round(p.peakPct)) + ' %' : fmtRead(which === 'sp' ? (Number.isFinite(p.pathDisp) ? p.pathDisp : p.path) : which === 'sd' ? rp.sd : rp.dp) + ' ' + unitLabel();
     setText(R.big, (which === 'sp' ? '▶' : which === 'sd' ? '⇒' : which === 'amp' ? '%' : '↓') + bigVal);
     const cal = I.cal || {};
     const vel = (cal.vel !== null && cal.vel !== undefined) ? cal.vel : d.vel;
@@ -848,9 +1270,116 @@
       ['start', 'width', 'level'].forEach(function (f, k) { R.gateCells[base + k].classList.toggle('sel', sel === 'g' + (gi + 1) + f); });
     });
     const gn = I.activeGate + 1;
-    setText(R.softLabels[0], gn + '-START'); setText(R.softLabels[1], gn + '-WIDTH'); setText(R.softLabels[2], gn + '-LEVEL');
-    R.softLabels[0].classList.toggle('sel', sel === 'g' + gn + 'start'); R.softLabels[1].classList.toggle('sel', sel === 'g' + gn + 'width'); R.softLabels[2].classList.toggle('sel', sel === 'g' + gn + 'level');
+    if (sel === 'range') {
+      // F5 (f028): the softkey row becomes the quick-range presets
+      QUICK_RANGES_E4.forEach(function (r, i) { setText(R.softLabels[i], r.toFixed(1) + 'mm'); R.softLabels[i].classList.toggle('sel', Math.abs(I.range - r) < 0.05); });
+    } else {
+      setText(R.softLabels[0], gn + '-START'); setText(R.softLabels[1], gn + '-WIDTH'); setText(R.softLabels[2], gn + '-LEVEL'); setText(R.softLabels[3], '');
+      R.softLabels[0].classList.toggle('sel', sel === 'g' + gn + 'start'); R.softLabels[1].classList.toggle('sel', sel === 'g' + gn + 'width'); R.softLabels[2].classList.toggle('sel', sel === 'g' + gn + 'level');
+      R.softLabels[3].classList.remove('sel');
+    }
     drawMiniIcon(frame);
+  }
+  /** F5: a click on the EPOCH 4 / LTC softkey row while `range` is selected applies preset `i`. Returns true when handled. */
+  function rangeRow(i) {
+    if (inst().selectedParam !== 'range' || !QUICK_RANGES_E4[i]) return false;
+    emitUi('softkey', 'range-' + QUICK_RANGES_E4[i]);
+    keys.quickRange(QUICK_RANGES_E4[i]);
+    return true;
+  }
+
+  // ---- EPOCH LTC (v3 F5: a cosmetic preset over the EPOCH 600 actions — epoch_auto_calibration f028) ------
+  /**
+   * Build the EPOCH LTC skin: green LCD, the BASE | GATES | PULSER | RECEIVER tab row, the VEL/ZERO/ANGLE and
+   * THICK/CSA/DIA parameter lines, the quick-range row and the CAL THIN | CAL THICK | CANCEL softkeys of f028.
+   * @param {HTMLElement} container
+   */
+  function buildEpochLtc(container) {
+    const R = mem.refs = {};
+    mem.canvas = h('canvas', { id: 'cv-ascan', class: 'ltc-ascan' });
+    R.gain = h('span', { class: 'ltc-gain' }, 'GAIN 40dB');
+    R.unit = h('div', { class: 'ltc-unit' }, 'mm');
+    R.big = h('div', { class: 'ltc-big' }, '00.00');
+    R.amp = h('div', { class: 'ltc-amp' }, '0%');
+    R.delay = h('div', { class: 'ltc-delay' }, 'DELAY 00.0');
+    R.range = h('div', { class: 'ltc-range' }, 'RANGE 100.0');
+    R.tabs = ['BASE', 'GATES', 'PULSER', 'RECEIVER'].map(function (name, i) {
+      return h('span', { class: 'ltc-tab' + (i === 0 ? ' sel' : ''), dataset: { tab: name }, onclick: function () { mem.focused = true; emitUi('softkey', name); ltcTab(name); } }, name);
+    });
+    R.vel = h('span', {}, '5900'); R.zero = h('span', {}, '00.0'); R.angle = h('span', {}, '60.0');
+    R.thick = h('span', {}, '20.0'); R.csa = h('span', {}, '00.0'); R.dia = h('span', {}, '168.3');
+    const cell = function (lab, val, param) {
+      return h('span', { class: 'ltc-pc', dataset: { param: param || '' }, onclick: function () { mem.focused = true; if (param) { emitUi('softkey', param); selectParam(param); } } }, [h('span', { class: 'ltc-pl' }, lab + ' '), val]);
+    };
+    R.quick = QUICK_RANGES_E4.map(function (r) {
+      return h('span', { class: 'ltc-q', onclick: function () { mem.focused = true; emitUi('softkey', 'range-' + r); keys.quickRange(r); } }, r.toFixed(1) + 'mm');
+    });
+    R.soft = ['CAL THIN', 'CAL THICK', 'CANCEL'].map(function (lab) {
+      const fn = lab === 'CAL THIN' ? keys.calThin : lab === 'CAL THICK' ? keys.calThick : keys.calCancel;
+      return h('span', { class: 'ltc-sk', dataset: { sk: lab }, onclick: function () { mem.focused = true; emitUi('softkey', lab); fn(); } }, lab);
+    });
+    const screen = h('div', { class: 'ltc-screen no-i18n' }, [
+      h('div', { class: 'ltc-hdr' }, [h('span', { class: 'ltc-id' }, 'ID 1 2 1 1 1 3'), R.gain]),
+      h('div', { class: 'ltc-main' }, [
+        h('div', { class: 'ltc-plot' }, [mem.canvas]),
+        h('div', { class: 'ltc-side' }, [R.unit, R.big, R.amp, R.delay, R.range]),
+      ]),
+      h('div', { class: 'ltc-tabs' }, R.tabs),
+      h('div', { class: 'ltc-params' }, [
+        h('div', {}, [cell('VEL', R.vel, 'velocity'), cell('ZERO', R.zero, 'zero'), cell('ANGLE', R.angle, 'trigAngle')]),
+        h('div', {}, [cell('THICK', R.thick, 'trigThick'), cell('CSA', R.csa), cell('DIA', R.dia, 'trigDiameter')]),
+      ]),
+      h('div', { class: 'ltc-quick' }, R.quick),
+      h('div', { class: 'ltc-soft' }, R.soft),
+    ]);
+    const pad = h('div', { class: 'ltc-pad no-i18n' }, [
+      h('div', { class: 'ltc-prow' }, [key('GAIN', keys.dB, 'ltck', null, 'dB'), key('▲', keys.up, 'ltck', null, 'up'), key('GATES', keys.gates, 'ltck', null, 'GATES')]),
+      h('div', { class: 'ltc-prow' }, [key('◀', keys.left, 'ltck', null, 'left'), key('ENTER', keys.enter, 'ltck', null, 'enter'), key('▶', keys.right, 'ltck', null, 'right')]),
+      h('div', { class: 'ltc-prow' }, [key('FREEZE', keys.freeze, 'ltck', null, 'freeze'), key('▼', keys.down, 'ltck', null, 'down'), key('MEAS', function () { keys.measure(); rebuildSoftkeys(); }, 'ltck')]),
+      h('div', { class: 'ltc-prow' }, [key('DISPLAY SETUP', keys.rectify, 'ltck grey', null, 'DISPLAY'), key('SAVE', keys.save, 'ltck grey', null, 'SAVE'), key('RANGE', function () { selectParam('range'); }, 'ltck grey', null, 'RANGE'), key('CAL', keys.autoCal, 'ltck grey', null, 'CAL')]),
+      h('div', { class: 'ltc-prow' }, [key('2ND F', keys.secondF, 'ltck grey', null, '2ND F'), key('ID', null, 'ltck grey', null, 'ID'), key('SYSTEM MENU', keys.nextGroup, 'ltck grey', null, 'NEXT GROUP'), key('ON/OFF', function () { keys.power(); }, 'ltck green', null, 'ON')]),
+    ]);
+    const body = h('div', { class: 'skin skin-epochltc' + (mem.touch ? ' touch' : '') }, [
+      h('div', { class: 'ltc-brandtop no-i18n' }, 'PANAMETRICS-NDT   OLYMPUS'),
+      h('div', { class: 'ltc-bezel' }, [screen]),
+      h('div', { class: 'ltc-fkeys no-i18n' }, ['F1', 'F2', 'F3', 'F4'].map(function (f, i) { return key(f, function () { const s = R.soft[i] || R.quick[i]; if (s) s.click(); }, 'ltc-f', { tip: TIPS.F, tipParams: { n: i + 1 } }); })),
+      pad,
+      h('div', { class: 'ltc-brand no-i18n' }, 'EPOCH LTC'),
+    ]);
+    container.appendChild(body);
+  }
+  /** EPOCH LTC tab row: BASE | GATES | PULSER | RECEIVER selects the matching EPOCH 600 softkey page. */
+  function ltcTab(name) {
+    const page = name === 'GATES' ? 2 : 1;
+    mem.subPage = name === 'PULSER' ? 'Pulsar' : name === 'RECEIVER' ? 'Rcvr' : name === 'GATES' ? 'Gate1' : 'Basic';
+    setInst({ page });
+    if (mem.refs.tabs) mem.refs.tabs.forEach(function (el) { el.classList.toggle('sel', el.dataset.tab === name); });
+  }
+  /**
+   * Per-frame refresh of the EPOCH LTC screen (readouts, parameter line, quick-range and cal softkey selection).
+   * @param {object} frame  UT.frame
+   */
+  function updateEpochLtc(frame) {
+    const R = mem.refs; if (!R.big) return;
+    const I = inst(); const ro = frame && frame.readouts; const p = ro && ro.primary; const d = (frame && frame.derived) || derived();
+    const rp = readPair(p);
+    setText(R.gain, 'GAIN ' + fmtGain(I.gain));
+    const which = I.readout || 'dp';
+    setText(R.unit, which === 'amp' ? '%' : unitLabel());
+    setText(R.big, !p ? '00.00' : which === 'amp' ? String(Math.min(999, Math.round(p.peakPct))) : fmtRead(which === 'sp' ? (Number.isFinite(p.pathDisp) ? p.pathDisp : p.path) : which === 'sd' ? rp.sd : rp.dp));
+    setText(R.amp, (p ? Math.min(999, Math.round(p.peakPct)) : 0) + '%');
+    setText(R.delay, 'DELAY ' + I.delay.toFixed(1));
+    setText(R.range, 'RANGE ' + I.range.toFixed(1));
+    const cal = I.cal || {};
+    const vel = (cal.vel !== null && cal.vel !== undefined) ? cal.vel : d.vel;
+    setText(R.vel, String(Math.round(vel * 1000)));
+    setText(R.zero, (cal.zero || 0).toFixed(1));
+    setText(R.angle, I.trig.angle.toFixed(1)); setText(R.thick, I.trig.thick.toFixed(1));
+    setText(R.csa, cscOn(I) ? 'ON' : '00.0'); setText(R.dia, PARAMS.trigDiameter.get(I).toFixed(1));
+    const sel = I.selectedParam;
+    if (R.quick) R.quick.forEach(function (el, i) { el.classList.toggle('sel', Math.abs(I.range - QUICK_RANGES_E4[i]) < 0.05); });
+    if (R.soft) { const s = calStage(); R.soft[0].classList.toggle('sel', s === 1); R.soft[1].classList.toggle('sel', s === 2); }
+    Array.prototype.forEach.call(R.tabs[0].parentNode.parentNode.querySelectorAll('.ltc-pc'), function (el) { el.classList.toggle('sel', !!el.dataset.param && el.dataset.param === sel); });
   }
 
   // ---- USK7 --------------------------------------------------------------------
@@ -869,8 +1398,10 @@
           mem.uskPositioned = true;
           parkUsk(api, false);
         } else positionUsk(api);
+        syncUskDock();
       },
     });
+    UT.bus.on('win:hide', function (api) { if (api === mem.uskWin) syncUskDock(); });
     return mem.uskWin;
   }
   /**
@@ -930,12 +1461,18 @@
   }
   /** USK7 rotary knob: ◀ ▶ buttons, mouse wheel and a scale-aware vertical pointer drag on the dial (6 design px per step). */
   function knob(label, opts) {
-    const dial = h('div', { class: 'usk-dial', role: 'slider', 'aria-label': label, tabindex: '0' }, [h('div', { class: 'usk-ptr' })]);
-    const el = h('div', { class: 'usk-knob no-i18n' }, [
-      h('div', { class: 'usk-lr' }, [key('◀', function () { opts.step(-1); }, 'usk-arr', { tip: TIPS['knob-'], tipParams: { k: label } }, label + '-'), key('▶', function () { opts.step(+1); }, 'usk-arr', { tip: TIPS['knob+'], tipParams: { k: label } }, label + '+')]),
+    const dial = h('div', { class: 'usk-dial' + (opts.red ? ' red' : ''), role: 'slider', 'aria-label': label, tabindex: '0' }, [h('div', { class: 'usk-ptr' })]);
+    // F8: coarse (×10) and fine arrow pairs — `◀◀ ◀ ▶ ▶▶` — above RANGE and X-SHIFT
+    const arrows = [];
+    if (opts.step10) arrows.push(key('◀◀', function () { opts.step10(-1); }, 'usk-arr usk-arr10', { tip: TIPS['knob10-'], tipParams: { k: label } }, label + '10-'));
+    arrows.push(key('◀', function () { opts.step(-1); }, 'usk-arr', { tip: TIPS['knob-'], tipParams: { k: label } }, label + '-'));
+    arrows.push(key('▶', function () { opts.step(+1); }, 'usk-arr', { tip: TIPS['knob+'], tipParams: { k: label } }, label + '+'));
+    if (opts.step10) arrows.push(key('▶▶', function () { opts.step10(+1); }, 'usk-arr usk-arr10', { tip: TIPS['knob10+'], tipParams: { k: label } }, label + '10+'));
+    const el = h('div', { class: 'usk-knob no-i18n' + (opts.red ? ' usk-knob-amp' : '') }, [
+      h('div', { class: 'usk-lr' }, arrows),
       dial, h('span', { class: 'usk-klab' }, label),
     ]);
-    dial.addEventListener('wheel', function (e) { e.preventDefault(); emitUi('wheel', label); opts.step(e.deltaY < 0 ? 1 : -1); });
+    dial.addEventListener('wheel', function (e) { e.preventDefault(); emitUi('wheel', label); const n = e.deltaY < 0 ? 1 : -1; if (e.shiftKey && opts.step10) opts.step10(n); else opts.step(n); });
     let drag = null;
     dial.style.touchAction = 'none';
     dial.addEventListener('pointerdown', function (e) {
@@ -964,19 +1501,33 @@
     mem.canvas = h('canvas', { id: 'cv-ascan', class: 'usk-crt' });
     R.crtText = h('div', { class: 'usk-text no-i18n' }, 'AMP 30 dB  Suppr OFF  ANGLE 60°');
     R.crtPulser = h('div', { class: 'usk-pr no-i18n', title: t('Pulser energy / damping and receiver filter') }, 'P 200V 150Ω  F BB');
-    R.knobRange = knob('RANGE', { step: function (d) { setInst({ range: M.clamp(inst().range * (1 + 0.02 * d), 10, 1000), selectedParam: 'range' }); } });
-    R.knobShift = knob('X-SHIFT', { step: function (d) { setInst({ delay: M.clamp(inst().delay + d, 0, 1000), selectedParam: 'delay' }); } });
+    R.knobRange = knob('RANGE', {
+      step: function (d) { setInst({ range: M.clamp(inst().range * (1 + 0.02 * d), 10, 1000), selectedParam: 'range' }); },
+      step10: function (d) { setInst({ range: M.clamp(inst().range * (1 + 0.10 * d), 10, 1000), selectedParam: 'range' }); },
+    });
+    R.knobShift = knob('X-SHIFT', {
+      step: function (d) { setInst({ delay: M.clamp(inst().delay + d, 0, 1000), selectedParam: 'delay' }); },
+      step10: function (d) { setInst({ delay: M.clamp(inst().delay + 10 * d, 0, 1000), selectedParam: 'delay' }); },
+    });
     R.knobSupp = knob('SUPPRESSION', { step: function (d) { setInst({ reject: M.clamp(inst().reject + 2 * d, 0, 80), selectedParam: 'reject' }); } });
-    R.amp = h('input', { type: 'range', min: 0, max: 110, step: 0.5, class: 'usk-amp', title: 'AMP (dB)', orient: 'vertical' });
+    // F8: the vertical gain slider becomes the big red AMP knob; the range input stays for the keyboard and for tests
+    R.knobAmp = knob('AMP', {
+      red: true,
+      step: function (d) { setInst({ gain: M.clamp(inst().gain + 0.5 * d, 0, 110), selectedParam: 'gain' }); },
+      step10: function (d) { setInst({ gain: M.clamp(inst().gain + 5 * d, 0, 110), selectedParam: 'gain' }); },
+    });
+    R.amp = h('input', { type: 'range', min: 0, max: 110, step: 0.5, class: 'usk-amp', title: 'AMP (dB)', 'aria-label': 'AMP (dB)' });
     R.amp.value = inst().gain;
     R.amp.addEventListener('input', function () { setInst({ gain: M.clamp(parseFloat(R.amp.value), 0, 110), selectedParam: 'gain' }); });
     R.ampLab = h('span', { class: 'usk-amplab' }, 'AMP=');
     R.erase = key('ERASE DAC', keys.erase, 'usk-erase');
+    // F1: OFF is the set's power switch, not a window close — it must announce itself that way (the titlebar ✕ closes)
+    R.off = key('OFF', function () { keys.power(); }, 'usk-off', { tip: TIPS.ON }, 'OFF');
     const panel = h('div', { class: 'usk-panel' }, [
       h('div', { class: 'usk-col' }, [R.knobRange, h('div', { class: 'usk-btn red', title: 'decorative' }), R.erase]),
-      h('div', { class: 'usk-col usk-ampcol' }, [h('div', { class: 'usk-btn yellow' }), R.ampLab, R.amp, h('div', { class: 'usk-btn yellow' })]),
+      h('div', { class: 'usk-col usk-ampcol' }, [R.ampLab, R.knobAmp, R.amp]),
       h('div', { class: 'usk-col' }, [R.knobShift, R.knobSupp]),
-      h('div', { class: 'usk-col usk-offcol' }, [key('OFF', function () { win.close(); }, 'usk-off'), h('span', { class: 'usk-brand' }, 'KRAUTKRÄMER USK 7')]),
+      h('div', { class: 'usk-col usk-offcol' }, [R.off, h('span', { class: 'usk-brand' }, 'KRAUTKRÄMER USK 7')]),
     ]);
     const body = h('div', { class: 'skin skin-usk7' + (mem.touch ? ' touch' : '') }, [h('div', { class: 'usk-crtwrap' }, [mem.canvas, R.crtText, R.crtPulser]), panel]);
     win.setContent(body);
@@ -987,8 +1538,15 @@
     container.appendChild(h('div', { class: 'skin skin-uskdock' }, [
       h('div', { class: 'uskdock-title', i18n: 'UT SET: KRAUTKRÄMER USK 7 (analogue)' }),
       tx('div', 'uskdock-hint', 'The USK 7 floats over the plan view. Read the screen — this set has no digital readouts.'),
-      tip(UT.dom.button('Show USK 7', function () { mem.focused = true; emitUi('softkey', 'Show USK 7'); win.show(); }, { class: 'ik uskdock-btn' }), TIPS['Show USK 7']),
+      R.dockBtn = tip(UT.dom.button('Show USK 7', function () { mem.focused = true; emitUi('softkey', 'Show USK 7'); win.show(); }, { class: 'ik uskdock-btn' }), TIPS['Show USK 7']),
     ]));
+    syncUskDock();
+  }
+  /** F1: the dock's "Show USK 7" button only makes sense while the window is closed — hide it while it is open. */
+  function syncUskDock() {
+    const R = mem.refs; if (!R || !R.dockBtn) return;
+    const open = !!(mem.uskWin && mem.uskWin.isOpen());
+    if (R.dockBtn.hidden !== open) R.dockBtn.hidden = open;
   }
   function updateUsk7(frame) {
     const R = mem.refs; if (!R.crtText) return;
@@ -1001,8 +1559,14 @@
     if (R.crtPulser) setText(R.crtPulser, 'P ' + energyV(I) + 'V ' + dampingOhms(I) + 'Ω  F ' + (flt === 'broadband' ? 'BB' : flt));
     if (document.activeElement !== R.amp && Math.abs(parseFloat(R.amp.value) - I.gain) > 1e-6) R.amp.value = I.gain;
     setText(R.ampLab, 'AMP=' + Math.round(I.gain));
+    // F8: `Options ▸ Show A-scan overlay text` — the magenta on-glass line (default on when the key is absent)
+    const showText = !(st().display && st().display.ascanText === false);
+    R.crtText.style.display = showText ? '' : 'none';
+    if (R.crtPulser) R.crtPulser.style.display = showText ? '' : 'none';
     const rot = function (el, frac) { el.dial.firstChild.style.transform = 'rotate(' + Math.round(-135 + 270 * M.clamp(frac, 0, 1)) + 'deg)'; };
     rot(R.knobRange, Math.log10(I.range / 10) / 2); rot(R.knobShift, I.delay / 200); rot(R.knobSupp, I.reject / 80);
+    if (R.knobAmp) rot(R.knobAmp, I.gain / 110);
+    if (R.off) R.off.classList.toggle('lit', !powered(I));
     const showErase = (I.dac.points && I.dac.points.length > 0) || st().mode === 'dac';
     R.erase.style.visibility = showErase ? 'visible' : 'hidden';
   }
@@ -1011,9 +1575,13 @@
   const THEMES = {
     epoch600: { bg: C.ascanBg, frame: '#1a1c1a', grid: C.ascanGrid, gridStyle: 'dots', trace: C.ascanTrace, traceFill: 'rgba(34,224,34,0.18)', peak: 'rgba(60,160,60,0.55)', gate: C.gate, gate2: '#4080ff', dac: C.dac, dacSub: '#ff9020', text: '#d0d0d0', axes: true, margin: { l: 16, r: 26, t: 4, b: 12 }, gates: true, dacPoints: true, xLabelStep: 1, lineWidth: 1 },
     epoch4: { bg: '#dfe3d5', frame: '#dfe3d5', grid: null, gridStyle: 'none', trace: '#101010', traceFill: null, peak: 'rgba(0,0,0,0.3)', gate: '#101010', gate2: '#404040', dac: '#303030', dacSub: '#606060', text: '#101010', axes: true, margin: { l: 22, r: 6, t: 3, b: 11 }, gates: true, gateWidth: 3, dacPoints: false, xLabelStep: 2, lineWidth: 1 },
-    usk7: { bg: C.uskBg, frame: '#08104a', grid: C.uskGrid, gridStyle: 'lines', trace: C.uskTrace, traceFill: null, peak: 'rgba(127,247,255,0.35)', gate: '#ff60ff', gate2: '#ff60ff', dac: '#ff40ff', dacSub: '#c030c0', text: '#ffffff', axes: true, margin: { l: 4, r: 4, t: 4, b: 14 }, gates: false, dacPoints: true, dacLabel: true, xLabelStep: 2, lineWidth: 1.5 },
-    aut: { bg: C.ascanBg, frame: '#000', grid: C.ascanGrid, gridStyle: 'dots', trace: C.ascanTrace, traceFill: null, peak: 'rgba(60,160,60,0.55)', gate: C.gate, gate2: '#ffe000', gate3: '#20e020', dac: C.dac, dacSub: '#ff9020', text: '#d0d0d0', axes: true, margin: { l: 16, r: 4, t: 4, b: 12 }, gates: true, dacPoints: false, xLabelStep: 1, lineWidth: 1 },
-    tofd: { bg: '#0e5a4d', frame: '#0e5a4d', grid: '#0a3d34', gridStyle: 'lines', trace: '#22ff22', traceFill: null, peak: null, gate: C.gate, gate2: '#4080ff', dac: C.dac, dacSub: '#ff9020', text: '#d0ffd0', axes: true, margin: { l: 4, r: 4, t: 4, b: 12 }, gates: false, dacPoints: false, xLabelStep: 2, lineWidth: 1 },
+    // v3 F8: the deep-blue USK 7 CRT of basic_ut_controls / utman_functions f020 — ground #0000C0, grid #4040e0,
+    // cyan 1.5 px trace, and the `0 2 4 6 8 10` labels on a bezel strip BELOW the glass (not on it)
+    usk7: { calBox: false, bg: '#0000c0', frame: '#08104a', grid: '#4040e0', gridStyle: 'lines', trace: '#40ffff', traceFill: null, peak: 'rgba(64,255,255,0.35)', gate: '#ff60ff', gate2: '#ff60ff', dac: '#ff40ff', dacSub: '#c030c0', text: '#ffffff', axes: true, margin: { l: 4, r: 4, t: 4, b: 16 }, gates: false, dacPoints: true, dacLabel: true, xLabelStep: 2, lineWidth: 1.5, bezel: '#c9c9c9', bezelText: '#ffff60' },
+    // v3 F5: EPOCH LTC — the green LCD of epoch_auto_calibration f028 over the epoch600 renderer
+    epochltc: { bg: '#0c2410', frame: '#0c2410', grid: '#1f5f2a', gridStyle: 'lines', trace: '#40ff40', traceFill: null, peak: 'rgba(60,200,60,0.5)', gate: '#ff2020', gate2: '#40a0ff', dac: C.dac, dacSub: '#ff9020', text: '#b8f0b8', axes: true, margin: { l: 16, r: 6, t: 4, b: 12 }, gates: true, dacPoints: true, xLabelStep: 2, lineWidth: 1.2 },
+    aut: { calBox: false, bg: C.ascanBg, frame: '#000', grid: C.ascanGrid, gridStyle: 'dots', trace: C.ascanTrace, traceFill: null, peak: 'rgba(60,160,60,0.55)', gate: C.gate, gate2: '#ffe000', gate3: '#20e020', dac: C.dac, dacSub: '#ff9020', text: '#d0d0d0', axes: true, margin: { l: 16, r: 4, t: 4, b: 12 }, gates: true, dacPoints: false, xLabelStep: 1, lineWidth: 1 },
+    tofd: { calBox: false, bg: '#0e5a4d', frame: '#0e5a4d', grid: '#0a3d34', gridStyle: 'lines', trace: '#22ff22', traceFill: null, peak: null, gate: C.gate, gate2: '#4080ff', dac: C.dac, dacSub: '#ff9020', text: '#d0ffd0', axes: true, margin: { l: 4, r: 4, t: 4, b: 12 }, gates: false, dacPoints: false, xLabelStep: 2, lineWidth: 1 },
   };
   function resolveTheme(theme) {
     if (!theme) return THEMES.epoch600;
@@ -1055,6 +1623,17 @@
       ctx.stroke(); ctx.setLineDash([]);
     }
     ctx.beginPath(); ctx.rect(px, py, pw, ph); ctx.clip();
+    // v3 F1: with the set switched off the graticule, the frame and the bezel stay — the trace and every overlay go
+    const on = I.powered !== false;
+    if (!on) {
+      // a crisp 1 px filled baseline (not a stroked line): every column reads the same sample, so the
+      // "trace is flat" measurement of V3-1 sees a standard deviation of exactly zero
+      ctx.fillStyle = th.trace; ctx.fillRect(px, Math.round(py + ph) - 1, pw, 1);
+      ctx.restore();
+      drawBezel(ctx, th, px, py, pw, ph, W, H);
+      drawCalBox(ctx, th, px, py, pw, ph);
+      return;
+    }
     const rf = asc && asc.rf && (I.rectify === 'rf' || I.rectify === 'half+' || I.rectify === 'half-') ? asc.rf : null;
     const rfScale = rf ? (maxAbs(rf) <= 1.5 ? 100 : 1) : 1;
     const polyline = function (arr, transform) {
@@ -1108,7 +1687,8 @@
     // DAC curves (v2: drawn FLAT at 80·10^((gain−refDb)/20) % while TCG is active — §3.7)
     const dac = I.dac;
     const tcgOn = tcgActive(I);
-    if (dac && (dac.on || tcgOn) && dac.points && dac.points.length >= 2) {
+    const hand = dac && !tcgOn && Array.isArray(dac.hand) && dac.hand.length >= 2 ? dac.hand : null;   // F40
+    if (dac && (dac.on || tcgOn || hand) && dac.points && dac.points.length >= 2) {
       const poly = tcgOn ? tcgFlatPolyline(I) : dacPolyline(I);
       const curve = function (scale, colour, dash) {
         ctx.strokeStyle = colour; ctx.lineWidth = 1.2; ctx.setLineDash(dash || []);
@@ -1117,8 +1697,13 @@
         for (let i = 0; i <= N; i++) { const p = p0 + (p1 - p0) * i / N; const v = dacAt(poly, p) * scale; const x = xOf(p), y = yOf(v); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
         ctx.stroke(); ctx.setLineDash([]);
       };
-      curve(1, th.dac, []);
-      if (dac.curves !== false) { curve(0.5, th.dacSub, [4, 3]); curve(0.2, th.dacSub, [2, 3]); }
+      if (hand) {
+        // F40: the hand-drawn curve replaces the interpolated one (Draw Curves clears it)
+        ctx.strokeStyle = th.dac; ctx.lineWidth = 1.6; ctx.setLineDash([]); ctx.beginPath();
+        hand.forEach(function (q, i) { const x = px + pw * M.clamp(q.xDiv, 0, 10) / 10, y = yOf(q.pct); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+        ctx.stroke();
+      } else curve(1, th.dac, []);
+      if (dac.curves !== false && !hand) { curve(0.5, th.dacSub, [4, 3]); curve(0.2, th.dacSub, [2, 3]); }
       if (th.dacPoints && !tcgOn) {
         ctx.strokeStyle = th.dac; ctx.lineWidth = 1.2;
         poly.forEach(function (p) { const x = xOf(p.path), y = yOf(p.pct); ctx.beginPath(); ctx.moveTo(x - 4, y); ctx.lineTo(x + 4, y); ctx.moveTo(x, y - 4); ctx.lineTo(x, y + 4); ctx.stroke(); });
@@ -1144,9 +1729,63 @@
       ctx.save();
       ctx.fillStyle = th.text; ctx.font = '9px Segoe UI, Arial, sans-serif';
       if (m.l >= 14) { ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; for (let k = 0; k <= 5; k++) ctx.fillText(String(k * 20), px - 2, yOf(k * 20)); }
-      if (m.b >= 9) { ctx.textAlign = 'center'; ctx.textBaseline = 'top'; const stepK = th.xLabelStep || 1; for (let k = 0; k <= 10; k += stepK) ctx.fillText(String(k), px + pw * k / 10, py + ph + 1); }
+      if (m.b >= 9 && !th.bezel) { ctx.textAlign = 'center'; ctx.textBaseline = 'top'; const stepK = th.xLabelStep || 1; for (let k = 0; k <= 10; k += stepK) ctx.fillText(String(k), px + pw * k / 10, py + ph + 1); }
       ctx.restore();
     }
+    drawBezel(ctx, th, px, py, pw, ph, W, H);
+    drawCalBox(ctx, th, px, py, pw, ph);
+  }
+  /**
+   * F8: the USK 7 graticule strip BELOW the glass — a light bevel band carrying `0 2 4 6 8 10` in #ffff60
+   * (basic_ut_controls f012, utman_functions f020). Themes without `bezel` draw nothing.
+   */
+  function drawBezel(ctx, th, px, py, pw, ph, W, H) {
+    if (!th.bezel) return;
+    const y0 = py + ph + 1, hgt = Math.max(8, Math.min(14, H - y0 - 1));
+    if (hgt < 6) return;
+    ctx.save();
+    ctx.fillStyle = th.bezel; ctx.fillRect(px, y0, pw, hgt);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(px, y0 + hgt - 2, pw, 2);
+    ctx.fillStyle = th.bezelText || '#ffff60';
+    ctx.font = 'bold 10px Segoe UI, Arial, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const stepK = th.xLabelStep || 2;
+    for (let k = 0; k <= 10; k += stepK) ctx.fillText(String(k), M.clamp(px + pw * k / 10, px + 6, px + pw - 6), y0 + hgt / 2);
+    ctx.restore();
+    void W;
+  }
+  /**
+   * F3: the auto-cal thickness-entry box drawn over the A-scan area — a white panel with a 1 px black border
+   * from 15 % to 90 % of the plot width and a third of its height, holding the title, the right-aligned value
+   * field (sunken border) and the confirm line (epoch_auto_calibration f009 / f020).
+   */
+  function drawCalBox(ctx, th, px, py, pw, ph) {
+    if (th.calBox === false) return;
+    const c = calText();
+    if (!c) return;
+    ctx.save();
+    // 15 %…90 % of the plot width, widened (and the type shrunk) on a narrow LCD so the caption never clips
+    let x0 = Math.round(px + 0.15 * pw), x1 = Math.round(px + 0.90 * pw);
+    let size = 10;
+    ctx.font = 'bold ' + size + 'px Segoe UI, Arial, sans-serif';
+    while (size > 7 && ctx.measureText(c.title).width > x1 - x0 - 12) {
+      if (x0 > px + 2) { x0 = Math.max(Math.round(px + 2), x0 - 8); x1 = Math.min(Math.round(px + pw - 2), x1 + 4); }
+      else { size -= 0.5; ctx.font = 'bold ' + size + 'px Segoe UI, Arial, sans-serif'; }
+    }
+    const w = Math.max(110, x1 - x0), hgt = Math.max(46, Math.round(ph / 3));
+    const y0 = Math.round(py + ph * 0.22);
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(x0, y0, w, hgt);
+    ctx.strokeStyle = '#000000'; ctx.lineWidth = 1; ctx.strokeRect(x0 + 0.5, y0 + 0.5, w - 1, hgt - 1);
+    ctx.fillStyle = '#000000'; ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+    ctx.fillText(c.title, x0 + 6, y0 + 5);
+    // value field: sunken box, value right-aligned inside it
+    const fw = Math.round(w * 0.55), fx = x0 + w - fw - 8, fy = y0 + Math.round(hgt * 0.38), fh = 15;
+    ctx.fillStyle = '#f0f0f0'; ctx.fillRect(fx, fy, fw, fh);
+    ctx.strokeStyle = '#808080'; ctx.strokeRect(fx + 0.5, fy + 0.5, fw - 1, fh - 1);
+    ctx.fillStyle = '#000000'; ctx.font = 'bold 11px Segoe UI, Arial, sans-serif'; ctx.textAlign = 'right';
+    ctx.fillText(c.value, fx + fw - 4, fy + 2);
+    ctx.textAlign = 'left'; ctx.font = Math.max(7, size - 1) + 'px Segoe UI, Arial, sans-serif';
+    ctx.fillText(c.confirm, x0 + 6, y0 + hgt - 13);
+    ctx.restore();
   }
   function maxAbs(arr) { let m = 0; for (let i = 0; i < arr.length; i++) { const a = Math.abs(arr[i]); if (a > m) m = a; } return m; }
 
@@ -1217,10 +1856,11 @@
   // ------------------------------------------------------------------ mount / render / skins
   /** Theme name / override for the live canvas (high-contrast: white 2 px trace, brighter grid — §5.7). */
   function liveTheme() {
-    const base = mem.skin === 'epoch4' ? 'epoch4' : mem.skin === 'usk7' ? 'usk7' : 'epoch600';
+    const base = mem.skin === 'epoch4' ? 'epoch4' : mem.skin === 'usk7' ? 'usk7' : mem.skin === 'epochltc' ? 'epochltc' : 'epoch600';
     const d = st().display;
     if (!(d && d.highContrast)) return base;
     if (base === 'epoch4') return { base, lineWidth: 2, gateWidth: 4 };
+    if (base === 'epochltc') return { base, trace: '#ffffff', grid: '#5a8a5a', lineWidth: 2, text: '#ffffff' };
     return { base, trace: '#ffffff', traceFill: null, grid: '#5a5a5a', lineWidth: 2, text: '#ffffff', compareColour: '#9a9a9a' };
   }
   function drawCanvas(frame) {
@@ -1232,6 +1872,13 @@
     // trace in frame.ascan and its angle in frame.paSelected).
     if (frame && frame.sscan && s.probe.method === 'pa' && mem.skin !== 'usk7') drawSscan(ctx, frame, s);
     else drawAscan(ctx, frame, s, liveTheme());
+    // F3: a canvas carries no accessible text — mirror the wizard's three lines into the canvas label
+    const c = calText();
+    const aria = c ? c.text : '';
+    if (mem.calAria !== aria) {
+      mem.calAria = aria;
+      if (aria) { cv.setAttribute('aria-label', aria); cv.setAttribute('role', 'img'); } else { cv.removeAttribute('aria-label'); cv.removeAttribute('role'); }
+    }
   }
   /**
    * Gate alarm (F3, §5.2): edge-triggered beep per gate — `now = !!frame.readouts.gate[i]` for every gate with
@@ -1258,6 +1905,7 @@
     try {
       if (mem.skin === 'epoch600') updateEpoch600(frame);
       else if (mem.skin === 'epoch4') updateEpoch4(frame);
+      else if (mem.skin === 'epochltc') updateEpochLtc(frame);
       else if (mem.skin === 'usk7') updateUsk7(frame);
       drawCanvas(frame);
       refreshDatalogWindow(false);
@@ -1284,6 +1932,7 @@
   }
   function buildSkin(name) {
     const c = mem.container; if (!c) return;
+    hintOff();                                   // F6: the hovered key goes away without a mouseleave
     c.textContent = '';
     mem.refs = {}; mem.canvas = null; mem.iconCanvas = null; mem.subPage = null; setSecondF(false);
     mem.touch = wantTouch();
@@ -1291,10 +1940,133 @@
     mem.skin = name;
     if (name === 'epoch4') buildEpoch4(c);
     else if (name === 'usk7') buildUsk7(c);
+    else if (name === 'epochltc') buildEpochLtc(c);
     else { mem.skin = 'epoch600'; buildEpoch600(c); }
     c.dataset.skin = mem.skin;
+    attachDacDraw(mem.canvas);
+    applyFloat();
     onRender(UT.frame);
   }
+  /**
+   * F40: drag on `#cv-ascan` to lay the DAC by hand once at least two points are recorded. The stroke is captured in
+   * graticule divisions, its ends snap to a recorded point within 6 px and it is resampled to ≥ 5 points.
+   * @param {HTMLCanvasElement} cv
+   */
+  function attachDacDraw(cv) {
+    if (!cv || cv.dataset.dacDraw) return;
+    cv.dataset.dacDraw = '1';
+    cv.style.touchAction = 'none';
+    const armed = function () { const d = inst().dac; return !!(d && Array.isArray(d.points) && d.points.length >= 2); };
+    const geom = function () {
+      const th = resolveTheme(liveTheme());
+      const W = cv.clientWidth || cv.width, H = cv.clientHeight || cv.height, m = th.margin;
+      return { px: m.l, py: m.t, pw: Math.max(10, W - m.l - m.r), ph: Math.max(10, H - m.t - m.b) };
+    };
+    const at = function (e) {
+      const g = geom();
+      const p = UT.dom.localPos ? UT.dom.localPos(e, cv) : { x: e.offsetX, y: e.offsetY };
+      return { xDiv: M.clamp((p.x - g.px) / g.pw * 10, 0, 10), pct: M.clamp((1 - (p.y - g.py) / g.ph) * 100, 0, 100), x: p.x, y: p.y, g };
+    };
+    cv.addEventListener('pointerdown', function (e) {
+      if (!armed() || (e.button !== undefined && e.button !== 0)) return;
+      mem.focused = true;
+      const p = at(e);
+      mem.dacDrag = { pts: [{ xDiv: p.xDiv, pct: p.pct }], g: p.g };
+      try { cv.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      UT.status({ right: t('LEFT mouse button/drag to draw curve') });
+      e.preventDefault();
+    });
+    cv.addEventListener('pointermove', function (e) {
+      const d = mem.dacDrag; if (!d) return;
+      const p = at(e);
+      const last = d.pts[d.pts.length - 1];
+      if (Math.abs(p.xDiv - last.xDiv) > 0.02 || Math.abs(p.pct - last.pct) > 0.5) d.pts.push({ xDiv: p.xDiv, pct: p.pct });
+    });
+    const end = function (e) {
+      const d = mem.dacDrag; if (!d) return;
+      mem.dacDrag = null;
+      try { cv.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+      const pts = finishHandDac(d.pts, d.g);
+      if (pts) { handDac(pts); emitUi('softkey', 'dacHand'); UT.requestRender(); }
+    };
+    cv.addEventListener('pointerup', end);
+    cv.addEventListener('pointercancel', end);
+  }
+  /**
+   * F40 helper (pure): snap the ends of a hand stroke to the recorded DAC points within 6 px and resample the
+   * polyline so it always carries at least 5 points.
+   * @param {Array<{xDiv:number, pct:number}>} pts
+   * @param {{px:number, py:number, pw:number, ph:number}} g  plot rectangle in CSS px
+   * @param {object} [ins]  instrument (default: state)
+   * @returns {Array<{xDiv:number, pct:number}>|null}
+   */
+  function finishHandDac(pts, g, ins) {
+    if (!Array.isArray(pts) || pts.length < 2 || !g || !(g.pw > 0)) return null;
+    const I = ins || inst();
+    const poly = dacPolyline(I);
+    const range = I.range || 100, delay = I.delay || 0;
+    const snap = function (q) {
+      let best = null, bd = 6;
+      poly.forEach(function (r) {
+        const rd = { xDiv: (r.path - delay) / range * 10, pct: r.pct };
+        const dx = (rd.xDiv - q.xDiv) / 10 * g.pw, dy = (rd.pct - q.pct) / 100 * g.ph;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist <= bd) { bd = dist; best = rd; }
+      });
+      return best || q;
+    };
+    const out = pts.slice();
+    out[0] = snap(out[0]);
+    out[out.length - 1] = snap(out[out.length - 1]);
+    if (out.length >= 5) return out;
+    // resample the polyline to 5 evenly spaced points so a two-move drag still gives a curve
+    const res = [];
+    const N = 4;
+    for (let i = 0; i <= N; i++) {
+      const u = i / N * (out.length - 1);
+      const k = Math.min(out.length - 2, Math.floor(u)), f = u - k;
+      res.push({ xDiv: M.lerp(out[k].xDiv, out[k + 1].xDiv, f), pct: M.lerp(out[k].pct, out[k + 1].pct, f) });
+    }
+    res[0] = out[0]; res[res.length - 1] = out[out.length - 1];
+    return res;
+  }
+  // ------------------------------------------------------------------ F8: floating instrument panel (display.instrumentFloat)
+  /** The window that carries `#instrument` while it floats (created lazily — epoch_auto_calibration f016). */
+  function ensureFloatWindow() {
+    if (mem.floatWin) return mem.floatWin;
+    if (typeof document === 'undefined') return null;
+    UT.dom.injectCss('instruments', UT.instruments.css);
+    mem.floatWin = UT.dom.win({
+      name: 'instrument', title: 'Flaw detector', x: 12, y: 60, class: 'win-instrument', alwaysOnTop: true,
+      onClose: function () { UT.setIn('display', { instrumentFloat: false }); applyFloat(); },
+    });
+    return mem.floatWin;
+  }
+  /**
+   * F8: move `#instrument` into (or out of) the float window and give the freed 470 px column to the views.
+   * The USK 7 already floats in its own window, so the flag is ignored while that skin is up.
+   */
+  function applyFloat() {
+    const c = mem.container;
+    if (!c || typeof document === 'undefined') return;
+    const want = !!(st().display && st().display.instrumentFloat) && mem.skin !== 'usk7';
+    const main = c.parentNode && c.parentNode.id === 'main' ? c.parentNode : document.getElementById('main');
+    if (want) {
+      const w = ensureFloatWindow(); if (!w) return;
+      if (!mem.floatHome) mem.floatHome = { parent: c.parentNode, next: c.nextSibling };
+      if (c.parentNode !== w.body) { w.body.textContent = ''; w.body.appendChild(c); }
+      if (main) main.classList.add('inst-float');
+      w.show();
+    } else {
+      if (mem.floatHome && c.parentNode && c.parentNode !== mem.floatHome.parent) {
+        mem.floatHome.parent.insertBefore(c, mem.floatHome.next || null);
+      }
+      if (main) main.classList.remove('inst-float');
+      if (mem.floatWin && mem.floatWin.isOpen()) mem.floatWin.hide();
+    }
+    UT.requestRender();
+  }
+
   /**
    * Mount the instrument for `state.utSet` into the container (#instrument) and subscribe to 'render'.
    * @param {HTMLElement} container
@@ -1305,6 +2077,7 @@
     if (!mem.mounted) {
       mem.mounted = true;
       UT.bus.on('render', onRender);
+      UT.bus.on('status', onStatus);                // F6: follow 90's mid rebuilds while a key hint is armed
       container.addEventListener('pointerdown', function () { mem.focused = true; });
       container.addEventListener('mousedown', function () { mem.focused = true; });
       container.addEventListener('wheel', function (e) { e.preventDefault(); wheel(e.deltaY < 0 ? 1 : -1, { coarse: e.shiftKey }); }, { passive: false });
@@ -1318,13 +2091,15 @@
       // v2: touch sizing follows display.touchBar (and the coarse-pointer media query in 'auto'); datalog window refresh
       UT.bus.on('state', function (ev) {
         const keys = (ev && ev.keys) || [];
-        if (keys.indexOf('display') >= 0) applyTouch();
+        if (keys.indexOf('display') >= 0) { applyTouch(); applyFloat(); }
         if (keys.indexOf('instrument') >= 0) { const c = inst().compare; if (c === null || (c && typeof c.length === 'number')) mem.compare = c || null; }
       });
       try { if (!mem.mq && typeof matchMedia === 'function') mem.mq = matchMedia('(pointer: coarse)'); if (mem.mq && mem.mq.addEventListener) mem.mq.addEventListener('change', applyTouch); } catch (e) { /* ignore */ }
       UT.bus.on('lang', function () { rebuildSoftkeys(); relabelTips(); refreshDatalogWindow(true); if (mem.skin) onRender(UT.frame); });
       UT.bus.on('mode', function (p) {
         if (!mem.uskWin || !p) return;
+        // F7 Always Show UT Controls: the USK 7 controls are pinned — bring them back on every mode entry
+        if (mem.skin === 'usk7' && st().display && st().display.alwaysShowControls && !mem.uskWin.isOpen()) mem.uskWin.show();
         const el = mem.uskWin.el, visible = mem.skin === 'usk7' && mem.uskWin.isOpen();
         if (p.mode === 'v1' || p.mode === 'v2') {
           // §14.8: the USK7 floats bottom-right on the block screens (design px, inside #app); remember where it was so it can go back.
@@ -1345,11 +2120,13 @@
     buildSkin(st().utSet || 'epoch600');
   }
   /**
-   * Switch the skin ('epoch600' | 'epoch4' | 'usk7'); also syncs state.utSet when it differs.
+   * Switch the skin ('epoch600' | 'epoch4' | 'epochltc' | 'usk7'); also syncs state.utSet when it differs.
+   * `'ltc'` / `'epoch-ltc'` are accepted as aliases of the v3 EPOCH LTC preset (F5).
    * @param {string} name
    */
   function setSkin(name) {
-    const n = name === 'epoch4' || name === 'usk7' ? name : 'epoch600';
+    const alias = name === 'ltc' || name === 'epoch-ltc' || name === 'epochLTC' ? 'epochltc' : name;
+    const n = alias === 'epoch4' || alias === 'usk7' || alias === 'epochltc' ? alias : 'epoch600';
     if (st().utSet !== n) UT.set({ utSet: n }, { noRender: true });
     if (!mem.container) return;
     if (mem.skin !== n || !mem.canvas || !mem.canvas.isConnected) buildSkin(n);
@@ -1363,6 +2140,8 @@
   function handleKey(ev) {
     if (!mem.mounted || !mem.focused) return false;
     if (ev.ctrlKey || ev.altKey || ev.metaKey) return false;
+    // F3: digits / '.' / Backspace type straight into the on-LCD entry field while the wizard is up
+    if (calStage() && calTypeKey(ev.key)) { if (ev.preventDefault) ev.preventDefault(); UT.requestRender(); return true; }
     switch (ev.key) {
       case 'ArrowUp': adjust(null, +1, ev.shiftKey); break;
       case 'ArrowDown': adjust(null, -1, ev.shiftKey); break;
@@ -1384,8 +2163,11 @@
   }
   /** Remove one datalog entry by id. */
   function datalogRemove(id) { const list = datalogEntries().filter(function (e) { return e.id !== id; }); setInst({ datalog: list }); return list.length; }
-  /** Clear the datalogger. */
-  function datalogClear() { setInst({ datalog: [] }); return 0; }
+  /**
+   * Clear the datalogger: write the empty entry list into `instrument.datalog`.
+   * @returns {number} the number of entries removed
+   */
+  function datalogClear() { const n = datalogEntries().length; setInst({ datalog: [] }); return n; }
   /** JSON text of the datalogger (pretty, 2 spaces). */
   function datalogJson() { return JSON.stringify(datalogEntries(), null, 2); }
   /** Copy the datalog JSON to the clipboard (Clipboard API, textarea fallback); returns a Promise<boolean>. */
@@ -1590,6 +2372,7 @@
     '.uskdock-title{font-weight:bold;color:#3cff3c;}',
     '.uskdock-hint{font-size:11px;color:#bbb;}',
     '.uskdock-btn{padding:6px 12px;}',
+    '.uskdock-btn[hidden]{display:none;}',
     '.usk-pr{position:absolute;left:14px;top:25px;font:bold 9px Segoe UI,Arial,sans-serif;color:#ff40ff;white-space:nowrap;pointer-events:none;opacity:0.85;}',
     /* v2: AUTO caption, focus rings, softkey cells as buttons */
     '.ik-cap.ik-autocap.lit{background:#f0c020;color:#000;border-radius:2px;padding:0 2px;}',
@@ -1641,6 +2424,57 @@
     '.dl-table .dl-del{padding:0 6px;font-size:11px;}',
     '.dl-empty{padding:12px;color:#666;text-align:center;}',
     '.dl-json{width:100%;font:10px Consolas,"Courier New",monospace;resize:vertical;box-sizing:border-box;}',
+    /* ---------------- v3 ---------------- */
+    /* F5: pressed key flash + the quick-range P row */
+    '.ik-p.pressed,.ik-f.pressed,.e4-f.pressed,.ltc-f.pressed{background:#f0c020;color:#101010;border-color:#fff0a0;}',
+    '.ik-p.ranged{font-size:8px;color:#ffe08a;}',
+    /* F8: USK 7 rotary AMP knob, ×10 arrows, hidden keyboard slider */
+    '.usk-arr10{width:20px;letter-spacing:-1px;}',
+    '.usk-knob-amp .usk-dial{background:radial-gradient(circle at 40% 35%,#ff7060,#8a0000);border-color:#5a1010;width:42px;height:42px;}',
+    '.usk-knob-amp .usk-ptr{left:19px;}',
+    '.usk-knob-amp .usk-klab{color:#ff8080;}',
+    '.usk-amp{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;margin:0;}',
+    '.usk-ampcol{position:relative;}',
+    '.usk-off.lit{background:#ff6060;color:#fff;}',
+    /* F8: the floating instrument window and the freed layout column */
+    '.win-instrument .win-body{padding:2px;background:#2a2c30;}',
+    '#main.inst-float{grid-template-columns:0 minmax(0,1fr);}',
+    '#main.inst-float #plan-area,#main.inst-float #ruler-area,#main.inst-float #cross-area{grid-column:1 / 3;}',
+    /* F5: EPOCH LTC skin (epoch_auto_calibration f028) */
+    '.skin-epochltc{display:flex;flex-direction:column;gap:3px;padding:4px;background:linear-gradient(#2a3550,#161d2e);border:2px solid #7a8496;border-radius:8px;color:#e8e8e8;width:262px;min-height:396px;}',
+    '.ltc-brandtop{font:bold 9px Arial,sans-serif;letter-spacing:1px;color:#dfe6ff;text-align:center;}',
+    '.ltc-bezel{background:#0b1220;border:2px solid #3a4560;border-radius:4px;padding:3px;}',
+    '.ltc-screen{background:#0c2410;border:1px solid #061006;display:flex;flex-direction:column;gap:1px;font:9px Consolas,"Courier New",monospace;color:#b8f0b8;padding:2px;}',
+    '.ltc-hdr{display:flex;justify-content:space-between;font-size:8px;color:#d8ffd8;}',
+    '.ltc-main{display:flex;gap:2px;}',
+    '.ltc-plot{flex:1 1 auto;min-width:0;height:120px;}',
+    '.ltc-ascan{display:block;width:100%;height:120px;}',
+    '.ltc-side{width:56px;flex:0 0 56px;display:flex;flex-direction:column;gap:1px;text-align:right;}',
+    '.ltc-unit{background:#1d4a24;color:#c8ffc8;font-size:8px;padding:0 2px;}',
+    '.ltc-big{font:bold 15px Consolas,"Courier New",monospace;color:#7dff7d;}',
+    '.ltc-amp{font-size:9px;color:#9ce09c;}',
+    '.ltc-delay{font-size:8px;margin-top:auto;}',
+    '.ltc-range{font-size:8px;background:#5a4a10;color:#ffd060;}',
+    '.ltc-tabs{display:flex;gap:1px;}',
+    '.ltc-tab{flex:1 1 0;text-align:center;font-size:8px;padding:1px 0;background:#123018;cursor:pointer;}',
+    '.ltc-tab.sel{background:#1a3ea8;color:#fff;}',
+    '.ltc-params{display:flex;flex-direction:column;gap:1px;font-size:8px;}',
+    '.ltc-params>div{display:flex;gap:4px;}',
+    '.ltc-pc{flex:1 1 0;cursor:pointer;white-space:nowrap;overflow:hidden;}',
+    '.ltc-pc.sel{background:#1a3ea8;color:#fff;}',
+    '.ltc-pl{color:#8ac88a;}',
+    '.ltc-quick,.ltc-soft{display:flex;gap:1px;border-top:1px solid #1d4a24;padding-top:1px;}',
+    '.ltc-q,.ltc-sk{flex:1 1 0;text-align:center;font-size:8px;padding:1px 0;cursor:pointer;background:#0f2c14;}',
+    '.ltc-q.sel,.ltc-sk.sel{background:#1a3ea8;color:#fff;}',
+    '.ltc-fkeys{display:flex;justify-content:space-around;}',
+    '.ltc-f{width:44px;height:20px;border-radius:5px;font-size:9px;}',
+    '.ltc-pad{display:flex;flex-direction:column;gap:3px;padding:4px 2px;background:#1b2334;border-radius:6px;}',
+    '.ltc-prow{display:flex;gap:3px;justify-content:center;}',
+    '.ltck{flex:1 1 0;min-width:0;height:22px;font-size:7.5px;background:#3ea23e;color:#04240b;border-color:#7fe07f;border-radius:4px;overflow:hidden;}',
+    '.ltck.grey{background:#6d7280;color:#f0f0f0;border-color:#aeb3c0;}',
+    '.ltck.green{background:#2ecc40;color:#04240b;}',
+    '.ltc-brand{font:italic bold 10px Segoe UI,Arial,sans-serif;color:#dfe6ff;text-align:right;}',
+    '.hc .skin-epochltc{border-color:#fff;}',
   ].join('\n');
 
   // ------------------------------------------------------------------ public API
@@ -1648,9 +2482,13 @@
     mount, setSkin, drawAscan, drawSscan, handleKey, css,
     // v2 (SPEC-v2 §3.7 / §5.2 / §11.4)
     auto, storeRef, wheel, compare, save, datalog,
+    // v3 (SPEC-v3 §3.1 F1, §3.3 F3, §3.5 F5, §3.7 F7, §6.1 F40)
+    power, powered, unCalibrate, deleteRecords, calText, setCalField, handDac, applyFloat,
     fmtLen: function (mm, dp) { return UT.fmtLen(mm, dp); },
     /** Internals exposed for tests / other modules (read-only use). */
-    _: { PARAMS, LEGAL_PARAMS, THEMES, keys, adjust, selectParam, softkeyItems, nextRange, foldDepth, ampColour, dacPolyline, dacAt, tcgFlatPolyline, compareOf, alarmActive, checkAlarms, energyV, dampingOhms, filterOf, prfOf, tcgActive, wantTouch, uskParkPos, mem, TIPS, tip, relabelTips },
+    _: { PARAMS, LEGAL_PARAMS, THEMES, keys, adjust, selectParam, softkeyItems, nextRange, foldDepth, ampColour, dacPolyline, dacAt, tcgFlatPolyline, compareOf, alarmActive, checkAlarms, energyV, dampingOhms, filterOf, prfOf, tcgActive, wantTouch, uskParkPos, mem, TIPS, tip, relabelTips,
+      // v3
+      SHORTS, shortOf, QUICK_RANGES, QUICK_RANGES_E4, calStage, calField, calFieldText, cscCorrect, cscOn, readPair, finishHandDac, pRowLabels },
     get window() { return ensureUskWindow(); },
     __selftest() {
       const f = [];
@@ -1728,9 +2566,38 @@
       if (labels(4) !== 'Display|Rectify|Grid|Peak Mem|Freeze') f.push('page 4: ' + labels(4));
       if (labels(5) !== 'Units|Trig|Angle|Thick|X Value|Reset') f.push('page 5: ' + labels(5));
       if (labels(1, 'Basic') !== 'Basic|Range|Velocity|Zero|Delay') f.push('Basic sub-page');
-      if (labels(1, 'Gate2') !== 'Gate2|Zoom|Start|Width|Level|Alarm') f.push('Gate2 sub-page');
+      // v3 F5: the gate pages gained `Status`, the Trig page `Diameter` (and a live CSC)
+      if (labels(1, 'Gate2') !== 'Gate2|Zoom|Start|Width|Level|Alarm|Status') f.push('Gate2 sub-page: ' + labels(1, 'Gate2'));
+      if (labels(1, 'Trig') !== 'Trig|Angle|Thick|X Value|CSC|Diameter') f.push('Trig sub-page: ' + labels(1, 'Trig'));
       if (valueOf('gain', tmp) !== '30dB' || valueOf('range', tmp) !== '100.0' || valueOf('g1level', tmp) !== '20%') f.push('valueOf ' + valueOf('gain', tmp) + ' ' + valueOf('range', tmp) + ' ' + valueOf('g1level', tmp));
       if (css.indexOf('<\/style') >= 0 || css.indexOf('<\/script') >= 0) f.push('css contains closing tag');
+      // ---- v3 invariants (pure: local copies, no DOM, UT.state untouched)
+      const v3 = Object.assign({}, UT.defaultState().instrument);
+      if (v3.powered !== true) f.push('powered default');
+      if (QUICK_RANGES.join() !== '10,20,50,100,125,250,500' || QUICK_RANGES_E4.join() !== '10,20,50,100') f.push('quick range lists');
+      if (pRowLabels(v3).join() !== 'P1,P2,P3,P4,P5,P6,P7') f.push('P row idle labels');
+      if (pRowLabels(Object.assign({}, v3, { selectedParam: 'range' })).join() !== '10.0,20.0,50.0,100.0,125.0,250.0,500.0') f.push('P row range labels: ' + pRowLabels(Object.assign({}, v3, { selectedParam: 'range' })).join());
+      if (PARAMS.trigDiameter.fmt(168.3) !== '168.3' || LEGAL_PARAMS.indexOf('trigDiameter') < 0) f.push('trigDiameter param');
+      if (cscOn(v3) !== false || cscOn(Object.assign({}, v3, { trig: { csc: true } })) !== true) f.push('cscOn');
+      if (calFieldText(0) !== '0' || calFieldText(20) !== '20.00' || calFieldText(16.5) !== '16.50') f.push('calFieldText ' + calFieldText(16.5));
+      if (shortOf('CAL') !== 'CALIBRATE' || shortOf('up') !== 'ARROW RIGHT/UP' || shortOf('down') !== 'ARROW LEFT/DOWN' || shortOf('NEXT GROUP') !== 'NEXT GROUP' || shortOf('P3') !== 'NEXT GROUP' || shortOf('freeze') !== 'FREEZE' || shortOf('PULSER') !== 'PULSAR') f.push('SHORTS');
+      Object.keys(SHORTS).forEach(function (k) { if (SHORTS[k] !== SHORTS[k].toUpperCase()) f.push('short not upper-case: ' + k); });
+      // CSC: a flat set (huge diameter) reproduces the plain trigonometry; a 168.3 mm pipe reads shallower
+      const cscI = Object.assign({}, v3, { trig: { angle: 60, thick: 20, xValue: 0, csc: true, diameter: 1e6 } });
+      const flatC = cscCorrect({ path: 40, sd: 34.64, dp: 20 }, cscI);
+      if (Math.abs(flatC.dp - 20) > 0.05 || Math.abs(flatC.sd - 34.64) > 0.05) f.push('cscCorrect flat limit ' + JSON.stringify(flatC));
+      const pipeC = cscCorrect({ path: 40, sd: 34.64, dp: 20 }, Object.assign({}, cscI, { trig: Object.assign({}, cscI.trig, { diameter: 168.3 }) }));
+      if (!(pipeC.dp < 20 && pipeC.dp > 10) || !(pipeC.sd > 34.64)) f.push('cscCorrect pipe ' + JSON.stringify(pipeC));
+      // F40: the hand-DAC stroke is snapped and resampled to ≥ 5 points
+      const hi = Object.assign({}, v3, { range: 100, delay: 0, gain: 30, dac: { points: [{ path: 20, ampPct: 80 }, { path: 60, ampPct: 40 }], refDb: 30, on: true, curves: true } });
+      const hg = { px: 0, py: 0, pw: 200, ph: 100 };
+      const hand = finishHandDac([{ xDiv: 2.05, pct: 79 }, { xDiv: 6, pct: 41 }], hg, hi);
+      if (!hand || hand.length < 5) f.push('finishHandDac length');
+      else if (Math.abs(hand[0].xDiv - 2) > 0.001 || Math.abs(hand[0].pct - 80) > 0.001) f.push('finishHandDac snap ' + JSON.stringify(hand[0]));
+      if (finishHandDac([{ xDiv: 1, pct: 1 }], hg, hi) !== null) f.push('finishHandDac needs 2 points');
+      if (!THEMES.epochltc || THEMES.usk7.bg !== '#0000c0' || THEMES.usk7.trace !== '#40ffff' || THEMES.usk7.bezelText !== '#ffff60') f.push('usk7 v3 theme');
+      if (!/inst-float/.test(css) || !/skin-epochltc/.test(css) || !/\.ik-p\.pressed/.test(css)) f.push('v3 css blocks');
+      if (typeof power !== 'function' || typeof unCalibrate !== 'function' || typeof calText !== 'function' || typeof handDac !== 'function') f.push('v3 API');
       return f;
     },
   };
@@ -1747,5 +2614,10 @@
     storeRef: function () { const r = storeRef(); UT.renderNow(); return r; },
     /** n knob clicks on the selected parameter; returns its new value. */
     wheel: function (n) { const v = wheel(n); UT.renderNow(); return v; },
+    // ---- v3 (SPEC-v3 §7: owner 70)
+    /** F1: power the set on / off; returns `instrument.powered`. */
+    power: function (on) { power(on); UT.renderNow(); return inst().powered !== false; },
+    /** F7: knock the set out of calibration; returns the wrong {vel, zero} now in instrument.cal. */
+    unCalibrate: function () { const r = unCalibrate(); UT.renderNow(); return r; },
   });
 })(window.UT = window.UT || {});

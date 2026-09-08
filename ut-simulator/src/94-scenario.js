@@ -38,6 +38,22 @@
 //   the same hash is applied at most once (`appliedHash`), so 90 and the safety net cannot double-apply.
 // - The toast (#scn-toast inside #app) shows title (or name / 'Scenario loaded'), the note in the current language
 //   and the author for 8 s; UT.scenario.lastToast records it for tests.
+// SPEC NOTES — v3 (SPEC-v3 §2 promoted several teaching settings into state; §1 has no 94 row, so these are 94's)
+// - The scenario object carries the v3 state a shared TEACHING SET-UP needs and nothing else:
+//   `tkyOpts` (F46/F47 — kind / chordOd / chordWt were silently lost, a shared pipe ring reopened as a flat plate),
+//   the five v3 `display` toggles + `skipsToRange` (F23/F32/F7/F8/F31/F17), `editing.spotMm` + `editing.keyLock`
+//   (F29/F33) and `plot.ruler` (F39), coerced with the SAME tables 90-app's persistence record uses so a record and
+//   a share link restore identical values. `utSet` accepts 'epochltc' (F5). NOT carried (deliberate): `scaleMode`
+//   (a picture data: URL is megabytes and the outline is a traced specimen — SPEC-v3 §2 excludes .picture/.outline),
+//   `annot` (strokes are excluded by §2 and torch/shown are device-local), `tofd.parallel` and `annot.strokes`.
+// - `tofd.parallel` is ALWAYS null in state (§2): it is omitted from capture AND from apply, so a hand-built
+//   '#scn=r:…' link cannot write an attacker-shaped object into it.
+// - For mode 'tky' `specimenOpts` is derived from state.tkyOpts (not from the built specimen, whose `tky.chordT`
+//   is the WALL of a curved chord) and carries `kind` too; a v2 object without `tkyOpts` still applies, because
+//   80-modes' buildSpecimen('tky') merges specimenOpts into state.tkyOpts.
+// - The object version stays `v: 2` (isScenarioObject accepts 2 / undefined): the v3 keys are optional additions,
+//   so a v3 link still loads in a v2 build and a v2 link still loads here.
+// - display.skips accepts 0.5…12 (F17 allows half skips; 90-app clamps 0.5…8).
 (function (UT) {
   'use strict';
   const M = UT.math;
@@ -60,8 +76,17 @@
   const MODES = ['weld', 'v1', 'v2', 'step', 'iow', 'dac', 'tky', 'tofd', 'aut', 'trade', 'lamination', 'fbh'];
   const SPEC_MODE = { 'plate-weld': 'weld', 'pipe-weld': 'weld', v1: 'v1', v2: 'v2', step: 'step', iow: 'iow', dac: 'dac', fbh: 'fbh', tky: 'tky', 'lamination-plate': 'lamination' };
   const MODE_SPEC = { weld: 'plate-weld', tofd: 'plate-weld', aut: 'plate-weld', trade: 'plate-weld', v1: 'v1', v2: 'v2', step: 'step', iow: 'iow', dac: 'dac', fbh: 'fbh', tky: 'tky', lamination: 'lamination-plate' };
-  const DISPLAY_KEYS = ['beam', 'skips', 'colourCode', 'singleLine', 'hide', 'plan', 'pipe3d', 'mirror', 'units', 'legend', 'grid', 'convRays', 'autoTrig'];
-  const UT_SETS = ['epoch600', 'epoch4', 'usk7'];
+  const DISPLAY_KEYS = ['beam', 'skips', 'colourCode', 'singleLine', 'hide', 'plan', 'pipe3d', 'mirror', 'units', 'legend', 'grid', 'convRays', 'autoTrig',
+    // v3 (SPEC-v3 §2 / §4): the teaching toggles a shared set-up must reproduce
+    'depthEcho', 'defectShade', 'alwaysShowControls', 'instrumentFloat', 'drawRegion', 'skipsToRange'];
+  const UT_SETS = ['epoch600', 'epoch4', 'usk7', 'epochltc'];   // v3 F5: the EPOCH LTC skin
+  // v3 F46: the TKY configuration is state (§2) — same limits as 90-app's persistence and 80-modes' setTkyOpts
+  const TKY_KEYS = ['kind', 'braceAngle', 'braceT', 'chordT', 'braceOffset', 'precision', 'chordOd', 'chordWt'];
+  const TKY_RANGES = { braceAngle: [15, 90], braceT: [3, 60], chordT: [3, 100], braceOffset: [-200, 200], precision: [0.1, 10], chordOd: [100, 2000], chordWt: [6, 60] };
+  const TKY_ENUMS = { kind: ['Plate', 'T-joint', 'Pipe'] };
+  const SPOT_MM = [5, 45];          // v3 F29
+  const RULER_X = [-2000, 2000];    // v3 F39
+  const KEYLOCK_MAX = 64;           // v3 F33 (90-app drops longer codes)
   const DIFFICULTIES = ['basic', 'intermediate', 'advanced'];
   // Ranges are [lo, hi] (finite numbers outside are clamped — the SPEC §11 setProbe/setInstrument contract) or
   // [lo, hi, true] = STRICT: a finite number outside the range is as invalid as garbage and falls back to the default
@@ -74,7 +99,7 @@
       gates: { start: [-50, 1000], width: [0, 1000], level: [0, 100] }, cal: { zero: [-50, 50] }, trig: { angle: [0, 89.9, true], thick: [1, 1000], xValue: [-3000, 3000] },
       pulser: { energy: [100, 400], damping: [50, 400], prf: [1, 5000] } },
     weldOpts: { T: [3, 100], L: [50, 2000], bevel: [0, 60], rootGap: [0, 10], rootFace: [0, 10], capWidth: [0, 60], capHeight: [0, 10], rootHeight: [0, 10], od: [25, 2000], wt: [3, 100], webT: [1, 100], branchOd: [10, 2000], transferLossDb: [0, 8] },
-    display: { skips: [1, 12] },
+    display: { skips: [0.5, 12] },   // v3 F17: half skips are legal (80-modes setSkips 0.5…8)
     tofd: { pcs: [5, 500], txAngle: [30, 80], rangeUs: [1, 500], delayUs: [-50, 500], gainDb: [0, 110] },
     aut: { x: [-3000, 3000], channels: [1, 6], speed: [1, 200], activeGate: [0, 5], gates: { start: [-50, 1000], width: [0, 1000], level: [0, 100] } },
     pa: { elements: [1, 128], pitch: [0.1, 10], freq: [0.5, 20], from: [0, 89.9], to: [0, 89.9], step: [0.1, 10], escanAngle: [0, 89.9] },
@@ -178,18 +203,25 @@
   }
   function isLocked(tr) { return !!(tr && tr.exam && tr.exam.locked && !tr.revealed); }
 
-  /** Options that rebuild the current block specimen (weld modes rely on weldOpts). */
-  function specimenOptsOf(spec) {
+  /**
+   * Options that rebuild the current block specimen (weld modes rely on weldOpts).
+   * @param {object} spec  state.specimen
+   * @param {object} [s]   the state the capture is taken from (v3 F46: state.tkyOpts is the TKY truth)
+   */
+  function specimenOptsOf(spec, s) {
     if (!spec) return null;
     switch (spec.id) {
       case 'v1': case 'v2': return spec.face ? { face: spec.face } : null;
-      case 'tky': return spec.tky ? pick(spec.tky, ['braceAngle', 'braceT', 'chordT', 'braceOffset']) : null;
+      // v3 F46: state.tkyOpts is authoritative (a curved chord's spec.tky.chordT is the WALL, not the plate
+      // thickness the builder wants, and kind / chordOd / chordWt do not survive the round trip through it).
+      case 'tky': return s && s.tkyOpts && typeof s.tkyOpts === 'object' ? pick(s.tkyOpts, TKY_KEYS)
+        : (spec.tky ? pick(spec.tky, TKY_KEYS) : null);
       case 'dac': case 'fbh': return Number.isFinite(spec.T) ? { T: spec.T } : null;
       case 'lamination-plate': return { T: spec.T, L: spec.L };
       default: return null;
     }
   }
-  /** Sanitised specimenOpts: finite numbers and the 'face' string only. */
+  /** Sanitised specimenOpts: finite numbers plus the whitelisted 'face' and (v3 F46) 'kind' strings. */
   function cleanSpecimenOpts(o) {
     if (!o || typeof o !== 'object' || Array.isArray(o)) return undefined;
     const out = {};
@@ -197,8 +229,15 @@
       const v = o[k];
       if (typeof v === 'number' && Number.isFinite(v)) out[k] = v;
       else if (k === 'face' && (v === 'wide' || v === 'narrow')) out[k] = v;
+      else if (k === 'kind' && TKY_ENUMS.kind.indexOf(v) >= 0) out[k] = v;
     }
     return Object.keys(out).length ? out : undefined;
+  }
+  /** v3 §2: {x, y, w, h} in mm, or null (F31 auto region). Anything else → null. */
+  function cleanDrawRegion(r) {
+    if (!r || typeof r !== 'object' || Array.isArray(r)) return null;
+    const ok = ['x', 'y', 'w', 'h'].every(function (k) { return typeof r[k] === 'number' && Number.isFinite(r[k]); });
+    return ok ? { x: r.x, y: r.y, w: r.w, h: r.h } : null;
   }
 
   // ------------------------------------------------------------------ capture
@@ -225,16 +264,23 @@
       physics: clone(s.physics || {}),
       mode,
       specimenId: spec && typeof spec.id === 'string' ? spec.id : (MODE_SPEC[mode] || null),
-      specimenOpts: mode === 'trade' ? null : specimenOptsOf(spec),
+      specimenOpts: mode === 'trade' ? null : specimenOptsOf(spec, s),
       probe: clone(s.probe || {}),
       instrument: omit(s.instrument, ['compare', 'datalog', 'freeze']),
       display: pick(s.display, DISPLAY_KEYS),
       standards: omit(s.standards, ['lastEval']),
       pa: omit(s.pa, ['scan']),
-      tofd: omit(s.tofd, ['scan', 'running']),
+      // v3 §2: tofd.parallel is ALWAYS null in state (module buffer in 50-tofd) and never leaves the page
+      tofd: omit(s.tofd, ['scan', 'running', 'parallel']),
       aut: omit(s.aut, ['scan', 'map', 'running']),
+      // v3: the teaching settings promoted into state (§2). scaleMode / annot stay local (picture, outline, strokes).
+      tkyOpts: pick(s.tkyOpts || {}, TKY_KEYS),
+      editing: { spotMm: (s.editing || {}).spotMm, keyLock: (s.editing || {}).keyLock === undefined ? null : s.editing.keyLock },
+      plot: { ruler: clone((s.plot || {}).ruler || null) },
       exam: locked ? clone(tr.exam) : null,
     };
+    if (!Object.keys(obj.tkyOpts).length) delete obj.tkyOpts;   // a v2-shaped state has none — do not force the defaults
+    if (!obj.plot.ruler) delete obj.plot;
     if (!locked) obj.defects = clone(Array.isArray(s.defects) ? s.defects : []);
     return clone(obj);
   }
@@ -291,7 +337,11 @@
       if (ins.cal.vel !== null && !(typeof ins.cal.vel === 'number' && ins.cal.vel >= 1 && ins.cal.vel <= 10)) ins.cal.vel = null;
       out.instrument = ins;
     }
-    if (o.display && typeof o.display === 'object') out.display = pick(coerce(def.display, o.display, RANGES.display, ENUMS.display), DISPLAY_KEYS.filter(function (k) { return o.display[k] !== undefined; }));
+    if (o.display && typeof o.display === 'object') {
+      const dsp = pick(coerce(def.display, o.display, RANGES.display, ENUMS.display), DISPLAY_KEYS.filter(function (k) { return o.display[k] !== undefined; }));
+      if ('drawRegion' in dsp) dsp.drawRegion = cleanDrawRegion(dsp.drawRegion);   // v3 F31: {x,y,w,h} in mm or null
+      out.display = dsp;
+    }
     if (o.standards && typeof o.standards === 'object') {
       const sd = coerce(omit(def.standards, ['lastEval']), o.standards, RANGES.standards, ENUMS.standards);
       if (sd.rulesOverride !== null && typeof sd.rulesOverride !== 'object') sd.rulesOverride = null;
@@ -299,8 +349,23 @@
       out.standards = sd;
     }
     if (o.pa && typeof o.pa === 'object') { const pa = coerce(omit(def.pa, ['scan']), o.pa, RANGES.pa, ENUMS.pa); if (pa.focusDepth !== null && typeof pa.focusDepth !== 'number') pa.focusDepth = null; out.pa = pa; }
-    if (o.tofd && typeof o.tofd === 'object') out.tofd = coerce(omit(def.tofd, ['scan', 'running']), o.tofd, RANGES.tofd, ENUMS.tofd);
+    // v3 §2: `parallel` is ALWAYS null in state — a crafted link must never write an object into it.
+    if (o.tofd && typeof o.tofd === 'object') out.tofd = coerce(omit(def.tofd, ['scan', 'running', 'parallel']), o.tofd, RANGES.tofd, ENUMS.tofd);
     if (o.aut && typeof o.aut === 'object') out.aut = coerce(omit(def.aut, ['scan', 'map', 'running']), o.aut, RANGES.aut, ENUMS.aut);
+    // v3 F46 / F29 / F33 / F39 — the same tables 90-app's persistence record uses
+    if (o.tkyOpts && typeof o.tkyOpts === 'object' && !Array.isArray(o.tkyOpts)) out.tkyOpts = coerce(def.tkyOpts, o.tkyOpts, TKY_RANGES, TKY_ENUMS);
+    if (o.editing && typeof o.editing === 'object' && !Array.isArray(o.editing)) {
+      const spot = typeof o.editing.spotMm === 'string' && o.editing.spotMm.trim() !== '' ? Number(o.editing.spotMm) : o.editing.spotMm;
+      out.editing = {
+        spotMm: Number.isFinite(spot) ? M.clamp(spot, SPOT_MM[0], SPOT_MM[1]) : def.editing.spotMm,
+        keyLock: typeof o.editing.keyLock === 'string' && o.editing.keyLock.length <= KEYLOCK_MAX ? o.editing.keyLock : null,
+      };
+    }
+    if (o.plot && typeof o.plot === 'object' && o.plot.ruler && typeof o.plot.ruler === 'object' && !Array.isArray(o.plot.ruler)) {
+      const rr = o.plot.ruler;
+      const rx = typeof rr.x === 'string' && rr.x.trim() !== '' ? Number(rr.x) : rr.x;
+      out.plot = { ruler: { on: !!rr.on, x: Number.isFinite(rx) ? M.clamp(rx, RULER_X[0], RULER_X[1]) : 0, view: rr.view === 'block' ? 'block' : 'plotter' } };
+    }
     if (Array.isArray(o.defects)) out.defects = o.defects.slice(0, 16);
     return out;
   }
@@ -374,6 +439,11 @@
     if (sc.pa) base.pa = Object.assign({}, s.pa, sc.pa, { scan: null });
     if (sc.tofd) base.tofd = Object.assign({}, s.tofd, sc.tofd, { scan: null, running: false });
     if (sc.aut) base.aut = Object.assign({}, s.aut, sc.aut, { scan: null, map: null, running: false });
+    // v3: merged over the live objects because UT.set REPLACES a nested object (a bare {spotMm} would drop
+    // editing.brush, a bare {ruler} the plotter's points). tkyOpts goes in BEFORE enterMode, which builds from it.
+    if (sc.tkyOpts) base.tkyOpts = Object.assign({}, s.tkyOpts, sc.tkyOpts);
+    if (sc.editing) base.editing = Object.assign({}, s.editing, sc.editing);
+    if (sc.plot) base.plot = Object.assign({}, s.plot, { ruler: sc.plot.ruler });
     UT.set(base, { noRender: true });
     let examPending = false;
     if (sc.exam) {
@@ -799,6 +869,22 @@
       if ('scan' in c.tofd || 'scan' in c.aut || 'map' in c.aut || 'scan' in c.pa) f.push('capture leaks scans');
       if (!Array.isArray(c.defects) || c.defects.length !== 1 || c.title !== 'T' || c.noteKo !== '노트' || c.exam !== null) f.push('capture defects/meta');
       if ('sound' in c.display || c.display.beam !== true) f.push('capture display subset');
+      // v3: the promoted teaching state is captured, tofd.parallel never is
+      if (c.display.depthEcho !== true || c.display.defectShade !== true || c.display.alwaysShowControls !== false || c.display.instrumentFloat !== false) f.push('capture v3 display');
+      if ('parallel' in c.tofd) f.push('capture leaks tofd.parallel');
+      if (!c.tkyOpts || c.tkyOpts.kind !== 'T-joint' || c.tkyOpts.chordOd !== 600 || c.tkyOpts.chordWt !== 32) f.push('capture tkyOpts ' + JSON.stringify(c.tkyOpts));
+      if (!c.editing || c.editing.spotMm !== 5 || c.editing.keyLock !== null) f.push('capture editing');
+      if (!c.plot || !c.plot.ruler || c.plot.ruler.on !== false || c.plot.ruler.view !== 'plotter' || 'points' in c.plot) f.push('capture plot.ruler only');
+      // v3 F46: a TKY capture carries the whole configuration (kind included) as specimenOpts too
+      const stk = UT.defaultState();
+      stk.mode = 'tky';
+      stk.tkyOpts = Object.assign({}, stk.tkyOpts, { kind: 'Pipe', chordOd: 900, chordWt: 40, braceAngle: 45 });
+      stk.specimen = { id: 'tky', tky: { kind: 'Pipe', braceAngle: 45, chordT: 40, chordOd: 900, chordWt: 40, curved: true } };
+      const ctk = captureFrom(stk);
+      if (!ctk.specimenOpts || ctk.specimenOpts.kind !== 'Pipe' || ctk.specimenOpts.chordOd !== 900 || ctk.specimenOpts.chordWt !== 40 || ctk.specimenOpts.chordT !== 20) f.push('capture tky specimenOpts ' + JSON.stringify(ctk.specimenOpts));
+      const stk2 = sanitise(JSON.parse(JSON.stringify(ctk)));
+      if (!stk2.tkyOpts || stk2.tkyOpts.kind !== 'Pipe' || stk2.tkyOpts.chordOd !== 900 || stk2.tkyOpts.chordWt !== 40 || stk2.tkyOpts.chordT !== 20) f.push('sanitise tkyOpts round trip ' + JSON.stringify(stk2.tkyOpts));
+      if (!stk2.specimenOpts || stk2.specimenOpts.kind !== 'Pipe' || stk2.specimenOpts.chordOd !== 900) f.push('sanitise tky specimenOpts ' + JSON.stringify(stk2.specimenOpts));
       // exam-locked capture: no defects, exam kept, mode trade
       s.mode = 'trade'; s.trade.active = true; s.trade.exam = { v: 2, seed: 7, locked: true, codeHash: 'ab' }; s.trade.revealed = false;
       const cl = captureFrom(s);
@@ -814,6 +900,19 @@
       if (sz.weldOpts.T !== 100 || sz.weldOpts.type !== 'single-v' || sz.weldOpts.pipe !== true || sz.weldOpts.wt !== 11.5) f.push('sanitise weldOpts ' + JSON.stringify(sz.weldOpts));
       if (sz.display.skips !== 12 || sz.display.units !== 'mm' || 'sound' in sz.display || sz.mode !== 'weld' || sz.material !== 'carbon' || sz.lesson !== null || sz.noteKo.length !== NOTE_MAX) f.push('sanitise misc');
       if (sanitise({ weldOpts: { type: 'double-v' } }).weldOpts.prep !== 'double-v') f.push('sanitise prep from type');
+      // v3 coercion: junk TKY / editing / ruler / drawRegion values fall back, tofd.parallel is dropped, EPOCH LTC is a set
+      const sv3 = sanitise({ v: 2, utSet: 'epochltc', tkyOpts: { kind: 'Ring', chordOd: 1e9, chordWt: 'x', braceAngle: 45 },
+        editing: { spotMm: 999, keyLock: 42, brush: 'lof' }, plot: { ruler: { on: 1, x: 'q', view: 'nope' }, points: [1, 2] },
+        display: { depthEcho: false, drawRegion: { x: 1, y: 2, w: 3 }, skipsToRange: 'yes' }, tofd: { parallel: { n: 9, cols: [1, 2] }, pcs: 70 } });
+      if (sv3.utSet !== 'epochltc') f.push('sanitise epochltc');
+      if (!sv3.tkyOpts || sv3.tkyOpts.kind !== 'T-joint' || sv3.tkyOpts.chordOd !== 2000 || sv3.tkyOpts.chordWt !== 32 || sv3.tkyOpts.braceAngle !== 45) f.push('sanitise tkyOpts junk ' + JSON.stringify(sv3.tkyOpts));
+      if (sv3.editing.spotMm !== 45 || sv3.editing.keyLock !== null || 'brush' in sv3.editing) f.push('sanitise editing ' + JSON.stringify(sv3.editing));
+      if (sv3.plot.ruler.on !== true || sv3.plot.ruler.x !== 0 || sv3.plot.ruler.view !== 'plotter' || 'points' in sv3.plot) f.push('sanitise plot.ruler ' + JSON.stringify(sv3.plot));
+      if (sv3.display.depthEcho !== false || sv3.display.drawRegion !== null || sv3.display.skipsToRange !== true) f.push('sanitise v3 display ' + JSON.stringify(sv3.display));
+      if ('parallel' in sv3.tofd || sv3.tofd.pcs !== 70) f.push('sanitise tofd.parallel ' + JSON.stringify(Object.keys(sv3.tofd)));
+      if (sanitise({ v: 2, display: { drawRegion: { x: 1, y: 2, w: 3, h: 4 } } }).display.drawRegion.w !== 3) f.push('sanitise drawRegion kept');
+      if (sanitise({ v: 2, specimenOpts: { kind: 'Pipe', chordOd: 900, face: 'wide', evil: 'x' } }).specimenOpts.kind !== 'Pipe') f.push('cleanSpecimenOpts kind');
+      if (sanitise({ v: 2, specimenOpts: { kind: 'Ring' } }).specimenOpts !== undefined) f.push('cleanSpecimenOpts bad kind');
       // QA round 2 #1: out-of-range probe / trig angles and unknown libIds are rejected (defaults), never clamped to 89.9°
       const bad1 = sanitise({ v: 2, probe: { angle: 999, x: 'NaN', libId: 'nope' }, instrument: { gain: 1e9, trig: { angle: 999 } } });
       if (bad1.probe.angle !== 60 || bad1.probe.mode !== 'shear' || bad1.probe.libId !== 'gen-60-5-10' || bad1.probe.x !== 40) f.push('sanitise angle 999 ' + JSON.stringify(bad1.probe));

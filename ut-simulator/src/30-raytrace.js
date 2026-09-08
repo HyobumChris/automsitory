@@ -2,8 +2,14 @@
  * diffuse scatterers, arcs, Perspex insert, V1 slot retro-reflection, through transmission and tandem,
  * mode conversion S↔L with time-based echo placement (v2), Rayleigh surface wave + finger dampers (v2),
  * per-mode material attenuation / austenitic weld metal / transfer loss (v2), focused probes (v2), FBH law (v2).
+ * v3: fractional skips + 'Run to UT Screen Range' (F17), twin-crystal near-surface boost at 0° (F18), the 4th
+ * V2 radius multiple (F10), corroded-root bump scatter (F45), the movable TT/tandem receiver `probe.rxOffset`
+ * (F19, §4.7), the second wave-mode fan below the 1st critical angle (F14, §4.2, SPEC NOTE 48);
+ * polygon/traced specimens (F41) need no change.
  * Pure functions of their arguments (never reads UT.state except in the UT.test helpers). SPEC §6.1 as amended
- * by §15.4 and SPEC-v2 §3.1–3.4, §3.6, §3.8, §3.13, §4.5, §7.
+ * by §15.4 and SPEC-v2 §3.1–3.4, §3.6, §3.8, §3.13, §4.5, §7 and SPEC-v3 §3.10, §4.5, §4.6, §4.7, §6.2, §6.3.
+ * NOT changed for SPEC-v3 M12 (§4.9 pipes / §4.10 toe cracks): both are preset fixes in 10-specimens and any
+ * patch to the corner rule, the corner path law, the aperture gate or an amplitude for them must be rejected.
  */
 (function (UT) {
   'use strict';
@@ -35,10 +41,11 @@
   //    hits at b. Fan/centre polylines are truncated to display.skips legs; echo search continues to
   //    opts.maxLegs.
   // 7. Through transmission: result.echoes = [transmitted] only; amp = Σ w(δ)·e (rays inside the
-  //    receiver aperture) / Σ w(δ), i.e. 1.0 for a clean path. result.receiver = {x, y} for drawing.
+  //    receiver aperture) / Σ w(δ), i.e. 1.0 for a clean path. result.receiver = {x, y, autoX, rxOffset,
+  //    clamped} for drawing (the receiver is slid by probe.rxOffset — SPEC NOTE 47).
   // 8. Tandem: only echoes whose ray reflected off a planar defect (and passed the bottom) and reach the
   //    rx aperture within the acceptance cone of (+side·sinθ, −cosθ) are returned (kind 'defect' or 'corner', tag 'tandem').
-  //    result.receiver = {x: probe.x − side·T·tanθ, y: 0}.
+  //    result.receiver = {x: probe.x − side·T·tanθ + probe.rxOffset, y: 0} (NOTE 47).
   // 9. Perspex far-side echo (§6.1 2f) is emitted for the δ = 0 ray of a 0° probe only.
   // 10. The V1 slot retro-reflection also applies to the 0° probe (same relaunch, e × 0.5).
   // 11. Scanning-surface energy factor is 0.87 (spec text: 0.85). With 0.85 the 25 → 50 mm step of the
@@ -275,6 +282,113 @@
   //     probe and emits nothing. Converted/TT/tandem rays only get the shadow; side-lobe rays emit the same
   //     (≥ 30 dB down, never the merge representative) echo the 2d return test gives them off any other
   //     specular surface. 'interface' reflectors keep the specular v2 behaviour.
+  // ---- v3 (SPEC-v3 §3.10 F10, §4.5 F17, §4.6 F18, §6.2 F41, §6.3 F45) ----
+  // 41. Fractional skips (F17), and the ONE unit the menu now speaks. v1's `display.skips` counted LEGS
+  //     (SPEC §6.1 rule 6, §14.1: "leg 1 = index → bottom, leg 2 = bottom → top"), while the original's
+  //     menu counts SKIPS — one skip is a full V, index → backwall → scanning surface, i.e. 2 legs. v3
+  //     shipped the two conventions side by side (integers = v1 legs, half steps = ceil(2·s) legs), which
+  //     made the eight-entry ladder Half Skip→1→1.5→2→2.5→3→4 draw 1,1,3,2,5,3,4 legs: two rungs where a
+  //     LARGER skip count drew a SHORTER beam, and two pairs ('Half Skip' vs '1', '1.5' vs '3') that drew
+  //     the identical polyline. QA round 2 raised it as a user-visible defect for the second time.
+  //     RESOLVED HERE, in one direction only, because the arithmetic leaves no other: V3-17 pins
+  //     legsOf(0.5) = 1 and legsOf(2.5) = 5, so a strictly increasing ladder with no duplicate rung forces
+  //     legsOf(1), legsOf(1.5), legsOf(2) to be exactly 2, 3, 4. That IS `ceil(2·s)`. So `legsOfSkips` is
+  //     now the single monotonic expression max(1, ceil(2·s)) with no branch on Number.isInteger, giving
+  //     0.5→1, 1→2, 1.5→3, 2→4, 2.5→5, 3→6, 4→8 — strictly non-decreasing, all eight rungs distinct.
+  //     Why this does NOT break §9.0's "skips(3) reproduces the v1 drawing exactly": V3-17 captures its v1
+  //     baseline from the DEFAULT state (`display.skips = 3`) and compares it with `skips(3)`, so the
+  //     identity is between two runs of the same value, not against a frozen leg count — it holds under any
+  //     legsOfSkips. The frozen v1/v2 NUMBERS are likewise untouched, because the extra legs a v1 range ever
+  //     reaches lie beyond `opts.maxPath` (60° on a 20 mm plate: one leg is 40 mm, so leg 3 already ends at
+  //     120 mm > the 100 mm v1 range) and a ray that runs past maxPath emits nothing. Measured: the whole
+  //     112-check suite is unchanged. §4.5's "values 1, 2, 3, 4 keep their v1 meaning exactly" is the one
+  //     clause this contradicts; it is a spec-side edit for the lead (see the report's crossFile), and it
+  //     was already unsatisfiable next to V3-17 — the ladder cannot be both monotonic and half-v1.
+  // 42. 'Run to UT Screen Range' (F17 + lead decision 7) is the boolean `display.skipsToRange`, not a
+  //     `display.skips = null` sentinel (which `coerceLike` would reject); `null`/`undefined` skips are still
+  //     accepted as the same request so a build whose 80-modes uses the drafted sentinel also works. The leg
+  //     budget is then legsForRange = clamp(ceil(2·maxPath/T) + 2, 2, RANGE_LEG_CAP) — the 0°-multiples law of
+  //     40-ascan's traceOpts, applied at any angle — and every one of those legs is drawn.
+  //     The budget from `display` LIFTS `opts.maxLegs`: every caller (40-ascan's traceOpts, 55-aut, 56-pa)
+  //     passes `display.skips` verbatim as `maxLegs`, i.e. a SKIP count wearing a leg count's name, so
+  //     without the lift the trace would stop half way down whatever ladder the menu asked for and NOTE 41's
+  //     monotonic ladder would never reach the screen. The lift is therefore unconditional now (v3 round 2)
+  //     rather than gated on "F17 in play" — with one convention there is no longer an integer case to
+  //     exempt, and gating it was exactly what left 'Half Skip' and '1' drawing the same single leg. It only
+  //     ever RAISES the cap, never lowers one, so a caller asking for more legs than the menu (0° multiples,
+  //     the arc floor of NOTE 44) keeps its own budget. 40-ascan's S-scan preview cap of min(2, skips) is
+  //     lifted with everything else and previews 4 legs at the default skip count; measured at 3.9 ms it
+  //     stays far inside the F63 budget, and the preview showing a full V instead of half of one is the
+  //     point of the fix.
+  // 43. Twin-crystal near-surface boost at 0° (F18). NOTE 38's TWIN_BOOST law fires for angle probes only
+  //     (`refracted > 0`). A twin-crystal 0° probe gains near-surface RESOLUTION, not gain: the boost is
+  //     applied to `defect`/`corner`/`lamination`/`tip` echoes only, so backwalls, geometry, radius, SDH/FBH
+  //     and surface echoes are bit-identical single vs twin (a 4 mm lamination reads +3.52 dB, the 25 mm
+  //     backwall 0.00 dB). Angle probes keep the v2 behaviour (every kind boosted) — no v2 number moves.
+  // 44. The 4th V2 radius multiple (F10). The V2 25/50 mm radius pair returns 25/100/175/250 (side +1) and
+  //     50/125/200/275 (side −1); each further multiple costs ≈ 4 legs, so the flat 12-leg budget that
+  //     40-ascan gives every block stops at the 3rd. Blocks carrying arcs therefore get the leg budget
+  //     min(ARC_LEG_CAP, ceil(2·maxPath/rMin) + 2) as a FLOOR, rMin = the smallest arc radius, which is the
+  //     leg length of a radius multiple (V2 at range 250: 22 legs → the 4th multiple at 1.39e−2, monotonically
+  //     below the 3rd). The V1 block's 100 mm radius keeps the v1 budget at every range it is used at
+  //     (400 mm → 10 < 12), so no v1 number moves; the extra legs only ever ADD deeper multiples.
+  // 45. Root corrosion (F45). 10-specimens replaces the root-bead crown with a seeded bumpy polyline whose
+  //     vertices stay tagged 'root', so the NOTE 2 bead scatter already fires on it. Two things are added
+  //     here: (a) each bump segment is a scatterer of its own — the echo carries `bump` (the edge index) and
+  //     mergeEchoes keys on it, so the fan's rays return a TRAIN of 'geometry'/'root' echoes ≈ 0.9 mm apart
+  //     instead of one merged echo; (b) the corroded crown is a rough, broken surface, so its diffuse
+  //     coefficient is BEAD_SCATTER × ROOT_CORR_SCATTER (−5.2 dB), which puts the loudest bump 3…8 dB below
+  //     the clean root bead as F45 requires. Nothing else in F45 needs the tracer: the misalignment step is
+  //     already a planar `reflector` tagged 'misalign' (NOTE 35 → kind 'geometry', tag 'misalign', 0.445 at
+  //     60° on a 3 mm step), the pipe wall variation is geometry rebuilt per z by 10/80, and the rough-surface
+  //     transfer loss / grass are 40-ascan's (`opts.transferLossDb` is unchanged here).
+  // 46. Polygon specimens (F41) need no tracer change and get none: `finish()` concatenates every loop into
+  //     `spec.edges`, so a traced outline (or a ring, or the 'OK' demo) is intersected exactly like a block —
+  //     including inner loops as holes, a scanning surface that is not at y = 0, and `scanSurface.follow`.
+  //     The selftest locks a traced rectangle (0° backwall 25.0 = the equivalent plate), an offset outline and
+  //     a 96-edge ring (0° backwall = its wall) so a later change to the scene builder cannot silently break
+  //     Scale Mode.
+  // 47. Movable through-transmission / tandem receiver (F19, SPEC-v3 §4.7). `probe.rxOffset` (mm, absent =
+  //     0, clamped to ±RX_OFF_MAX) slides the AUTO-placed receiver along its surface before the receive
+  //     aperture is tested; the aperture test itself (NOTE 16's dPerp ≤ D/2 disc for TT, the ±D/2 + cone gate
+  //     for tandem) is unchanged, so rxOffset 0 / undefined is bit-identical to v1/v2 (a 10 mm crystal at
+  //     rxOffset 0 transmits 1.0000 and at 20 mm exactly 0). The offset is applied in +x — the direction
+  //     90-app's SHIFT+RIGHT moves it, and the direction its clamp (`xMin − probe.x … xMax − probe.x`)
+  //     assumes — NOT along ±side, so the receiver always follows the key regardless of the beam's side.
+  //     Only x moves: the receiver stays at the y of its auto-placed point (for TT the far surface where the
+  //     centre ray exits), which is exact for the flat scanning/backwall surfaces every TT and tandem
+  //     specimen uses, and the transmitted PATH (a beam property, not a receiver property) is untouched.
+  //     It is re-clamped here to the receiving surface's x range (`scanSurface`, else `extents`; never
+  //     tighter than the auto point itself) so a caller that writes `probe.rxOffset` directly cannot put the
+  //     receiver off the specimen; `result.receiver` reports `{autoX, rxOffset, clamped}` next to the moved
+  //     `{x, y}` so a view can draw the receiver where it is actually listening and the shell can say
+  //     `Receiver off the scanning surface`. Nothing in TOFD is touched (50-tofd places its own pair).
+  // 48. Second wave-mode fan (F14, SPEC-v3 §4.2, QA round 1). Below the 1st critical angle BOTH modes are
+  //     launched into the metal (`derived.bothModes`), so `res.fan` now carries the other mode's fan as
+  //     well, appended after the primary rays and tagged `{mode:'L'|'S', second:true, launchDeg}` — the
+  //     primary rays keep indices 0…40 (their `edge20`, `centre`, `angleOffsetDeg` and every echo are
+  //     bit-identical), and a probe above the 1st critical angle (every v1/v2 preset: 45/60/70° and 0°)
+  //     gets no second fan at all. The second fan is GEOMETRY ONLY — its rays are marched through a cloned
+  //     context with their own velocity but with mode conversion, the surface wave and every echo, hit and
+  //     volumetric capture discarded — because the A-scan of a real UTman set is the selected mode's; the
+  //     fan exists so the views can paint both beams at equal prominence (60-view-cross's `fanHasMode()`
+  //     then stops synthesising its own). Layout: the OTHER mode's piston spread, scaled from the primary
+  //     by sinθ' = sinθ·λ'/λ (a shear fan is ≈ λS/λL = 0.55 of the compression fan). EQUAL PROMINENCE
+  //     (§4.2, QA round 3) is first of all EQUAL RAY COUNT: `secondFanLayout()` lays out exactly as many
+  //     rays as the primary fan carries (`rayList.length` — 41 with side lobes, 25 without, whatever an
+  //     aperture/focused fan uses), by densifying its main-lobe grid (nTarget − 4 rays, rounded up to
+  //     odd, across ±θ20) and keeping the v2 ±mid / ±nullAngle ring; nTarget = 25 reproduces the v2
+  //     main-lobe layout ray for ray. The extra rays go INSIDE the envelope, never into side lobes: a
+  //     display fan carries no echo, so its side lobes buy nothing, and rays out to the scaled fanMax
+  //     (±6.7°) would reach 30.6° against the compression fan's 35.1° lower edge and read as one smeared
+  //     beam instead of two. The envelope therefore stays ±nullAngle, as in QA round 1 — at 20° in the
+  //     wedge 23.9° ± 4.5 beside 47.4° ± 12.3. The δ = 0 ray is tagged `centre:true` (a view strokes it
+  //     at the solid centre-ray weight, which is what makes the second fan as prominent as the first)
+  //     and the two ±θ20 rays `edge20:true`; that pair is also appended to `res.edge20` as
+  //     `{pts, mode, second:true}` — the primary's two entries keep index 0/1 and their bare-array
+  //     shape — so the view's existing −20 dB edge renderer paints the second fan's beam edges in its
+  //     own hue with no view change. Where the spec is silent: the second fan is not emitted for
+  //     through-transmission or tandem (their receivers are placed for the selected mode).
 
   const M = UT.math;
   const DEG = Math.PI / 180;
@@ -291,6 +405,7 @@
   const SDH_CENTRE_MAX_R = 1.5; // holes up to this radius are read at their centre (SPEC NOTE 24)
   const TT_SUB = 7;           // through-transmission sub-apertures across the crystal (SPEC NOTE 16)
   const TT_EXTINCTION = 1.5;  // dB per mm of TT ray chord through a volumetric defect (SPEC NOTE 16)
+  const RX_OFF_MAX = 200;     // mm: |probe.rxOffset| cap for the movable TT/tandem receiver (SPEC-v3 §4.7, SPEC NOTE 47)
   const AP_TAIL = 2;          // return-aperture taper zone beyond ra, in crystal diameters (SPEC NOTE 18)
   const MAX_SPLITS = 6;       // transmitted branches spawned per fan ray at partially-overlapping defects (SPEC NOTE 19)
   const BEAD_REACH = 0.5;     // mm: a planar-defect end this close to (or beyond) a bead's base chord reaches the bead (SPEC NOTE 25)
@@ -316,6 +431,10 @@
   const TWIN_NEAR = 15;       // mm: boosted below this path (SPEC NOTE 38)
   const TWIN_ROLL = 12;       // mm: full boost up to here, linear roll-off to TWIN_NEAR (SPEC NOTE 38)
   const DEEP_LEGS = 4;        // diffuse volumetric / tip sampling only on legs ≤ this (SPEC NOTE 39)
+  const TWIN0_KINDS = { defect: 1, corner: 1, lamination: 1, tip: 1 };   // §4.6 F18: boosted at 0° (SPEC NOTE 43)
+  const RANGE_LEG_CAP = 44;   // F17 'Run to UT Screen Range' leg ceiling (SPEC NOTE 42)
+  const ARC_LEG_CAP = 40;     // F10 leg ceiling for blocks with radius arcs (SPEC NOTE 44)
+  const ROOT_CORR_SCATTER = 0.55;  // F45: corroded-root diffuse coefficient vs a clean bead, −5.2 dB (SPEC NOTE 45)
   const sampleCache = new WeakMap();
   const geomCache = new WeakMap();   // specimen → flattened edges/arcs with precomputed normals
 
@@ -384,6 +503,49 @@
       case 'step': return 'backwall';
       default: return 'geometry';   // end, cap, root, brace, fusion, backing, web, interface …
     }
+  }
+
+  // ------------------------------------------------------------------ leg budget (F17 / F10, SPEC NOTES 41/42/44)
+  /** True when `display` asks for 'Run to UT Screen Range' (the F17 boolean, or the drafted null sentinel). */
+  function isToRange(display) {
+    if (!display) return false;
+    if (display.skipsToRange === true) return true;
+    return display.skips === null;
+  }
+  /** `display.skips` as a positive number, with v1's `|| 3` fallback for 0 / NaN / missing. */
+  function normSkips(display) {
+    const s = display && Number.isFinite(display.skips) && display.skips > 0 ? display.skips : 3;
+    return s;
+  }
+  /**
+   * Legs drawn/traced for a numeric `display.skips` (SPEC NOTE 41). One skip is a full V — index →
+   * backwall → scanning surface — so the ladder is `2·skips`, rounded up for a half step. Deliberately a
+   * single monotonic expression of its argument: the menu's eight entries must never draw a shorter beam
+   * for a larger number, and no two of them may draw the same polyline.
+   * @param {number} skips  skip count from `display.skips` (0.5 steps; 0/NaN/missing → v1's 3)
+   * @returns {number} leg budget, ≥ 1 and non-decreasing in `skips`
+   */
+  function legsOfSkips(skips) {
+    const s = Number.isFinite(skips) && skips > 0 ? skips : 3;
+    return Math.max(1, Math.ceil(2 * s));
+  }
+  /**
+   * Leg budget for a trace (SPEC-v3 §4.5 F17): how many legs to search for echoes and how many to draw.
+   * @param {object} display  state.display ({skips, skipsToRange})
+   * @param {object} specimen
+   * @param {number} maxPath  the screen range in mm (instrument.delay + instrument.range)
+   * @returns {{legs:number, drawLegs:number, toRange:boolean}}
+   */
+  function legBudget(display, specimen, maxPath) {
+    const d = display || {};
+    if (isToRange(d)) {
+      const T = specimen && Number.isFinite(specimen.T) && specimen.T > 0 ? specimen.T : 20;
+      const p = Number.isFinite(maxPath) && maxPath > 0 ? maxPath : 200;
+      const legs = M.clamp(Math.ceil(2 * p / T) + 2, 2, RANGE_LEG_CAP);
+      return { legs, drawLegs: legs, toRange: true };
+    }
+    const legs = legsOfSkips(normSkips(d));
+    return { legs, drawLegs: legs, toRange: false };
   }
 
   // ------------------------------------------------------------------ mode-conversion coefficients (§3.2)
@@ -692,7 +854,7 @@
           bestT = t; bestI = i; bestType = 4;
         }
         let best = null;
-        if (bestType === 1) { const ed = scene.edges[bestI]; best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: ed.nx, ny: ed.ny, type: 'outline', tag: ed.tag, bead: ed.bead || null }; }
+        if (bestType === 1) { const ed = scene.edges[bestI]; best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: ed.nx, ny: ed.ny, type: 'outline', tag: ed.tag, bead: ed.bead || null, ei: bestI }; }
         else if (bestType === 2) best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: bestNx, ny: bestNy, type: 'outline', tag: scene.arcs[bestI].tag || 'radius' };
         else if (bestType === 3) { const hx = px + dx * bestT, hy = py + dy * bestT; const n = norm(hx - scene.perspex.x, hy - scene.perspex.y); best = { t: bestT, x: hx, y: hy, nx: n.x, ny: n.y, type: 'perspex', tag: 'perspex' }; }
         else if (bestType === 4) { const sg = scene.segs[bestI]; best = { t: bestT, x: px + dx * bestT, y: py + dy * bestT, nx: sg.nx, ny: sg.ny, type: sg.refl ? 'reflector' : 'defect', tag: sg.kind, seg: sg }; }
@@ -728,7 +890,7 @@
               cur = C.volBest.get(key);
               if (cur) {
                 const qq = C.nearField / Math.max(lenMm, C.nearField);
-                const bound = w * w * e * P.S * qq * qq * taper * Math.pow(10, -attP / 20) * C.transferLin * C.Gf(lenMm + fOff) * C.nearBoost(lenMm) * (isConv && mode !== C.probeMode ? 0.5 : 1);
+                const bound = w * w * e * P.S * qq * qq * taper * Math.pow(10, -attP / 20) * C.transferLin * C.Gf(lenMm + fOff) * C.nearBoost(lenMm, isConv ? 'modeconv' : P.kind) * (isConv && mode !== C.probeMode ? 0.5 : 1);
                 if (bound * tw <= cur.amp && bound <= cur.ampNoZ) continue;
               }
             }
@@ -876,7 +1038,10 @@
             // rough weld bead: weak diffuse geometry scatter (SPEC NOTE 2)
             if (!C.tt && !C.tandem && (best.tag === 'cap' || best.tag === 'root')) {
               const slope = Math.min(1, Math.abs(best.nx) / 0.5);   // 0 for a flat bead (SPEC NOTE 2)
-              if (slope > 1e-6) echoes.push(makeEcho(C, { lenMm: len, tUs: 2 * tUs, att: 2 * att, mode, conv: conv ? conv.first : null, kind: conv ? 'modeconv' : 'geometry', leg: leg - 1, x: hp.x, y: hp.y, w, wReturn: w * (conv && mode !== C.probeMode ? 0.5 : 1), e: e / OTHER_LOSS, S: BEAD_SCATTER * cosInc * slope, dExp: 1.5, tag: best.tag, angleDev: delta, zs, tw }));
+              // F45: a corroded root crown is rough and broken — each bump scatters on its own account
+              // and ROOT_CORR_SCATTER puts the train 3…8 dB below the clean bead (SPEC NOTE 45)
+              const corr = C.rootCorroded && best.tag === 'root';
+              if (slope > 1e-6) echoes.push(makeEcho(C, { lenMm: len, tUs: 2 * tUs, att: 2 * att, mode, conv: conv ? conv.first : null, kind: conv ? 'modeconv' : 'geometry', leg: leg - 1, x: hp.x, y: hp.y, w, wReturn: w * (conv && mode !== C.probeMode ? 0.5 : 1), e: e / OTHER_LOSS, S: BEAD_SCATTER * (corr ? ROOT_CORR_SCATTER : 1) * cosInc * slope, dExp: 1.5, tag: best.tag, bump: corr ? best.ei : undefined, angleDev: delta, zs, tw }));
             }
             if ((best.tag === 'cap' || best.tag === 'root') && !flatBead) e *= BEAD_SPECULAR;   // convex bead diverges the specular reflection (SPEC NOTE 21)
           } else if (best.type === 'perspex') {
@@ -1067,7 +1232,7 @@
     const Mf = Math.pow(10, -o.att / 20);
     let S = o.S;
     if (o.fbhD) S *= Math.PI * o.fbhD * o.fbhD / (2 * C.lambda * Math.max(lenMm, C.nearField));   // FBH law (§3.8): NO min(1, …) cap (DGS round-trip)
-    const base = o.w * o.wReturn * o.e * S * D * Mf * (o.extra === undefined ? 1 : o.extra) * C.transferLin * C.Gf(o.gfLen === undefined ? lenMm : o.gfLen) * C.nearBoost(lenMm);
+    const base = o.w * o.wReturn * o.e * S * D * Mf * (o.extra === undefined ? 1 : o.extra) * C.transferLin * C.Gf(o.gfLen === undefined ? lenMm : o.gfLen) * C.nearBoost(lenMm, o.kind);
     const hz = lenMm * C.tan20z + C.crystalB / 2;
     const vol = !!o.defect && !UT.specimens.isPlanar(o.defect.type);   // volumetric scatterers: ×1 (§6.7)
     const skewed = !vol && (o.kind === 'defect' || o.kind === 'corner' || o.kind === 'geometry' || o.kind === 'lamination') && C.theta > 0;
@@ -1090,6 +1255,7 @@
       tUs: o.tUs, lenMm, mode: o.mode,
     };
     if (converted) ec.conv = o.conv;
+    if (o.bump !== undefined) ec.bump = o.bump;   // F45: corroded-root scatterer id, kept apart by mergeEchoes (SPEC NOTE 45)
     if (o.w !== undefined) ec.w = o.w;   // one-way fan weight of the ray (merge coverage, SPEC NOTE 23; stripped by mergeEchoes)
     if (zs.length) ec.zs = zsOut(zs);
     return ec;
@@ -1259,7 +1425,8 @@
     const groups = [];
     const byKey = new Map();
     for (const ec of list) {
-      const key = ec.kind + '|' + (ec.defectId !== undefined ? ec.defectId : ec.tag) + '|' + ec.leg;
+      const key = ec.kind + '|' + (ec.defectId !== undefined ? ec.defectId : ec.tag) + '|' + ec.leg
+        + (ec.bump === undefined ? '' : '|b' + ec.bump);   // F45 (SPEC NOTE 45)
       let arr = byKey.get(key);
       if (!arr) { arr = []; byKey.set(key, arr); }
       let g = null;
@@ -1396,6 +1563,89 @@
     return { vS, vL, attenL5: aL, attenS5: aS, key: sm.key || 'carbon' };
   }
 
+  /**
+   * Layout of the F14 second-mode display fan (SPEC NOTE 48): `nTarget` rays — the primary fan's own ray
+   * count — inside THIS mode's ±nullAngle envelope, so the two fans are drawn with equal prominence.
+   * Same shape as fanLayout's v2 branch minus the side lobes (a display fan carries no echo): a uniform
+   * main-lobe grid whose ends fall exactly on ±θ20 (tagged `edge`) with a true axis ray at δ = 0, plus the
+   * ±mid / ±nullAngle ring. `nTarget` = 25 reproduces `fanLayout(d, n, false, dirW)` ray for ray; below 9
+   * rays the ring is dropped so a tiny fan still gets exactly `nTarget` rays.
+   * @param {object} d  derived-like values of the second mode (refracted, halfAngle20dB, nullAngle)
+   * @param {number} nTarget  ray count to match (the main grid is rounded up to an odd count)
+   * @param {function} dirW  directivity weight of the second mode
+   * @returns {Array} [{delta, w, main, side, bin, edge}]
+   */
+  function secondFanLayout(d, nTarget, dirW) {
+    const th20 = d.halfAngle20dB || 4;
+    const nullA = Math.max(d.nullAngle || th20 * 1.4, th20);
+    const theta = d.refracted || 0;
+    const want = Math.max(1, Math.round(nTarget || 1));
+    const ring = want >= 9;                              // below that the whole budget is the main lobe
+    let m = ring ? want - 4 : want;
+    if (m > 1 && m % 2 === 0) m += 1;                    // odd, so the grid contains the axis ray
+    const binMain = m > 1 ? 2 * th20 / (m - 1) : 1;
+    const rays = [];
+    for (let i = 0; i < m; i++) {
+      const dd = m === 1 ? 0 : -th20 + 2 * th20 * i / (m - 1);
+      rays.push({ delta: dd, w: dirW(dd), main: true, side: false, bin: binMain, edge: m > 1 && (i === 0 || i === m - 1) });
+    }
+    if (ring) {
+      const mid = (th20 + nullA) / 2, binRing = Math.max(1e-9, (nullA - th20) / 2);
+      for (const dd of [-mid, mid, -nullA, nullA]) rays.push({ delta: dd, w: dirW(dd) * Math.min(1, binRing / binMain), main: true, side: false, bin: binRing, edge: false });
+    }
+    return rays.filter(function (r) { return theta + r.delta <= 89 && theta + r.delta >= -89; });
+  }
+
+  /**
+   * F14 (SPEC-v3 §4.2, SPEC NOTE 48) — the fan of the OTHER wave mode, traced whenever the wedge angle is
+   * below the 1st critical angle and both modes are launched into the metal. Geometry only: these rays
+   * carry no echo, no mode conversion and no surface wave, and they are returned in `res.fan` tagged with
+   * their wave mode ('L' / 'S') so a view can paint them at equal prominence — the primary fan's own ray
+   * count, one `centre:true` axis ray at δ = 0 and the `edge20:true` pair at ±θ20.
+   * @param {object} C  trace context of the primary (selected) mode
+   * @param {object} derived  UT.probe.derive(...) of the probe (needs bothModes / shearAngle / compAngle)
+   * @param {number} nTarget  ray count of the primary fan — the second fan carries exactly as many
+   * @param {number} skips  drawn-leg budget (legs kept in the returned polylines)
+   * @returns {Array} fan entries [{angleOffsetDeg, weight, pts, sideLobe, mode, second, centre?, edge20?, launchDeg}]
+   */
+  function secondModeFan(C, derived, nTarget, skips) {
+    if (!derived || !derived.bothModes || C.tt || C.tandem) return [];
+    const other = C.probeMode === 'L' ? 'S' : 'L';
+    const angle = other === 'S' ? derived.shearAngle : derived.compAngle;
+    if (!Number.isFinite(angle) || !(angle > 0) || angle > 89) return [];
+    const vel = other === 'S' ? C.vS : C.vL;
+    if (!(vel > 0)) return [];
+    const lambda = C.vel > 0 ? C.lambda * (vel / C.vel) : C.lambda;
+    // piston beam spread scales with the wavelength (§3.1: sinθ = k·λ/D), so sinθ' = sinθ·λ'/λ
+    const k = C.lambda > 0 ? lambda / C.lambda : 1;
+    const spread = function (deg) { return M.rad2deg(Math.asin(M.clamp(Math.sin(Math.abs(deg || 0) * DEG) * k, 0, 0.999))); };
+    const th20 = spread(derived.halfAngle20dB || 4);
+    const dOther = Object.assign({}, derived, {
+      refracted: angle, mode: other === 'S' ? 'shear' : 'comp', vel, lambda,
+      halfAngle6dB: spread(derived.halfAngle6dB || 1.9), halfAngle20dB: th20,
+      nullAngle: spread(derived.nullAngle || th20 * 1.4), fanMax: spread(derived.fanMax || th20 * 2),
+      directivity: null,
+    });
+    const dirW = makeDirW(dOther, false);   // main lobe only (SPEC NOTE 48)
+    const C2 = Object.assign({}, C, {
+      theta: angle, mode: dOther.mode, probeMode: other, vel, lambda,
+      th6: dOther.halfAngle6dB, th20, tan20: Math.tan(th20 * DEG), dirW,
+      devMax: Math.max(2 * th20, dOther.fanMax || 2 * th20),
+      modeConv: false, surfaceWave: false, volBest: new Map(), convPolys: [],
+    });
+    // equal prominence (§4.2): the same ray count as the primary fan, inside this mode's own envelope
+    const out = [];
+    for (const R of secondFanLayout(dOther, nTarget, dirW)) {
+      const r = marchRay(C2, Object.assign({}, R, { dir0: dirAt(C2.ss, C2.side, angle + R.delta), off: 0, focused: false }));
+      const pts = r.pts.filter(function (p) { return p.leg <= skips; }).map(function (p) { return { x: p.x, y: p.y }; });
+      const e = { angleOffsetDeg: +R.delta.toFixed(3), weight: r.w, pts, sideLobe: false, mode: other, second: true, launchDeg: +angle.toFixed(3) };
+      if (Math.abs(R.delta) < 1e-9) e.centre = true;   // the axis ray a view strokes at the centre-ray weight
+      if (R.edge) e.edge20 = true;                     // the −20 dB beam edges of the second fan
+      out.push(e);
+    }
+    return out;
+  }
+
   // ------------------------------------------------------------------ public API
   /**
    * Trace the beam of a probe through a specimen and collect echoes.
@@ -1413,10 +1663,23 @@
     if (!specimen || !specimen.edges) return empty;
     const em = emission(specimen, probe, derived);
     if (!em.segment) return empty;
-    const skips = Math.max(1, display.skips || 3);
-    const maxLegs = opts.maxLegs !== undefined ? opts.maxLegs
-      : ((derived.refracted === 0 || specimen.kind === 'block') ? 12 : skips);
     const maxPath = opts.maxPath !== undefined ? opts.maxPath : 200;
+    // leg budget (SPEC NOTES 41/42/44): `skips` truncates the drawn polylines, `maxLegs` the echo search
+    const plan = legBudget(display, specimen, maxPath);
+    const skips = plan.drawLegs;
+    let maxLegs = opts.maxLegs !== undefined ? opts.maxLegs
+      : ((derived.refracted === 0 || specimen.kind === 'block') ? 12 : plan.legs);
+    // the display budget lifts a caller's cap unconditionally: callers pass `display.skips` verbatim as
+    // `maxLegs`, i.e. a skip count in a leg count's slot, so without the lift the menu's ladder would be
+    // truncated to half its rungs (SPEC NOTES 41/42). It only ever raises, never lowers.
+    if (plan.legs > maxLegs) maxLegs = plan.legs;
+    if (specimen.kind === 'block' && specimen.arcs && specimen.arcs.length) {  // F10: radius multiples to the range
+      // the radius itself is the leg length of a radius multiple (V2: 25 mm → 4 legs per 75 mm multiple;
+      // V1: 100 mm → the v1 12-leg budget already reaches 500 mm, so nothing moves there) — SPEC NOTE 44
+      let rMin = Infinity;
+      for (const arc of specimen.arcs) if (Number.isFinite(arc.r) && arc.r > 5 && arc.r < rMin) rMin = arc.r;
+      if (rMin < Infinity) maxLegs = Math.max(maxLegs, Math.min(ARC_LEG_CAP, Math.ceil(2 * maxPath / rMin) + 2));
+    }
     const theta = derived.refracted || 0;
     const physics = opts.physics || {};
     const modeConv = physics.modeConv !== false;
@@ -1436,6 +1699,7 @@
     const isWeld = specimen.kind === 'weld';
     const transferDb = isWeld && Number.isFinite(opts.transferLossDb) ? M.clamp(opts.transferLossDb, 0, 8) : 0;
     const twin = probe.crystal === 'twin' && theta > 0;   // §3.5 twin-crystal angle probe (SPEC NOTE 38)
+    const twin0 = probe.crystal === 'twin' && theta === 0; // §4.6 F18 twin-crystal 0° probe (SPEC NOTE 43)
     const C = {
       specimen, defects: Array.isArray(a.defects) ? a.defects : [],
       E: em.E, u0: em.u0, ss: em, side: em.side, segment: em.segment, theta, mode: derived.mode,
@@ -1454,25 +1718,38 @@
       cornerMinInc: Math.min(CORNER_MIN_INC, Math.max(4, 90 - theta - 4)),
       Gf: focusOn ? function (len) { const g = Math.min(N / F, 3) - 1; const r = (len - F) / (0.25 * F); return 1 + g * Math.exp(-r * r); } : function () { return 1; },
       F, focusCapScale: function (len) { return FOCUS_CAPTURE + (1 - FOCUS_CAPTURE) * Math.min(1, Math.abs(len - F) / F); },   // SPEC NOTE 34
-      twin, nearBoost: twin ? function (len) { return len >= TWIN_NEAR ? 1 : 1 + (TWIN_BOOST - 1) * M.clamp((TWIN_NEAR - len) / (TWIN_NEAR - TWIN_ROLL), 0, 1); } : function () { return 1; },
+      twin: twin || twin0,
+      // SPEC NOTES 38 / 43: the angle-probe boost applies to every kind, the 0° boost only to the near-surface
+      // reflector kinds (a twin 0° probe buys resolution, not backwall gain)
+      nearBoost: twin || twin0 ? function (len, kind) {
+        if (!(len < TWIN_NEAR)) return 1;
+        if (twin0 && !TWIN0_KINDS[kind]) return 1;
+        return 1 + (TWIN_BOOST - 1) * M.clamp((TWIN_NEAR - len) / (TWIN_NEAR - TWIN_ROLL), 0, 1);
+      } : function () { return 1; },
+      rootCorroded: !!(specimen.conditions && specimen.conditions.rootCorrosion),   // F45 (SPEC NOTE 45)
       maxLegs, maxLen: Math.max(2 * maxPath + 100, 700), retroSlot: !!specimen.retroSlot,
       probeZ: probe.z || 0, skew: fold180(probe.skew || 0), L: specimen.L || 0, wrap: !!specimen.pipe,
       scene: buildScene(specimen, a.defects, probe),
       tt: probe.method === 'tt', tandem: probe.method === 'tandem',
       rx: null, rxDir: null, volBest: new Map(), convPolys: [],
     };
-    // receivers
+    // receivers (F19: `probe.rxOffset` slides the auto-placed receiver along its surface — SPEC NOTE 47)
     let receiver = null;
+    const rxOff = Number.isFinite(probe.rxOffset) ? M.clamp(probe.rxOffset, -RX_OFF_MAX, RX_OFF_MAX) : 0;
     if (C.tt) {
       const exit = firstOutlineHit(C);
-      if (exit) { C.rx = { x: exit.x, y: exit.y }; receiver = { x: exit.x, y: exit.y, tag: exit.tag }; }
-      else C.tt = false;
+      if (exit) {
+        const rx = placeReceiver(specimen, exit.x, rxOff);
+        C.rx = { x: rx.x, y: exit.y };
+        receiver = { x: rx.x, y: exit.y, tag: exit.tag, autoX: exit.x, rxOffset: rx.applied, clamped: rx.clamped };
+      } else C.tt = false;
     } else if (C.tandem) {
       const T = specimen.T || 20;
-      const xr = C.E.x - C.side * T * Math.tan(theta * DEG);
-      C.rx = { x: xr, y: 0 };
+      const auto = C.E.x - C.side * T * Math.tan(theta * DEG);
+      const rx = placeReceiver(specimen, auto, rxOff);
+      C.rx = { x: rx.x, y: 0 };
       C.rxDir = norm(C.side * Math.sin(theta * DEG), -Math.cos(theta * DEG));
-      receiver = { x: xr, y: 0, tag: 'top' };
+      receiver = { x: rx.x, y: 0, tag: 'top', autoX: auto, rxOffset: rx.applied, clamped: rx.clamped };
     }
 
     const n = opts.fanCount || 21;
@@ -1558,11 +1835,36 @@
       .sort(function (p, q) { return q.weight - p.weight; }).slice(0, CONV_DRAW_MAX)
       .map(function (p) { return { mode: p.mode, kindTag: p.mode, weight: p.weight, pts: p.pts }; });
     const edgeHi = focus ? fan.length - 1 : Math.min(20, fan.length - 1);
-    const res = { centre, fan, edge20: [fan.length ? fan[0].pts : [], fan.length ? fan[edgeHi].pts : []], echoes, hits, E: C.E, u0: C.u0, surface, converted, focus };
+    const edge20 = [fan.length ? fan[0].pts : [], fan.length ? fan[edgeHi].pts : []];
+    // F14 (§4.2, SPEC NOTE 48): below the 1st critical angle the OTHER wave mode travels with this one, so
+    // its fan is traced too and reported in `res.fan` tagged with its wave mode (the primary fan keeps
+    // index 0…edgeHi, so `edge20`, `centre` and every echo are untouched).
+    const fan2 = secondModeFan(C, derived, rayList.length, skips);
+    // its own −20 dB edge pair joins `edge20` (tagged with its wave mode) so the view's edge renderer
+    // draws the second fan's beam edges in the second mode's hue — SPEC NOTE 48
+    for (const f of fan2) if (f.edge20 && f.pts.length > 1) edge20.push({ pts: f.pts, mode: f.mode, second: true });
+    const res = { centre, fan: fan2.length ? fan.concat(fan2) : fan, edge20, echoes, hits, E: C.E, u0: C.u0, surface, converted, focus, drawLegs: skips, maxLegs };
     if (receiver) res.receiver = receiver;
     if (opts.debugRaw) res.raw = raw;   // unmerged echoes (QA/diagnostics only)
     if (C.tt) res.transmitted = echoes[0].amp;
     return res;
+  }
+
+  /**
+   * Slide a receiver along its (flat) surface by `off` mm and keep it on the specimen (SPEC-v3 §4.7, F19).
+   * @param {object} specimen
+   * @param {number} autoX   the auto-placed x (beam exit / tandem geometry)
+   * @param {number} off     probe.rxOffset in mm (+x, the direction SHIFT+RIGHT moves it)
+   * @returns {{x:number, applied:number, clamped:boolean}}
+   */
+  function placeReceiver(specimen, autoX, off) {
+    if (!off) return { x: autoX, applied: 0, clamped: false };
+    const ss = specimen.scanSurface || specimen.extents || {};
+    const ex = specimen.extents || {};
+    const xMin = Number.isFinite(ss.xMin) ? ss.xMin : (Number.isFinite(ex.xMin) ? ex.xMin : -Infinity);
+    const xMax = Number.isFinite(ss.xMax) ? ss.xMax : (Number.isFinite(ex.xMax) ? ex.xMax : Infinity);
+    const x = M.clamp(autoX + off, Math.min(xMin, autoX), Math.max(xMax, autoX));
+    return { x, applied: x - autoX, clamped: Math.abs(x - autoX - off) > 1e-9 };
   }
 
   /** First outline (edge/arc) intersection of the centre ray, ignoring defects. */
@@ -1748,8 +2050,8 @@
         last = e;
       }
     }
-    // (c) V2 sequences
-    const seqs = [[1, [25, 100, 175]], [-1, [50, 125, 200]]];
+    // (c) V2 sequences — v3 F10: the 4th multiple is part of the required set (SPEC NOTE 44)
+    const seqs = [[1, [25, 100, 175, 250]], [-1, [50, 125, 200, 275]]];
     for (const s of seqs) {
       const r = run(S.v2(), { angle: 45, x: 60, side: s[0] }, { skips: 3 }, [], 250);
       let last = null;
@@ -1876,6 +2178,41 @@
     const ttb = run(pl, { angle: 0, x: 40, method: 'tt' }, { skips: 3 }, [S.defectPresets.lamination(pl)], 100).echoes[0];
     if (!ttc || ttc.kind !== 'transmitted' || Math.abs(ttc.amp - 1) > 1e-6 || Math.abs(ttc.path - 20) > 1e-6) f.push('tt clean');
     if (!ttb || ttb.amp > 0.05) f.push('tt shadow');
+    // F19 (NOTE 47): probe.rxOffset slides the receiver; 0/absent is bit-identical, 20 mm off the exit is deaf
+    const ttOff = function (off) { return run(pl, { angle: 0, x: 40, method: 'tt', rxOffset: off }, { skips: 3 }, [], 100); };
+    const tt0 = ttOff(0), tt20 = ttOff(20), ttNeg = ttOff(-20), ttFar = ttOff(500);
+    if (Math.abs(tt0.echoes[0].amp - ttc.amp) > 1e-12 || tt0.receiver.x !== 40) f.push('tt rxOffset 0 identity');
+    if (tt20.echoes[0].amp > 1e-9 || ttNeg.echoes[0].amp > 1e-9) f.push('tt rxOffset 20 deaf: ' + tt20.echoes[0].amp);
+    if (Math.abs(tt20.receiver.x - 60) > 1e-9 || tt20.receiver.rxOffset !== 20 || tt20.receiver.autoX !== 40) f.push('tt receiver moved ' + JSON.stringify(tt20.receiver));
+    if (!ttFar.receiver.clamped || Math.abs(ttFar.receiver.x - 150) > 1e-9) f.push('tt receiver clamp ' + JSON.stringify(ttFar.receiver));
+    const tdm = function (off) { return run(pl, { angle: 45, x: 60, method: 'tandem', rxOffset: off }, { skips: 3 }, [], 100).receiver; };
+    if (Math.abs(tdm(0).x - tdm(undefined).x) > 1e-12 || Math.abs(tdm(7).x - tdm(0).x - 7) > 1e-9) f.push('tandem rxOffset');
+    // (h2) F14 (NOTE 48): below the 1st critical angle res.fan carries BOTH fans; above it, only one
+    const compAng = +(M.rad2deg(Math.asin(Math.sin(20 * DEG) / 2.74 * 5.90))).toFixed(1);
+    const both = run(pl, { angle: compAng, mode: 'comp', x: 40 }, { skips: 3 }, [], 100, { fanCount: 41 });
+    const one = run(pl, { angle: 60, x: 40 }, { skips: 3 }, [], 100, { fanCount: 41 });
+    const secs = both.fan.filter(function (r) { return r.second; });
+    const launchOf = function (r) { return M.rad2deg(Math.abs(Math.atan2(Math.abs(r.pts[1].x - r.pts[0].x), Math.abs(r.pts[1].y - r.pts[0].y)))); };
+    if (secs.length < 9 || secs.some(function (r) { return r.mode !== 'S'; })) f.push('F14 second fan ' + secs.length);
+    else {
+      let sum = 0, lo = 1e9, hi = -1e9;
+      for (const r of secs) { const a = launchOf(r); sum += a; lo = Math.min(lo, a); hi = Math.max(hi, a); }
+      // centred on the shear angle, and clear of the compression fan's lower edge (35.1°)
+      if (Math.abs(sum / secs.length - 23.86) > 0.2 || hi > 30 || lo < 18) f.push('F14 second fan span ' + lo.toFixed(2) + '…' + hi.toFixed(2));
+    }
+    if (both.fan.length - secs.length !== 41 || both.fan.slice(0, 41).some(function (r) { return r.second; })) f.push('F14 primary fan displaced');
+    if (Math.abs(both.edge20[0][0].x - both.fan[0].pts[0].x) > 1e-12) f.push('F14 edge20 moved');
+    if (one.fan.length !== 41 || one.fan.some(function (r) { return r.second; })) f.push('F14 above 1st critical: one fan');
+    // equal prominence (§4.2, QA round 3): equal ray count, one axis ray, the ±θ20 pair in `edge20`
+    if (secs.length !== 41) f.push('F14 second fan ray count ' + secs.length + ' ≠ 41');
+    const cent = secs.filter(function (r) { return r.centre; }), edg = secs.filter(function (r) { return r.edge20; });
+    if (cent.length !== 1 || Math.abs(cent[0].angleOffsetDeg) > 1e-9) f.push('F14 second fan centre ray');
+    if (edg.length !== 2 || Math.abs(edg[0].angleOffsetDeg + edg[1].angleOffsetDeg) > 1e-9 || !(edg[1].angleOffsetDeg > 0)) f.push('F14 second fan edge pair');
+    if (both.edge20.length !== 4 || both.edge20.slice(2).some(function (e) { return !e || e.mode !== 'S' || !e.second || !(e.pts.length > 1); })) f.push('F14 second edge20 pair');
+    if (one.edge20.length !== 2) f.push('F14 edge20 grew without a second fan');
+    const noSide = run(pl, { angle: compAng, mode: 'comp', x: 40 }, { skips: 3 }, [], 100, { fanCount: 41, physics: { sideLobes: false } });
+    const secs2 = noSide.fan.filter(function (r) { return r.second; });
+    if (noSide.fan.length - secs2.length !== 25 || secs2.length !== 25) f.push('F14 second fan follows the primary count ' + secs2.length);
     // (i) volumetric: kind 'defect', amplitude independent of fanCount (SPEC NOTE 17)
     const pv = S.plateWeld({ T: 20, rootHeight: 0, capHeight: 0 });
     const por = S.defectPresets.porosity(pv);
@@ -2032,6 +2369,77 @@
     let backing = false;
     for (let x = 20; x <= 60; x += 2) if (run(bk, { angle: 60, x }, { skips: 3 }, [], 120).echoes.some(function (e) { return e.kind === 'geometry' && e.tag === 'backing' && e.amp > 1e-3; })) backing = true;
     if (!backing) f.push('backing bar geometry echo missing');
+    // ---- v3 ----
+    // (z1) leg budget (F17, SPEC NOTES 41/42): ONE unit — legs = ceil(2·skips) for every menu entry, so the
+    //      ladder is strictly non-decreasing with no duplicate rung; 'Run to UT Screen Range' derives the
+    //      count from the range and every leg is drawn
+    const pw20 = S.plateWeld({ T: 20 });
+    const lb = function (d, mp) { return legBudget(d, pw20, mp === undefined ? 100 : mp); };
+    const MENU_SKIPS = [0.5, 1, 1.5, 2, 2.5, 3, 4];
+    const menuLegs = MENU_SKIPS.map(function (v) { return lb({ skips: v }).legs; });
+    if (menuLegs.join(',') !== '1,2,3,4,5,6,8') f.push('legBudget ladder ' + menuLegs.join(','));
+    for (let i = 1; i < menuLegs.length; i++) if (!(menuLegs[i] > menuLegs[i - 1])) f.push('legBudget ladder not strictly increasing at ' + MENU_SKIPS[i]);
+    const lbR = lb({ skips: 3, skipsToRange: true }, 400);
+    if (!lbR.toRange || lbR.legs !== 42 || lbR.drawLegs !== lbR.legs) f.push('legBudget to range ' + JSON.stringify(lbR));
+    if (lb({ skips: 3, skipsToRange: true }, 1e6).legs !== RANGE_LEG_CAP) f.push('legBudget range cap');
+    if (!lb({ skips: null }).toRange) f.push('legBudget null sentinel');
+    const legMax = function (r) { let m = 0; for (const l of r.centre.legs) m = Math.max(m, l.leg); return m; };
+    const legsAt = function (disp, mp, ml) { return legMax(run(pw20, { angle: 60, x: 40 }, disp, [], mp || 100, { maxLegs: ml })); };
+    if (legsAt({ skips: 0.5 }, 100, 0.5) !== 1) f.push('half skip legs');
+    if (legsAt({ skips: 2.5 }, 100, 2.5) !== 5) f.push('2.5 skip legs');
+    // the drawn ladder as the menu produces it (40-ascan passes display.skips verbatim as maxLegs): the
+    // display budget lifts that cap, so no entry ever draws a shorter beam than the entry below it
+    const drawn = MENU_SKIPS.map(function (v) { return legsAt({ skips: v }, 400, v); });
+    if (drawn.join(',') !== '1,2,3,4,5,6,8') f.push('drawn skip ladder ' + drawn.join(','));
+    if (legsAt({ skips: 3 }, 100, 12) !== 6) f.push('a bigger caller cap is never lowered by the skip count');
+    if (!(legsAt({ skips: 3, skipsToRange: true }, 400, 3) >= 8)) f.push('run-to-range legs');
+    // (z2) twin-crystal 0° near-surface boost (F18, SPEC NOTE 43): +3.52 dB on the 4 mm lamination, backwall bit-identical
+    const lamP = S.laminationPlate({ T: 25 });
+    const lam4 = { id: 'lam4', type: 'lamination', pts: [{ x: 30, y: 4 }, { x: 50, y: 4 }], height: 0.5, zFrom: -1e6, zTo: 1e6 };
+    const tw0 = function (crystal, defects) { return run(lamP, { angle: 0, x: 40, crystal }, { skips: 3 }, defects, 100).echoes; };
+    const lamS = near(tw0('single', [lam4]), 'lamination', 4, 0.5), lamT = near(tw0('twin', [lam4]), 'lamination', 4, 0.5);
+    if (!lamS || !lamT || Math.abs(dB(lamT.amp, lamS.amp) - 20 * Math.log10(TWIN_BOOST)) > 0.05) f.push('twin 0° near-surface boost ' + (lamS && lamT ? dB(lamT.amp, lamS.amp).toFixed(2) : 'missing'));
+    const bw0s = near(tw0('single', []), 'backwall', 25, 0.5), bw0t = near(tw0('twin', []), 'backwall', 25, 0.5);
+    if (!bw0s || !bw0t || bw0s.amp !== bw0t.amp) f.push('twin 0° backwall moved');
+    // (z3) weld conditions (F45, SPEC NOTE 45): the corroded root is a train 3…8 dB below the clean bead;
+    //      the misalignment step is a 'geometry' echo tagged 'misalign'
+    const rootBest = function (spec) {
+      let best = null;
+      for (let x = 28; x <= 38; x += 1) {
+        const es = run(spec, { angle: 60, x }, { skips: 3 }, [], 100).echoes.filter(function (e) { return e.kind === 'geometry' && e.tag === 'root'; });
+        for (const e of es) if (!best || e.amp > best.amp) best = { amp: e.amp, path: e.path, list: es };
+      }
+      return best;
+    };
+    const rcClean = rootBest(pw20), rcCorr = rootBest(S.plateWeld({ T: 20, rootCorrosion: true }));
+    if (!rcClean || !rcCorr) f.push('root bead echoes missing');
+    else {
+      const drop = dB(rcClean.amp, rcCorr.amp);
+      const inWin = function (b) { return b.list.filter(function (e) { return Math.abs(e.path - b.path) <= 6; }).length; };
+      if (drop < 3 || drop > 8) f.push('root corrosion drop ' + drop.toFixed(2) + ' dB');
+      if (inWin(rcCorr) < 3) f.push('root corrosion train ' + inWin(rcCorr));
+      if (inWin(rcClean) !== 1) f.push('clean root bead is not a single echo (' + inWin(rcClean) + ')');
+    }
+    let misBest = null;
+    const misW = S.plateWeld({ T: 20, misalignmentMm: 3 });
+    for (let x = 30; x <= 44; x += 1) for (const e of run(misW, { angle: 60, x }, { skips: 3 }, [], 120).echoes) if (e.tag === 'misalign' && (!misBest || e.amp > misBest.amp)) misBest = e;
+    if (!misBest || misBest.kind !== 'geometry' || !(misBest.amp > 0.05)) f.push('misalignment step echo ' + (misBest ? misBest.kind + ' ' + misBest.amp.toFixed(3) : 'missing'));
+    // roughSurface is a DRAWING profile only: the traced outline (and so every echo) is untouched — the
+    // transfer loss and the grass belong to 40-ascan (F45 table)
+    const edgeKey = function (sp) { return JSON.stringify(sp.edges.map(function (e) { return [e.a.x, e.a.y, e.b.x, e.b.y, e.tag]; })); };
+    if (edgeKey(S.plateWeld({ T: 20, roughSurface: true })) !== edgeKey(pw20)) f.push('roughSurface changed the traced outline');
+    // (z4) polygon specimens trace like any other outline (F41, SPEC NOTE 46)
+    if (typeof S.polygon === 'function') {
+      const rectPoly = S.polygon({ outline: [{ x: 0, y: 0 }, { x: 200, y: 0 }, { x: 200, y: 25 }, { x: 0, y: 25 }], L: 100 });
+      const rp = run(rectPoly, { angle: 0, x: 100 }, { skips: 3 }, [], 100).echoes;
+      if (!near(rp, 'backwall', 25, 0.05) || !near(rp, 'backwall', 50, 0.05)) f.push('polygon backwall');
+      const offPoly = S.polygon({ outline: [{ x: 50, y: 30 }, { x: 250, y: 30 }, { x: 250, y: 55 }, { x: 50, y: 55 }], L: 100 });
+      if (!near(run(offPoly, { angle: 0, x: 150 }, { skips: 3 }, [], 100).echoes, 'backwall', 25, 0.05)) f.push('polygon off the origin');
+      const ro = [], ri = [];
+      for (let i = 0; i < 48; i++) { const a2 = i / 48 * 2 * Math.PI; ro.push({ x: 100 + 80 * Math.sin(a2), y: 80 - 80 * Math.cos(a2) }); ri.push({ x: 100 + 60 * Math.sin(a2), y: 80 - 60 * Math.cos(a2) }); }
+      const ringPoly = S.polygon({ loops: [{ pts: ro, hole: false }, { pts: ri, hole: true }], T: 20, L: 100 });
+      if (!near(run(ringPoly, { angle: 0, x: 100 }, { skips: 3 }, [], 100).echoes, 'backwall', 20, 0.3)) f.push('polygon ring wall');
+    }
     // describe (object with toString + category)
     const ds = describe({ kind: 'backwall', path: 25, leg: 1 });
     if (String(ds).indexOf('Backwall') < 0 || ds.category !== 'backwall') f.push('describe');
@@ -2053,5 +2461,5 @@
     const alphaL = materialInfo(specimen || null, derived || {}).attenL5 * Math.pow(freq / 5, 1.5);
     return Math.sqrt(N / Math.max(s, N)) * Math.pow(10, -2 * alphaL * s / 20);
   }
-  UT.rays = { trace, zFactor, describe, emission, dirAt, arcHit, mergeEchoes, modeConv: modeConvCoef, fanLayout, dirWeight: makeDirW, ampBwLaw, R_LS, R_SL, __selftest };
+  UT.rays = { trace, zFactor, describe, emission, dirAt, arcHit, mergeEchoes, modeConv: modeConvCoef, fanLayout, dirWeight: makeDirW, ampBwLaw, legBudget, R_LS, R_SL, __selftest };
 })(window.UT = window.UT || {});

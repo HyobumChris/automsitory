@@ -1,9 +1,111 @@
-/* 90-app.js — application shell: page layout, menu bar (v2 menus incl. Tools), toolbar, dialogs (weld v2,
- * wedge, options, step wedge, help/about/keys, export, probe library, material, focus, glossary, quick tour),
- * design-box scaling + touch bar (U2), accessibility (U5), print root, status bar, keyboard shortcuts,
- * persistence (v2 record) and boot. SPEC §7, §8, §9/§14.10, §10, §15.9; SPEC-v2 §5.4, §5.6, §5.7, §8.
+/* 90-app.js — application shell: page layout, menu bar (v3: 10 top-level menus), toolbar (v3: 20 buttons),
+ * dialogs (weld v2, wedge, options, step wedge, help/about/keys, export, probe library, material, focus,
+ * glossary, quick tour, v3 misalignment / wall-thickness variation / pipe thickness / TT receiver / help
+ * contents), design-box scaling + touch bar (U2), accessibility (U5), print root, status bar, keyboard
+ * shortcuts, persistence (v3 record) and boot. SPEC §7, §8, §9/§14.10, §10, §15.9; SPEC-v2 §5.4, §5.6,
+ * §5.7, §8; SPEC-v3 §6.5 (F52…F55), §3.7 (F7), §4.7 (F19), §4.11 (F23), §8 (menus + window registry).
  * Classic script; nothing touches the DOM at load time (§15.12).
  */
+// SPEC NOTES v3 (90-app + style.css; decisions where SPEC-v3 is silent or two sections disagree)
+// - F11 / lead decision 4: the DAC toolbar button keeps the id `tb-dac` and gets the visible label `ASME`.
+//   The id is contract (v1 checks, lessons, UT.test.click); only the label follows the chosen block. This
+//   label/id mismatch is deliberate and permanent — do not rename, do not alias.
+// - `UT.test.click(id)` passes `{direct: true}` to the toolbar action (SPEC-v3 §7 asks for it on tb-dac /
+//   tb-plot so the F11 chooser is bypassed). The same flag makes `tb-hide` skip the F33 key prompt and
+//   `tb-defect`/others behave exactly as in v1, so every v1/v2 automation path is one call as before.
+//   A real user click never carries it.
+// - F17 / lead decision 7 wins over §4.5: `Probes ▸ Number of Skips ▸ Run to UT Screen Range` calls
+//   UT.modes.setSkips(null), which sets the boolean `display.skipsToRange` — `display.skips` is never null.
+// - F19: `probe.rxOffset` is NOT in UT.defaultState() (§2 does not list it), so the shell writes the key on
+//   first use and every reader must treat `undefined` as 0. It is deliberately NOT persisted (a receiver
+//   nudge is a per-session gesture, and coerceLike would drop an unknown probe key anyway).
+// - F23: the echo Depth cell reads `frame.echoes`; a cursor hover still wins, and a key-function hint (F6,
+//   status.mid written by 70) is never overwritten — 90 only rebuilds mid when its own text changed.
+// - F23 OPEN CROSS-FILE ITEM (QA round 1): §4.11 words the cell as "that echo's reflection point y", but the
+//   number 90 prints is whatever `UT.ascan.echoDepth()` returns, and 40-ascan deliberately returns the
+//   LEG-FOLDED depth of the echo's true path (its own SPEC NOTE, ~line 122) because a 'corner' echo stores
+//   the DEFECT point it left, not the corner it bounced off. V3-23 pins that folded value (`Depth = 20.0mm`
+//   ± 0.3 at the root crack, where the raw echo y is 17.9), so 90 must NOT switch to the raw y: doing so
+//   fails an acceptance check that may not be weakened. The disagreement is in the prose, not the code —
+//   §4.11 should say 'the leg-folded depth of the echo's path (the reflection point y for defect / tip /
+//   lamination echoes)'. Reported, not patched (SPEC-v3.md and 40-ascan.js are not 90's files).
+// - F13 / F44 (QA round 2): the `Pos:` cell goes through posMm() — `probe.z` in tofd (§6.3: the pair is
+//   centred, so probe.x is a dead 0 there), `Math.abs(probe.x)` on weld-kind specimens (§4.1), the signed
+//   block x everywhere else — and midParts() then rounds it, `Math.round(pos)`, exactly as §4.1 and §6.3
+//   write it. Every original frame prints a whole millimetre (`Pos: 118 mm`, `Pos: 277 mm`, `Pos: 194 mm`)
+//   and a real pointer drag never lands on one, so `UT.fmtNum(v, 'auto')` (round 1) showed a decimal for
+//   most of the taught workflow. Inch mode keeps its two decimals; §14.3's verbatim editor line is written
+//   at an integer x either way.
+// - F14 wedge dialog (QA round 2): the readout is a list of per-line <span>s instead of one text block, so
+//   the two wave-mode lines can carry the original's colours — `[ Shear Wave Angle=… ]` green #00c000 and
+//   `[ Compression Wave Angle=… ]` amber #ffd700, the same pair 60-view-cross paints the twin fans with
+//   (shear_wave f045/f050). Both lines appear whenever the wedge angle is below the 1st critical angle
+//   (0° included: f045 prints the shear line at 0.0° / 0 m/s); above it only the green shear line remains,
+//   with the '(compression wave totally reflected)' note appended, and beyond the 2nd critical angle the
+//   single Rayleigh line stays uncoloured under `.dlg-warn`. The mode band's compression segment moves from
+//   light blue to the pale amber #ffe9a8 — the band keeps its pastel tints (shear #d8f5d0), but the
+//   compression tint is now a tint OF THE FAN's amber, so band and fan agree. The readout face is the
+//   dialog's own grey (style.css `.wedge-readout` #d4d0c8, the original panel's colour); the amber lines
+//   keep a 1 px dark text-shadow so #ffd700 stays legible whatever face a skin gives them.
+// - Keyboard Shortcuts window (QA round 2): the v3 keyboard surface is documented there — Alt+M / Alt+A
+//   (F55), SHIFT+F12 / Ctrl+Shift+D and the pen (F51), the TT / tandem receiver (F19) and the defect
+//   editor's SHIFT bindings, Delete and F1 (F27). Every description reuses a key the Korean dictionary
+//   ALREADY carries (the annotate banner, the editor STEP lines, the receiver status line), because
+//   92-i18n-ko owns Korean and V2-18 / V3-64 fail on any window text that is still its English key; the
+//   context that has no dictionary entry ('(defect editor)', 'Ctrl = 10 mm') lives in the `.no-i18n` <kbd>
+//   cell, which is where v1/v2 already put '(instrument focused)'. A row description may now be a LIST of
+//   keys joined with ' / ' — Alt+M / Alt+A name two menus and both names are already translated.
+// - F17 Options (QA round 2): `Options ▸ Number of skips` is a peer of `Probes ▸ Number of Skips`, so it
+//   lists the same eight entries through skipSelOptions()/skipSelValue() and routes every pick through
+//   setSkips() — a numeric choice clears display.skipsToRange exactly as the menu does, and a fractional or
+//   run-to-range state now has an option to select instead of falling back to the first one. The Colour code
+//   select gained the F15 'Leg colours' scheme for the same misreport reason.
+// - §9.0 / tb-clear (QA round 2): §9.0 says CLEAR clears `lines`/`blockMarks`/`ruler`/`bs`/`overlay`, so it
+//   does — round 1's comment claimed the opposite. `plot.ruler` is a persisted object (§2), so only its
+//   `on` flag is cleared and its x/view survive for the next tick of the ruler item.
+// - Alt as a MOUSE modifier (QA round 1): `mem.altArmed` (the bare-Alt menu-bar entry of §5.7) is cleared by
+//   any pointerdown/mousedown and by window blur, so the F26 alt-erase drag and the F36 alt-click delete no
+//   longer drop the File menu over the drawing on the Alt release. Bare Alt press-and-release is unchanged.
+// - F54: core has no `UT.dom.download` (SPEC-v3 §1 adds only fileOpen / alwaysOnTop / fitLine to 00-core),
+//   so 90 keeps a private `downloadUrl()` helper (hidden <a download>, object URL revoked on the next tick).
+//   `UT.test.screenshot()` returns the composed data URL without downloading.
+// - F19 OPEN CROSS-FILE ITEM: the shell half is complete (the notice, the SHIFT+arrow keys, the clamp and
+//   the status line all write `probe.rxOffset`), but the AMPLITUDE half of V3-19 needs 30-raytrace to use
+//   it: in `run()` the TT branch takes the receiver from `firstOutlineHit(C)` and the tandem branch from
+//   `C.E.x − side·T·tanθ`, neither of which adds `probe.rxOffset`. SPEC-v3 §1 assigns F19 to 90-app alone,
+//   so no owner of 30-raytrace was told to add it; until that one line lands, moving the receiver changes
+//   nothing in the through-transmission amplitude. Reported, not patched (30-raytrace is not 90's file).
+// - F12: `Steps 20-8 mm (2 mm)` uses a 30 mm step length (7 steps × 30 = 210 mm, so the descending wedge
+//   fits the block canvas at the same scale as the 5-step presets, which are 40 mm × 5 = 200 mm).
+// - F52: AccRej is disabled when 45-standards is absent (a toolbar def may now carry its own `enabled()`,
+//   which is ANDed with the §14.7 mode matrix — the button is dead rather than silently doing nothing).
+// - F52 (QA round 1): "disabled" on the toolbar is `aria-disabled="true"` + the `.disabled` class +
+//   activateToolbar() refusing the action — NOT the native `disabled` property of the <button>. A QA repro
+//   that reads `document.getElementById('tb-accrej').disabled` therefore reads `false` for EVERY disabled
+//   button, tb-accrej included; the mode matrix itself is right (80-modes DISABLED.v1 / .v2 / .editor all
+//   list 'accrej', measured: aria-disabled true and a DOM click opens nothing in v1, v2 and the editor).
+//   The native property is deliberately NOT mirrored: V3-62 sweeps the toolbar with `b.click()` and skips
+//   any button whose `.disabled` is true, so mirroring it would drop the sweep below its 15-click floor and
+//   make `tb-accrej` unclickable there. aria-disabled stays the single signal every check reads.
+// - tx() (QA round 1, V3-64): a param-free translated node also carries `data-i18n-auto`, so 00-core's
+//   relabelAuto() re-translates it on 'lang'. Without it a dialog built while the UI was English kept its
+//   English text after a language switch when it is only re-`show()`n and never rebuilt — the F19 `ttinfo`
+//   notice is exactly that (openTtInfo runs once per session). Nodes built WITH params opt out, because
+//   relabelAuto() re-renders from the key alone and would print the raw `{x}` (same rule as 70's tx()).
+// - `display.ascanText` (F8's overlay-text switch) is NOT in UT.defaultState() and NOT in §2's persistence
+//   list, so `coerceLike` drops it on restore and the option returns to 'on' after a reload. That is the
+//   contract as written; if it should persist, the key belongs in core's defaultState first.
+// - F55: Alt accelerators for the two new menus are Alt+M (Scale Mode — 'F' 'P' 'S' 'W' 'D' 'T' 'O' 'H' are
+//   taken, and 'S' belongs to Step Wedge) and Alt+A (About).
+// - §8's Options list has no depth-echo item although `display.depthEcho` (F23) is a user-visible switch:
+//   shipped as `Options ▸ Show echo depth` ✓ next to the other display switches.
+// - `Help ▸ Contents` (optional in §6.5) ships as a plain index window listing the ten help pages and
+//   opening the existing windows; it adds no new content of its own.
+// - Persistence v3: the record is `v: 3` under the same key; `patchFromRecord` accepts 1 | 2 | 3. Added to
+//   the record exactly as §2 lists: weldOpts / display new keys (already inside their objects), tkyOpts,
+//   editing.spotMm + editing.keyLock, scaleMode.mmPerPx + scaleMode.gradStepMm, plot.ruler, annot.torch +
+//   annot.shown. Never scaleMode.picture / scaleMode.outline / annot.strokes / tofd.parallel.
+//   Restored sub-objects are merged over the defaults (UT.set REPLACES a nested object).
 // SPEC NOTES (decisions where the spec is silent or ambiguous)
 // - style.css lives at ut-simulator/style.css (where index.html / build.py reference it), not under src/.
 // - Menu keys: every v1 key is kept verbatim ('Weld Settings...', 'Phased Array Probe', 'Focus Beam', 'Lessons...').
@@ -70,12 +172,15 @@
     scale: 1, kbFocus: null, kbReturn: null, altArmed: false, coarse: false, coarseMq: null, motionMq: null,
     touch: { step: 1, timer: null, els: {} }, tour: { i: 0, el: null, open: false }, soundArmed: false,
     winBuilders: {}, printPending: false, lastRecord: null,
+    ttShown: false,   // v3 F19: the 'MOVE RECEIVER PROBE' notice is shown once per session
   };
   const DESIGN_W = 1280, DESIGN_H = 760;
   const OD_INCH = { 4: 114.3, 6: 168.3, 8: 219.1, 10: 273.1, 12: 323.9 };
   const STORE_KEY = 'utsim.v1';
   const TOUR_KEY = 'utsim.tourDone';
-  const PERSIST_KEYS = ['probe', 'instrument', 'display', 'defects', 'weldOpts', 'utSet', 'material', 'physics', 'standards', 'lessons', 'trade', 'pa'];
+  const PERSIST_KEYS = ['probe', 'instrument', 'display', 'defects', 'weldOpts', 'utSet', 'material', 'physics', 'standards', 'lessons', 'trade', 'pa',
+    // v3 (§2 persistence): the new record keys, so a change to one of them schedules a save
+    'tkyOpts', 'editing', 'scaleMode', 'plot', 'annot'];
   const INSTR_KEYS = ['gain', 'refGain', 'range', 'delay', 'reject', 'damping', 'rectify', 'gates', 'dac', 'cal', 'trig', 'tcg', 'pulser', 'receiver', 'autoPct'];
   const RANGE_PRESETS = [50, 100, 200, 400];
   // fallback copy of §14.7 (used only when UT.modes is missing)
@@ -99,7 +204,10 @@
     'Options/Colour Code/Mode Propagation', 'Options/Colour Code/Geometry', 'Options/Show Plan View', 'Options/Show 3D Window', 'Options/Show Legend',
     'Options/Language/English', 'Options/Language/Korean (한국어)', 'Options/Options...', 'Options/Reset Layout', 'Help/About UTsim...', 'Help/Quick Guide...',
     'Help/Keyboard Shortcuts...', 'Help/Lessons...'];
-  const ALT_MENU = { f: 'menu-file', p: 'menu-probes', s: 'menu-stepwedge', w: 'menu-weld', d: 'menu-defects', t: 'menu-tools', o: 'menu-options', h: 'menu-help' };
+  const ALT_MENU = { f: 'menu-file', p: 'menu-probes', s: 'menu-stepwedge', w: 'menu-weld', d: 'menu-defects', t: 'menu-tools', o: 'menu-options', h: 'menu-help',
+    m: 'menu-scalemode', a: 'menu-about' };   // v3 F55: Scale Mode and About (F/P/S/W/D/T/O/H are taken)
+  // v3 §8: the ten top-level menu ids, in bar order (mirrors UT.modes' ALL_MENUS; asserted by __selftest)
+  const ALL_MENUS = ['file', 'probes', 'stepwedge', 'weld', 'defects', 'scalemode', 'tools', 'options', 'about', 'help'];
 
   // ------------------------------------------------------------------ small helpers
   function st() { return UT.state; }
@@ -157,8 +265,26 @@
   }
   function t(key, params) { return UT.i18n && UT.i18n.t ? UT.i18n.t(key, params) : key; }
   function h(tag, attrs, kids) { return UT.dom.h(tag, attrs, kids); }
-  /** Text element whose content is an i18n key with params (re-rendered by the owner on 'lang'). */
-  function tx(tag, attrs, key, params) { return h(tag, Object.assign({ dataset: { i18n: key } }, attrs || {}), t(key, params)); }
+  /**
+   * Text element whose content is an i18n key. Without `params` the node is also tagged
+   * `data-i18n-auto`, so 00-core's relabelAuto() re-translates it on a language switch — a dialog built
+   * while the UI was English and merely re-shown afterwards (the F19 `ttinfo` notice is shown once per
+   * session and then only `show()`n) must not keep its old wording. A call that DOES pass params opts out,
+   * because relabelAuto() re-renders from the key alone and would print the raw `{x}` placeholders; those
+   * elements stay the owner's job to re-render on 'lang'. Same rule as 70-instruments' tx().
+   * @param {string} tag element tag
+   * @param {object|null} attrs attributes for UT.dom.h
+   * @param {string} key English i18n key (also the element's data-i18n)
+   * @param {object} [params] t() params; passing them disables the automatic relabel
+   * @returns {Element} the created element
+   */
+  function tx(tag, attrs, key, params) {
+    const a = Object.assign({}, attrs || {});
+    a.dataset = Object.assign({ i18n: key }, a.dataset || {});   // QA round 2: a caller dataset merges, never replaces
+    const el = h(tag, a, t(key, params));
+    if (params === undefined && el && el.dataset) el.dataset.i18nAuto = '1';
+    return el;
+  }
   function doc() { return typeof document === 'undefined' ? null : document; }
   function win_() { return typeof window === 'undefined' ? null : window; }
   function byId(id) { const d = doc(); return d ? d.getElementById(id) : null; }
@@ -193,6 +319,7 @@
     clear: svg('<rect x="4" y="9" width="12" height="7" fill="#f7c" stroke="#333" transform="rotate(-30 10 12)"/><rect x="13" y="6" width="6" height="7" fill="#fff" stroke="#333" transform="rotate(-30 16 9)"/>'),
     beam: svg('<rect x="3" y="3" width="18" height="15" fill="#111" stroke="#333"/><line x1="5" y1="5" x2="19" y2="16" stroke="#fff" stroke-width="1.5"/>'),
     rad: svg('<circle cx="12" cy="11" r="9" fill="#ffd800" stroke="#333"/><path d="M12 11 L12 2 A9 9 0 0 1 19.8 6.5 Z M12 11 L4.2 6.5 A9 9 0 0 0 4.2 15.5 Z M12 11 L19.8 15.5 A9 9 0 0 1 12 20 Z" fill="#111"/><circle cx="12" cy="11" r="2" fill="#ffd800"/>'),
+    accrej: svg('<path d="M2 11 l3 4 l6 -9" fill="none" stroke="#00a000" stroke-width="2.4"/><path d="M14 5 l7 10 M21 5 l-7 10" fill="none" stroke="#e00000" stroke-width="2.4"/>'),
     pipe: svg('<path d="M3 17 Q7 3 12 10 T21 5" fill="none" stroke="#1040ff" stroke-width="2"/><line x1="3" y1="18" x2="21" y2="18" stroke="#333"/>'),
     tky: svg('<path d="M12 19 V11 L5 3 M12 11 L19 3" fill="none" stroke="#f0c000" stroke-width="3"/>'),
     tofd: svg('<rect x="2" y="7" width="7" height="7" fill="#7b7b7b" stroke="#333"/><rect x="15" y="7" width="7" height="7" fill="#7b7b7b" stroke="#333"/><path d="M9 11 Q12 19 15 11" fill="none" stroke="#0040ff"/>'),
@@ -320,7 +447,12 @@
     call('ascan.clearPeak');
     UT.setIn('tofd', { scan: null }, { noRender: true });
     UT.setIn('aut', { scan: null, map: null }, { noRender: true });
-    UT.setIn('plot', { points: [], edgeMarks: [] }, { noRender: true });
+    // v3 §9.0 (QA round 2): CLEAR wipes the freehand beam-spread lines (F36), the 10 % block marks (F35),
+    // the derived BS/K caption (F37) AND — as §9.0 lists them — the ruler and the weld overlay. The ruler
+    // keeps its x/view (a persisted setting, §2) and is only switched off, so re-ticking it restores it.
+    const pl = st().plot || {};
+    UT.setIn('plot', { points: [], edgeMarks: [], lines: [], blockMarks: [], bs: null,
+      ruler: Object.assign({}, pl.ruler, { on: false }), overlay: false }, { noRender: true });
     UT.setIn('sizing', { marks: [] });
     call('views.plan.clearTrail');
   }
@@ -409,6 +541,85 @@
     return printGeneric();
   }
 
+  // ------------------------------------------------------------------ v3 menu actions (§8)
+  /** Number of Skips ▸ — `null` selects 'Run to UT Screen Range' (display.skipsToRange, lead decision 7). */
+  function setSkips(v) {
+    if (has('modes.setSkips')) { call('modes.setSkips', [v]); UT.requestRender(); return; }
+    if (v === null) { setDisplay({ skipsToRange: true }); return; }
+    setDisplay({ skips: M.clamp(Math.round(v * 2) / 2, 0.5, 8), skipsToRange: false });
+  }
+  /** Is `n` the skip count in force? (never while 'Run to UT Screen Range' is selected). */
+  function skipsIs(n) { const d = st().display; return d.skipsToRange !== true && d.skips === n; }
+  /** The Options select's sentinel value for 'Run to UT Screen Range' (never a real skip count). */
+  const SKIPS_RANGE = 'range';
+  /**
+   * The eight `Number of Skips` entries the menu bar offers, as <select> options (F17, §8).
+   * An out-of-list live value (a scripted `setSkips(8)`) appends itself so the control never misreports.
+   * @returns {Array<{value: string, label: string}>}
+   */
+  function skipSelOptions() {
+    const opts = [{ value: SKIPS_RANGE, label: t('Run to UT Screen Range') }, { value: '0.5', label: t('Half Skip') }]
+      .concat([1, 1.5, 2, 2.5, 3, 4].map(function (n) { return { value: String(n), label: String(n) }; }));
+    const cur = skipSelValue();
+    if (!opts.some(function (o) { return o.value === cur; })) opts.push({ value: cur, label: cur });
+    return opts;
+  }
+  /** The `Number of Skips` entry in force, as its select value. @returns {string} */
+  function skipSelValue() {
+    const d = st().display;
+    return d.skipsToRange === true ? SKIPS_RANGE : String(Number.isFinite(d.skips) ? d.skips : 3);
+  }
+  /** One F45 weld-condition flag. @param {string} k @returns {boolean|number} */
+  function weldFlag(k) { const o = st().weldOpts || {}; return o[k]; }
+  /** Write F45 weld conditions through 80-modes (which validates and rebuilds); local fallback without it. */
+  function weldCondition(patch) {
+    if (has('modes.weldCondition')) return call('modes.weldCondition', [patch]);
+    applyWeldOpts(Object.assign({}, st().weldOpts, patch));
+    return st().weldOpts;
+  }
+  /** True while 85-scalemode is loaded (every Scale Mode item is dead without it). */
+  function haveScale() { return !!has('scalemode.window'); }
+  /** F7: pin the UT controls on screen — the USK 7 window then re-shows on every mode entry (70-instruments). */
+  function toggleAlwaysControls() {
+    const on = !st().display.alwaysShowControls;
+    setDisplay({ alwaysShowControls: on });
+    // `UT.instruments.window` is a getter that BUILDS the USK 7 window, so it is read only when it is wanted
+    if (!on || st().utSet !== 'usk7') return;
+    try { const w = has('instruments.window'); if (w && !w.isOpen()) w.show(); } catch (e) { console.error('[UT.app] usk7 window', e); }
+  }
+  /** F8: float the docked instrument panel in a window (70-instruments owns the move). */
+  function toggleInstrumentFloat() {
+    setDisplay({ instrumentFloat: !st().display.instrumentFloat });
+    call('instruments.applyFloat');
+    applyLayout();
+  }
+  /** F7: Options ▸ UnCalibrate — a wrong velocity / zero, then the recalibrate hint. */
+  function unCalibrate() {
+    const r = call('instruments.unCalibrate');
+    UT.requestRender();
+    return r || null;
+  }
+  /**
+   * F7: Options ▸ Delete EPOCH records — clears instrument.datalog after a confirmation.
+   * 70-instruments' `deleteRecords()` asks the question itself (and also refreshes the datalogger window),
+   * so it is called bare; the confirmation here is only the fallback for a build without 70.
+   * @returns {Promise<boolean>} true when the records were deleted
+   */
+  function deleteEpochRecords() {
+    if (has('instruments.deleteRecords')) return Promise.resolve(call('instruments.deleteRecords'));
+    return confirmDlg(t('Delete all stored records?'), { title: 'Delete EPOCH records' }).then(function (ok) {
+      if (!ok) return false;
+      UT.setIn('instrument', { datalog: [] });
+      return true;
+    });
+  }
+  /** F53: Help ▸ Demo (OK splash) — the 'O' + 'K' polygon specimens of utman_software f001. */
+  function openOkDemo() {
+    if (has('test.loadSpecimen')) return call('test.loadSpecimen', ['ok-demo']);
+    if (has('modes.enter')) return enterMode('scale', { specimen: 'ok-demo' });
+    return null;
+  }
+
   // ------------------------------------------------------------------ toolbar model
   // Each entry: id (button id 'tb-<id>'), label (visible), tip (EN description) + ko (Korean) → tooltip (§8/§12).
   const TOOLBAR = [
@@ -419,24 +630,51 @@
     { gap: true },
     { id: 'v2', label: 'V2', tip: 'V2 (A4) calibration block: 25/50 mm radii, 5 mm hole', ko: 'V2 교정 시험편: 25/50 mm 반경, 5 mm 구멍', action: function () { toggleMode('v2'); }, active: function () { return currentMode() === 'v2'; } },
     { id: 'v1', label: 'V1', tip: 'V1 (A2) calibration block: 100 mm radius, 25/100 mm faces, 50 mm hole', ko: 'V1 교정 시험편: 100 mm 반경, 25/100 mm 면', action: function () { toggleMode('v1'); }, active: function () { return currentMode() === 'v1'; } },
-    { id: 'dac', label: 'DAC', tip: 'record a distance-amplitude curve on the SDH block', ko: 'SDH 시험편에서 DAC 곡선 기록', action: function () { toggleMode('dac'); }, active: function () { return currentMode() === 'dac'; } },
+    // v3 F11 / lead decision 4: the LABEL is 'ASME', the id stays 'tb-dac'. A user click opens the ASME / A5
+    // chooser (80-modes) unless that mode is already current; UT.test.click passes {direct} and goes straight in.
+    { id: 'dac', label: 'ASME', tip: 'ASME / DAC block — calibrate for amplitude and draw DAC', ko: 'ASME/DAC 시험편 — 진폭 교정 및 DAC 작성', action: function (o) { pickBlock('dac', o); }, active: function () { return currentMode() === 'dac'; } },
     { gap: true },
-    { id: 'plot', label: 'PLOT', tip: 'beam-spread plotting card on the IOW block (20 dB drop)', ko: 'IOW 시험편에서 빔 확산 플롯 (20 dB 드롭)', action: function () { toggleMode('iow'); }, active: function () { return currentMode() === 'iow'; } },
+    { id: 'plot', label: 'PLOT', tip: 'beam-spread plotting card on the A5 IOW block (20 dB drop)', ko: 'A5 IOW 시험편에서 빔 확산 플롯 (20 dB 드롭)', action: function (o) { pickBlock('iow', o); }, active: function () { return currentMode() === 'iow'; } },
     { id: 'damp', label: 'DAMP', tip: 'toggle probe damping (shorter pulse, lower amplitude)', ko: '탐촉자 댐핑 켜기/끄기 (펄스 폭 감소)', action: function () { toggleDamping(); }, active: function () { return !!st().instrument.damping; } },
     { id: 'size', label: 'SIZE', tip: 'defect sizing panel: 6 dB / 20 dB drop, Mark L / Mark R', ko: '결함 크기 측정 패널: 6 dB / 20 dB 드롭', action: function () { toggleWindowOf('views.sizing'); }, active: function () { return winOpen('size'); } },
     { gap: true },
     { id: 'defect', label: 'DEFECT', tip: 'open the defect editor (position, length, height, type; draw with the brush)', ko: '결함 편집기 열기 (위치·길이·높이·종류, 브러시로 그리기)', action: function () { toggleWindowOf('modes.defectEditor'); }, active: function () { return winOpen('defects'); } },
-    { id: 'hide', label: 'HIDE', tip: 'hide defects and beam for blind practice', ko: '결함과 빔 숨기기 (블라인드 연습)', action: function () { setDisplay({ hide: !st().display.hide }); }, active: function () { return !!st().display.hide; } },
+    { id: 'hide', label: 'HIDE', tip: 'hide defects and beam for blind practice', ko: '결함과 빔 숨기기 (블라인드 연습)', action: function (o) { hideDefects(o); }, active: function () { return !!st().display.hide; } },
     { id: 'clear', label: 'CLEAR', tip: 'clear peak memory, scans, plots and marks (defects are kept)', ko: '피크 메모리·스캔·플롯·마크 지우기 (결함은 유지)', action: clearAll, active: function () { return false; } },
     { gap: true },
     { id: 'beam', label: 'BEAM', tip: 'show / hide the sound beam', ko: '음향 빔 표시/숨기기', action: function () { setDisplay({ beam: !st().display.beam }); }, active: function () { return !!st().display.beam; } },
     { id: 'rad', label: 'RAD', tip: 'radiograph strip of the weld (compare with UT)', ko: '용접부 방사선 투과 사진 표시', action: function () { toggleWindowOf('views.radiograph'); }, active: function () { return winOpen('rad'); } },
+    // v3 F52 (utman_software f020): AccRej sits between RAD and PIPE and opens the standards evaluation window
+    { id: 'accrej', label: 'AccRej', tip: 'accept / reject the indication against the selected standard', ko: '선택한 규격으로 지시 합부 판정', action: function () { toggleWindowOf('standards.evaluation'); }, active: function () { return winOpen('evaluation'); }, enabled: function () { return !!has('standards.evaluation'); } },
     { gap: true },
     { id: 'pipe', label: 'PIPE', tip: 'switch plate weld ⇄ pipe circumferential weld (OD/WT in the Weld dialog)', ko: '평판 ⇄ 파이프 원주 용접부 전환 (Weld 대화상자의 OD/WT)', action: togglePipe, active: function () { return !!(st().weldOpts && st().weldOpts.pipe); } },
     { id: 'tky', label: 'TKY', tip: 'TKY tubular joint: brace / chord geometry', ko: 'TKY 관 이음: 브레이스/코드 형상', action: function () { toggleMode('tky'); }, active: function () { return currentMode() === 'tky'; } },
     { id: 'tofd', label: 'TOFD', tip: 'Time-of-Flight Diffraction: RF A-scan, D-scan, PCS', ko: 'TOFD (비행시간 회절법): RF A-스캔, D-스캔, PCS', action: function () { toggleMode('tofd'); }, active: function () { return currentMode() === 'tofd'; } },
     { id: 'aut', label: 'AUT', tip: 'Automated UT: strip charts, gates, colour map', ko: '자동 초음파 탐상: 스트립 차트, 게이트, 컬러 맵', action: function () { toggleMode('aut'); }, active: function () { return currentMode() === 'aut'; } },
   ];
+  /**
+   * v3 F11: route `ASME` (tb-dac) / `PLOT` (tb-plot) through the ASME / A5 chooser modal (80-modes).
+   * The modal is skipped when that mode is already current (so the button still toggles back out) and
+   * whenever the click carries `{direct: true}` — i.e. every `UT.test.click` — so v1/v2 automation reaches
+   * the mode in one call. Without 80-modes' chooser the v1 behaviour (straight toggle) is kept.
+   * @param {string} mode 'dac' | 'iow'
+   * @param {{direct?:boolean}} [o]
+   */
+  function pickBlock(mode, o) {
+    const cur = currentMode();
+    if ((o && o.direct) || cur === mode || !has('modes.blockPick')) { toggleMode(mode); return; }
+    call('modes.blockPick');
+  }
+  /**
+   * v3 F33: HIDE goes through 80-modes' key-code prompt for a real click; a `{direct: true}` click (UT.test,
+   * keyboard 'H') keeps the v1 free toggle. While a key is armed 80's state listener re-hides any un-hide
+   * that did not come through UT.modes.hideKey(code), so the lock holds on every path.
+   * @param {{direct?:boolean}} [o]
+   */
+  function hideDefects(o) {
+    if (!(o && o.direct) && has('modes.hideKeyPrompt')) { call('modes.hideKeyPrompt'); return; }
+    setDisplay({ hide: !st().display.hide });
+  }
   /** DAMP: instrument.damping (boolean) is the single source; pulser.damping Ω follows it (SPEC-v2 §3.7). */
   function toggleDamping() {
     const ins = st().instrument;
@@ -454,6 +692,9 @@
 
   /** Whether a toolbar button is enabled in the current mode (§14.7). */
   function toolbarEnabled(id) {
+    // a button whose own module is absent is dead whatever the mode matrix says (F52: AccRej without 45-standards)
+    const own = TOOLBAR.find(function (b) { return !b.gap && 'tb-' + b.id === id; });
+    if (own && typeof own.enabled === 'function') { let ok = true; try { ok = !!own.enabled(); } catch (e) { ok = true; } if (!ok) return false; }
     if (has('modes.isToolbarEnabled')) { try { return !!UT.modes.isToolbarEnabled(id); } catch (e) { return true; } }
     const en = has('modes.enabled');
     const row = en && en[currentMode()];
@@ -470,12 +711,19 @@
     if (row && Array.isArray(row.menus)) return row.menus.indexOf(id) >= 0;
     return true;
   }
-  function activateToolbar(id) {
+  /**
+   * Run a toolbar button's action (§14.7 enable matrix applies first).
+   * @param {string} id  'tb-60'
+   * @param {{direct?:boolean}} [opts] `direct` = driven by UT.test / a keyboard shortcut: skip the F11
+   *        block chooser and the F33 HIDE prompt so one call still reaches the mode (SPEC-v3 §7).
+   * @returns {boolean} true when the action ran
+   */
+  function activateToolbar(id, opts) {
     const def = TOOLBAR.find(function (b) { return !b.gap && 'tb-' + b.id === id; });
     if (!def) return false;
     if (!toolbarEnabled(id)) return false;
     emitUi('tb-click', id);
-    try { def.action(); } catch (e) { console.error('[UT.app] toolbar ' + id, e); }
+    try { def.action(opts || {}); } catch (e) { console.error('[UT.app] toolbar ' + id, e); }
     refreshToolbar();
     return true;
   }
@@ -536,6 +784,7 @@
         { key: 'Share link…', action: function () { toggleWindowOf('scenario.share'); }, enabled: function () { return !!has('scenario.share'); }, check: function () { return winOpen('share'); } },
         sepItem(),
         { key: 'Export A-scan PNG', action: function () { openExport('cv-ascan'); } },
+        { key: 'Save screen shot (PNG)', action: saveScreenShot },   // v3 F54
         { key: 'Print', action: function () { try { window.print(); } catch (e) { /* ignore */ } } },
         { key: 'Print report', action: printReport },
       ] },
@@ -555,13 +804,20 @@
         diameterItem('Probe Diameter 5mm', 5),
         { key: 'Phased Array Probe', action: togglePa, check: function () { return st().probe.method === 'pa'; } },
         { key: 'Focus Beam', action: openFocus, check: function () { return !!(st().probe.focus && st().probe.focus.on); } },
+        // v3 F15: the original's three colour-code choices (Leg colours is our 'legs' scheme)
         { key: 'Colour Code Display', sub: [
           { key: 'Mode Propagation', action: function () { setDisplay({ colourCode: st().display.colourCode === 'propagation' ? 'none' : 'propagation' }); }, check: function () { return st().display.colourCode === 'propagation'; } },
+          { key: 'Leg colours', action: function () { setDisplay({ colourCode: st().display.colourCode === 'legs' ? 'none' : 'legs' }); }, check: function () { return st().display.colourCode === 'legs'; } },
           { key: 'Geometry', action: function () { setDisplay({ colourCode: st().display.colourCode === 'geometry' ? 'none' : 'geometry' }); }, check: function () { return st().display.colourCode === 'geometry'; } },
         ] },
-        { key: 'Number of Skips', sub: [1, 2, 3, 4].map(function (n) {
-          return { key: String(n), action: function () { setDisplay({ skips: n }); }, check: function () { return st().display.skips === n; } };
-        }) },
+        // v3 F17: the original's list (half-skip steps) with '4' kept at the end for v1/v2 path compatibility.
+        // 'Run to UT Screen Range' is the boolean display.skipsToRange (lead decision 7), never skips = null.
+        { key: 'Number of Skips', sub: [
+          { key: 'Run to UT Screen Range', action: function () { setSkips(null); }, check: function () { return st().display.skipsToRange === true; } },
+          { key: 'Half Skip', action: function () { setSkips(0.5); }, check: function () { return skipsIs(0.5); } },
+        ].concat([1, 1.5, 2, 2.5, 3, 4].map(function (n) {
+          return { key: String(n), action: function () { setSkips(n); }, check: function () { return skipsIs(n); } };
+        })) },
         { key: 'Single Line Beam', action: function () { setDisplay({ singleLine: !st().display.singleLine }); }, check: function () { return !!st().display.singleLine; } },
         sepItem(),
         { key: 'Mode conversion', action: function () { setPhysics({ modeConv: !st().physics.modeConv }); }, check: function () { return !!(st().physics && st().physics.modeConv); } },
@@ -572,15 +828,20 @@
       { id: 'menu-stepwedge', key: 'Step Wedge', items: [
         { key: 'Steps 5-25 mm (5 mm)', action: function () { enterStep([5, 10, 15, 20, 25], 40); }, check: function () { return stepIs([5, 10, 15, 20, 25]); } },
         { key: 'Steps 10-50 mm (10 mm)', action: function () { enterStep([10, 20, 30, 40, 50], 40); }, check: function () { return stepIs([10, 20, 30, 40, 50]); } },
+        // v3 F12 (epoch_auto_calibration): the descending 20 → 8 mm wedge
+        { key: 'Steps 20-8 mm (2 mm)', action: function () { enterStep([20, 18, 16, 14, 12, 10, 8], 30); }, check: function () { return stepIs([20, 18, 16, 14, 12, 10, 8]); } },
         { key: 'Custom Steps...', action: openStepWedge },
         sepItem(),
         { key: 'Auto Cal', action: function () { if (currentMode() !== 'step') enterStep([5, 10, 15, 20, 25], 40); call('modes.autoCal.start'); }, enabled: function () { return !!has('modes.autoCal.start'); } },
         { key: 'Exit Step Wedge', action: function () { enterMode('weld', { keepProbe: false }); }, enabled: function () { return currentMode() === 'step' || currentMode() === 'fbh'; } },
         sepItem(),
         { key: 'FBH block', action: function () { toggleMode('fbh'); }, check: function () { return currentMode() === 'fbh'; } },
+        // v3 F38 (SPEC-v3 §8, §6.2): the A5 IOW block keeps its own way in now that tb-plot overlays the weld
+        { key: 'A5 IOW block', action: function () { toggleMode('iow'); }, check: function () { return currentMode() === 'iow'; } },
       ] },
       { id: 'menu-weld', key: 'Weld', items: [
         { key: 'Weld Settings...', action: openWeld },
+        { key: 'Pipe Thickness…', action: openPipeThk, check: function () { return winOpen('pipethk'); } },   // v3 F47
         { key: 'Material…', action: openMaterial, check: function () { return winOpen('material'); } },
         { key: 'Presets', sub: WELD_PRESETS.map(function (p) {
           return { key: p.key, action: function () { applyWeldOpts(Object.assign({}, UT.defaultState().weldOpts, p.opts)); } };
@@ -588,12 +849,19 @@
         sepItem(),
         { key: 'Pipe', action: togglePipe, check: function () { return !!(s.weldOpts && s.weldOpts.pipe); } },
         { key: 'TKY Joint', action: function () { toggleMode('tky'); }, check: function () { return currentMode() === 'tky'; } },
+        sepItem(),
+        // v3 F45 — the four weld conditions of the original's Weld menu (geometry + echoes follow in 10/30/40)
+        { key: 'Root Corrosion', action: function () { weldCondition({ rootCorrosion: !weldFlag('rootCorrosion') }); }, check: function () { return !!weldFlag('rootCorrosion'); } },
+        { key: 'Rough Surface', action: function () { weldCondition({ roughSurface: !weldFlag('roughSurface') }); }, check: function () { return !!weldFlag('roughSurface'); } },
+        { key: 'Misalignment…', action: openMisalignment, check: function () { return +weldFlag('misalignmentMm') !== 0; } },
+        { key: 'Pipe Wall Thickness Variation…', action: openWtVariation, check: function () { return +weldFlag('wtVariationMm') !== 0; } },
       ] },
       { id: 'menu-defects', key: 'Defects', items: [
         { key: 'Defect Editor...', action: function () { toggleWindowOf('modes.defectEditor'); }, check: function () { return winOpen('defects'); }, enabled: function () { return !examLocked(); } },
         { key: 'Add Preset', sub: presetNames.map(function (p) { return { key: p.label, action: function () { addPresetDefect(p.key); } }; }), enabled: function () { return presetNames.length > 0 && !examLocked(); } },
         { key: 'Delete All Defects', action: function () { confirmDlg(t('Delete all defects?'), { title: 'ERASE ALL DEFECTS' }).then(function (ok) { if (ok) UT.set({ defects: [] }); }); }, enabled: function () { return !st().trade.active; } },
-        { key: 'Hide Defects', action: function () { setDisplay({ hide: !st().display.hide }); }, check: function () { return !!st().display.hide; }, enabled: function () { return !examLocked(); } },
+        // v3 F33: the menu is one of the paths that must ask for the key code (80-modes owns the prompt)
+        { key: 'Hide Defects', action: function () { hideDefects(); }, check: function () { return !!st().display.hide; }, enabled: function () { return !examLocked(); } },
         sepItem(),
         { key: 'Import Defects...', action: openImportDefects, enabled: function () { return !st().trade.active; } },
         { key: 'Export Defects...', action: openExportDefects },
@@ -601,6 +869,18 @@
         { key: 'Lamination Check', action: function () { toggleMode('lamination'); }, check: function () { return currentMode() === 'lamination'; } },
         { key: 'Trade Test...', action: function () { if (has('modes.tradeTest')) toggleWindowOf('modes.tradeTest'); else if (has('trade.window')) toggleWindowOf('trade.window'); else toggleMode('trade'); }, check: function () { return currentMode() === 'trade'; } },
         { key: 'Random practice…', action: function () { toggleWindowOf('trade.practiceWindow', 'modes.practice'); }, enabled: function () { return !!(has('trade.practiceWindow') || has('modes.practice')); }, check: function () { return winOpen('practice'); } },
+      ] },
+      // v3 F41/F42 (§8): Scale Mode — every item guarded, so a build without 85-scalemode still boots
+      { id: 'menu-scalemode', key: 'Scale Mode', items: [
+        { key: 'Adjust Scale…', action: function () { toggleWindowOf('scalemode.window'); }, enabled: haveScale, check: function () { return winOpen('scale'); } },
+        { key: 'Load Pic…', action: function () { call('scalemode.loadPicture'); }, enabled: haveScale },
+        { key: 'Capture', action: function () { call('scalemode.capture'); }, enabled: haveScale },
+        { key: 'Pipe', action: function () { call('scalemode.pipe'); }, enabled: haveScale },
+        { key: 'Protractor', action: function () { call('scalemode.protractor'); }, enabled: haveScale, check: function () { return !!(s.scaleMode && s.scaleMode.protractor); } },
+        { key: 'Trace boundary', action: function () { call('scalemode.startTrace'); }, enabled: haveScale },
+        { key: 'Skip graduations', action: function () { call('scalemode.magnify'); }, enabled: haveScale, check: function () { return !!(s.scaleMode && s.scaleMode.magnify); } },
+        sepItem(),
+        { key: 'Exit Scale Mode', action: function () { call('scalemode.exit'); }, enabled: function () { return !!(haveScale() && s.scaleMode && s.scaleMode.on); } },
       ] },
       { id: 'menu-tools', key: 'Tools', items: [
         { key: 'DGS diagram…', action: function () { toggleWindowOf('standards.dgs'); }, enabled: function () { return !!has('standards.dgs'); }, check: function () { return winOpen('dgs'); } },
@@ -611,20 +891,25 @@
         { key: 'Echo dynamic window', action: function () { toggleWindowOf('views.echodyn'); }, enabled: function () { return !!has('views.echodyn'); }, check: function () { return windowOfOpen('views.echodyn', 'echodyn'); } },
         { key: 'Datalogger…', action: function () { toggleWindowOf('instruments.datalog'); }, enabled: function () { return !!has('instruments.datalog'); }, check: function () { return winOpen('datalog'); } },
         { key: 'Sizing…', action: function () { toggleWindowOf('views.sizing'); }, enabled: function () { return !!has('views.sizing'); }, check: function () { return winOpen('size'); } },
+        // v3 F51: the instructor drawing palette (SHIFT+F12 / Ctrl+Shift+D arm the same overlay)
+        { key: 'Draw palette…', action: function () { toggleWindowOf('annotate.palette'); }, enabled: function () { return !!has('annotate.palette'); }, check: function () { return winOpen('draw'); } },
       ] },
       { id: 'menu-options', key: 'Options', items: [
         { key: 'UT Set', sub: [
           { key: 'EPOCH 600', action: function () { setUtSet('epoch600'); }, check: function () { return st().utSet === 'epoch600'; } },
           { key: 'EPOCH 4', action: function () { setUtSet('epoch4'); }, check: function () { return st().utSet === 'epoch4'; } },
           { key: 'USK7', action: function () { setUtSet('usk7'); }, check: function () { return st().utSet === 'usk7'; } },
+          { key: 'EPOCH LTC', action: function () { setUtSet('epochltc'); }, check: function () { return st().utSet === 'epochltc'; } },   // v3 F5
         ] },
         { key: 'Units', sub: [
           { key: 'mm', action: function () { setDisplay({ units: 'mm' }); }, check: function () { return st().display.units !== 'inch'; } },
           { key: 'inch', action: function () { setDisplay({ units: 'inch' }); }, check: function () { return st().display.units === 'inch'; } },
         ] },
+        // v3 F15: the same four states as Probes ▸ Colour Code Display (plus 'None', which only this menu offers)
         { key: 'Colour Code', sub: [
           { key: 'None', action: function () { setDisplay({ colourCode: 'none' }); }, check: function () { return !st().display.colourCode || st().display.colourCode === 'none'; } },
           { key: 'Mode Propagation', action: function () { setDisplay({ colourCode: 'propagation' }); }, check: function () { return st().display.colourCode === 'propagation'; } },
+          { key: 'Leg colours', action: function () { setDisplay({ colourCode: 'legs' }); }, check: function () { return st().display.colourCode === 'legs'; } },
           { key: 'Geometry', action: function () { setDisplay({ colourCode: 'geometry' }); }, check: function () { return st().display.colourCode === 'geometry'; } },
         ] },
         { key: 'Show Plan View', action: function () { setDisplay({ plan: !st().display.plan }); applyLayout(); }, check: function () { return st().display.plan !== false; } },
@@ -642,12 +927,27 @@
         { key: 'High contrast', action: function () { setDisplay({ highContrast: !st().display.highContrast }); }, check: function () { return !!st().display.highContrast; } },
         { key: 'Auto-scale layout', action: function () { setDisplay({ scale: st().display.scale === 'fixed' ? 'auto' : 'fixed' }); }, check: function () { return st().display.scale !== 'fixed'; } },
         { key: 'Show dead zones', action: function () { UT.setIn('tofd', { deadZones: !(st().tofd && st().tofd.deadZones) }); }, check: function () { return !!(st().tofd && st().tofd.deadZones); } },
+        // v3 F23 / F8 / F51 display switches
+        { key: 'Show echo depth', action: function () { setDisplay({ depthEcho: st().display.depthEcho === false }); }, check: function () { return st().display.depthEcho !== false; } },
+        { key: 'Show A-scan overlay text', action: function () { setDisplay({ ascanText: st().display.ascanText === false }); }, check: function () { return st().display.ascanText !== false; } },
+        { key: 'Always Show UT Controls', action: toggleAlwaysControls, check: function () { return !!st().display.alwaysShowControls; } },
+        { key: 'Float instrument panel', action: toggleInstrumentFloat, check: function () { return !!st().display.instrumentFloat; } },
+        { key: 'Highlight pointer', action: function () { call('annotate.torch'); }, enabled: function () { return !!has('annotate.torch'); }, check: function () { return !!(st().annot && st().annot.torch); } },
+        sepItem(),
+        // v3 F7: knock the set out of calibration / clear the stored records
+        { key: 'UnCalibrate', action: unCalibrate, enabled: function () { return !!has('instruments.unCalibrate'); } },
+        { key: 'Delete EPOCH records', action: deleteEpochRecords, enabled: function () { return !!has('instruments.deleteRecords'); } },
         sepItem(),
         { key: 'Options...', action: openOptions },
         { key: 'Reset Layout', action: resetLayout },
       ] },
+      // v3 F55: About is promoted to the menu bar; the Help copy of the item stays for v1/v2 path compatibility
+      { id: 'menu-about', key: 'About', items: [
+        { key: 'About UTsim...', action: openAbout, check: function () { return winOpen('about'); } },
+      ] },
       { id: 'menu-help', key: 'Help', items: [
         { key: 'About UTsim...', action: openAbout },
+        { key: 'Contents', action: openContents, check: function () { return winOpen('contents'); } },   // v3 §6.5
         { key: 'Quick Guide...', action: openGuide },
         { key: 'Keyboard Shortcuts...', action: openKeys },
         { key: 'Quick tour', action: function () { openTour(0); } },
@@ -656,6 +956,8 @@
         sepItem(),
         { key: 'Lessons...', action: function () { toggleWindowOf('lessons.window', 'modes.lessonsWindow'); }, enabled: function () { return !!(has('lessons.window') || has('modes.lessonsWindow')); }, check: function () { return winOpen('lessons'); } },
         { key: 'Echo quiz…', action: function () { toggleWindowOf('lessons.quiz.window', 'lessons.quiz'); }, enabled: function () { return !!has('lessons.quiz'); }, check: function () { return winOpen('quiz'); } },
+        // v3 F53: the original's 'OK' demo specimen — a menu item, never the boot screen (lead decision 4)
+        { key: 'Demo (OK splash)', action: openOkDemo, enabled: function () { return !!(has('test.loadSpecimen') || has('specimens.build')); } },
       ] },
     ];
   }
@@ -1160,6 +1462,13 @@
     };
     d.addEventListener('pointerdown', outsidePress, true);
     d.addEventListener('mousedown', outsidePress);
+    // v3: Alt is also a MOUSE modifier (F26 alt-erase, F36 alt-click delete). Only a BARE Alt press-and-release
+    // opens the menu bar, so any pointer press — and losing the window focus (Alt+Tab) — disarms the pending
+    // entry; otherwise releasing Alt after the gesture dropped the File menu over the drawing, stole the focus
+    // and swallowed the next stroke, arrow key or Escape.
+    d.addEventListener('pointerdown', disarmAlt, true);
+    d.addEventListener('mousedown', disarmAlt, true);
+    w.addEventListener('blur', disarmAlt);
     d.addEventListener('keydown', onKey);
     d.addEventListener('keyup', onKeyUp);
     if (typeof ResizeObserver === 'function') {
@@ -1246,6 +1555,8 @@
     else if (keys.indexOf('probe') >= 0 && mem.els.main && mem.els.main.classList.contains('tt') !== (st().probe.method === 'tt' && currentMode() !== 'tofd')) applyLayout();
     if (keys.indexOf('trade') >= 0) refreshTouchBar();
     if (keys.indexOf('trade') >= 0 || keys.indexOf('standards') >= 0) syncProbeLibLock();
+    // v3 F19: the receiver-probe notice, once per session, however Through Transmission was selected
+    if (keys.indexOf('probe') >= 0 && st().probe.method === 'tt' && !mem.ttShown) { mem.ttShown = true; openTtInfo(); }
     refreshToolbar();
     scheduleSave(keys);
   }
@@ -1270,6 +1581,26 @@
     return !Number.isFinite(T) || c.y <= T + 0.05;                       // 0.05 = cursor rounding (0.1 mm)
   }
   /**
+   * The number the `Pos:` cell reports (v3 §4.1 F13 and §6.3 F44).
+   * - `tofd`: the travel ALONG the weld, `probe.z` (the pair is centred, so `probe.x` is always 0 there and
+   *   the original prints `Pos: 194 mm` as the scan or a D-scan click moves down the weld).
+   * - weld-kind specimens (`spec.weld`): unsigned, because the probe turns round at the centreline (F13) and
+   *   `Pos: -40 mm` would say the trainee is 40 mm the wrong side of a joint they are still facing.
+   * - blocks, TKY, IOW and the step wedge keep their signed/absolute block x exactly as in v1.
+   * The cell itself is rounded to whole millimetres by midParts() (§4.1 `Math.round(Math.abs(x))`, §6.3
+   * `Math.round(probe.z)`) — every original frame prints an integer, and a pointer drag never lands on a
+   * whole millimetre. Inch mode keeps its two decimals. §14.3's `Pos: 96 mm | Depth = -4.0mm | …` is
+   * unaffected (its x is integral either way).
+   * @param {object} s state
+   * @param {object} p state.probe
+   * @returns {number} millimetres for the cell
+   */
+  function posMm(s, p) {
+    if (s.mode === 'tofd') return Number.isFinite(p.z) ? p.z : 0;
+    const x = Number.isFinite(p.x) ? p.x : 0;
+    return s.specimen && s.specimen.weld ? Math.abs(x) : x;
+  }
+  /**
    * Middle status segments (§14.10). Every cell is a t() template with the numbers as params (SPEC-v2 §5.3.2)
    * so the readout follows the UI language; the English keys reproduce the v1 formats verbatim.
    */
@@ -1277,7 +1608,8 @@
     const s = st(), p = s.probe, ins = s.instrument;
     const inch = s.display.units === 'inch';
     const parts = [];
-    parts.push(inch ? t('Pos: {x} in', { x: (p.x / 25.4).toFixed(2) }) : t('Pos: {x} mm', { x: UT.fmtNum(p.x, 'auto') }));
+    const pos = posMm(s, p);
+    parts.push(inch ? t('Pos: {x} in', { x: (pos / 25.4).toFixed(2) }) : t('Pos: {x} mm', { x: Math.round(pos) }));
     parts.push(inch ? t('Range {r}in', { r: (ins.range / 25.4).toFixed(2) }) : t('Range {r}mm', { r: (+ins.range).toFixed(1) }));
     parts.push(t('AMP= {g}dB', { g: UT.fmtNum(s.mode === 'tofd' && s.tofd && Number.isFinite(s.tofd.gainDb) ? s.tofd.gainDb : ins.gain, 'auto') }));
     let extra = '';
@@ -1290,9 +1622,26 @@
         : (inch ? t('Depth = {d}in', { d: (c.y / 25.4).toFixed(3) }) : t('Depth = {d}mm', { d: c.y.toFixed(1) })));
     } else if (c && c.view === 'dscan' && typeof c.depth === 'number' && !Number.isNaN(c.depth)) {
       parts.push(t('Depth: {d}', { d: c.depth.toFixed(1) }));
+    } else {
+      const y = echoDepth(frame, s);   // v3 F23: the beam is on the defect — read the depth off the echo
+      if (y !== null) parts.push(inch ? t('Depth = {d}in', { d: (y / 25.4).toFixed(3) }) : t('Depth = {d}mm', { d: y.toFixed(1) }));
     }
-    void frame;
     return parts;
+  }
+  /**
+   * v3 F23: the depth the status bar reports when the cursor is not hovering — the gated echo when the active
+   * gate has a qualifying reading, else the strongest qualifying echo (kind ∈ defect/corner/tip/lamination at
+   * ≥ 20 %FSH). The data comes from 40-ascan (`frame.depthEcho`, or `UT.ascan.echoDepth(frame, state)` for a
+   * frame that predates it); 90 only formats it. Null → no cell, exactly as in the original.
+   * @param {object|null} frame the render frame (UT.frame)
+   * @param {object} s state
+   * @returns {number|null} depth in mm
+   */
+  function echoDepth(frame, s) {
+    if (!frame || !s || s.display.depthEcho === false) return null;
+    let d = frame.depthEcho;
+    if (d === undefined && has('ascan.echoDepth')) d = call('ascan.echoDepth', [frame, s]);
+    return d && Number.isFinite(d.y) ? d.y : null;
   }
   function leftText(frame) {
     if (frame && frame.derived && frame.derived.statusLine) return frame.derived.statusLine;
@@ -1318,6 +1667,7 @@
     const s = status || st().status || {};
     const left = sb.querySelector('.sb-left'), mid = sb.querySelector('.sb-mid'), right = sb.querySelector('.sb-right');
     if (left.textContent !== (s.left || '')) left.textContent = s.left || '';
+    if (left.title !== (s.left || '')) left.title = s.left || '';           // tooltip = full physics line when ellipsized
     const segs = Array.isArray(s.segments) && s.segments.length ? s.segments.map(String) : String(s.mid || '').split(' | ').filter(Boolean);
     const key = segs.join('');
     if (mid.dataset.key !== key) {
@@ -1331,6 +1681,54 @@
   }
 
   // ------------------------------------------------------------------ keyboard
+  /**
+   * v3 F19: move the Through-Transmission / tandem receiver along the scanning surface with SHIFT + arrows.
+   * `probe.rxOffset` (mm, −200…+200) is the offset from the auto-placed beam-exit point; 30-raytrace adds it
+   * to the receive aperture. The key is absent from UT.defaultState(), so `undefined` reads as 0.
+   * @param {string} key  'ArrowLeft' | 'ArrowRight' | 'ArrowDown' | 'ArrowUp'
+   * @param {boolean} big SHIFT+CTRL — 5 mm per press instead of 1 mm
+   * @returns {boolean} true when the key was consumed
+   */
+  function moveReceiver(key, big) {
+    const s = st(), p = s.probe;
+    if (p.method !== 'tt' && p.method !== 'tandem') return false;
+    if (s.editing && s.editing.defect) return false;                       // the editor owns SHIFT+arrows (F27)
+    const cur = Number.isFinite(p.rxOffset) ? p.rxOffset : 0;
+    let v = cur;
+    if (key === 'ArrowLeft') v = cur - (big ? 5 : 1);
+    else if (key === 'ArrowRight') v = cur + (big ? 5 : 1);
+    else if (key === 'ArrowDown') v = 0;
+    else return false;
+    // clamped so the receiver stays on the scanning surface (and inside ±200 mm); a clipped press says so
+    const ss = scanRange();
+    const lo = Math.max(-200, ss.xMin - p.x), hi = Math.min(200, ss.xMax - p.x);
+    const lim = hi >= lo ? M.clamp(v, lo, hi) : 0;
+    UT.setIn('probe', { rxOffset: +lim.toFixed(1) });
+    UT.status({ right: Math.abs(lim - v) > 1e-6 ? 'Receiver off the scanning surface'
+      : 'SHIFT and LEFT or RIGHT CURSOR KEY TO MOVE RECEIVER PROBE' });
+    return true;
+  }
+  /**
+   * Cancel a pending bare-Alt menu entry. Alt held down while the mouse draws (F26 erase) or clicks
+   * (F36 delete) is a gesture modifier, so the pointer press disarms the menu bar; a bare Alt press and
+   * release still opens it (§5.7 keyboard model).
+   * @returns {void}
+   */
+  function disarmAlt() { mem.altArmed = false; }
+  /**
+   * v3 F3: abort a running auto-cal wizard ('Esc / CANCEL aborts to stage 0 leaving instrument.cal untouched').
+   * The wizard is drawn on the A-scan canvas on the EPOCH skins and as a window on USK 7, so the Esc handler
+   * cannot rely on the window stack; this asks 80-modes instead and is a no-op when the wizard is idle or absent.
+   * @returns {boolean} true when a wizard was running and has been cancelled.
+   */
+  function cancelAutoCal() {
+    const a = st().autocal;
+    if (!a || !a.stage) return false;
+    if (!has('modes.autoCal.cancel')) return false;
+    call('modes.autoCal.cancel');
+    try { UT.renderNow(); } catch (e) { /* logged by core */ }   // setAcState patches with {noRender:true}
+    return true;
+  }
   function onKeyUp(ev) {
     if (ev.key === 'Alt' && mem.altArmed) { mem.altArmed = false; if (!mem.openMenu) { kbOpenMenu(); ev.preventDefault(); } return; }
     if (ev.key !== 'Alt') mem.altArmed = false;
@@ -1349,10 +1747,16 @@
     // Esc closes the top window also while a dialog field has the focus (SPEC v1 keyboard table) — before the editable early return
     if (key === 'Escape' && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
       if (mem.openMenu) { closeMenus(); ev.preventDefault(); return; }
+      // v3 F3: Esc aborts the auto-cal wizard on EVERY UT set. On the three EPOCH skins the wizard is painted
+      // on #cv-ascan with no window, so closeTopWindow() would find nothing; on USK 7 the window is a real
+      // dom.win and cancel() hides it, so this branch replaces the close for it too (and rolls the standards back).
+      if (cancelAutoCal()) { if (editable) { try { ev.target.blur(); } catch (e) { /* ignore */ } } ev.preventDefault(); return; }
       if (UT.dom.closeTopWindow()) { if (editable) { try { ev.target.blur(); } catch (e) { /* ignore */ } } ev.preventDefault(); }
       return;
     }
     if (editable) return;
+    // v3 F19: SHIFT + ←/→ nudges the TT / tandem receiver (SHIFT+CTRL = 5 mm, SHIFT+↓ = back to the beam exit)
+    if (ev.shiftKey && !ev.metaKey && !ev.altKey && key.indexOf('Arrow') === 0 && moveReceiver(key, ev.ctrlKey)) { ev.preventDefault(); return; }
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
     if (key.indexOf('Arrow') === 0 || key === 'Enter') {
       let used = false;
@@ -1382,7 +1786,7 @@
       case 'r': case 'R': cycleRange(); break;
       case 'f': case 'F': UT.setIn('instrument', { freeze: !s.instrument.freeze }); break;
       case 'p': case 'P': UT.setIn('instrument', { peakMem: !s.instrument.peakMem }); break;
-      case 'h': case 'H': activateToolbar('tb-hide'); break;
+      case 'h': case 'H': activateToolbar('tb-hide', { direct: true }); break;   // v1 free toggle; the F33 lock still holds (80)
       case 'b': case 'B': activateToolbar('tb-beam'); break;
       case 'd': case 'D': toggleFinger(); break;
       case '1': activateToolbar('tb-0'); break;
@@ -1554,7 +1958,18 @@
       const s = { vW: p.wedgeVel || UT.consts.V_PERSPEX, wedge: 0 };
       const d0 = has('probe.derive') ? UT.probe.derive(p, st().specimen) : null;
       s.wedge = d0 ? +d0.wedgeAngle.toFixed(1) : 0;
+      // v3 F14 (shear_wave f045/f050): the shear readout line is GREEN and the compression line AMBER — the
+      // same pair 60-view-cross paints the twin fans with — and the mode band carries the pale tints of both.
+      const C_SHEAR = '#00c000', C_COMP = '#ffd700';
+      const BAND = { comp: '#ffe9a8', shear: '#d8f5d0', surface: '#f5d0d0' };
       const readout = h('div', { class: 'wedge-readout no-i18n', style: { overflowX: 'auto' } }, '');
+      /** One readout line (the block is `white-space: pre`); `colour` paints the F14 wave-mode lines. */
+      const rline = function (text, colour) {
+        const style = { display: 'block' };
+        // the amber is the fan's own #ffd700, so a hair of dark shadow keeps it legible on the grey readout
+        if (colour) { style.color = colour; style.fontWeight = '600'; style.textShadow = '0 0 1px rgba(0,0,0,0.5)'; }
+        return h('span', { class: 'no-i18n', style }, text);
+      };
       const limitNote = h('div', { class: 'dlg-msg dlg-warn no-i18n' }, '');
       limitNote.hidden = true;
       const scale = h('div', { class: 'wedge-scale' });
@@ -1571,21 +1986,30 @@
         const crit = r.crit;
         const pct = function (a) { return M.clamp(a / 80 * 100, 0, 100); };
         scale.textContent = '';
-        scale.style.background = 'linear-gradient(90deg,#cfe8ff 0 ' + pct(crit.first) + '%,#d8f5d0 ' + pct(crit.first) + '% ' + pct(crit.second) + '%,#f5d0d0 ' + pct(crit.second) + '%)';
+        scale.style.background = 'linear-gradient(90deg,' + BAND.comp + ' 0 ' + pct(crit.first) + '%,' + BAND.shear + ' '
+          + pct(crit.first) + '% ' + pct(crit.second) + '%,' + BAND.surface + ' ' + pct(crit.second) + '%)';
         scale.appendChild(h('span', { style: { left: pct(crit.first / 2) + '%' }, i18n: 'compression' }));
         scale.appendChild(h('span', { style: { left: pct((crit.first + crit.second) / 2) + '%' }, i18n: 'shear' }));
         scale.appendChild(h('span', { style: { left: pct((crit.second + 80) / 2) + '%' }, i18n: 'surface' }));
         scale.appendChild(h('div', { class: 'crit', style: { left: pct(crit.first) + '%' } }));
         scale.appendChild(h('div', { class: 'crit', style: { left: pct(crit.second) + '%' } }));
         const vC = ((mat && mat.vComp) || UT.consts.V_COMP_STEEL) * 1000, vS = ((mat && mat.vShear) || UT.consts.V_SHEAR_STEEL) * 1000;
-        readout.textContent =
-          'Wedge angle            : ' + s.wedge.toFixed(1) + '°   (wedge velocity ' + Math.round(s.vW * 1000) + ' m/s)\n' +
-          '1st critical angle     : ' + crit.first.toFixed(1) + '°   (compression wave, ' + Math.round(vC) + ' m/s)\n' +
-          '2nd critical angle     : ' + crit.second.toFixed(1) + '°   (shear wave, ' + Math.round(vS) + ' m/s)\n' +
-          (r.beyond ? 'Beyond 2nd critical    : surface (Rayleigh) wave only, no bulk wave\n'
-            : (r.mode === 'comp' ? 'Compression wave angle : ' + r.refracted.toFixed(1) + '°' + (r.shearToo !== null && r.shearToo !== undefined ? '   (shear also present at ' + r.shearToo.toFixed(1) + '°)' : '') + '\n'
-              : 'Shear wave angle       : ' + r.refracted.toFixed(1) + '°   (comp. wave totally reflected)\n')) +
-          'sin(θ wedge)/v wedge = sin(θ steel)/v steel   (Snell)';
+        // below the 1st critical angle BOTH modes travel (0° included — f045 prints the shear line at 0 m/s);
+        // above it only the green shear line remains, exactly as the original's panel does
+        const both = !r.beyond && r.mode === 'comp';
+        const shearDeg = both ? (Number.isFinite(r.shearToo) ? r.shearToo : 0) : (r.beyond ? 0 : r.refracted);
+        const shearVel = both && !Number.isFinite(r.shearToo) ? 0 : Math.round(vS);
+        readout.textContent = '';
+        readout.appendChild(rline('Wedge angle            : ' + s.wedge.toFixed(1) + '°   (wedge velocity ' + Math.round(s.vW * 1000) + ' m/s)', null));
+        readout.appendChild(rline('1st critical angle     : ' + crit.first.toFixed(1) + '°   (compression wave, ' + Math.round(vC) + ' m/s)', null));
+        readout.appendChild(rline('2nd critical angle     : ' + crit.second.toFixed(1) + '°   (shear wave, ' + Math.round(vS) + ' m/s)', null));
+        if (r.beyond) readout.appendChild(rline('Beyond 2nd critical    : surface (Rayleigh) wave only, no bulk wave', null));
+        else {
+          readout.appendChild(rline('[ Shear Wave Angle=' + shearDeg.toFixed(1) + '°   Velocity=' + shearVel + ' m/s]'
+            + (both ? '' : '   (compression wave totally reflected)'), C_SHEAR));
+          if (both) readout.appendChild(rline('[ Compression Wave Angle=' + r.refracted.toFixed(1) + '°   Velocity=' + Math.round(vC) + ' m/s]', C_COMP));
+        }
+        readout.appendChild(rline('sin(\u03b8 wedge)/v wedge = sin(\u03b8 steel)/v steel   (Snell)', null));
         readout.classList.toggle('dlg-warn', !!r.beyond);
         // 20-probe clamps the refracted angle to the material's critical limit (derived.angleLimited): same warning
         // treatment as 'F > near field' in openFocus (the status physics line already carries the note)
@@ -1629,8 +2053,13 @@
       return h('div', {}, [
         sel('UT Set', s.utSet, [{ value: 'epoch600', label: t('EPOCH 600') }, { value: 'epoch4', label: t('EPOCH 4 (ASME text screen)') }, { value: 'usk7', label: t('Krautkrämer USK 7 (analogue)') }], setUtSet),
         sel('Units', s.display.units || 'mm', [{ value: 'mm', label: t('mm') }, { value: 'inch', label: t('inch') }], function (v) { setDisplay({ units: v }); }),
-        sel('Colour code', s.display.colourCode || 'none', [{ value: 'none', label: t('None') }, { value: 'propagation', label: t('Mode propagation (leg colours)') }, { value: 'geometry', label: t('Geometry (last surface)') }], function (v) { setDisplay({ colourCode: v }); }),
-        sel('Number of skips', String(s.display.skips || 3), [1, 2, 3, 4].map(function (n) { return { value: String(n), label: String(n) }; }), function (v) { setDisplay({ skips: parseInt(v, 10) }); }),
+        // v3 F15: the same three schemes as Probes \u25b8 Colour Code Display (the Options copy used to omit 'legs',
+        // so a 'legs' state fell back to the first option and misreported itself)
+        sel('Colour code', s.display.colourCode || 'none', [{ value: 'none', label: t('None') }, { value: 'propagation', label: t('Mode Propagation') }, { value: 'legs', label: t('Leg colours') }, { value: 'geometry', label: t('Geometry (last surface)') }], function (v) { setDisplay({ colourCode: v }); }),
+        // v3 F17 (QA round 2): the peer of Probes \u25b8 Number of Skips — the same eight entries, the entry
+        // actually in force, and every choice routed through setSkips() so 'Run to UT Screen Range' is both
+        // reachable and cleared by a numeric pick (setDisplay alone never touched display.skipsToRange)
+        sel('Number of skips', skipSelValue(), skipSelOptions(), function (v) { setSkips(v === SKIPS_RANGE ? null : parseFloat(v)); }),
         chk('Show plan view', s.display.plan !== false, function (v) { setDisplay({ plan: v }); applyLayout(); }),
         chk('Show 3D window', pipe3dOpen(), function (v) { setPipe3dShown(v); }),
         chk('Show legend', s.display.legend !== false, function (v) { setDisplay({ legend: v }); }),
@@ -1675,6 +2104,160 @@
     });
   }
 
+  /**
+   * v3 F45: one-field weld-condition dialog (`Misalignment…`, `Pipe Wall Thickness Variation…`). 0 turns the
+   * condition off, which is why the menu tick reads `!== 0` rather than a boolean.
+   * @param {{name:string, title:string, label:string, unit:string, key:string, min:number, max:number, step:number, note:string}} o
+   */
+  function openWeldCondition(o) {
+    dialog(o.name, o.title, 340, function (win) {
+      let v = +weldFlag(o.key) || 0;
+      const f = numField(o.label, { value: v, min: o.min, max: o.max, step: o.step, unit: o.unit, onchange: function (n) { v = n; } });
+      const apply = function (n) { const p = {}; p[o.key] = n; weldCondition(p); };
+      return h('div', {}, [
+        f,
+        tx('div', { class: 'dlg-note' }, o.note),
+        h('div', { class: 'btn-row' }, [
+          UT.dom.button('OK', function () { apply(v); win.close(); }, { class: 'btn primary' }),
+          UT.dom.button('Off', function () { apply(0); win.close(); }),
+          UT.dom.button('Cancel', function () { win.close(); }),
+        ]),
+      ]);
+    });
+  }
+  /** v3 F45: high–low step at the joint, −5…+5 mm (0 = aligned). */
+  function openMisalignment() {
+    openWeldCondition({ name: 'misalign', title: 'Misalignment', label: 'High-low step', unit: 'mm', key: 'misalignmentMm', min: -5, max: 5, step: 0.5,
+      note: 'The plate on the +x side of the weld sits this far low. A misaligned root looks like lack of penetration — that is the exercise. 0 = aligned.' });
+  }
+  /** v3 F45: pipe wall-thickness variation, 0…4 mm peak-to-peak (0 = a constant wall). */
+  function openWtVariation() {
+    openWeldCondition({ name: 'wtvar', title: 'Pipe Wall Thickness Variation', label: 'Variation (peak to peak)', unit: 'mm', key: 'wtVariationMm', min: 0, max: 4, step: 0.5,
+      note: 'Pipes only: the wall thins and thickens along the weld, so the backwall walks as the probe travels. 0 = a constant wall.' });
+  }
+  /**
+   * v3 F47: `Weld ▸ Pipe Thickness…` — the original's single-field prompt (the full Weld Settings dialog stays).
+   * The validation line is the original's wording and is shown whenever the entry is refused.
+   */
+  function openPipeThk() {
+    dialog('pipethk', 'Pipe Thickness', 320, function (win) {
+      let v = +(st().weldOpts && st().weldOpts.wt) || 20;
+      const msg = h('div', { class: 'dlg-msg' }, '');
+      // a PLAIN field, not numField: the original REFUSES an out-of-range entry with its validation line
+      // (V3-47 rejects 3 and 50), where numField would silently clamp it into range.
+      const f = UT.dom.field('Thickness', { type: 'number', event: 'input', value: v, min: 6, max: 40, step: 1, onchange: function (n) { v = n; msg.textContent = ''; } });
+      f.appendChild(h('span', { class: 'fld-unit' }, 'mm'));
+      const ok = function () {
+        const done = has('modes.setPipeThickness') ? call('modes.setPipeThickness', [v]) : (v >= 6 && v <= 40 ? (applyWeldOpts(Object.assign({}, st().weldOpts, { wt: v, T: v })), true) : false);
+        if (!done) { msg.textContent = t('Enter Thickness between 6mm and 40mm'); return; }
+        win.close();
+      };
+      return h('div', {}, [
+        f, msg,
+        tx('div', { class: 'dlg-note' }, 'Enter Thickness between 6mm and 40mm'),
+        h('div', { class: 'btn-row' }, [UT.dom.button('OK', ok, { class: 'btn primary' }), UT.dom.button('Cancel', function () { win.close(); })]),
+      ]);
+    });
+  }
+  /**
+   * v3 F19: the `UTsim` notice shown once per session when Through Transmission is selected
+   * (utman_software f008). Its single line is the original's, verbatim.
+   * @returns {object|null} the window api (null headless)
+   */
+  function openTtInfo() {
+    if (!doc()) return null;
+    return dialog('ttinfo', 'UTsim', 380, function (win) {
+      return h('div', { class: 'dlg-text' }, [
+        tx('div', { class: 'tt-line' }, 'SHIFT and LEFT or RIGHT CURSOR KEY TO MOVE RECEIVER PROBE'),
+        h('div', { class: 'btn-row' }, [UT.dom.button('OK', function () { win.close(); }, { class: 'btn primary' })]),
+      ]);
+    }, { x: 300, y: 240 });
+  }
+  /** v3 §6.5: Help ▸ Contents — a plain index of the help pages, each opening the window that holds it. */
+  function openContents() {
+    const pages = [
+      ['Welcome', openGuide], ['User Interface', openGuide], ['Amplitude Gate', openKeys], ['TOF', openKeys],
+      ['MAPS', function () { toggleWindowOf('views.bscan'); }], ['TOFD', function () { toggleMode('tofd'); }],
+      ['Defects', function () { toggleWindowOf('modes.defectEditor'); }], ['Keys', openKeys],
+      ['UT Sets', openOptions], ['License', openAbout],
+    ];
+    dialog('contents', 'Contents', 360, function (win) {
+      return h('div', { class: 'dlg-text' }, [
+        tx('div', { class: 'dlg-note' }, 'Help contents — the same pages the menus reach.'),
+        h('div', { class: 'help-index' }, pages.map(function (p) {
+          return UT.dom.button(p[0], function () { win.close(); try { p[1](); } catch (e) { console.error('[UT.app] contents ' + p[0], e); } }, { class: 'btn small' });
+        })),
+        h('div', { class: 'btn-row' }, [UT.dom.button('Close', function () { win.close(); }, { class: 'btn primary' })]),
+      ]);
+    });
+  }
+
+  // ------------------------------------------------------------------ v3 F54: screen shot (PNG)
+  /** `utsim-screen-20260907-1432` — the timestamp fragment of the F54 file name. */
+  function stamp(d) {
+    const p = function (n) { return (n < 10 ? '0' : '') + n; };
+    const t0 = d || new Date();
+    return String(t0.getFullYear()) + p(t0.getMonth() + 1) + p(t0.getDate()) + '-' + p(t0.getHours()) + p(t0.getMinutes());
+  }
+  /**
+   * Offer a data / object URL to the browser as a download. Core has no `UT.dom.download` (SPEC-v3 §1 does not
+   * add one), so 90 keeps its own: a detached `<a download>`, clicked once and dropped on the next tick.
+   * @param {string} name file name
+   * @param {string} url  data: or blob: URL
+   * @returns {boolean} true when the click was dispatched
+   */
+  function downloadUrl(name, url) {
+    const d = doc();
+    if (!d || !url) return false;
+    try {
+      const a = h('a', { href: url, download: name, style: 'display:none' });
+      d.body.appendChild(a);
+      a.click();
+      setTimeout(function () { try { d.body.removeChild(a); } catch (e) { /* already gone */ } }, 0);
+      return true;
+    } catch (e) { console.warn('[UT.app] download failed', e); return false; }
+  }
+  /**
+   * v3 F54: compose every visible canvas into one offscreen canvas at its on-screen position (divided by the
+   * design-box scale) and return the PNG data URL. Canvases inside open windows are included; hidden ones and
+   * canvases with a zero box are skipped. Returns '' when there is nothing to draw or the context is missing.
+   * @returns {string} a `data:image/png;base64,…` URL
+   */
+  function screenshot() {
+    const d = doc();
+    const root = mem.els.app;
+    if (!d || !root || typeof d.createElement !== 'function') return '';
+    const k = mem.scale || 1;
+    const box = root.getBoundingClientRect();
+    const out = d.createElement('canvas');
+    out.width = Math.max(1, Math.round(DESIGN_W));
+    out.height = Math.max(1, Math.round(DESIGN_H));
+    const ctx = out.getContext ? out.getContext('2d') : null;
+    if (!ctx) return '';
+    ctx.fillStyle = '#d8d8d8';
+    ctx.fillRect(0, 0, out.width, out.height);
+    const list = [];
+    for (const cv of Array.prototype.slice.call(d.querySelectorAll('canvas'))) {
+      const r = cv.getBoundingClientRect();
+      if (!r.width || !r.height || !cv.width || !cv.height) continue;
+      list.push({ cv, x: (r.left - box.left) / k, y: (r.top - box.top) / k, w: r.width / k, h: r.height / k, win: !!(cv.closest && cv.closest('.win')) });
+    }
+    list.sort(function (a, b) { return (a.win ? 1 : 0) - (b.win ? 1 : 0); });   // window canvases on top
+    for (const it of list) {
+      try { ctx.drawImage(it.cv, it.x, it.y, it.w, it.h); } catch (e) { /* tainted or detached: skip it */ }
+    }
+    try { return out.toDataURL('image/png'); } catch (e) { console.warn('[UT.app] screenshot', e); return ''; }
+  }
+  /** v3 F54: File ▸ Save screen shot (PNG) — compose and download `utsim-screen-<yyyymmdd-hhmm>.png`. */
+  function saveScreenShot() {
+    const url = screenshot();
+    if (!url) { UT.dom.alert(t('Nothing to capture yet.'), 'Save screen shot (PNG)'); return false; }
+    const name = 'utsim-screen-' + stamp() + '.png';
+    const ok = downloadUrl(name, url);
+    UT.status({ right: ok ? 'You can attach this file to an email and send it to other UTsim users' : 'Could not save the screen shot' });
+    return ok;
+  }
+
   function textWin(name, title, w, build) { dialog(name, title, w, function (win) { return h('div', { class: 'dlg-text' }, build().concat([h('div', { class: 'btn-row' }, [UT.dom.button('Close', function () { win.close(); }, { class: 'btn primary' })])])); }); }
   function p2(en, ko) { return [tx('p', {}, en), h('p', { class: 'ko no-i18n' }, ko)]; }
   function openAbout() {
@@ -1712,10 +2295,30 @@
       ['← / →', 'Move probe 1 mm (Shift: 10 mm)'], ['↑ / ↓', 'Move probe along the weld (z)'],
       ['+ / −', 'Gain ±1 dB (Shift: ±6 dB)'], ['R', 'Range 50 → 100 → 200 → 400 mm'], ['F', 'Freeze'], ['P', 'Peak memory'],
       ['H', 'Hide defects & beam'], ['B', 'Beam on/off'], ['D', 'Finger damping tool'], ['1 2 3 4', 'Probe 0° / 45° / 60° / 70°'], ['Esc', 'Close the top window, menu or tour'],
-      ['F10, Alt', 'Open the menu bar (arrows navigate, Enter activates)'], ['Alt+F/P/S/W/D/T/O/H', 'Open the File / Probes / Step Wedge / Weld / Defects / Tools / Options / Help menu'],
+      ['F10, Alt', 'Open the menu bar (arrows navigate, Enter activates)'],
+      ['Alt+F/P/S/W/D/T/O/H', 'Open the File / Probes / Step Wedge / Weld / Defects / Tools / Options / Help menu'],
+      // v3 F55: the two new top-level menus carry Alt+M and Alt+A (F/P/S/W/D/T/O/H were taken)
+      ['Alt+M / Alt+A', ['Scale Mode', 'About']],
       ['▲▼◀▶ (instrument focused)', 'Adjust the selected instrument parameter'], ['Mouse wheel', 'Over the cross-section: gain ±1 dB; over the instrument: selected parameter'],
+      // v3 F51 — the teaching-aid drawing overlay and its keyboard pen (86-annotate owns both chords)
+      ['SHIFT+F12, Ctrl+Shift+D', 'TEACHING AID DRAWING MODE — LEFT mouse draws red, RIGHT mouse draws blue. SHIFT+F12 again to clear and exit.'],
+      ['◀▶▲▼, Space, C (teaching aid)', 'Left button draws red, right button draws blue. Arrow keys move the pen, Space draws, C clears.'],
+      // v3 F19 — the through-transmission / tandem receiver probe (this file, moveReceiver): SHIFT+↓ re-centres it
+      ['Shift+← / → / ↓ (Through Transmission, Tandem)', 'SHIFT and LEFT or RIGHT CURSOR KEY TO MOVE RECEIVER PROBE'],
+      // v3 F27 — the defect editor's own bindings (80-modes editorKey), live while the editor window is open
+      ['Shift+← / → (defect editor; Ctrl = 10 mm)', 'All defects can be moved with: SHIFT+  LEFT or RIGHT cursor key'],
+      ['Shift+Z X A S Q W (defect editor)', "To alter LOF defects use: SHIFT+ 'Z' or 'X' = Rotate, 'A' or 'S' = change size, 'Q'\nor 'W'"],
+      ['Delete (defect editor, selected defect)', 'Delete'],
+      ['F1 (defect editor)', 'Press F1 to redisplay these instructions'],
     ];
-    textWin('keys', 'Keyboard Shortcuts', 560, function () { return [h('table', {}, rows.map(function (r) { return h('tr', {}, [h('td', {}, h('kbd', { class: 'no-i18n' }, r[0])), tx('td', {}, r[1])]); }))]; });
+    // a row description is one key, or a list of keys joined with ' / ' (Alt+M / Alt+A name two menus)
+    const desc = function (d) {
+      if (!Array.isArray(d)) return tx('td', {}, d);
+      const td = h('td', {});
+      d.forEach(function (k, i) { if (i) td.appendChild(h('span', { class: 'no-i18n' }, ' / ')); td.appendChild(tx('span', {}, k)); });
+      return td;
+    };
+    textWin('keys', 'Keyboard Shortcuts', 560, function () { return [h('table', {}, rows.map(function (r) { return h('tr', {}, [h('td', {}, h('kbd', { class: 'no-i18n' }, r[0])), desc(r[1])]); }))]; });
   }
   /** Export dialog: shows a canvas as a PNG data URL inside an <img> (no download links). */
   function openExport(canvasId) {
@@ -2188,10 +2791,19 @@
     // record — or omit them (patchFromRecord tolerates absent keys) — instead of the seeded values.
     const hidden = s.mode === 'trade' || !!(trade.active || (trade.exam && trade.exam.locked));
     const p = hidden && prev && typeof prev === 'object' ? prev : null;
+    // v3 §2: tkyOpts, two editing keys, two scaleMode numbers, plot.ruler and two annot flags join the record.
+    // NEVER scaleMode.picture / scaleMode.outline (a data: URL blows the quota) nor annot.strokes / tofd.parallel.
+    const sm = s.scaleMode || {};
+    const an = s.annot || {};
+    const ed = s.editing || {};
+    const plot = s.plot || {};
     const rec = {
-      v: 2, probe: s.probe, instrument: ins, display: s.display, defects: s.defects || [], weldOpts: s.weldOpts, utSet: s.utSet, lang: lang || 'en',
+      v: 3, probe: s.probe, instrument: ins, display: s.display, defects: s.defects || [], weldOpts: s.weldOpts, utSet: s.utSet, lang: lang || 'en',
       material: s.material, physics: s.physics, standards: std, lessons: { progress, answers: lessons.answers || {} },
       trade: { history: hist, difficulty: trade.difficulty, timeLimitMin: trade.timeLimitMin }, pa,
+      tkyOpts: s.tkyOpts, editing: { spotMm: ed.spotMm, keyLock: ed.keyLock === undefined ? null : ed.keyLock },
+      scaleMode: { mmPerPx: sm.mmPerPx, gradStepMm: sm.gradStepMm }, plot: { ruler: plot.ruler },
+      annot: { torch: !!an.torch, shown: !!an.shown },
     };
     if (hidden) {
       if (p && Array.isArray(p.defects)) rec.defects = p.defects; else delete rec.defects;
@@ -2208,7 +2820,13 @@
   /** Finite number clamped to [lo, hi]; non-numeric → `def` (then clamped). */
   function numIn(v, def, lo, hi) { return M.clamp(num(v, def), lo, hi); }
   // Stored-record validation ranges (same limits as the Weld / wedge dialogs and instrument softkeys).
-  const WELD_RANGES = { T: [3, 100], L: [50, 2000], bevel: [0, 60], rootGap: [0, 10], rootFace: [0, 10], capWidth: [0, 60], capHeight: [0, 10], rootHeight: [0, 10], od: [25, 2000], wt: [3, 100], webT: [3, 60], branchOd: [20, 1000], transferLossDb: [0, 8] };
+  const WELD_RANGES = { T: [3, 100], L: [50, 2000], bevel: [0, 60], rootGap: [0, 10], rootFace: [0, 10], capWidth: [0, 60], capHeight: [0, 10], rootHeight: [0, 10], od: [25, 2000], wt: [3, 100], webT: [3, 60], branchOd: [20, 1000], transferLossDb: [0, 8],
+    misalignmentMm: [-5, 5], wtVariationMm: [0, 4] };   // v3 F45 (the two booleans need no range)
+  // v3 F46: the TKY configuration, promoted into state and persisted
+  const TKY_RANGES = { braceAngle: [15, 90], braceT: [3, 60], chordT: [3, 100], braceOffset: [-200, 200], precision: [0.1, 10], chordOd: [100, 2000], chordWt: [6, 60] };
+  const TKY_ENUMS = { kind: ['Plate', 'T-joint', 'Pipe'] };
+  // v3 F5: EPOCH LTC joins the stored UT sets
+  const UT_SETS = ['epoch600', 'epoch4', 'usk7', 'epochltc'];
   const WELD_TYPES = ['single-v', 'double-v', 'none', 'fillet'];
   const WELD_PREPS = ['single-v', 'double-v', 'single-bevel', 'j', 'single-v-backing', 'fillet-t', 'nozzle', 'none'];
   const WELD_ENUMS = { type: WELD_TYPES, prep: WELD_PREPS, weldMaterial: ['same', 'austenitic'] };
@@ -2233,8 +2851,8 @@
   const PROBE_ANGLE_VALID = [0, 90];
   const PROBE_RANGES = { angle: [0, 89.9], freq: [0.5, 20], diameter: [1, 50], wedgeVel: [1, 6], x: [-3000, 3000], z: [-5000, 5000], skew: [-360, 360], paFrom: [0, 89.9], paTo: [0, 89.9], paStep: [0.1, 10] };
   const PROBE_ENUMS = { mode: ['shear', 'comp'], crystal: ['single', 'twin'], method: ['pe', 'tt', 'tandem', 'pa'], surface: ['chord', 'brace', 'web'] };
-  const DISPLAY_RANGES = { skips: [1, 12] };
-  const DISPLAY_ENUMS = { units: ['mm', 'inch'], touchBar: ['auto', 'on', 'off'], scale: ['auto', 'fixed'], colourCode: ['none', 'propagation', 'geometry'] };
+  const DISPLAY_RANGES = { skips: [0.5, 12] };                              // v3 F17: half-skip steps
+  const DISPLAY_ENUMS = { units: ['mm', 'inch'], touchBar: ['auto', 'on', 'off'], scale: ['auto', 'fixed'], colourCode: ['none', 'propagation', 'geometry', 'legs'] };
   const RECTIFY = ['full', 'rf', 'pos', 'neg'];
   const PULSER_ENERGY = [100, 200, 300, 400], PULSER_DAMPING = [50, 100, 150, 200, 400], FILTERS = ['broadband', '0.2-10', '1.5-8.5', '5-15'];
   const ENERGY_LABELS = { low: 100, med: 200, medium: 200, high: 400 };
@@ -2267,7 +2885,7 @@
   function plainObj(v) { return v && typeof v === 'object' && !Array.isArray(v) ? v : null; }
   /** Turn a stored record into a UT.set patch (validated, merged over the defaults); null when unusable. */
   function patchFromRecord(rec) {
-    if (!rec || typeof rec !== 'object' || (rec.v !== 1 && rec.v !== 2)) return null;
+    if (!rec || typeof rec !== 'object' || (rec.v !== 1 && rec.v !== 2 && rec.v !== 3)) return null;
     const def = UT.defaultState();
     const patch = {};
     if (rec.probe && typeof rec.probe === 'object') {
@@ -2327,7 +2945,7 @@
     }
     if (rec.weldOpts && typeof rec.weldOpts === 'object') patch.weldOpts = coerceWeld(def.weldOpts, rec.weldOpts);
     if (Array.isArray(rec.defects)) patch.defects = limitDefectSlots(rec.defects, zOptsOf(patch.weldOpts));
-    if (rec.utSet === 'epoch600' || rec.utSet === 'epoch4' || rec.utSet === 'usk7') patch.utSet = rec.utSet;
+    if (UT_SETS.indexOf(rec.utSet) >= 0) patch.utSet = rec.utSet;
     if (rec.lang === 'ko' || rec.lang === 'en') patch.__lang = rec.lang;
     // v2 keys (a v1 record lacks them → defaults)
     const mats = has('specimens.materials');
@@ -2370,6 +2988,30 @@
       pa.scan = null;
       patch.pa = pa;
     }
+    // ---- v3 keys (a v1/v2 record lacks them → defaults). Every one is merged over the default object,
+    // because UT.set REPLACES a nested object: a bare {spotMm} patch would drop editing.brush.
+    if (plainObj(rec.tkyOpts)) patch.tkyOpts = coerceLike(def.tkyOpts, rec.tkyOpts, TKY_RANGES, TKY_ENUMS);
+    if (plainObj(rec.editing)) {
+      const re = rec.editing;
+      patch.editing = Object.assign({}, def.editing, {
+        spotMm: numIn(re.spotMm, def.editing.spotMm, 5, 45),
+        keyLock: typeof re.keyLock === 'string' && re.keyLock.length <= 64 ? re.keyLock : null,
+      });
+    }
+    if (plainObj(rec.scaleMode)) {
+      const rs = rec.scaleMode;
+      patch.scaleMode = Object.assign({}, def.scaleMode, {
+        mmPerPx: numIn(rs.mmPerPx, def.scaleMode.mmPerPx, 0.05, 5),
+        gradStepMm: numIn(rs.gradStepMm, def.scaleMode.gradStepMm, 1, 50),
+      });
+    }
+    if (plainObj(rec.plot) && plainObj(rec.plot.ruler)) {
+      const rr = rec.plot.ruler;
+      patch.plot = Object.assign({}, def.plot, { ruler: {
+        on: !!rr.on, x: numIn(rr.x, 0, -2000, 2000), view: rr.view === 'block' ? 'block' : 'plotter',
+      } });
+    }
+    if (plainObj(rec.annot)) patch.annot = Object.assign({}, def.annot, { torch: !!rec.annot.torch, shown: !!rec.annot.shown });
     return patch;
   }
   function restore() {
@@ -2502,7 +3144,9 @@
     boot, buildLayout, setLang, saveNow, applyLayout, applyScale, refreshToolbar, refreshTouchBar, menuByPath, activateToolbar, runSelftests,
     toolbarIds: TB_IDS, restore, patchFromRecord, buildSavePatch, coerceLike, parseSteps, wedgeToRefracted, probePatchFor, typeOfPrep, OD_INCH,
     openWeld, openWedge, openOptions, openStepWedge, openAbout, openGuide, openKeys, openExport, openProbeLib, openMaterial, openFocus, openGlossary,
-    openTour, closeTour, printReport, closeMenus, openMenu: kbOpenMenu, selectLibProbe, setMaterial, applyWeldOpts,
+    openTour, closeTour, printReport, closeMenus, openMenu: kbOpenMenu, selectLibProbe, setMaterial, setUtSet, applyWeldOpts,
+    // v3 (§8 menus, §6.5 F54, §4.7 F19, §3.7 F7)
+    openMisalignment, openWtVariation, openPipeThk, openTtInfo, openContents, saveScreenShot, screenshot, unCalibrate, moveReceiver, ALL_MENUS,
     /** Current design-box scale factor (1 in 'fixed' mode). */
     scale() { return mem.scale; },
     /** True when the OS prefers reduced motion (scan owners step synchronously). */
@@ -2514,23 +3158,45 @@
         const probes = menuModel().find(function (m) { return m.id === 'menu-probes'; }).items.filter(function (i) { return !i.sep; }).map(function (i) { return i.key; });
         const want = ['Probe library…', 'Adjust Angle in Wedge (Shoe)', 'Zero Probe - Twin or Single Crystal', 'Pulse Echo', 'Through Transmission', 'Tandem (pitch catch)', '2.5 MHz Frequency', '5 MHz Frequency', 'Probe Diameter 10mm', 'Probe Diameter 5mm', 'Phased Array Probe', 'Focus Beam', 'Colour Code Display', 'Number of Skips', 'Single Line Beam', 'Mode conversion', 'Surface wave', 'Side lobes', 'Finger damping tool'];
         if (probes.join('|') !== want.join('|')) f.push('Probes menu order: ' + probes.join('|'));
+        // v3 §8/F55: ten top-level menus, Scale Mode before Tools and About before Help
         const ids = menuModel().map(function (m) { return m.id; }).join(',');
-        if (ids !== 'menu-file,menu-probes,menu-stepwedge,menu-weld,menu-defects,menu-tools,menu-options,menu-help') f.push('menu ids ' + ids);
+        if (ids !== ALL_MENUS.map(function (k) { return 'menu-' + k; }).join(',')) f.push('menu ids ' + ids);
+        if (ids !== 'menu-file,menu-probes,menu-stepwedge,menu-weld,menu-defects,menu-scalemode,menu-tools,menu-options,menu-about,menu-help') f.push('menu bar order ' + ids);
         const tools = menuModel().find(function (m) { return m.id === 'menu-tools'; }).items.filter(function (i) { return !i.sep; }).map(function (i) { return i.key; });
-        if (tools.join('|') !== 'DGS diagram…|Evaluation (standards)…|Procedures|B-scan window|Echo dynamic window|Datalogger…|Sizing…') f.push('Tools menu ' + tools.join('|'));
+        if (tools.join('|') !== 'DGS diagram…|Evaluation (standards)…|Procedures|B-scan window|Echo dynamic window|Datalogger…|Sizing…|Draw palette…') f.push('Tools menu ' + tools.join('|'));
         const keysOf = function (id) { return menuModel().find(function (m) { return m.id === id; }).items.filter(function (i) { return !i.sep; }).map(function (i) { return i.key; }); };
         for (const k of ['Save scenario…', 'Load scenario…', 'Share link…', 'Print report', 'New', 'Save Setup', 'Load Setup', 'Export A-scan PNG', 'Print']) if (keysOf('menu-file').indexOf(k) < 0) f.push('File menu lacks ' + k);
         for (const k of ['Sound alarm', 'Touch bar', 'High contrast', 'Auto-scale layout', 'Show dead zones', 'UT Set', 'Units', 'Language', 'Options...', 'Reset Layout']) if (keysOf('menu-options').indexOf(k) < 0) f.push('Options menu lacks ' + k);
         for (const k of ['Glossary…', 'Quick tour', 'Standards notes…', 'Echo quiz…', 'Lessons...', 'About UTsim...']) if (keysOf('menu-help').indexOf(k) < 0) f.push('Help menu lacks ' + k);
         if (keysOf('menu-weld').indexOf('Material…') < 0 || keysOf('menu-weld').indexOf('Weld Settings...') < 0) f.push('Weld menu');
         if (keysOf('menu-defects').indexOf('Random practice…') < 0 || keysOf('menu-stepwedge').indexOf('FBH block') < 0) f.push('Defects/Step Wedge v2 items');
+        if (keysOf('menu-stepwedge').indexOf('A5 IOW block') !== keysOf('menu-stepwedge').indexOf('FBH block') + 1) f.push('v3 §8 Step Wedge ▸ A5 IOW block after FBH block');
+        // ---- v3 §8 menu additions
+        for (const k of ['Root Corrosion', 'Rough Surface', 'Misalignment…', 'Pipe Wall Thickness Variation…', 'Pipe Thickness…']) if (keysOf('menu-weld').indexOf(k) < 0) f.push('Weld menu lacks ' + k);
+        for (const k of ['UnCalibrate', 'Delete EPOCH records', 'Always Show UT Controls', 'Float instrument panel', 'Show A-scan overlay text', 'Highlight pointer', 'Show echo depth']) if (keysOf('menu-options').indexOf(k) < 0) f.push('Options menu lacks ' + k);
+        if (keysOf('menu-file').indexOf('Save screen shot (PNG)') < 0) f.push('File menu lacks Save screen shot (PNG)');
+        if (keysOf('menu-stepwedge').indexOf('Steps 20-8 mm (2 mm)') < 0) f.push('Step Wedge lacks the 20-8 mm preset');
+        if (keysOf('menu-help').indexOf('Demo (OK splash)') < 0 || keysOf('menu-help').indexOf('Contents') < 0) f.push('Help menu v3 items');
+        if (keysOf('menu-about').join('|') !== 'About UTsim...') f.push('About menu ' + keysOf('menu-about').join('|'));
+        const scaleKeys = keysOf('menu-scalemode');
+        if (scaleKeys.join('|') !== 'Adjust Scale…|Load Pic…|Capture|Pipe|Protractor|Trace boundary|Skip graduations|Exit Scale Mode') f.push('Scale Mode menu ' + scaleKeys.join('|'));
+        const skipSub = (menuModel().find(function (m) { return m.id === 'menu-probes'; }).items.find(function (i) { return i.key === 'Number of Skips'; }) || {}).sub || [];
+        if (skipSub.map(function (i) { return i.key; }).join('|') !== 'Run to UT Screen Range|Half Skip|1|1.5|2|2.5|3|4') f.push('Number of Skips ' + skipSub.map(function (i) { return i.key; }).join('|'));
+        const ccSub = (menuModel().find(function (m) { return m.id === 'menu-probes'; }).items.find(function (i) { return i.key === 'Colour Code Display'; }) || {}).sub || [];
+        if (ccSub.map(function (i) { return i.key; }).join('|') !== 'Mode Propagation|Leg colours|Geometry') f.push('Colour Code Display ' + ccSub.map(function (i) { return i.key; }).join('|'));
+        if (!resolveMenuPath('About/About UTsim...', true) || !resolveMenuPath('Help/About UTsim...', true)) f.push('About path both places');
+        if (ALT_MENU.m !== 'menu-scalemode' || ALT_MENU.a !== 'menu-about') f.push('Alt accelerators');
         if (!keyMatches('Weld Settings...', 'Weld…') || !keyMatches('DGS diagram…', 'DGS diagram...') || !keyMatches('Focus Beam', 'Focus Beam…') || keyMatches('Pipe', 'TKY Joint')) f.push('keyMatches');
         if (!keyMatches('Centreline crack (중심선 균열)', 'Centreline crack') || !keyMatches('Toe crack (토우 균열)', 'Toe crack') || keyMatches('Fillet toe crack (필릿 토우 균열)', 'Toe crack') || keyMatches('Steps 5-25 mm (5 mm)', 'Steps 5-25 mm')) f.push('keyMatches gloss');
         // every v1 menu label path must still resolve (SPEC §15.9: keys stay English; a data-key rename fails here)
         const missingV1 = V1_MENU_PATHS.filter(function (p) { return !resolveMenuPath(p, true); });
         if (V1_MENU_PATHS.length !== 73 || missingV1.length) f.push('v1 menu paths missing: ' + missingV1.join(', '));
         if (resolveMenuPath('Defects/Add Preset/No such preset', true) || resolveMenuPath('Nope/New', true)) f.push('resolveMenuPath false positive');
-        if (TB_IDS.length !== 19 || TB_IDS[0] !== 'tb-0' || TB_IDS[18] !== 'tb-aut') f.push('toolbar ids ' + TB_IDS.join(','));
+        // v3 F52 / lead decision 3: 20 buttons, AccRej between RAD and PIPE, tb-dac keeps its id with the ASME label
+        if (TB_IDS.length !== 20 || TB_IDS[0] !== 'tb-0' || TB_IDS[19] !== 'tb-aut') f.push('toolbar ids ' + TB_IDS.join(','));
+        if (TB_IDS.indexOf('tb-accrej') !== TB_IDS.indexOf('tb-rad') + 1 || TB_IDS.indexOf('tb-pipe') !== TB_IDS.indexOf('tb-accrej') + 1) f.push('AccRej position ' + TB_IDS.join(','));
+        const dacDef = TOOLBAR.find(function (b) { return b.id === 'dac'; });
+        if (!dacDef || dacDef.label !== 'ASME') f.push('tb-dac label');
         // touch bar model: 10 listed buttons + 3 contextual (Mark L/R, Row+) + the Step button
         const td = touchDefs();
         if (td.filter(function (d) { return !d.ctx; }).length !== 10 || td.filter(function (d) { return d.ctx; }).length !== 3) f.push('touch bar defs');
@@ -2541,14 +3207,34 @@
         ds.pa.scan = { n: 1 };
         for (let i = 0; i < 45; i++) ds.lessons.progress[i + 1] = { done: true, best: 50 };
         ds.trade.history = new Array(35).fill({ score: 1 });
+        ds.scaleMode.picture = { name: 'p.png', dataUrl: 'data:image/png;base64,AAAA' };
+        ds.scaleMode.outline = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }];
+        ds.annot.strokes = [{ colour: '#e00000', tool: 'pencil', pts: [{ x: 1, y: 1 }] }];
+        ds.tofd.parallel = { n: 61 };
         const rec = buildSavePatch(ds, 'ko');
-        if (rec.v !== 2 || rec.instrument.freeze !== undefined || rec.instrument.gain !== 30 || rec.lang !== 'ko') f.push('buildSavePatch');
+        if (rec.v !== 3 || rec.instrument.freeze !== undefined || rec.instrument.gain !== 30 || rec.lang !== 'ko') f.push('buildSavePatch');
+        // ---- v3 §2 persistence: the new keys are saved, the heavy / session-only ones never are
+        if (!rec.tkyOpts || rec.tkyOpts.chordOd !== 600 || !rec.editing || rec.editing.spotMm !== 5 || rec.editing.keyLock !== null) f.push('buildSavePatch v3 tkyOpts/editing');
+        if (!rec.scaleMode || rec.scaleMode.mmPerPx !== 0.5 || rec.scaleMode.gradStepMm !== 5 || rec.scaleMode.picture !== undefined || rec.scaleMode.outline !== undefined) f.push('buildSavePatch v3 scaleMode');
+        if (!rec.plot || !rec.plot.ruler || rec.plot.points !== undefined || rec.plot.lines !== undefined) f.push('buildSavePatch v3 plot.ruler only');
+        if (!rec.annot || rec.annot.torch !== false || rec.annot.shown !== false || rec.annot.strokes !== undefined) f.push('buildSavePatch v3 annot');
+        if (rec.tofd !== undefined) f.push('buildSavePatch never stores tofd');
+        const p3 = patchFromRecord(UT.clone(rec));
+        if (!p3 || !p3.tkyOpts || p3.tkyOpts.kind !== 'T-joint' || p3.editing.spotMm !== 5 || p3.editing.brush !== 'planar' || p3.editing.keyLock !== null) f.push('patchFromRecord v3 tkyOpts/editing');
+        if (!p3.scaleMode || p3.scaleMode.mmPerPx !== 0.5 || p3.scaleMode.picture !== null || p3.scaleMode.outline.length !== 0 || !p3.plot || p3.plot.ruler.on !== false || p3.plot.lines.length !== 0) f.push('patchFromRecord v3 scaleMode/plot');
+        if (!p3.annot || p3.annot.torch !== false || p3.annot.strokes.length !== 0 || p3.annot.on !== false) f.push('patchFromRecord v3 annot');
+        const pBad3 = patchFromRecord({ v: 3, utSet: 'epochltc', tkyOpts: { kind: 'Ring', chordOd: 1e9, chordWt: 'x' }, editing: { spotMm: 999, keyLock: 42 }, scaleMode: { mmPerPx: 99, gradStepMm: 0, picture: { dataUrl: 'x' }, outline: [{ x: 1, y: 1 }] }, plot: { ruler: { on: 1, x: 'q', view: 'nope' }, points: [1, 2] }, annot: { torch: 1, shown: 'y', strokes: [1, 2, 3] } });
+        if (!pBad3 || pBad3.utSet !== 'epochltc' || pBad3.tkyOpts.kind !== 'T-joint' || pBad3.tkyOpts.chordOd !== 2000 || pBad3.tkyOpts.chordWt !== 32) f.push('patchFromRecord v3 tkyOpts coercion ' + JSON.stringify(pBad3 && pBad3.tkyOpts));
+        if (pBad3.editing.spotMm !== 45 || pBad3.editing.keyLock !== null || pBad3.scaleMode.mmPerPx !== 5 || pBad3.scaleMode.gradStepMm !== 1) f.push('patchFromRecord v3 clamps');
+        if (pBad3.scaleMode.picture !== null || pBad3.scaleMode.outline.length !== 0 || pBad3.annot.strokes.length !== 0) f.push('patchFromRecord v3 never restores picture/outline/strokes');
+        if (pBad3.plot.ruler.on !== true || pBad3.plot.ruler.x !== 0 || pBad3.plot.ruler.view !== 'plotter' || pBad3.plot.points.length !== 0) f.push('patchFromRecord v3 plot.ruler ' + JSON.stringify(pBad3.plot.ruler));
+        if (patchFromRecord({ v: 2 }).tkyOpts !== undefined || patchFromRecord({ v: 1 }).annot !== undefined) f.push('v1/v2 record leaves the v3 keys at their defaults');
         if (rec.instrument.compare !== undefined || rec.instrument.datalog !== undefined || rec.standards.lastEval !== undefined || rec.standards.rulesOverride !== undefined || rec.pa.scan !== undefined) f.push('buildSavePatch excludes compare/datalog/lastEval/scan');
         if (Object.keys(rec.lessons.progress).length !== 40 || rec.trade.history.length !== 30 || rec.material !== 'carbon' || rec.physics.fanRays !== 41 || rec.weldOpts.prep !== 'single-v') f.push('buildSavePatch caps / v2 keys');
         const p = patchFromRecord(rec);
         if (!p || p.instrument.gain !== 30 || p.utSet !== 'epoch600' || p.__lang !== 'ko' || !p.probe || p.instrument.compare !== null || p.instrument.datalog.length !== 0) f.push('patchFromRecord');
         if (!p.physics || p.physics.modeConv !== true || !p.standards || p.standards.lastEval !== null || !p.pa || p.pa.scan !== null || p.trade.history.length !== 30 || p.trade.active !== false) f.push('patchFromRecord v2 keys');
-        if (patchFromRecord({ v: 3 }) !== null || patchFromRecord('x') !== null) f.push('patchFromRecord rejects');
+        if (patchFromRecord({ v: 4 }) !== null || patchFromRecord('x') !== null) f.push('patchFromRecord rejects');
         // trade test on screen: the seeded truth defects / weldOpts / material never reach the record (carried forward or omitted)
         const dt = UT.clone(ds); dt.mode = 'trade'; dt.trade.active = true; dt.defects = [{ type: 'crack', zFrom: 10, length: 20, height: 5 }]; dt.material = 'austenitic'; dt.weldOpts = Object.assign({}, dt.weldOpts, { T: 30, prep: 'double-v' });
         const prevRec = { v: 2, defects: [{ type: 'lof', zFrom: 1, length: 9, height: 2 }], weldOpts: { T: 20, prep: 'single-v', type: 'single-v' }, material: 'carbon' };
@@ -2608,6 +3294,15 @@
         if (OD_INCH[6] !== 168.3 || inchOf(219.1) !== '8' || inchOf(200) !== 'custom') f.push('OD table');
         const mid = midParts(null);
         if (!/^Pos: /.test(mid[0]) || !/^Range /.test(mid[1]) || !/^AMP= /.test(mid[2])) f.push('midParts ' + mid.join('|'));
+        // v3 F13/F44: the Pos cell is unsigned on weld kinds, keeps the signed block x elsewhere and reads z in tofd
+        if (posMm({ mode: 'weld', specimen: { weld: {} } }, { x: -40, z: 150 }) !== 40) f.push('posMm weld unsigned');
+        if (posMm({ mode: 'weld', specimen: {} }, { x: -40, z: 0 }) !== -40) f.push('posMm block x');
+        if (posMm({ mode: 'tofd', specimen: { weld: {} } }, { x: 0, z: 150 }) !== 150) f.push('posMm tofd z');
+        if (posMm({ mode: 'tofd', specimen: null }, { x: 3 }) !== 0) f.push('posMm tofd guard');
+        // v3 F15: both colour-code menus expose the same schemes (Options adds 'None')
+        const ccOpt = ((menuModel().find(function (m) { return m.id === 'menu-options'; }).items.find(function (i) { return i.key === 'Colour Code'; }) || {}).sub || []).map(function (i) { return i.key; }).join('|');
+        if (ccOpt !== 'None|Mode Propagation|Leg colours|Geometry') f.push('Options Colour Code ' + ccOpt);
+        if (typeof app.setUtSet !== 'function') f.push('app.setUtSet not exported');   // F8: 82-lessons guards on it
         // depth cell only inside the specimen (no negative air-side depth) — editor and D-scan keep theirs
         const dSpec = { specimen: { T: 20 }, editing: { defect: false } };
         if (depthCellShown(dSpec, { x: 40, y: -19.3, view: 'cross' })) f.push('depth cell above surface');
@@ -2625,8 +3320,17 @@
   UT.app = app;
 
   Object.assign(UT.test, {
-    /** Click a toolbar button by id ('tb-60'); false when missing or disabled. */
-    click(id) { return activateToolbar(String(id).indexOf('tb-') === 0 ? String(id) : 'tb-' + id); },
+    /**
+     * Click a toolbar button by id ('tb-60'); false when missing or disabled. The click is `direct`
+     * (SPEC-v3 §7): tb-dac / tb-plot skip the ASME / A5 chooser and tb-hide skips the key prompt, so one
+     * call still reaches the mode exactly as in v1/v2.
+     */
+    click(id) { return activateToolbar(String(id).indexOf('tb-') === 0 ? String(id) : 'tb-' + id, { direct: true }); },
+    /**
+     * v3 F54: compose the visible canvases into one PNG and return the data URL (no download).
+     * @returns {string} 'data:image/png;base64,…' ('' when there is nothing to draw)
+     */
+    screenshot() { return screenshot(); },
     /** Run a menu item by its English label path; false when missing or disabled. */
     menu(path) { return menuByPath(path); },
     /** Switch the UI language ('en' | 'ko') through UT.app.setLang; returns the language in use. */

@@ -172,32 +172,56 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
 #main.usk7 #instrument { min-width: 24px; }
 
 /* ------------------------------------------------------------------ status bar */
-/* Like the original (RcSqNFlOF4E.jpg, 5UovycItbKU.jpg) the physics line is ONE 10 px line (§14.10 formats
- * are single-line): it is never wrapped or squeezed (nowrap, no shrink; ≈ 810 px, so it always fits the
- * 1024 px minimum). The Pos/Range/AMP/… readouts form one group that is never shrunk or cut either; the
- * hint is the flexible member: it fills the free space and is clipped with an ellipsis (its full text
- * stays in the DOM) when the row is tight. Only when physics + readouts do not fit one row (TOFD/V1/V2
- * < ~1500 px, plain weld mode < ~1150 px) does the whole readout group drop to a second row (two 13 px
- * rows, 33 px bar) — one 28 px row (1 border + 1 pad + 24 px panels + 2 pad) otherwise. */
+/* Like the original (RcSqNFlOF4E.jpg, 5UovycItbKU.jpg) every cell is ONE 10 px line (§14.10 formats are
+ * single-line) in a 24 px sunken panel (`min-height`, so a cell that shares a row with a shorter one is
+ * still a full panel); v1/v2 fitted every cell on one 28 px row.
+ *
+ * SPEC NOTE (v3 QA r3, F14/F15/F39/F57): BOTH teaching cells must be readable — the verbatim hint
+ * (F39/F57) and the physics line with its two coloured brackets (F14/F15, shear_wave f045/f050, F59).
+ * They no longer fit on one row: F15 renamed `Comp'` to `Compression Wave Angle` and F14 filled the
+ * second bracket with real numbers, so the physics line is 839 px at the 45/60/70° presets and 861 px
+ * in the F14 case, against the 810 px the readouts (229) and the hint (223) leave inside the fixed
+ * 1280 px design box (1272 px of content) — every probe preset was ellipsised at `… Velo…`.
+ *
+ * The bar therefore REFLOWS instead of clipping, into the two rows the original itself uses: the physics
+ * line spans the whole width of the bar (shear_wave f045) and the readouts share their row with the
+ * right-aligned hint (the short `AMP= 34dB` cell + wide hint of plotting_beam_spread f080). #statusbar
+ * is `flex-wrap: wrap` and .sb-left is `flex: 1 1 100%`, so the readouts can never share the physics
+ * line's row and the physics cell always fills the full 1272 px — room for ≈ 275 characters against the
+ * 861 px worst case, i.e. no ellipsis at any angle, wave mode, material, UT set or language, and headroom
+ * for a longer wording later. The height is fixed at 57 px (1 border + 1 pad + 26 + 3 gap + 24 + 2 pad),
+ * so nothing jitters when the probe changes. #app/#main are already written for a two-line bar (see their
+ * comments): #main is the only flex item that gives way, and its `1fr` cross-section track absorbs the
+ * 27 px (at the 1024 × 700 minimum the cross-section floor still fits).
+ *
+ * Neither teaching cell is shrunk below its text: the readout group (.sb-mid) is never shrunk, the hint
+ * (.sb-right) is sized to its own text up to the original's ≈ 56% of the bar, and the physics line is
+ * clipped with an ellipsis only if it ever passes the whole bar width (its full text stays in the DOM
+ * and in `title` either way). Verified un-ellipsised (scrollWidth === clientWidth) for both cells at
+ * 0/45/60/70° and the F14 wedge-20° pair, in weld/iow/iow-plotted/v1/v2/tofd/aut/tky/lamination/trade,
+ * in en + ko, normal + high contrast, at 1680×1050 / 1400×900 / 1280×760 / 1024×640 (the design box is
+ * a fixed 1280 px, so it scales, not reflows). */
 #statusbar {
-  display: flex; flex-wrap: nowrap; align-items: stretch; gap: 3px; flex: none;
+  display: flex; flex-wrap: wrap; align-items: stretch; gap: 3px; flex: none;
   min-height: 28px; padding: 1px 4px 2px;
   background: #ececec; border-top: 1px solid #b0b0b0;
   font-size: 10px; line-height: 11px; white-space: nowrap; overflow: hidden; user-select: none;
 }
 .sb-panel {
-  display: flex; align-items: center; padding: 0 6px;
+  display: flex; align-items: center; min-height: 24px; padding: 0 6px;
   border: 1px solid; border-color: #808080 #fff #fff #808080;
   background: #ececec; overflow: hidden; flex: none;
 }
-/* like the original, the physics panel is clipped (ellipsis) when the readout panels need the room,
- * so the bar always stays ONE row */
-.sb-left { flex: 0 1 auto; min-width: 160px; white-space: nowrap; display: block; text-overflow: ellipsis; line-height: 24px; }
-/* the readout group wraps as a whole */
+/* the physics panel keeps a row to itself (basis 100% = the readouts can never share its line) and fills
+ * the whole width of the bar, as it does in the original (shear_wave f045) */
+.sb-left { flex: 1 1 100%; min-width: 90px; white-space: nowrap; display: block; text-overflow: ellipsis; line-height: 24px; overflow: hidden; }
+/* the readout group is never shrunk or cut */
 .sb-mid { display: flex; flex: 0 0 auto; gap: 3px; align-items: stretch; }
-.sb-right { flex: 1 1 100px; min-width: 100px; margin-left: auto; display: block; text-overflow: ellipsis; }
-/* block (not flex) so the ellipsis applies; a full-height inline-block ghost keeps the text centred at any
- * panel height (24 px stretched single row, 13 px wrapped rows) */
+/* the hint is sized to its own text (never shrunk) up to the original's ≈ 56% of the bar; past that it
+ * ellipsises like any other cell, with the full text still in the DOM (90-app mirrors it into `title`) */
+.sb-right { flex: 0 0 auto; min-width: 100px; max-width: 56%; margin-left: auto; display: block; text-overflow: ellipsis; }
+/* block (not flex) so the ellipsis applies; a full-height inline-block ghost keeps the text centred in the
+ * 24 px stretched panel */
 .sb-right::before { content: ''; display: inline-block; height: 100%; vertical-align: middle; }
 .sb-panel.empty { min-width: 40px; }
 
@@ -264,9 +288,14 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
 .dlg-text td { padding: 1px 8px 1px 0; vertical-align: top; }
 .dlg-text kbd { display: inline-block; padding: 0 5px; border: 1px solid #888; border-radius: 3px; background: #fff; font: 11px monospace; }
 .dlg-textarea { width: 100%; min-height: 140px; font: 11px monospace; border: 1px solid #808080; background: #fff; }
+/* v3 F19: the 'UTsim' receiver-probe notice — one centred sentence over an OK button (utman_software f008) */
+.tt-line { padding: 12px 6px 14px; text-align: center; font-size: 12px; }
+/* v3 §6.5: Help ▸ Contents — the help pages as one index column */
+.help-index { display: flex; flex-direction: column; align-items: stretch; gap: 3px; margin: 6px 0; }
+.help-index .btn { justify-content: flex-start; text-align: left; }
 .export-img { max-width: 720px; border: 1px solid #333; background: #000; display: block; margin: 6px 0; }
-.wedge-readout { font: 12px monospace; white-space: pre; background: #fff; border: 1px solid #808080; padding: 4px 6px; margin: 6px 0; }
-.wedge-scale { position: relative; height: 22px; margin: 2px 0 8px; background: linear-gradient(90deg, #cfe8ff 0 34.6%, #d8f5d0 34.6% 72.1%, #f5d0d0 72.1%); border: 1px solid #808080; font-size: 10px; }
+.wedge-readout { font: 12px monospace; white-space: pre; background: #d4d0c8; border: 1px solid #808080; padding: 4px 6px; margin: 6px 0; }
+.wedge-scale { position: relative; height: 22px; margin: 2px 0 8px; background: linear-gradient(90deg, #ffe9a8 0 34.6%, #d8f5d0 34.6% 72.1%, #f5d0d0 72.1%); border: 1px solid #808080; font-size: 10px; }
 .wedge-scale span { position: absolute; top: 3px; transform: translateX(-50%); white-space: nowrap; }
 .wedge-scale .crit { position: absolute; top: 0; bottom: 0; width: 1px; background: #b00; }
 

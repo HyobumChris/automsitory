@@ -1,6 +1,36 @@
 /* 20-probe.js — probe model: Snell's law, near field, piston beam spread, wedge delay, presets, probe
- * library (v2), focus, Rayleigh velocity, PA sweep. Pure functions, no DOM.
+ * library (v2), focus, Rayleigh velocity, PA sweep, both-mode transmission + range rescale (v3).
+ * Pure functions, no DOM.
  */
+// SPEC NOTES (v3 — where SPEC-v3 is silent, the choice made here and why)
+// F14 (§4.2) both wave modes below the 1st critical angle:
+//  · `derived.shearAngle` / `derived.compAngle` are the refracted angles of the WEDGE angle in each mode
+//    (null when that mode is not transmitted), computed from the wedge angle ROUNDED TO 0.1° — the value
+//    the status line and the dialog print, and the step the original's slider works in. Refracting the
+//    un-rounded wedge instead would print 23.8° where the original prints 23.9°, because 90-app's
+//    `probePatchFor` stores the refracted angle to 0.1° and derive() re-derives the wedge from it.
+//  · The spec words the second bracket for `probe.mode === 'comp'`; the physics is mode-agnostic — below
+//    the 1st critical angle both modes exist whatever the user selected — so `bothModes` (and the twin
+//    brackets) fire on `wedgeAngle < firstCritical` alone. Every preset (45/60/70° → wedge 36.7/47.1/52.6°
+//    vs a 27.6° 1st critical in steel) stays above it, so SPEC §14.10's strings are untouched.
+//  · A 0° probe is NOT a both-mode case: at normal incidence there is no mode conversion, so
+//    `shearAngle` is null and no second (green) fan is offered to 60-view-cross. shear_wave f045 shows the
+//    same thing — at wedge 0.0° the shear line is greyed with `Velocity=0 m/s`.
+// F15 (§4.3): only the wording changes here (`Comp'` → `Compression`); the colour semantics of
+//    `display.colourCode` are 60-view-cross's.
+// F16 (§4.4):
+//  · `derived.rangeScale = vActive / vOther` — with two wave modes the "previous" velocity of a shear⇄comp
+//    transition is always the other mode's, so the scale needs no history and derive() stays pure.
+//  · utman_functions f030 shows the 0° status segment as bare `Normal 0°`; §4.4 spells out the longer
+//    `Normal 0°   Velocity in Probe Shoe = 0 m/s   [ Compression Wave Angle=0.0°   Velocity=… m/s]`
+//    (it keeps SPEC §14.10's "both brackets always shown" shape). The spec wins.
+//  · §4.4 puts the multiplication of `instrument.range`/`delay` in 40-ascan, but the v3 ownership table
+//    (§1) does not give 40-ascan F16. It is therefore applied here from a `'state'` subscription that
+//    only ever fires on a probe-ONLY patch whose wave mode flipped: `UT.probe.autoRangeRescale = false`
+//    disables it in one line, and `UT.probe.rangeRescale()` is the pure helper 40-ascan can call instead
+//    (see the report's dependsOn). Skipped while `instrument.cal.vel` is set (a calibrated set keeps its
+//    range), in the `tofd`/`aut` modes and for PA (those panels own their own time base), and on bulk
+//    patches (persistence restore, scenario apply), which never carry `probe` alone.
 (function (UT) {
   'use strict';
   const C = UT.consts;
@@ -151,6 +181,23 @@
     const wedgePath = isZero ? 0 : ((lib && lib.wedgePath) || preset.wedgePath || 12);
     const wedgeDelayUs = 2 * wedgePath / vWedge;  // two-way
     const crit = criticalAngles(vWedge, mat);
+    const vS = mat.vShear || C.V_SHEAR_STEEL;
+    const vC = mat.vComp || C.V_COMP_STEEL;
+    // F14 (SPEC-v3 §4.2): below the 1st critical angle the wedge transmits BOTH modes. Refract the wedge
+    // angle twice — the selected mode comes back as `angle` (round trip through wedgeAngleFor), the other
+    // one is the second coloured line the original's 'Adjust Angle in Wedge' panel prints (shear_wave f050:
+    // wedge 20.0° → shear 23.9° / 3240 m/s AND compression 48.1° / 5960 m/s).
+    // The second mode is refracted from the wedge angle AS PRINTED (0.1°, like the original's slider): the
+    // dialog stores the refracted angle rounded to 0.1° (90-app probePatchFor), and re-deriving from the
+    // un-rounded wedge would print the other mode 0.1° low (23.8° instead of the original's 23.9°).
+    const wedgeShown = +wedgeAngle.toFixed(1);
+    const shearAngle = isZero ? null : snell(wedgeShown, vWedge, vS);
+    const compAngle = isZero ? 0 : snell(wedgeShown, vWedge, vC);
+    const bothModes = !isZero && wedgeShown > 0 && wedgeShown < crit.first && shearAngle !== null && compAngle !== null;
+    const shearShown = bothModes ? shearAngle : (mode === 'shear' ? angle : 0);
+    const compShown = bothModes ? compAngle : (mode === 'comp' ? angle : 0);
+    const shearVel = bothModes || mode === 'shear' ? Math.round(vS * 1000) : 0;
+    const compVel = bothModes || mode === 'comp' ? Math.round(vC * 1000) : 0;
     const focus = probe.focus && probe.focus.on && angle <= 70 ? { on: true, F: M.clamp(probe.focus.F || 30, 10, 150) } : { on: false, F: (probe.focus && probe.focus.F) || 30 };
     const limitNote = angleLimited
       ? '   ** ' + UT.i18n.t('{angle}° {mode} not possible in {mat} (limit {limit}°): refracted angle limited to {actual}°', {
@@ -196,12 +243,26 @@
       focus,
       firstCritical: crit.first,
       secondCritical: crit.second,
+      /** F14: refracted SHEAR angle of this wedge angle (deg), null past the 2nd critical angle and at 0°. */
+      shearAngle,
+      /** F14: refracted COMPRESSION angle of this wedge angle (deg), null at/above the 1st critical angle. */
+      compAngle,
+      /** F14: true when the wedge angle is below the 1st critical angle, so BOTH modes are transmitted. */
+      bothModes,
+      /** F16: mm-range multiplier for a shear ⇄ comp change (vActive / vOther); the time base is unchanged. */
+      rangeScale: mode === 'comp' ? vC / vS : vS / vC,
       /** Launch direction unit vector in XY (beam heads toward −x for side +1). */
       dir: { x: -(probe.side || 1) * Math.sin(M.deg2rad(angle)), y: Math.cos(M.deg2rad(angle)) },
       /** One-way piston directivity weight at an angle offset from the beam axis (deg). */
       directivity(deltaDeg) { return M.pistonDirectivity(deltaDeg, a, lambda); },
-      /** Human readable physics line for the status bar. */
-      statusLine: `Angle of Sound Transmission in Perspex Shoe=${wedgeAngle.toFixed(1)}°  Velocity in Wedge (Shoe) = ${Math.round(vWedge * 1000)} m/s   [ Shear Wave Angle=${(mode === 'shear' ? angle : 0).toFixed(1)}°   Velocity=${mode === 'shear' ? Math.round(vel * 1000) : 0} m/s]   [ Comp' Wave Angle=${(mode === 'comp' ? angle : 0).toFixed(1)}°   Velocity=${mode === 'comp' ? Math.round(vel * 1000) : 0} m/s]${limitNote}`,
+      /**
+       * Human readable physics line for the status bar (SPEC §14.10, amended by SPEC-v3 §4.2–§4.4):
+       * 0° probe → `Normal 0°` (F16); otherwise the wedge line plus both wave brackets, the compression
+       * one carrying its real angle whenever the wedge angle is below the 1st critical angle (F14).
+       */
+      statusLine: isZero
+        ? `Normal 0°   Velocity in Probe Shoe = 0 m/s   [ Compression Wave Angle=0.0°   Velocity=${Math.round(vel * 1000)} m/s]${limitNote}`
+        : `Angle of Sound Transmission in Perspex Shoe=${wedgeAngle.toFixed(1)}°  Velocity in Wedge (Shoe) = ${Math.round(vWedge * 1000)} m/s   [ Shear Wave Angle=${shearShown.toFixed(1)}°   Velocity=${shearVel} m/s]   [ Compression Wave Angle=${compShown.toFixed(1)}°   Velocity=${compVel} m/s]${limitNote}`,
     };
   }
 
@@ -213,14 +274,66 @@
     return out;
   }
 
+  // ------------------------------------------------------------------ F16 range rescale (SPEC-v3 §4.4)
+  /** Wave mode a probe state produces: 'comp' at 0° (or an explicit comp probe), else 'shear'. */
+  function modeOf(probe) {
+    if (!probe) return 'shear';
+    const nominal = probe.method === 'pa' ? probe.paFrom : (probe.angle || 0);
+    return nominal === 0 ? 'comp' : (probe.mode === 'comp' ? 'comp' : 'shear');
+  }
+
+  /**
+   * F16: the screen range is fixed in TIME, so a shear ⇄ comp change re-scales the mm range and delay by
+   * `derived.rangeScale` (94.4 mm shear → 171.9 mm compression at 3.24 / 5.90). Pure: returns the
+   * instrument patch, or null when nothing must move.
+   * @param {string} prevMode  'shear' | 'comp' before the change
+   * @param {string} nextMode  'shear' | 'comp' after the change
+   * @param {object} instrument  UT.state.instrument (range, delay, cal)
+   * @param {object} specimen  UT.state.specimen (material velocities; may be null)
+   * @returns {?{range: number, delay: number}}
+   */
+  function rangeRescale(prevMode, nextMode, instrument, specimen) {
+    if (!instrument || prevMode === nextMode) return null;
+    if (instrument.cal && Number.isFinite(instrument.cal.vel)) return null;   // a calibrated set keeps its range
+    const mat = (specimen && specimen.material) || null;
+    const vS = (mat && mat.vShear) || C.V_SHEAR_STEEL, vC = (mat && mat.vComp) || C.V_COMP_STEEL;
+    const k = nextMode === 'comp' ? vC / vS : vS / vC;
+    if (!Number.isFinite(k) || k <= 0 || Math.abs(k - 1) < 1e-9) return null;
+    return {
+      range: M.clamp(+(instrument.range * k).toFixed(1), 10, 1000),
+      delay: M.clamp(+((instrument.delay || 0) * k).toFixed(1), -50, 1000),
+    };
+  }
+
+  // The rescale is driven from a probe-ONLY state patch whose wave mode flipped (see the SPEC NOTES): a
+  // bulk patch (persistence restore, scenario apply) only re-syncs the remembered mode. UT.set inside a
+  // 'state' emit is not re-entrant here — the remembered mode is updated first, and the nested emit
+  // carries the key 'instrument', so this listener returns on its first line.
+  const NO_RESCALE_MODES = { tofd: 1, aut: 1 };
+  let lastMode = UT.state && UT.state.probe ? modeOf(UT.state.probe) : null;
+  UT.bus.on('state', function (ev) {
+    const s = UT.state;
+    const keys = (ev && ev.keys) || [];
+    if (keys.length !== 1 || keys[0] !== 'probe' || !s || !s.probe) { if (s && s.probe) lastMode = modeOf(s.probe); return; }
+    const prev = lastMode;
+    lastMode = modeOf(s.probe);
+    if (!api.autoRangeRescale || prev === null || prev === lastMode) return;
+    if (NO_RESCALE_MODES[s.mode] || s.probe.method === 'pa') return;
+    const patch = rangeRescale(prev, lastMode, s.instrument, s.specimen);
+    if (patch) UT.setIn('instrument', patch, { noRender: true });
+  });
+
   /** Skip geometry helpers for a refracted angle on a plate of thickness T. */
   function skip(angleDeg, T) {
     const t = Math.tan(M.deg2rad(angleDeg)), c = Math.cos(M.deg2rad(angleDeg));
     return { halfSkip: T * t, fullSkip: 2 * T * t, halfPath: T / c, fullPath: 2 * T / c };
   }
 
-  UT.probe = {
+  const api = {
     presets, presetFor, library, libEntry, select, libForAngle, snell, criticalAngles, wedgeAngleFor, derive, paAngles, skip,
+    modeOf, rangeRescale,
+    /** F16: false hands the range rescale on a shear ⇄ comp change back to the caller (SPEC-v3 §4.4). */
+    autoRangeRescale: true,
     __selftest() {
       const f = [];
       const d60 = derive({ angle: 60, freq: 5, diameter: 10, wedgeVel: 2.74, side: 1 }, null);
@@ -259,7 +372,33 @@
       if (dCu45.angleLimited || dCu45.refracted !== 45 || Math.abs(dCu45.wedgeAngle - M.rad2deg(Math.asin(Math.sin(M.deg2rad(45)) * 2.74 / 2.33))) > 1e-6) f.push('copper 45° must stay 45°');
       const dPx = derive({ angle: 60, freq: 5, diameter: 10, wedgeVel: 2.74, side: 1 }, { material: { key: 'perspex', name: 'Perspex (PMMA)', vComp: 2.74, vShear: 1.43 } });
       if (!dPx.angleLimited || Math.abs(dPx.refracted - (M.rad2deg(Math.asin(1.43 / 2.74)) - 0.1)) > 1e-6 || !(dPx.wedgeAngle < 90)) f.push('perspex 60° limit ' + dPx.refracted + ' wedge ' + dPx.wedgeAngle);
+      // ---- v3 F14/F15/F16
+      // F15 wording, and the 45/60/70° presets keep SPEC §14.10's zeroed compression bracket
+      if (d60.statusLine.indexOf("Comp'") >= 0 || d60.statusLine.indexOf('Compression Wave Angle') < 0) f.push('F15 wording ' + d60.statusLine);
+      if (d60.statusLine !== 'Angle of Sound Transmission in Perspex Shoe=47.1°  Velocity in Wedge (Shoe) = 2740 m/s   [ Shear Wave Angle=60.0°   Velocity=3240 m/s]   [ Compression Wave Angle=0.0°   Velocity=0 m/s]') f.push('F15 60° status ' + d60.statusLine);
+      if (d60.bothModes || d60.compAngle !== null || Math.abs(d60.shearAngle - 60) > 0.05) f.push('60° is above the 1st critical angle: shear only');
+      // F14: wedge 20° (a 47.4° compression probe in steel) transmits both modes — shear_wave f050
+      const dBoth = derive({ angle: M.rad2deg(Math.asin(Math.sin(M.deg2rad(20)) / 2.74 * 5.9)), mode: 'comp', freq: 5, diameter: 10, wedgeVel: 2.74, side: 1 }, null);
+      if (Math.abs(dBoth.wedgeAngle - 20) > 0.05) f.push('F14 wedge round trip ' + dBoth.wedgeAngle);
+      if (!dBoth.bothModes || Math.abs(dBoth.shearAngle - 23.9) > 0.2 || Math.abs(dBoth.compAngle - dBoth.refracted) > 0.05) f.push('F14 both modes ' + dBoth.shearAngle + ' / ' + dBoth.compAngle);
+      if (dBoth.statusLine.indexOf('[ Shear Wave Angle=23.9°   Velocity=3240 m/s]') < 0 || dBoth.statusLine.indexOf('[ Compression Wave Angle=' + dBoth.refracted.toFixed(1) + '°   Velocity=5900 m/s]') < 0) f.push('F14 status ' + dBoth.statusLine);
+      const dUt = derive({ angle: 48.05, mode: 'comp', freq: 5, diameter: 10, wedgeVel: 2.74, side: 1 }, { material: { key: 'carbon-utman', name: 'Carbon steel (UTman)', vComp: 5.96, vShear: 3.24 } });
+      if (Math.abs(dUt.wedgeAngle - 20) > 0.1 || Math.abs(dUt.shearAngle - 23.9) > 0.2) f.push('F14 utman velocities ' + dUt.wedgeAngle + ' / ' + dUt.shearAngle);
+      const dShear35 = derive({ angle: 40.9, mode: 'shear', freq: 5, diameter: 10, wedgeVel: 2.74, side: 1 }, null);   // wedge ≈ 35° > 27.6°
+      if (dShear35.bothModes || dShear35.statusLine.indexOf('[ Compression Wave Angle=0.0°   Velocity=0 m/s]') < 0) f.push('F14 above 1st critical ' + dShear35.statusLine);
+      // F16: 0° status segment, no shear branch, and the rescale factor
+      if (d0.statusLine !== 'Normal 0°   Velocity in Probe Shoe = 0 m/s   [ Compression Wave Angle=0.0°   Velocity=5900 m/s]') f.push('F16 0° status ' + d0.statusLine);
+      if (d0.shearAngle !== null || d0.bothModes || d0.compAngle !== 0) f.push('F16 0° has no shear branch');
+      if (Math.abs(d0.rangeScale - 5.9 / 3.24) > 1e-9 || Math.abs(d60.rangeScale - 3.24 / 5.9) > 1e-9) f.push('F16 rangeScale ' + d0.rangeScale + ' / ' + d60.rangeScale);
+      const rr = rangeRescale('shear', 'comp', { range: 94.4, delay: 0, cal: { vel: null, zero: 0 } }, null);
+      if (!rr || Math.abs(rr.range - 171.9) > 0.05 || rr.delay !== 0) f.push('F16 rangeRescale ' + JSON.stringify(rr));
+      const back = rangeRescale('comp', 'shear', { range: rr.range, delay: 10, cal: { vel: null, zero: 0 } }, null);
+      if (!back || Math.abs(back.range - 94.4) > 0.05 || Math.abs(back.delay - 5.5) > 0.05) f.push('F16 rangeRescale back ' + JSON.stringify(back));
+      if (rangeRescale('shear', 'comp', { range: 94.4, delay: 0, cal: { vel: 5.6, zero: 0 } }, null) !== null) f.push('F16 calibrated set must keep its range');
+      if (rangeRescale('shear', 'shear', { range: 94.4, delay: 0, cal: { vel: null } }, null) !== null) f.push('F16 same mode must not rescale');
+      if (modeOf({ angle: 0 }) !== 'comp' || modeOf({ angle: 60, mode: 'shear' }) !== 'shear' || modeOf({ angle: 60, mode: 'comp' }) !== 'comp') f.push('F16 modeOf');
       return f;
     },
   };
+  UT.probe = api;
 })(window.UT = window.UT || {});

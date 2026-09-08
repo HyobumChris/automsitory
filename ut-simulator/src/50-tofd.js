@@ -7,6 +7,12 @@
  * replicas), dead zones (lateral / backwall) in TofdResult.deadZones + UT.tofd.deadZones(state),
  * PCS optimiser (2/3 T rule), hyperbolic D-scan cursor writing state.cursor {view:'dscan', tUs,
  * depth, z}, straightening toggle, material grass, pointer events on the D-scan.
+ *
+ * v3 (SPEC-v3 §6.3): F43 the second labelled strip — 'Non-Parallel Scan' (the D-scan) and
+ * 'Parallel Scan' (the pair stepped along the beam direction, 61 columns, module-level Uint8Array);
+ * F44 the A-scan sub-window's OFF button (tofd.ascanOn, the mode stays), the scan animation moving
+ * probe.z with the column being written, and the pipe backwall reflecting off the inner arc (with the
+ * lateral wave on the chord between the index points, so the backwall can never arrive first).
  */
 // SPEC NOTES (decisions where the spec is silent or ambiguous)
 // - Probe pair centred on probe.x: tx at probe.x + pcs/2 (right, facing left → side +1), rx at
@@ -81,6 +87,57 @@
 //   the instrument column as in UTman instead of half-covering the EPOCH keys; removed on hide/close.
 // - Panel v2 controls (A-scan window, second row): 'Optimise PCS' button, check-boxes Mode conv. /
 //   Straighten / Dead zones (the last mirrors Options ▸ Show dead zones, same state key).
+// SPEC NOTES (v3 — F43 / F44, where SPEC-v3 is silent or measurably wrong)
+// - F43 layout. `cv-tofd-dscan` shrinks to the image strip alone (140 × 450, captioned 'Non-Parallel
+//   Scan'), `cv-tofd-parallel` (120 × 450) sits to its right and the 2× magnifier becomes its own
+//   canvas `cv-tofd-mag` (140 × 140). v3 QA round 1: the magnifier was absolutely positioned inside
+//   the parallel column (left 0, top 310) and therefore PAINTED OVER the bottom 140 px of the
+//   parallel strip; it now sits in the normal flow BELOW that canvas exactly as F43 words it, so the
+//   strip block is 280 × 590 (450 + the magnifier) and the window grew by 140 px. Nothing overlaps.
+//   Both captions are DOM spans (11 px black, top-left of their strip, `.tofd-cap`) rather than canvas
+//   text, so they are readable by a DOM query and relabelled with the language.
+// - F43 parallel scan. n = 61 columns over x ∈ probe.x ± pcs (probe.x is 0 in TOFD mode, so the
+//   literal −pcs…+pcs of the lead decision 8), z fixed at the centre of the defect nearest probe.z
+//   (else the scan centre). One row is 2 px, so the filled block is 122 px tall over a black
+//   remainder — the proportion the original shows. Greys are the same map as the D-scan
+//   (0.5 + rf·2, clipped) quantised to 8 bits in ONE module-level Uint8Array(61 × 512);
+//   `state.tofd.parallel` is never written (§2). `peakCol` is the column with the largest summed
+//   |amp| of DEFECT events (the lateral wave and backwall are identical in every column, so an
+//   image-based peak would be meaningless); with no defect in the beam it stays the centre column.
+// - F43 both strips are built by the ONE Run Scan: runScan() fills the parallel buffer after the
+//   D-scan columns (the shell is taken before the loop so a stepping probe.z cannot change its z),
+//   and the animated scan fills the parallel columns in proportion to the D-scan's progress.
+// - F44 pipe curvature. The printed closed form of §6.3 evaluates to 13.07 µs for the video's
+//   6-inch WT 20 pipe at PCS 60 — LONGER than the flat plate's 12.22 and away from the observed
+//   10.41 — because it measures the reflection depth from the crown while the probes sit 5.5 mm
+//   below it. The prose ('evaluated by the existing Fermat search over the inner arc') is what is
+//   implemented: probes on the OUTER arc a PCS apart (half angle φ = pcs/2/ro), a golden-section
+//   Fermat minimum of |Tx−P| + |Rx−P| over the inner arc P = ri·(sin ψ, cos ψ) → 11.14 µs
+//   wedge-zeroed (19.89 absolute), 1.09 µs shorter than the plate, toward the original's family.
+//   The mode-converted paths, depthFromTime() and the dead zones keep the flat-plate forms, so every
+//   plate number (V1 #11, V2-10) is untouched.
+// - F44 pipe lateral wave (v3 QA round 1). Leaving `lateralUs = pcs/vL` on a pipe let the (correctly
+//   shortened) backwall overtake it — 168.3 × 20 inverted from PCS 80, 88.9 × 12 from PCS 50 — which
+//   would draw the backwall ABOVE the lateral wave and make depthFromTime() return 0 for it. `pcs`
+//   on a convex OD is the ARC between the index points, so the wave's straight metal path is the
+//   CHORD 2·ro·sin(pcs/2/ro) (lateralPath/lateralTime): shorter than the arc, equal to `pcs` as
+//   ro → ∞ (every flat-plate number, V1 #11 included, is bit-identical) and — by the triangle
+//   inequality against the two-leg reflection — never later than the backwall. 168.3 × 20 at PCS 60:
+//   lateral 18.71 µs (9.95 wedge-zeroed) against the backwall's 19.89, a 1.18 µs separation.
+//   Limit: on a small pipe at an absurd PCS (168.3 × 20 past PCS ~118, 88.9 × 12 past ~75) the chord
+//   leaves the wall and grazes the bore, so the two events coincide (gap 0, never negative) — the
+//   geometry is unusable there anyway (the probes nearly face each other across the bore).
+// - F44 scan travel. The animated scan writes probe.z of the column being drawn and restores the
+//   pre-scan z when it finishes or is stopped; the synchronous UT.test.runTofdScan() does the same
+//   every 8 columns with {noRender: true} and restores z at the end. 'scan:progress' gains `z`.
+//   Bus topic (v3 QA round 1): the progress events stay on the module's OWN 'scan:progress' topic
+//   (SPEC §15.9's bus-topic list, shared with 55/56) carrying {kind:'tofd', i, n, z} — they are NOT
+//   mirrored onto the 'ui' topic, whose {kind, id} payloads 70/84 count as operator interactions;
+//   a listener for the scan must subscribe to 'scan:progress' (V3-44 does).
+// - F44 OFF. `UT.tofd.ascanOff()` (the OFF button and the sub-window's ✕) writes tofd.ascanOn = false
+//   and hides `.win[data-win=tofd-ascan]` ONLY; 'Show A-scan' in the TOFD window and panel.open()
+//   (i.e. re-entering the mode) restore it. UT.modes.exit() — the TOFD window's close box — remains
+//   the only way out of the mode.
 (function (UT) {
   'use strict';
   const M = UT.math;
@@ -98,7 +155,12 @@
   const DEAD_ZONE_CYCLES = 1.5;      // τ = 1.5 / f (µs)
   const HYPERBOLA_SPAN = 40;         // ± mm along z drawn for the hyperbolic cursor
   const WANDER_US = [0.08, 0.04];    // D-scan lateral-wave wobble amplitudes (µs) removed by straightening
-  const DSCAN = { w: 280, h: 450, imgW: 140, miniW: 140, miniH: 140 };
+  const DSCAN = { w: 140, h: 450, imgW: 140 };           // v3 F43: the D-scan canvas is the image strip alone
+  const PARALLEL = { w: 120, h: 450, n: 61, rowH: 2 };   // F43: 61 columns along the beam direction, 2 px per column
+  const MAG = { w: 140, h: 140 };                        // F43: the 2× magnifier moves UNDER the parallel strip
+  // strip block: [D-scan 140 | parallel 120 (+ the magnifier's 20 px overhang)] × (450 + the magnifier's 140)
+  const STRIPS = { w: DSCAN.w + MAG.w, h: DSCAN.h + MAG.h };
+  const PROGRESS_EVERY = 8;                              // columns per 'scan:progress' on the synchronous path (= the animated frame size)
   const DSCAN_CONTRAST = 2;          // D-scan grey = 0.5 + rf·DSCAN_CONTRAST (clipped): lateral/backwall saturate as in UTman
   const ASCAN = { w: 236, h: 140, plotW: 198, plotH: 118, legendX: 204, legendW: 30 };
   const LIMITS = { pcs: [20, 200], rangeUs: [2, 40], delayUs: [0, 40], gainDb: [0, 80] };
@@ -130,8 +192,94 @@
       vS: Number.isFinite(mat.vShear) && mat.vShear > 0 ? mat.vShear : C.V_SHEAR_STEEL,
       T, freq: derived.freq || 5, probeX: px,
       modeConv: tofd.modeConv !== false, material: mat,
+      pipe: pipeGeom(spec, T, pcs),
     };
   }
+
+  /**
+   * Curved-backwall geometry of a pipe (F44): the pair sits on the outer arc a PCS apart (half angle
+   * φ = pcs/2/ro) and the backwall reflects off the inner arc. null for plates.
+   * @param {object} spec  specimen (spec.pipe = {od, wt, …})
+   * @param {number} T  wall thickness at the pair (mm)
+   * @param {number} pcs  probe centre separation (mm, measured along the surface)
+   * @returns {{ro:number, ri:number, phi:number}|null}
+   */
+  function pipeGeom(spec, T, pcs) {
+    const p = spec && spec.pipe;
+    if (!p) return null;
+    const ro = (+p.od || 0) / 2;
+    const ri = ro - (+T || 0);
+    if (!(ro > 0) || !(ri > 0)) return null;
+    const phi = (pcs / 2) / ro;
+    if (!(phi > 0) || phi >= Math.PI / 2) return null;   // the pair would wrap past the equator
+    return { ro, ri, phi };
+  }
+
+  /**
+   * Fermat minimum of the pipe backwall path over the INNER arc (golden section on ψ ∈ [−φ, φ]):
+   * |Tx − P(ψ)| + |Rx − P(ψ)| with Tx/Rx = ro·(±sin φ, cos φ) and P = ri·(sin ψ, cos ψ).
+   * @param {{ro:number, ri:number, phi:number}} p  a pipeGeom() result
+   * @returns {{psi:number, len:number, depth:number}} reflection angle, two-way path (mm), depth below the crown
+   */
+  function fermatArc(p) {
+    const ro = p.ro, ri = p.ri, phi = p.phi;
+    const tx = { x: ro * Math.sin(phi), y: ro * Math.cos(phi) };
+    const f = function (psi) {
+      const px = ri * Math.sin(psi), py = ri * Math.cos(psi);
+      return Math.sqrt((px - tx.x) * (px - tx.x) + (py - tx.y) * (py - tx.y)) +
+        Math.sqrt((px + tx.x) * (px + tx.x) + (py - tx.y) * (py - tx.y));
+    };
+    const gr = (Math.sqrt(5) - 1) / 2;
+    let a = -phi, b = phi;
+    let c = b - gr * (b - a), d = a + gr * (b - a);
+    let fc = f(c), fd = f(d);
+    for (let i = 0; i < 60 && (b - a) > 1e-9; i++) {
+      if (fc < fd) { b = d; d = c; fd = fc; c = b - gr * (b - a); fc = f(c); }
+      else { a = c; c = d; fc = fd; d = a + gr * (b - a); fd = f(d); }
+    }
+    const psi = (a + b) / 2;
+    return { psi, len: f(psi), depth: ro - ri * Math.cos(psi) };
+  }
+
+  /**
+   * Two-way metal path (mm) of the backwall reflection: √(pcs² + 4T²) on a plate, the Fermat minimum
+   * over the inner arc on a pipe (F44).
+   * @param {object} g  derive() result
+   * @returns {number} path (mm)
+   */
+  function backwallPath(g) {
+    if (!g.pipe) return Math.sqrt(g.pcs * g.pcs + 4 * g.T * g.T);
+    // A two-leg reflection can never be shorter than the direct Tx→Rx chord (triangle inequality),
+    // so the backwall can never precede the lateral wave; the max() only removes float noise in the
+    // degenerate case (thin wall, wide PCS) where the chord grazes the bore and the two coincide.
+    return Math.max(fermatArc(g.pipe).len, lateralPath(g));
+  }
+
+  /**
+   * Straight metal path (mm) travelled by the lateral wave between the index points: the PCS on a
+   * plate and the CHORD 2·ro·sin(pcs/2/ro) on a pipe, where the PCS is the ARC along the convex
+   * surface, not the travel path (ro → ∞ ⇒ chord → pcs, so every flat-plate number is untouched).
+   * @param {object} g  derive() result
+   * @returns {number} path (mm)
+   */
+  function lateralPath(g) {
+    if (!g.pipe) return g.pcs;
+    return 2 * g.pipe.ro * Math.sin(g.pipe.phi);
+  }
+
+  /**
+   * Absolute arrival time (µs, incl. 2·wd) of the lateral wave.
+   * @param {object} g  derive() result
+   * @returns {number} µs
+   */
+  function lateralTime(g) { return lateralPath(g) / g.vL + 2 * g.wd; }
+
+  /**
+   * Absolute arrival time (µs, incl. 2·wd) of the backwall reflection.
+   * @param {object} g  derive() result
+   * @returns {number} µs
+   */
+  function backwallTime(g) { return backwallPath(g) / g.vL + 2 * g.wd; }
 
   function thicknessAt(spec, x) {
     if (!spec) return 20;
@@ -284,12 +432,12 @@
     const ev = [];
     const modeConv = opts && opts.modeConv !== undefined ? !!opts.modeConv : g.modeConv !== false;
     const vS = g.vS || C.V_SHEAR_STEEL;
-    const lateralUs = g.pcs / g.vL + 2 * g.wd;
+    const lateralUs = lateralTime(g);   // v3 QA: the pipe chord, so the backwall can never arrive first
     ev.push({ kind: 'lateral', tUs: lateralUs, depth: 0, x: (g.xt + g.xr) / 2, defectId: null, dz: 0,
       amp: AMP_REL.lateral * Math.min(1, Math.sqrt(60 / g.pcs)), polarity: -1, mode: 'L' });
     const T = g.T;
     const xm = (g.xt + g.xr) / 2;
-    const backwallUs = Math.sqrt(g.pcs * g.pcs + 4 * T * T) / g.vL + 2 * g.wd;
+    const backwallUs = backwallTime(g);   // v3 F44: the inner arc on a pipe, √(pcs² + 4T²) on a plate
     ev.push({ kind: 'backwall', tUs: backwallUs, depth: T, x: xm, defectId: null, dz: 0,
       amp: AMP_REL.backwall * Math.max(0.15, dirWeight(xm, T, 0, g)), polarity: 1, mode: 'L' });
     if (modeConv) {
@@ -411,8 +559,8 @@
     const dz = deadZones(g);
     return {
       t: tAxis, rf, events,
-      lateralUs: lat ? lat.tUs : g.pcs / g.vL + 2 * g.wd,
-      backwallUs: bw ? bw.tUs : Math.sqrt(g.pcs * g.pcs + 4 * g.T * g.T) / g.vL + 2 * g.wd,
+      lateralUs: lat ? lat.tUs : lateralTime(g),
+      backwallUs: bw ? bw.tUs : backwallTime(g),
       wd: g.wd, geom: { xt: g.xt, xr: g.xr, pcs: g.pcs, angle: g.angle, vL: g.vL, vS: g.vS, T: g.T, wd: g.wd, probeX: g.probeX, freq: g.freq },
       rangeUs: M.clamp(+tofd.rangeUs || 15, 0.5, 200), delayUs: +tofd.delayUs || 0,
       gainDb: Number.isFinite(tofd.gainDb) ? tofd.gainDb : REF_GAIN_DB, probeZ,
@@ -472,7 +620,7 @@
       z0: 0, z1: (n - 1) * step, step, n, columns: [], nS: N_SAMPLES,
       t0Us: +tofd.delayUs || 0, rangeUs: M.clamp(+tofd.rangeUs || 15, 0.5, 200), gainDb: tofd.gainDb,
       pcs: g.pcs, txAngle: g.angle, wd: g.wd, T: g.T, done: false,
-      lateralUs: g.pcs / g.vL + 2 * g.wd, backwallUs: Math.sqrt(g.pcs * g.pcs + 4 * g.T * g.T) / g.vL + 2 * g.wd,
+      lateralUs: lateralTime(g), backwallUs: backwallTime(g),
       latUs: new Float32Array(n), deadZones: { lateral: dz.lateral, backwall: dz.backwall, tauUs: dz.tauUs },
       modeConv: g.modeConv !== false,
       _g: g, _t: tAxis, _defects: activeDefects(state), _spec: spec, _L: L, _grass: grassLevel(g.material, g.freq),
@@ -496,22 +644,123 @@
     return out;
   }
 
+  // ------------------------------------------------------- parallel scan (F43, module buffer only)
+  let parallel = null;   // {x0, x1, step, n, nS, z, cols: Uint8Array, amps, filled, peakCol, done, …}
+
+  /** z (mm) the parallel scan is run at: the centre of the defect nearest probe.z, else the scan centre. */
+  function parallelZ(state, defects) {
+    const spec = state.specimen;
+    const L = (spec && spec.L) || 300;
+    const pz = Number.isFinite(state.probe && state.probe.z) ? state.probe.z : L / 2;
+    let best = null, bestD = Infinity;
+    for (const d of defects || []) {
+      if (!d || !Number.isFinite(d.zFrom) || !Number.isFinite(d.zTo)) continue;
+      const c = (d.zFrom + d.zTo) / 2;
+      const dist = Math.abs(c - pz);
+      if (dist < bestD) { bestD = dist; best = c; }
+    }
+    return best === null ? L / 2 : best;
+  }
+
+  /**
+   * Shell of the parallel scan (F43): the pair steps ALONG the beam direction, x ∈ probe.x ± pcs in
+   * n = 61 columns, at a fixed z — the classic parallel-scan hyperbola.
+   * @param {object} state  UT.state-like
+   * @returns {object} the buffer (its columns are still empty)
+   */
+  function parallelShell(state) {
+    const spec = state.specimen;
+    const g = derive(state);
+    const tofd = state.tofd || {};
+    const defects = activeDefects(state);
+    const n = PARALLEL.n;
+    const x0 = g.probeX - g.pcs, x1 = g.probeX + g.pcs;
+    return {
+      x0: +x0.toFixed(3), x1: +x1.toFixed(3), step: +((x1 - x0) / (n - 1)).toFixed(4), n, nS: N_SAMPLES,
+      z: +parallelZ(state, defects).toFixed(3), cols: new Uint8Array(n * N_SAMPLES), amps: new Float32Array(n),
+      filled: 0, peakCol: (n - 1) >> 1, done: false,
+      t0Us: +tofd.delayUs || 0, rangeUs: M.clamp(+tofd.rangeUs || 15, 0.5, 200), gainDb: tofd.gainDb,
+      pcs: g.pcs, txAngle: g.angle, wd: g.wd,
+      _g: g, _t: timeAxis(tofd, g, N_SAMPLES), _defects: defects, _spec: spec,
+      _grass: grassLevel(g.material, g.freq), _max: 0,
+    };
+  }
+
+  /** The pair geometry moved to x (the wedge / velocity part of derive() does not depend on x). */
+  function geomAtX(g, spec, x) {
+    return Object.assign({}, g, { probeX: x, xt: x + g.pcs / 2, xr: x - g.pcs / 2, T: thicknessAt(spec, x) });
+  }
+
+  /** Build column j of the parallel scan into its 8-bit buffer (grey 0..255, 128 = no signal). */
+  function parallelColumn(ps, j) {
+    const x = ps.x0 + j * ps.step;
+    const g = geomAtX(ps._g, ps._spec, x);
+    const evs = eventsAt(ps._spec, g, ps._defects, ps.z);
+    const rf = synthRf(evs, ps._t, ps.gainDb, g.freq, ps.z + x, { grass: ps._grass });
+    const off = j * ps.nS;
+    for (let k = 0; k < ps.nS; k++) ps.cols[off + k] = Math.round(M.clamp(0.5 + rf[k] * DSCAN_CONTRAST, 0, 1) * 255);
+    let a = 0;
+    for (const e of evs) if (e.defectId !== null && e.defectId !== undefined) a += Math.abs(e.amp);
+    ps.amps[j] = a;
+    if (a > ps._max) { ps._max = a; ps.peakCol = j; }
+    if (j + 1 > ps.filled) ps.filled = j + 1;
+    return ps;
+  }
+
+  /** Fill every column of a parallel-scan shell. */
+  function fillParallel(ps) {
+    for (let j = ps.filled; j < ps.n; j++) parallelColumn(ps, j);
+    ps.done = true;
+    return ps;
+  }
+
+  /**
+   * Build the F43 parallel scan for a state and store it in the module buffer.
+   * @param {object} state  UT.state-like
+   * @returns {object|null} the filled buffer (null without a specimen)
+   */
+  function runParallel(state) {
+    if (!state || !state.specimen) return null;
+    parallel = fillParallel(parallelShell(state));
+    return parallel;
+  }
+
+  /** The parallel-scan buffer (null until the first Run Scan); never mirrored into state (§2). @returns {object|null} */
+  function parallelScan() { return parallel; }
+
+  /** Drop the parallel-scan buffer (Clear). */
+  function clearParallel() { parallel = null; }
+
   /**
    * Synchronous D-scan: z = 0 … L in 1 mm steps, each column = grey samples 0..1 (0.5 = no signal).
-   * PURE — the caller stores the result (UT.setIn('tofd', {scan})).
+   * PURE in state terms — the caller stores the result (UT.setIn('tofd', {scan})); the F43 parallel
+   * scan it also builds lives in the module buffer (UT.tofd.parallelScan()).
    * @param {object} state  UT.state
-   * @param {{sync?:boolean}} [opts]
+   * @param {{sync?:boolean, onColumn?:function}} [opts]  onColumn(i, sc) is called after each D-scan column
    * @returns {{z0:number, z1:number, step:number, n:number, columns:Float32Array[], latUs:Float32Array, lateralUs:number, deadZones:object}|null}
    */
-  function runScan(state, opts) {   // eslint-disable-line no-unused-vars
+  function runScan(state, opts) {
     if (!state || !state.specimen) return null;
     const sc = scanShell(state);
-    for (let i = 0; i < sc.n; i++) sc.columns.push(scanColumn(sc, i));
+    const ps = parallelShell(state);       // taken BEFORE the loop: a stepping probe.z must not move its z
+    const onCol = opts && typeof opts.onColumn === 'function' ? opts.onColumn : null;
+    for (let i = 0; i < sc.n; i++) { sc.columns.push(scanColumn(sc, i)); if (onCol) onCol(i, sc); }
     sc.done = true;
+    parallel = fillParallel(ps);           // F43: both strips are built by the one Run Scan
     return stripPrivate(sc);
   }
 
-  let anim = null;   // {sc, i, handle}
+  /** Move the probe pair to z while a scan runs (F44), clamped to the specimen. */
+  function moveProbeZ(z, opts) {
+    const spec = UT.state.specimen;
+    const L = (spec && spec.L) || 0;
+    const v = +(L > 0 ? M.clamp(z, 0, L) : z).toFixed(3);
+    if (Math.abs((UT.state.probe.z || 0) - v) < 1e-9) return v;
+    UT.setIn('probe', { z: v }, opts);
+    return v;
+  }
+
+  let anim = null;   // {sc, ps, i, handle, z0}
   function raf(fn) {
     if (typeof requestAnimationFrame === 'function') return requestAnimationFrame(fn);
     return setTimeout(fn, 16);
@@ -529,7 +778,9 @@
   }
 
   /**
-   * Animated D-scan (8 columns per frame); stores partial scans into state and emits 'scan:progress'.
+   * Animated D-scan (8 columns per frame); stores partial scans into state and emits 'scan:progress'
+   * {kind, i, n, z}. v3 F43: the parallel strip fills alongside; F44: probe.z travels with the column
+   * being written and is restored when the scan finishes or is stopped.
    * prefers-reduced-motion → all columns are built synchronously (one store, one 'scan:progress', isScanning() stays false).
    */
   function startScan() {
@@ -540,19 +791,28 @@
       const full = runScan(state);
       if (!full) return false;
       UT.setIn('tofd', { scan: full, running: false });
-      UT.bus.emit('scan:progress', { kind: 'tofd', i: full.n, n: full.n });
+      UT.bus.emit('scan:progress', { kind: 'tofd', i: full.n, n: full.n, z: full.z1 });
       return true;
     }
     const sc = scanShell(state);
-    anim = { sc, i: 0, handle: null };
+    const ps = parallelShell(state);
+    parallel = ps;
+    anim = { sc, ps, i: 0, handle: null, z0: state.probe.z || 0 };
     UT.setIn('tofd', { scan: stripPrivate(sc), running: true });
     const stepFrame = function () {
       if (!anim || anim.sc !== sc) return;
-      for (let k = 0; k < 8 && anim.i < sc.n; k++, anim.i++) sc.columns.push(scanColumn(sc, anim.i));
+      for (let k = 0; k < PROGRESS_EVERY && anim.i < sc.n; k++, anim.i++) sc.columns.push(scanColumn(sc, anim.i));
+      const want = Math.min(ps.n, Math.ceil(anim.i * ps.n / sc.n));
+      while (ps.filled < want) parallelColumn(ps, ps.filled);
+      if (ps.filled >= ps.n) ps.done = true;
       const finished = anim.i >= sc.n;
+      const zCol = sc.z0 + Math.max(0, anim.i - 1) * sc.step;
+      const home = anim.z0;
       sc.done = finished;
+      if (finished) fillParallel(ps);
       UT.setIn('tofd', { scan: stripPrivate(sc), running: !finished });
-      UT.bus.emit('scan:progress', { kind: 'tofd', i: anim.i, n: sc.n });
+      moveProbeZ(finished ? home : zCol);
+      UT.bus.emit('scan:progress', { kind: 'tofd', i: anim.i, n: sc.n, z: zCol });
       if (finished) { anim = null; return; }
       anim.handle = raf(stepFrame);
     };
@@ -560,11 +820,13 @@
     return true;
   }
 
-  /** Stop the animated scan (keeps the columns already built). */
+  /** Stop the animated scan (keeps the columns already built; the probe returns to its pre-scan z). */
   function stopScan(silent) {
     if (!anim) return false;
     if (anim.handle !== null) cancelRaf(anim.handle);
+    const home = anim.z0;
     anim = null;
+    moveProbeZ(home, silent ? { noRender: true } : undefined);
     if (!silent) UT.setIn('tofd', { running: false });
     return true;
   }
@@ -629,10 +891,18 @@
     '.win[data-win=tofd] .win-body{padding:0;background:#000;overflow:hidden auto}',
     '.win[data-win=tofd] .tofd-top{display:flex;align-items:stretch;height:36px;background:#000}',
     '.tofd-docked{visibility:hidden}',
-    '.win[data-win=tofd] .tofd-run{width:140px;margin:0;padding:0;font:bold 17px "Segoe UI",Arial,sans-serif;color:#000;background:#ececec;border:2px outset #fff;cursor:pointer}',
+    '.win[data-win=tofd] .tofd-run{width:120px;margin:0;padding:0;font:bold 17px "Segoe UI",Arial,sans-serif;color:#000;background:#ececec;border:2px outset #fff;cursor:pointer}',
     '.win[data-win=tofd] .tofd-run.running{background:#ffe08a}',
-    '.win[data-win=tofd] .tofd-clear{width:60px;margin:0 0 0 4px;padding:0;font:12px "Segoe UI",Arial,sans-serif;color:#000;background:#d8d8d8;border:2px outset #eee;cursor:pointer}',
-    '.win[data-win=tofd] #cv-tofd-dscan{display:block;width:280px;height:450px;cursor:crosshair;background:#000;touch-action:none}',
+    '.win[data-win=tofd] .tofd-clear{width:52px;margin:0 0 0 4px;padding:0;font:12px "Segoe UI",Arial,sans-serif;color:#000;background:#d8d8d8;border:2px outset #eee;cursor:pointer}',
+    '.win[data-win=tofd] .tofd-showascan{width:76px}',
+    '.win[data-win=tofd] .tofd-clear[disabled]{color:#888;cursor:default;border-style:inset}',
+    // v3 F43: [ Non-Parallel Scan | Parallel Scan ] side by side, the 2× magnifier under the parallel strip
+    '.win[data-win=tofd] .tofd-strips{position:relative;display:flex;align-items:flex-start;width:' + STRIPS.w + 'px;height:' + STRIPS.h + 'px;background:#000;overflow:hidden}',
+    '.win[data-win=tofd] .tofd-strip{position:relative;flex:0 0 auto}',
+    '.win[data-win=tofd] .tofd-cap{position:absolute;left:4px;top:2px;font:11px "Segoe UI",Arial,sans-serif;color:#000;pointer-events:none;white-space:nowrap}',
+    '.win[data-win=tofd] #cv-tofd-dscan{display:block;width:140px;height:450px;cursor:crosshair;background:#000;touch-action:none}',
+    '.win[data-win=tofd] #cv-tofd-parallel{display:block;width:120px;height:450px;background:#000}',
+    '.win[data-win=tofd] #cv-tofd-mag{display:block;width:140px;height:140px;pointer-events:none}',
     '.win[data-win=tofd-ascan] .win-body{padding:3px;background:#fdfbd8}',
     '.win[data-win=tofd-ascan] #cv-tofd-ascan{display:block;width:236px;height:140px;touch-action:none}',
     '.win[data-win=tofd-ascan] .tofd-ctl{display:flex;gap:4px;align-items:flex-start;margin-top:2px}',
@@ -657,6 +927,7 @@
 
   const ui = {
     win: null, ascanWin: null, dscan: null, ascan: null, runBtn: null,
+    parallel: null, mag: null, caps: null, showBtn: null,
     inputs: {}, hover: null /* {tUs wedge-zeroed, z, depth} */, subscribed: false, leaving: false, syncing: false,
     pointerDown: false,
   };
@@ -715,8 +986,12 @@
     const runBtn = UT.dom.h('button', { class: 'tofd-run', type: 'button', title: t('Build the D-scan image along the weld') }, t('Run Scan'));
     runBtn.addEventListener('click', function () { if (isScanning()) stopScan(); else startScan(); syncInputs(); UT.requestRender(); });
     const clearBtn = UT.dom.h('button', { class: 'tofd-clear', type: 'button', title: t('Clear the D-scan image') }, t('Clear'));
-    clearBtn.addEventListener('click', function () { stopScan(true); setTofd({ scan: null, running: false }); });
-    const cv = UT.dom.h('canvas', { id: 'cv-tofd-dscan', width: DSCAN.w, height: DSCAN.h, 'aria-label': t('TOFD D-scan: hover for the hyperbolic cursor, click to move the probe') });
+    clearBtn.addEventListener('click', function () { stopScan(true); clearParallel(); setTofd({ scan: null, running: false }); });
+    // F44: the A-scan sub-window's OFF only hides it — this brings it back (the mode never left)
+    const showBtn = UT.dom.h('button', { class: 'tofd-clear tofd-showascan', type: 'button', title: t('Show the TOFD RF A-scan window again') }, t('Show A-scan'));
+    showBtn.addEventListener('click', function () { ascanShow(); });
+    ui.showBtn = showBtn;
+    const cv = UT.dom.h('canvas', { id: 'cv-tofd-dscan', width: DSCAN.w, height: DSCAN.h, 'aria-label': t('Non-Parallel Scan') + ' — ' + t('TOFD D-scan: hover for the hyperbolic cursor, click to move the probe') });
     cv.addEventListener('pointerdown', function (e) {
       if (e.button !== 0 && e.pointerType === 'mouse') return;
       ui.pointerDown = true;
@@ -732,7 +1007,17 @@
     cv.addEventListener('pointerup', up);
     cv.addEventListener('pointercancel', up);
     cv.addEventListener('pointerleave', function () { if (!ui.pointerDown) { ui.hover = null; clearCursor(); UT.requestRender(); } });
-    const content = UT.dom.h('div', { class: 'tofd-panel' }, [UT.dom.h('div', { class: 'tofd-top' }, [runBtn, clearBtn]), cv]);
+    // F43: the parallel-scan strip and the magnifier that moved under it
+    const pcv = UT.dom.h('canvas', { id: 'cv-tofd-parallel', width: PARALLEL.w, height: PARALLEL.h, 'aria-label': t('Parallel Scan') });
+    const mcv = UT.dom.h('canvas', { id: 'cv-tofd-mag', width: MAG.w, height: MAG.h, 'aria-label': t('2x magnifier of the D-scan around the cursor') });
+    const capD = UT.dom.h('span', { class: 'tofd-cap', id: 'tofd-cap-dscan' }, t('Non-Parallel Scan'));
+    const capP = UT.dom.h('span', { class: 'tofd-cap', id: 'tofd-cap-parallel' }, t('Parallel Scan'));
+    ui.parallel = pcv; ui.mag = mcv; ui.caps = { dscan: capD, parallel: capP };
+    const strips = UT.dom.h('div', { class: 'tofd-strips' }, [
+      UT.dom.h('div', { class: 'tofd-strip' }, [cv, capD]),
+      UT.dom.h('div', { class: 'tofd-strip' }, [pcv, capP, mcv]),
+    ]);
+    const content = UT.dom.h('div', { class: 'tofd-panel' }, [UT.dom.h('div', { class: 'tofd-top' }, [runBtn, clearBtn, showBtn]), strips]);
     const inst = anchorRect('instrument');
     const k = UT.dom.scale ? UT.dom.scale() : 1;
     ui.win = UT.dom.win({
@@ -801,8 +1086,9 @@
     const ampVal = UT.dom.h('span', { class: 'tofd-amp-val' }, amp.value + 'dB');
     ui.inputs.gainLabel = ampVal;
     const ampBox = UT.dom.h('div', { class: 'tofd-amp' }, [amp, UT.dom.h('span', { i18n: 'AMP' }), ampVal]);
-    const off = UT.dom.h('button', { class: 'tofd-off', type: 'button', title: t('Close TOFD') }, 'OFF');
-    off.addEventListener('click', function () { leave(); });
+    // F1/F44: OFF is a power button for the RF overlay, not a way out of the mode
+    const off = UT.dom.h('button', { class: 'tofd-off', type: 'button', title: t('Switch the RF A-scan off (the TOFD screen stays)') }, 'OFF');
+    off.addEventListener('click', function () { ascanOff(); });
     const pcs = UT.dom.field('PCS', { type: 'number', value: tofdState().pcs || 60, min: LIMITS.pcs[0], max: LIMITS.pcs[1], step: 1, title: t('Probe centre separation (mm)'),
       onchange: function (v) { if (Number.isFinite(v)) setTofd({ pcs: clampField('pcs', v) }); } });
     const ang = UT.dom.field('Angle', { tag: 'select', type: 'number', value: tofdState().txAngle || 60, options: [45, 60, 70], title: t('Probe angle (compression)'),
@@ -837,9 +1123,36 @@
     ui.ascanWin = UT.dom.win({
       name: 'tofd-ascan', title: 'TOFD A-Scan', w: 246,
       x: plan ? Math.max(0, Math.round(plan.right / k - 150 - 246)) : 700, y: plan ? Math.max(0, Math.round(plan.top / k + 24)) : 130,
-      content, onClose: function () { leave(); },
+      content, onClose: function () { ascanOff(); },   // F44: the sub-window's ✕ hides it, it does not leave TOFD
     });
     ui.ascan = cv;
+  }
+
+  /**
+   * F1/F44: hide ONLY the RF A-scan sub-window (its OFF button / ✕). The TOFD mode, the D-scan and
+   * Run Scan all stay; UT.modes.exit() (the TOFD window's close box) remains the only way out.
+   * @returns {boolean} the new tofd.ascanOn (always false)
+   */
+  function ascanOff() {
+    if (UT.state.tofd && UT.state.tofd.ascanOn !== false) setTofd({ ascanOn: false });
+    if (ui.ascanWin && ui.ascanWin.isOpen()) ui.ascanWin.hide();
+    if (typeof document !== 'undefined') { syncInputs(); UT.requestRender(); }
+    return false;
+  }
+
+  /**
+   * Show the RF A-scan sub-window again ('Show A-scan' in the TOFD window, or re-entering the mode).
+   * @returns {boolean} the new tofd.ascanOn (true), false without a DOM
+   */
+  function ascanShow() {
+    if (typeof document === 'undefined') return false;
+    UT.dom.injectCss('tofd', css);
+    if (!ui.ascanWin) { buildAscanWindow(); panel.ascanWindow = ui.ascanWin; }
+    if (UT.state.tofd && UT.state.tofd.ascanOn === false) setTofd({ ascanOn: true });
+    ui.ascanWin.show();
+    syncInputs();
+    UT.requestRender();
+    return true;
   }
 
   function syncInputs() {
@@ -855,6 +1168,18 @@
     setChk('straighten', tf.straighten);
     setChk('deadZones', tf.deadZones);
     if (ui.inputs.gainLabel) ui.inputs.gainLabel.textContent = Math.round(Number.isFinite(tf.gainDb) ? tf.gainDb : REF_GAIN_DB) + 'dB';
+    // v3: strings set through t() (no data-i18n auto-relabel) — refreshed here on 'lang'
+    if (ui.caps) {
+      const cd = t('Non-Parallel Scan'), cp = t('Parallel Scan');
+      if (ui.caps.dscan.textContent !== cd) ui.caps.dscan.textContent = cd;
+      if (ui.caps.parallel.textContent !== cp) ui.caps.parallel.textContent = cp;
+    }
+    if (ui.showBtn) {
+      const sl = t('Show A-scan');
+      if (ui.showBtn.textContent !== sl) ui.showBtn.textContent = sl;
+      const shown = !!(ui.ascanWin && ui.ascanWin.isOpen());
+      if (ui.showBtn.disabled !== shown) ui.showBtn.disabled = shown;
+    }
     if (ui.runBtn) {
       const running = isScanning() || !!tf.running;
       const label = running ? t('Stop Scan') : t('Run Scan');
@@ -973,6 +1298,111 @@
     return best;
   }
 
+  /**
+   * The 2× magnifier (v3 F43: its own canvas under the parallel strip): a 70 × 70 px region of the
+   * D-scan around the crosshair, plus the hyperbolic cursor's depth / z / time readout.
+   * @param {object|null} sc  the stored scan (null → an empty magnifier)
+   * @param {{z0:number, z1:number}} zr  the z range of the strip
+   * @param {number} rangeUs @param {number} delayUs @param {boolean} straighten
+   * @param {number} hx  the crosshair's x on the D-scan image (px)
+   * @param {number} zRow  the crosshair's y on the D-scan image (px)
+   */
+  function drawMag(sc, zr, rangeUs, delayUs, straighten, hx, zRow) {
+    const cv = ui.mag;
+    if (!cv) return;
+    const ctx = UT.dom.fitCanvas(cv, MAG.w, MAG.h);
+    ctx.save();
+    ctx.fillStyle = '#4a4a4a';
+    ctx.fillRect(0, 0, MAG.w, MAG.h);
+    if (sc && sc.columns && sc.columns.length) {
+      const cx = M.clamp(Math.round(hx), 35, DSCAN.imgW - 35), cy = M.clamp(Math.round(zRow), 35, DSCAN.h - 35);
+      const mini = ctx.createImageData(MAG.w, MAG.h);
+      const md = mini.data;
+      for (let py = 0; py < MAG.h; py++) {
+        for (let px = 0; px < MAG.w; px++) {
+          const v = greyAt(sc, zr, rangeUs, delayUs, cx - 35 + px / 2, cy - 35 + py / 2, 0.5, straighten);
+          const gv = v < 0 ? 0 : Math.round(M.clamp(v, 0, 1) * 255);
+          const k = (py * MAG.w + px) * 4;
+          md[k] = gv; md[k + 1] = gv; md[k + 2] = gv; md[k + 3] = 255;
+        }
+      }
+      ctx.putImageData(mini, 0, 0);
+    }
+    if (ui.hover && ui.hover.depth > 0) {
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(0, MAG.h - 26, MAG.w, 26);
+      ctx.fillStyle = '#7ff7ff'; ctx.font = '10px "Segoe UI", Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText(t('d {mm} mm  z {z}', { mm: ui.hover.depth.toFixed(1), z: Math.round(ui.hover.z) }), 4, MAG.h - 24);
+      ctx.fillText(t('t {us} µs', { us: ui.hover.tUs.toFixed(2) }), 4, MAG.h - 12);
+    }
+    ctx.restore();
+  }
+
+  /** Grey 0..255 of the parallel-scan buffer at screen pixel px of column j (−1 outside), peak-held over binPx. */
+  function parallelGreyAt(ps, rangeUs, delayUs, px, j, binPx) {
+    if (!ps || j < 0 || j >= ps.filled) return -1;
+    const off = j * ps.nS;
+    const sPerPx = rangeUs / (PARALLEL.w - 1) / ps.rangeUs * (ps.nS - 1);
+    const jc = (delayUs + rangeUs * px / (PARALLEL.w - 1) - ps.t0Us) / ps.rangeUs * (ps.nS - 1);
+    const half = (binPx || 1) / 2;
+    let a = Math.ceil(jc - half * sPerPx), b = Math.floor(jc + half * sPerPx);
+    if (b < a) a = b = Math.round(jc);
+    if (b < 0 || a >= ps.nS) return -1;
+    if (a < 0) a = 0;
+    if (b > ps.nS - 1) b = ps.nS - 1;
+    let best = ps.cols[off + a], dev = Math.abs(best - 128);
+    for (let k = a + 1; k <= b; k++) { const d = Math.abs(ps.cols[off + k] - 128); if (d > dev) { dev = d; best = ps.cols[off + k]; } }
+    return best;
+  }
+
+  /**
+   * The F43 'Parallel Scan' strip: 61 columns (2 px each) of the pair stepped along the beam
+   * direction at a fixed z, time left→right on the same Range / X-Shift as the D-scan.
+   * @param {object} state  UT.state
+   */
+  function drawParallel(state) {
+    const cv = ui.parallel;
+    if (!cv) return;
+    const ctx = UT.dom.fitCanvas(cv, PARALLEL.w, PARALLEL.h);
+    const tf = state.tofd || {};
+    const rangeUs = M.clamp(+tf.rangeUs || 15, 0.5, 200), delayUs = +tf.delayUs || 0;
+    const ps = parallel;
+    const blockH = PARALLEL.n * PARALLEL.rowH;
+    ctx.save();
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, PARALLEL.w, PARALLEL.h);
+    ctx.fillStyle = '#808080';
+    ctx.fillRect(0, 0, PARALLEL.w, blockH);
+    if (ps && ps.filled) {
+      const rows = Math.min(PARALLEL.h, ps.filled * PARALLEL.rowH);
+      const img = ctx.createImageData(PARALLEL.w, rows);
+      const d = img.data;
+      for (let py = 0; py < rows; py++) {
+        const j = Math.floor(py / PARALLEL.rowH);
+        for (let px = 0; px < PARALLEL.w; px++) {
+          const v = parallelGreyAt(ps, rangeUs, delayUs, px, j, 1);
+          const gv = v < 0 ? 128 : v;
+          const k = (py * PARALLEL.w + px) * 4;
+          d[k] = gv; d[k + 1] = gv; d[k + 2] = gv; d[k + 3] = 255;
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+      // red position line: the column holding the live pair position (the original shows the same)
+      const jNow = M.clamp(Math.round(((state.probe.x || 0) - ps.x0) / (ps.step || 1)), 0, ps.n - 1);
+      const y = Math.round(jNow * PARALLEL.rowH + PARALLEL.rowH / 2) + 0.5;
+      ctx.strokeStyle = '#ff2020'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(PARALLEL.w, y); ctx.stroke();
+      ctx.fillStyle = '#c0c0c0'; ctx.font = '9px "Segoe UI", Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText(t('z {z} mm', { z: Math.round(ps.z) }), 4, blockH + 4);
+    } else {
+      ctx.fillStyle = '#404040';
+      ctx.font = '11px "Segoe UI", Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(t('press Run Scan'), PARALLEL.w / 2, 30);
+    }
+    ctx.restore();
+  }
+
   function drawDscan(frame, state) {
     const cv = ui.dscan;
     if (!cv) return;
@@ -988,12 +1418,8 @@
     const xOfT = function (tWz) { return (tWz - delayUs) / rangeUs * (DSCAN.imgW - 1); };
     const yOfZ = function (z) { return (z - zr.z0) / (zr.z1 - zr.z0) * (DSCAN.h - 1); };
     ctx.save();
-    ctx.fillStyle = '#000';
+    ctx.fillStyle = '#808080';                   // v3 F43: the strip is grey (no signal) as in the original
     ctx.fillRect(0, 0, DSCAN.w, DSCAN.h);
-    ctx.fillStyle = '#3a3a3a';
-    ctx.fillRect(0, 0, DSCAN.imgW, DSCAN.h);
-    ctx.fillStyle = '#4a4a4a';
-    ctx.fillRect(DSCAN.imgW, 0, DSCAN.miniW, DSCAN.miniH);
     const probeZ = state.probe.z || 0;
     const zRow = M.clamp(yOfZ(probeZ), 0, DSCAN.h - 1);
     if (sc && sc.columns.length) {
@@ -1002,40 +1428,28 @@
       for (let py = 0; py < DSCAN.h; py++) {
         for (let px = 0; px < DSCAN.imgW; px++) {
           const v = greyAt(sc, zr, rangeUs, delayUs, px, py, 1, straighten);
-          const gv = v < 0 ? 0 : Math.round(M.clamp(v, 0, 1) * 255);
+          const gv = v < 0 ? 128 : Math.round(M.clamp(v, 0, 1) * 255);
           const k = (py * DSCAN.imgW + px) * 4;
           d[k] = gv; d[k + 1] = gv; d[k + 2] = gv; d[k + 3] = 255;
         }
       }
       ctx.putImageData(img, 0, 0);
-      // magnifier: 2× zoom of a 70 × 70 px region around the crosshair
-      const hx = ui.hover ? xOfT(ui.hover.tUs) : (res ? xOfT(res.lateralUs - 2 * res.wd) : 0);
-      const cx = M.clamp(Math.round(hx), 35, DSCAN.imgW - 35), cy = M.clamp(Math.round(zRow), 35, DSCAN.h - 35);
-      const mini = ctx.createImageData(DSCAN.miniW, DSCAN.miniH);
-      const md = mini.data;
-      for (let py = 0; py < DSCAN.miniH; py++) {
-        for (let px = 0; px < DSCAN.miniW; px++) {
-          const v = greyAt(sc, zr, rangeUs, delayUs, cx - 35 + px / 2, cy - 35 + py / 2, 0.5, straighten);
-          const gv = v < 0 ? 0 : Math.round(M.clamp(v, 0, 1) * 255);
-          const k = (py * DSCAN.miniW + px) * 4;
-          md[k] = gv; md[k + 1] = gv; md[k + 2] = gv; md[k + 3] = 255;
-        }
-      }
-      ctx.putImageData(mini, DSCAN.imgW, 0);
+      drawMag(sc, zr, rangeUs, delayUs, straighten, ui.hover ? xOfT(ui.hover.tUs) : (res ? xOfT(res.lateralUs - 2 * res.wd) : 0), zRow);
       if (!sc.done && sc.columns.length < sc.n) {
         const py = yOfZ(sc.z0 + (sc.columns.length - 1) * sc.step);
         ctx.strokeStyle = '#00e000'; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(0, Math.round(py) + 0.5); ctx.lineTo(DSCAN.imgW, Math.round(py) + 0.5); ctx.stroke();
       }
     } else {
-      ctx.fillStyle = '#9a9a9a';
+      ctx.fillStyle = '#404040';
       ctx.font = '11px "Segoe UI", Arial, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(t('press Run Scan'), DSCAN.imgW / 2, 24);
+      ctx.fillText(t('press Run Scan'), DSCAN.imgW / 2, 30);
+      drawMag(null, zr, rangeUs, delayUs, straighten, 0, zRow);
     }
     // dead zones (v2): red bands over [tL, tL + τ] and [tB − τ, tB] (wedge-zeroed screen time)
-    const lateralWz = (res ? res.lateralUs : g.pcs / g.vL + 2 * wd) - 2 * wd;
-    const backwallWz = (res ? res.backwallUs : Math.sqrt(g.pcs * g.pcs + 4 * g.T * g.T) / g.vL + 2 * wd) - 2 * wd;
+    const lateralWz = (res ? res.lateralUs : lateralTime(g)) - 2 * wd;
+    const backwallWz = (res ? res.backwallUs : backwallTime(Object.assign({ pipe: null }, g, { wd }))) - 2 * wd;
     if (tf.deadZones) {
       const dz = (res && res.deadZones) || deadZones(state);
       const tau = dz.tauUs || DEAD_ZONE_CYCLES / (g.freq || 5);
@@ -1082,9 +1496,6 @@
       }
       ctx.stroke();
       ctx.restore();
-      ctx.fillStyle = '#7ff7ff'; ctx.font = '10px "Segoe UI", Arial, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-      ctx.fillText(t('d {mm} mm  z {z}', { mm: ui.hover.depth.toFixed(1), z: Math.round(ui.hover.z) }), DSCAN.imgW + 4, DSCAN.miniH + 4);
-      ctx.fillText(t('t {us} µs', { us: ui.hover.tUs.toFixed(2) }), DSCAN.imgW + 4, DSCAN.miniH + 16);
     }
     // crosshair: horizontal at probe.z (full width), vertical at hover / lateral time (image only)
     ctx.strokeStyle = '#ff2020';
@@ -1132,6 +1543,8 @@
         UT.bus.on('lang', function () { syncInputs(); UT.requestRender(); });
       }
       ui.win.show();
+      // F44: entering (or re-entering) the mode restores the RF A-scan that OFF hid
+      if (UT.state.tofd && UT.state.tofd.ascanOn === false) setTofd({ ascanOn: true });
       ui.ascanWin.show();
       syncInputs();
       UT.requestRender();
@@ -1152,7 +1565,7 @@
       inRender = true;
       try {
         syncInputs();
-        if (ui.win && ui.win.isOpen()) drawDscan(frame, state);
+        if (ui.win && ui.win.isOpen()) { drawDscan(frame, state); drawParallel(state); }
         if (ui.ascanWin && ui.ascanWin.isOpen()) drawAscan(frame, state);
       } catch (e) { console.error('[UT.tofd.panel]', e); }
       finally { inRender = false; }
@@ -1172,13 +1585,30 @@
       modeConv: !!res.modeConv,
     };
   }
-  /** UT.test.runTofdScan(): synchronous D-scan of the whole scan length (stored in state.tofd.scan). @returns {{z0:number, z1:number, step:number, n:number}|null} */
+  /**
+   * UT.test.runTofdScan(): synchronous D-scan of the whole scan length (stored in state.tofd.scan)
+   * plus the F43 parallel scan. F44: probe.z steps with the scan ('scan:progress' every 8 columns
+   * carries it) and is restored when the scan finishes.
+   * @returns {{z0:number, z1:number, step:number, n:number}|null}
+   */
   function testRunTofdScan() {
     stopScan(true);
-    const sc = runScan(UT.state, { sync: true });
+    const home = UT.state.probe ? UT.state.probe.z : 0;
+    const sc = runScan(UT.state, { sync: true, onColumn: function (i, s) {
+      if (i % PROGRESS_EVERY && i !== s.n - 1) return;
+      const z = moveProbeZ(s.z0 + i * s.step, { noRender: true });
+      UT.bus.emit('scan:progress', { kind: 'tofd', i: i + 1, n: s.n, z });
+    } });
     if (!sc) return null;
     UT.setIn('tofd', { scan: sc, running: false });
+    moveProbeZ(home);
     return { z0: sc.z0, z1: sc.z1, step: sc.step, n: sc.n };
+  }
+  /** UT.test.tofdParallel(): the F43 parallel-scan buffer summary (null before the first Run Scan). @returns {{x0:number, x1:number, step:number, n:number, peakCol:number}|null} */
+  function testTofdParallel() {
+    const ps = parallel;
+    if (!ps) return null;
+    return { x0: ps.x0, x1: ps.x1, step: ps.step, n: ps.n, peakCol: ps.peakCol };
   }
   /** UT.test.pcsOptimise(): set the PCS for a 2/3 T crossing (§3.9) and render. @returns {number} the new PCS (mm) */
   function testPcsOptimise() {
@@ -1286,7 +1716,56 @@
         if (!(mx > 0.02 && mx <= WANDER_US[0] + WANDER_US[1] + 1e-6)) f.push('wander range ' + mx.toFixed(3));
         if (Math.abs(sc.lateralUs - res.lateralUs) > 1e-9 || !sc.deadZones || sc.deadZones.lateral !== dz.lateral) f.push('scan lateralUs/deadZones');
       }
+      // --- v3 F43: the parallel scan (module buffer, never state)
+      const ps = parallelScan();
+      if (!ps || ps.n !== 61) f.push('parallel scan n ' + (ps && ps.n));
+      else {
+        if (!(ps.cols instanceof Uint8Array) || ps.cols.length !== 61 * N_SAMPLES) f.push('parallel buffer kind');
+        if (Math.abs(ps.x0 + 60) > 1e-6 || Math.abs(ps.x1 - 60) > 1e-6 || Math.abs(ps.step - 2) > 1e-6) f.push('parallel sweep ' + ps.x0 + '…' + ps.x1 + ' /' + ps.step);
+        if (Math.abs(ps.z - 135) > 1e-6) f.push('parallel z ' + ps.z);
+        if (ps.filled !== 61 || !ps.done) f.push('parallel filled ' + ps.filled);
+        if (Math.abs(ps.peakCol - 30) > 3) f.push('parallel peakCol ' + ps.peakCol);
+        let lo3 = 255, hi3 = 0;
+        for (let k = 0; k < N_SAMPLES; k++) { const v = ps.cols[ps.peakCol * N_SAMPLES + k]; lo3 = Math.min(lo3, v); hi3 = Math.max(hi3, v); }
+        if (!(lo3 < 40 && hi3 > 215)) f.push('parallel column contrast ' + lo3 + '..' + hi3);
+        const summary = testTofdParallel();
+        if (!summary || summary.n !== 61 || summary.peakCol !== ps.peakCol) f.push('tofdParallel()');
+      }
+      if (UT.defaultState().tofd.parallel !== null) f.push('state.tofd.parallel must stay null');
+      // --- v3 F44: the pipe backwall reflects off the inner arc (the plate numbers are untouched)
+      const stp = UT.clone(Object.assign({}, st, { specimen: null }));
+      stp.specimen = UT.specimens.pipeWeld({ od: 168.3, wt: 20 });
+      stp.probe.x = 0; stp.probe.z = stp.specimen.defaultProbe.z;
+      stp.defects = [];
+      const gp = derive(stp);
+      if (!gp.pipe || Math.abs(gp.pipe.ro - 84.15) > 1e-6 || Math.abs(gp.pipe.ri - 64.15) > 1e-6) f.push('pipeGeom ' + JSON.stringify(gp.pipe));
+      const resP = compute(stp);
+      if (!(resP.backwallUs < res.backwallUs - 0.15)) f.push('pipe backwall ' + resP.backwallUs.toFixed(3) + ' vs plate ' + res.backwallUs.toFixed(3));
+      if (Math.abs(resP.backwallUs - 19.89) > 0.1) f.push('pipe backwall value ' + resP.backwallUs.toFixed(3));
+      // v3 QA round 1: `pcs` is the ARC on a convex OD — the lateral travels the chord, so it stays
+      // ahead of the (shortened) backwall at every PCS instead of being overtaken by it.
+      if (Math.abs(lateralPath(g) - 60) > 1e-9 || Math.abs(lateralTime(g) - res.lateralUs) > 1e-9) f.push('plate lateralPath');
+      if (!(resP.lateralUs < res.lateralUs - 0.1)) f.push('pipe lateral ' + resP.lateralUs.toFixed(3));
+      if (Math.abs(resP.lateralUs - 18.71) > 0.02) f.push('pipe lateral value ' + resP.lateralUs.toFixed(3));
+      if (!(resP.backwallUs > resP.lateralUs + 1)) f.push('pipe backwall before lateral ' + resP.backwallUs.toFixed(3));
+      for (const pipe of [{ od: 168.3, wt: 20 }, { od: 88.9, wt: 12 }]) {
+        const sp = UT.clone(Object.assign({}, st, { specimen: null }));
+        sp.specimen = UT.specimens.pipeWeld(pipe);
+        sp.probe.x = 0; sp.defects = [];
+        for (let pcs = LIMITS.pcs[0]; pcs <= LIMITS.pcs[1]; pcs += 5) {
+          sp.tofd.pcs = pcs;
+          const gq = derive(sp);
+          if (!(backwallTime(gq) >= lateralTime(gq))) f.push('pipe ' + pipe.od + ' pcs ' + pcs + ' backwall ' + backwallTime(gq).toFixed(4) + ' before lateral ' + lateralTime(gq).toFixed(4));
+        }
+      }
+      if (Math.abs(backwallPath(g) - Math.sqrt(60 * 60 + 4 * 400)) > 1e-9) f.push('plate backwallPath');
+      const arc = fermatArc(gp.pipe);
+      if (Math.abs(arc.psi) > 1e-4 || Math.abs(arc.len - 65.70) > 0.05) f.push('fermatArc ' + arc.psi.toFixed(5) + ' ' + arc.len.toFixed(3));
       if (typeof css !== 'string' || css.indexOf('/style') >= 0) f.push('css');
+      if (css.indexOf('cv-tofd-parallel') < 0 || css.indexOf('cv-tofd-mag') < 0) f.push('v3 css ids');
+      // v3 QA round 1: the magnifier flows UNDER the parallel strip (no absolute overlay over it)
+      if (/#cv-tofd-mag\{[^}]*position:absolute/.test(css)) f.push('magnifier still absolutely positioned');
+      if (STRIPS.h !== DSCAN.h + MAG.h || css.indexOf('height:' + STRIPS.h + 'px') < 0) f.push('strip block height ' + STRIPS.h);
     } catch (e) { f.push('exception ' + (e && e.message)); }
     return f;
   }
@@ -1297,8 +1776,14 @@
     probePositions, panel, css,
     // v2
     fermatLS, deadZones, optimalPcs, pcsOptimise, hyperbola, cursorFor, cursorAt, grassLevel, columnShift, wanderUs,
+    // v3 (F43 parallel scan, F44 pipe backwall + A-scan power)
+    PARALLEL, pipeGeom, fermatArc, backwallPath, backwallTime, lateralPath, lateralTime,
+    parallelScan, clearParallel, runParallel, ascanOff, ascanShow,
     __selftest: selftest,
   };
 
-  Object.assign(UT.test, { tofd: testTofd, runTofdScan: testRunTofdScan, pcsOptimise: testPcsOptimise, tofdCursor: testTofdCursor });
+  Object.assign(UT.test, {
+    tofd: testTofd, runTofdScan: testRunTofdScan, pcsOptimise: testPcsOptimise, tofdCursor: testTofdCursor,
+    tofdParallel: testTofdParallel,
+  });
 })(window.UT = window.UT || {});

@@ -76,6 +76,22 @@
 //   of per-channel strips (= channels) for V2-12.
 // - Every user-visible string goes through UT.i18n.t (plain English keys); the panel content is rebuilt
 //   on the 'lang' event so tooltips follow the live language switch.
+// v3 (SPEC-v3 §6.3 F50 — AUT wording and gate defaults; utman_software f068/f072)
+// - Wording: the green button is 'Set Gates Same Position' on TWO lines (its function is unchanged — copy
+//   gate 1's start/width/level/on into gates 2 … channels); the RDT/RTD strip radios keep their function
+//   but their group is captioned 'RDTech' (the original's checkbox caption) with the three options
+//   labelled RDT / RTD / Both; the fieldset title follows the selected strip: 'Amplitude Gate' when only
+//   the rectified amplitude strip is shown (aut.strip === 'rdt'), else 'Transit/TOF Gate' (f068 / f072).
+// - Gate defaults become Level 15 % / Width 15 mm / Start 30 mm on EVERY gate (f072), replacing
+//   20 % / 40 mm / 20 mm. 00-core's UT.defaultState() is the lead's file and still carries the v1 values,
+//   so 55 owns the change: applyGateDefaults() replaces the gates with UTMAN_GATES **only while they are
+//   still bit-for-bit UT.defaultState().aut.gates** (i.e. untouched), and runs when the AUT mode is
+//   entered (bus 'mode') and when the panel opens — "what a user sees on first entering AUT" (§11.9). A
+//   trainee's own gates, a scenario's gates and V1 #12's own gates are therefore never overwritten, and
+//   the helper becomes a no-op the day 00-core adopts the same values (it compares both ways).
+// - Lead decision 9 asks for a 'Reset to UTman defaults' button ONLY in the fallback branch (V1 #12 failing
+//   with the new defaults). V1 #12 sets its own gate 1 and passes unchanged, so the defaults are adopted
+//   and no extra button is added (SPEC-v3 is otherwise silent: simplest faithful behaviour).
 (function (UT) {
   'use strict';
   const M = UT.math;
@@ -91,6 +107,10 @@
   const LIMITS = { level: [1, 100], width: [1, 200], start: [0, 400], range: [10, 1000], delay: [-50, 1000], gain: [0, 110], speed: [1, 60], channels: [1, MAX_CHANNELS] };
   /** Channel colours 1 … 6 (A-scan gate bars, strip headers, map header). */
   const CHANNEL_COLOURS = ['#ff2020', '#ffe000', '#20e020', '#20d0ff', '#ff40ff', '#ff9020'];
+  /** F50: the original's AUT gate defaults (utman_software f072) — applied to every gate. */
+  const UTMAN_GATES = { level: 15, width: 15, start: 30 };
+  /** F50: fieldset titles of the gate group, by strip selection. */
+  const GATE_TITLES = { amplitude: 'Amplitude Gate', transit: 'Transit/TOF Gate' };
 
   /** Colour bands top → bottom (§14.6). */
   const BANDS = [
@@ -129,6 +149,54 @@
   function channelsOf(state) {
     const k = Math.round(+autOf(state).channels);
     return Number.isFinite(k) ? M.clamp(k, LIMITS.channels[0], LIMITS.channels[1]) : 3;
+  }
+
+  /**
+   * F50: the UTman default gates — every gate at Level 15 % / Width 15 mm / Start 30 mm, keeping the
+   * `on` flags of UT.defaultState().
+   * @returns {{on:boolean, start:number, width:number, level:number}[]}
+   */
+  function defaultGates() {
+    return UT.defaultState().aut.gates.map(function (g) { return Object.assign({}, g, UTMAN_GATES); });
+  }
+
+  /**
+   * F50: true when `gates` is still exactly UT.defaultState().aut.gates (nobody has touched them).
+   * @param {object[]} gates
+   * @returns {boolean}
+   */
+  function isFactoryGates(gates) {
+    const d = UT.defaultState().aut.gates;
+    if (!Array.isArray(gates) || gates.length !== d.length) return false;
+    return d.every(function (g, i) {
+      const q = gates[i] || {};
+      return !!q.on === !!g.on && +q.start === g.start && +q.width === g.width && +q.level === g.level;
+    });
+  }
+
+  /**
+   * F50: replace untouched factory gates with the UTman defaults (Level 15 % / Width 15 mm / Start 30 mm).
+   * A no-op when the trainee, a scenario or a test has set its own gates, or when UT.defaultState()
+   * already carries the UTman values.
+   * @returns {boolean} true when the gates were written
+   */
+  function applyGateDefaults() {
+    const cur = (UT.state && UT.state.aut && UT.state.aut.gates) || [];
+    if (!isFactoryGates(cur)) return false;
+    const next = defaultGates();
+    if (isFactoryGates(next)) return false;
+    UT.setIn('aut', { gates: next });
+    return true;
+  }
+
+  /**
+   * F50: title of the gate fieldset — 'Amplitude Gate' while only the rectified amplitude strip is shown
+   * (aut.strip === 'rdt'), else 'Transit/TOF Gate' (utman_software f068 / f072).
+   * @param {object} [state]  UT.state-like
+   * @returns {string} an English i18n key
+   */
+  function gateGroupTitle(state) {
+    return autOf(state || UT.state).strip === 'rdt' ? GATE_TITLES.amplitude : GATE_TITLES.transit;
   }
 
   /**
@@ -470,15 +538,17 @@
     '.win[data-win=aut] .aut-hslider{display:flex;align-items:center;gap:1px}',
     '.win[data-win=aut] .aut-hslider input[type=range]{width:110px;height:12px;margin:0}',
     '.win[data-win=aut] .aut-same{display:block;width:100%;margin:6px 0 4px;padding:2px 0;font:13px "Segoe UI",Arial,sans-serif;color:#000;background:#7fdf7f;border:2px outset #bfffbf;cursor:pointer}',
+    '.win[data-win=aut] .aut-same span{display:block;line-height:1.05}',
     '.win[data-win=aut] .aut-rdt{margin-top:2px}',
     '.win[data-win=aut] .aut-rdt .aut-rdt-cap{display:flex;gap:14px;text-decoration:underline;margin-bottom:2px}',
+    '.win[data-win=aut] .aut-rdt-opt{display:flex;align-items:center;gap:1px;font:10px "Segoe UI",Arial,sans-serif}',
     '.win[data-win=aut] .aut-rdt .aut-radios{margin:0 0 4px}',
     '.win[data-win=aut] .aut-rev,.win[data-win=aut] .aut-on{display:flex;align-items:center;gap:3px;cursor:pointer}',
     '.win[data-win=aut] .aut-ch-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:1px}',
   ].join('\n');
 
   const TABS = ['chart', 'strips', 'map'];
-  const ui = { win: null, strip: null, map: null, ascan: null, legend: null, runBtn: null, info: null, inputs: {}, labels: {}, radios: [], radioLabels: [], stripRadios: [], tabBtns: {}, subscribed: false, leaving: false, tab: 'chart' };
+  const ui = { win: null, strip: null, map: null, ascan: null, legend: null, gateTitle: null, runBtn: null, info: null, inputs: {}, labels: {}, radios: [], radioLabels: [], stripRadios: [], tabBtns: {}, subscribed: false, leaving: false, tab: 'chart' };
 
   function autState() { return UT.state.aut || UT.defaultState().aut; }
   function setAut(patch) { UT.setIn('aut', patch); }
@@ -680,6 +750,24 @@
     return r;
   }
 
+  /** F50: one RDT / RTD / Both option (radio + caption) of the 'RDTech' group. */
+  function stripOption(mode, caption, title) {
+    return UT.dom.h('label', { class: 'aut-rdt-opt', title }, [stripRadio(mode, title), UT.dom.h('span', {}, caption)]);
+  }
+
+  /**
+   * F50: a caption split into two <span> lines (the original's green button is two lines) — the button's
+   * textContent stays the exact single-space string.
+   * @param {string} text
+   * @returns {HTMLElement[]}
+   */
+  function twoLineCaption(text) {
+    const words = String(text).split(' ');
+    if (words.length < 2) return [UT.dom.h('span', {}, String(text))];
+    const mid = Math.ceil(words.length / 2);
+    return [UT.dom.h('span', {}, words.slice(0, mid).join(' ') + ' '), UT.dom.h('span', {}, words.slice(mid).join(' '))];
+  }
+
   function buildGateGroup() {
     const gi = function () { return activeGate(); };
     const gate = function () { return panelGates()[gi()] || { start: 0, width: 0, level: 0, on: false }; };
@@ -718,7 +806,7 @@
     onChk.addEventListener('change', function () { patchGate(gi(), { on: !!onChk.checked }); });
     ui.inputs.on = onChk;
     // Gates same
-    const same = UT.dom.h('button', { class: 'aut-same', type: 'button', title: t('Copy gate 1 settings to the other channels'), i18n: 'Gates Same' });
+    const same = UT.dom.h('button', { class: 'aut-same', type: 'button', title: t('Copy gate 1 settings to the other channels') }, twoLineCaption(t('Set Gates Same Position')));
     same.addEventListener('click', function () {
       const g1 = panelGates()[0];
       if (!g1) return;
@@ -726,13 +814,13 @@
       const gates = panelGates().map(function (g, i) { return (i === 0 || i >= k) ? Object.assign({}, g) : Object.assign({}, g, { start: g1.start, width: g1.width, level: g1.level, on: g1.on }); });
       setAut({ gates });
     });
-    // RDT / RTD
+    // RDTech: the RDT / RTD strip radios (F50 — the original captions this group 'RDTech')
     const rdt = UT.dom.h('div', { class: 'aut-rdt' }, [
-      UT.dom.h('div', { class: 'aut-rdt-cap' }, [UT.dom.h('span', {}, 'RDT'), UT.dom.h('span', {}, 'RTD')]),
+      UT.dom.h('div', { class: 'aut-rdt-cap' }, [UT.dom.h('span', {}, 'RDTech')]),
       UT.dom.h('div', { class: 'aut-radios' }, [
-        stripRadio('rdt', t('RDT — rectified amplitude strip only')),
-        stripRadio('rtd', t('RTD — transit time (TOF) strip only')),
-        stripRadio('both', t('Both strips')),
+        stripOption('rdt', 'RDT', t('RDT — rectified amplitude strip only')),
+        stripOption('rtd', 'RTD', t('RTD — transit time (TOF) strip only')),
+        stripOption('both', t('Both'), t('Both strips')),
       ]),
     ]);
     const rev = UT.dom.h('input', { type: 'checkbox', title: t('Reverse the colour map') });
@@ -740,8 +828,10 @@
     ui.inputs.revMap = rev;
     const radios = [];
     for (let i = 0; i < MAX_CHANNELS; i++) radios.push(gateRadio(i));
+    const gateTitle = UT.dom.h('legend', {}, t(gateGroupTitle()));
+    ui.gateTitle = gateTitle;
     return UT.dom.h('fieldset', { class: 'aut-gates' }, [
-      UT.dom.h('legend', { i18n: 'Transit/TOF Gate' }),
+      gateTitle,
       UT.dom.h('div', { class: 'aut-radios' }, radios),
       chRow, levelRow, widthRow, startRow,
       UT.dom.h('label', { class: 'aut-on' }, [onChk, UT.dom.h('span', { i18n: 'Gate on' })]),
@@ -823,6 +913,7 @@
     ui.radioLabels.forEach(function (l, i) { if (l) l.hidden = i >= k; });
     const sm = stripMode();
     ui.stripRadios.forEach(function (r) { r.checked = r.value === sm; });
+    if (ui.gateTitle) { const gt = t(gateGroupTitle()); if (ui.gateTitle.textContent !== gt) ui.gateTitle.textContent = gt; }
     TABS.forEach(function (name) { const b = ui.tabBtns[name]; if (b) b.classList.toggle('active', ui.tab === name); });
     if (ui.strip) ui.strip.hidden = ui.tab === 'map';
     if (ui.map) ui.map.hidden = ui.tab !== 'map';
@@ -1136,6 +1227,7 @@
     /** Create (lazily) and show the AUT window. */
     open() {
       if (typeof document === 'undefined') return null;
+      applyGateDefaults();                 // F50: first sight of the panel = the UTman defaults
       UT.dom.injectCss('aut', css);
       if (!ui.win) buildWindow();
       panel.window = ui.win;
@@ -1202,6 +1294,15 @@
       const lay6 = stripLayout(6, 186, 'both');
       if (lay6.length !== 6 || lay6[5].x + lay6[5].w > 186 || lay6.some(function (s) { return s.ampW <= 0 || s.tofW <= 0; })) f.push('stripLayout 6 ' + JSON.stringify(lay6[5]));
       if (stripLayout(1, 186, 'rdt')[0].ampW !== 186 || stripLayout(1, 186, 'rtd')[0].tofW !== 186 || stripLayout(3).length !== 3) f.push('stripLayout modes');
+      // v3 F50 — gate defaults and the gate-group title
+      const dgs = defaultGates();
+      const core = UT.defaultState().aut.gates;
+      if (dgs.length !== core.length || dgs.some(function (g) { return g.level !== 15 || g.width !== 15 || g.start !== 30; })) f.push('defaultGates ' + JSON.stringify(dgs[0]));
+      if (dgs.some(function (g, i) { return !!g.on !== !!core[i].on; })) f.push('defaultGates on flags');
+      if (!isFactoryGates(core) || isFactoryGates([]) || isFactoryGates(core.map(function (g, i) { return i ? g : Object.assign({}, g, { start: g.start + 1 }); }))) f.push('isFactoryGates');
+      const coreIsUtman = core.every(function (g) { return g.level === 15 && g.width === 15 && g.start === 30; });
+      if (!coreIsUtman && isFactoryGates(dgs)) f.push('isFactoryGates utman');
+      if (gateGroupTitle({ aut: { strip: 'rdt' } }) !== 'Amplitude Gate' || gateGroupTitle({ aut: { strip: 'rtd' } }) !== 'Transit/TOF Gate' || gateGroupTitle({ aut: {} }) !== 'Transit/TOF Gate') f.push('gateGroupTitle');
       const fm = mapOf({ z0: 0, z1: 2, step: 1, n: 3, channels: 2, gates: [{ on: true }, { on: true }, { on: false }], amp: [[1, 2, 3], [4, 5, 6], [7, 8, 9]] });
       if (!fm || fm.k !== 2 || fm.map.length !== 6 || fm.map[1] !== 4 || fm.map[5] !== 6 || fm.gates.length !== 2) f.push('mapOf ' + JSON.stringify(fm && Array.from(fm.map)));
       if (!(UT.rays && UT.ascan && UT.specimens)) return f;   // physics modules absent: helpers only
@@ -1275,6 +1376,7 @@
     BANDS, COLS_PER_FRAME, MAX_CHANNELS, CHANNEL_COLOURS, STRIP, MAP, ASCAN,
     colourFor, prepare, scanColumn, scanShell, runScan, aboveLevel, mapOf, startScan, stopScan, isScanning,
     channelsOf, speedOf, stepFor, stripLayout, traceOpts: traceOptsOf, snapshot,
+    UTMAN_GATES, defaultGates, isFactoryGates, applyGateDefaults, gateGroupTitle,
     panel, css,
     /** open() → the 'aut' window api — build (first call) and show the AUT panel; @see panel.open(). */
     open() { return panel.open(); },
@@ -1290,4 +1392,13 @@
   };
 
   Object.assign(UT.test, { runAutScan: testRunAutScan });
+
+  // F50: entering AUT is the moment the trainee first sees the gates — give them the UTman defaults
+  // while they are still untouched (never inside a 'render' listener: 'mode' is emitted by 80-modes.enter).
+  if (UT.bus && typeof UT.bus.on === 'function') {
+    UT.bus.on('mode', function (e) {
+      if (!e || e.mode !== 'aut') return;
+      try { applyGateDefaults(); } catch (err) { console.error('[UT.aut] gate defaults', err); }
+    });
+  }
 })(window.UT = window.UT || {});

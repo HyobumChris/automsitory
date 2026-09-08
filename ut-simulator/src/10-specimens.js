@@ -26,8 +26,10 @@
  *  - F46 tky({kind:'Plate'|'T-joint'|'Pipe', chordOd, chordWt}): a genuinely curved chord backed by exact
  *    spec.arcs, and the complete pipe ring (spec.ring, two loops) for a small diameter.
  *  - F21 defect presets centre their z on the parked probe (spec.defaultProbe.z, or opts.z).
- *  - F22 toeCrack is a near-VERTICAL surface-breaking crack (a tilted reflector loses its corner return
- *    by design — see §4.10; this is a preset fix, never a 30-raytrace change).
+ *  - F22 toeCrack / toeCrackFillet are surface-breaking cracks built PERPENDICULAR to the face they break
+ *    (surfaceCrackPts: mouth on the real scanning surface, running along its inward normal — vertical on a
+ *    plate, tilted with the arc on a curved chord; a tilted reflector loses its corner return by design —
+ *    see §4.10; this is a preset fix, never a 30-raytrace change).
  *  - F10 the V2 wide face gains the 5 mm hole and the 35…75° graduations along the 25 mm radius.
  *  - F41 polygon({outline, loops, T}) + build('polygon') for Scale Mode; F53 okDemo (the 'OK' splash).
  *  - F56 laminationPlate gains a butt-weld outline; F59 the 'carbon-utman' material.
@@ -55,8 +57,23 @@
  *  8. F46: the chord thickness is chordWt for a curved chord ('T-joint'/'Pipe', per V3-46's 32 mm and
  *     20 mm backwalls) and chordT for the flat 'Plate' chord. The ring is emitted only for kind 'Pipe'
  *     (a T-joint needs somewhere to put its brace); the drawable width is the 300 mm cross-section box.
- *  9. F10: the spec's `{x: 25, y: 12.5}` is in the real block's 0-based 75 mm frame — our wide face is drawn
- *     at x 35…110 with the radius centre at x = 60, so the 5 mm hole is placed at (60, 12.5).
+ *  9. F10 (revised, QA round 3): the spec's `{x: 25, y: 12.5}` read as "25 mm from the left end, 12.5 mm
+ *     down" lands the 5 mm hole at (60, 12.5) — 12.5 mm straight under the PARKED probe (defaultProbe.x =
+ *     60 = the radius centre), i.e. on top of the R25/R50 walk. Every leg of that walk radiates from (60, 0),
+ *     so SPEC NOTE 20's beam-band shadow in 30-raytrace clipped the taught multiples by 5.3 / 10.3 / 13.4 dB
+ *     and the 4th multiple that F10 exists to expose fell to 3.7 %FSH at 40 dB (measured; §9.0 allows no such
+ *     move). The hole is therefore offset ALONG the surface to (102, 4), in the R50 quadrant near the far end
+ *     of the scanning surface: 84.7° off vertical from the radius centre, so no leg of the 35…75° walk passes
+ *     within a band width of it. Measured at 45°, x = 60, range 250, fan 21 (amp, hole → no hole):
+ *       side +1  0.8969 / 0.3202 / 0.1391 / 0.0594   vs   0.8969 / 0.3202 / 0.1391 / 0.0669
+ *       side −1  0.7437 / 0.2704 / 0.1228 / 0.0541   vs   0.7437 / 0.2704 / 0.1228 / 0.0602
+ *     — the 2nd and 3rd multiples are exact and only the 4th keeps a 1.0 dB scatter loss (15.7 %FSH at
+ *     40 dB against 17.7 % with no hole at all), which is the honest price of a 5 mm hole in the block.
+ *     The spec prose's other reading, "the radius centre" (60, 0), is the one point the shadow cannot touch
+ *     (0.65 dB) but 60-view-cross then draws the white disc HALF OUTSIDE the block, straddling the scanning
+ *     surface under the probe shoe — a worse fidelity break than the offset, so it was rejected. The hole
+ *     stays reachable for the F10 angle check of lessons 6/19 (hole5Maximise parks at x + y·tan θ = 108.9 at
+ *     60°, inside scanSurface.xMax = 110, and the hole is the strongest echo there).
  * 10. F53 registers BOTH ids the spec uses: build('okDemo') (§6.5) and build('ok-demo') (§8's MODE_OF and
  *     V3-53's loadSpecimen); spec.id is 'ok-demo'.
  */
@@ -704,15 +721,15 @@
     outline.push({ x: 60, y: 50, tag: 'end' });
     outline.push({ x: 60, y: 25, tag: 'radius' });
     for (const p of arcPoints(60, 0, 25, 90, 180, 'radius', false)) { if (p.y > 1e-6 && p.y < 25 - 1e-6) outline.push(p); }
-    // v3 F10: the 5 mm through hole at the radius centre (SPEC NOTE 9) and the probe-angle graduations
-    // every 5° from 35° to 75° along the 25 mm radius edge — both drawn by 60-view-cross.
+    // v3 F10: the 5 mm through hole (SPEC NOTE 9 — clear of the R25/R50 walk) and the probe-angle
+    // graduations every 5° from 35° to 75° along the 25 mm radius edge — both drawn by 60-view-cross.
     const graduations = [];
     for (let d = 35; d <= 75; d += 5) {
       graduations.push({ deg: d, x: +(60 - 25 * Math.sin(M.deg2rad(d))).toFixed(3), y: +(25 * Math.cos(M.deg2rad(d))).toFixed(3), label: d % 10 === 0 });
     }
     return finish({
       id: 'v2', name: 'V2 calibration block', kind: 'block', T: 50, L: 12.5, outline, material: o.material,
-      holes: [{ x: 60, y: 12.5, r: 2.5, tag: 'hole5', label: '5mm' }],
+      holes: [{ x: 102, y: 4, r: 2.5, tag: 'hole5', label: '5mm' }],
       graduations,
       arcs: [{ cx: 60, cy: 0, r: 25, a0: 90, a1: 180, tag: 'radius' }, { cx: 60, cy: 0, r: 50, a0: 0, a1: 90, tag: 'radius' }],
       scanSurface: { y: 0, xMin: 35, xMax: 110 }, defaultProbe: { x: 60, z: 6, side: 1 }, face: 'wide',
@@ -1175,6 +1192,38 @@
   }
 
   /**
+   * v3 F22 (QA round 3): the two points of a surface-breaking crack whose mouth sits ON the scanning
+   * surface at `x0` and which runs `h` mm along the INWARD surface normal, i.e. perpendicular to the face
+   * it breaks. On a flat surface `scanSurfaceAt` returns y = 0 with the normal (0, 1), so the result is the
+   * plane-vertical [{x0, 0}, {x0, h}] of the first v3 draft bit for bit (plate/flat-chord numbers do not
+   * move — the lead's 0.3882 amp / 56.57 mm path is preserved). On the curved chord of F46 (the app's TKY
+   * default: T-joint, chordOd 600) the mouth moves onto the real arc and the crack tilts with it, which is
+   * what F22 is about: a face tilted α out of the right angle rotates the corner return by 2α, straight out
+   * of the aperture — plane-vertical on a 600 mm OD threw 7.9 dB of the toe-corner echo away and left the
+   * "crack" floating 0.135 mm above its own surface.
+   * @param {object} spec specimen (any builder; a spec without a scanning surface keeps the vertical crack)
+   * @param {number} x0 crack mouth position along the scanning surface (mm; arc length on a curved surface)
+   * @param {number} side probe/weld side (±1) — only used to resolve the surface on multi-face specimens
+   * @param {number} h crack height (mm)
+   * @returns {Array<{x: number, y: number}>} two points, mouth first, rounded to 3 dp
+   */
+  function surfaceCrackPts(spec, x0, side, h) {
+    let px = x0, py = 0, nx = 0, ny = 1;
+    try {
+      const ss = scanSurfaceAt(spec, { x: x0, side: side });
+      if (ss && Number.isFinite(ss.x) && Number.isFinite(ss.y) && ss.normal) {
+        const len = Math.hypot(ss.normal.x, ss.normal.y);
+        if (len > 1e-9) {
+          const k = (ss.normal.y < 0 ? -1 : 1) / len;      // always into the metal (+y), unit length
+          px = ss.x; py = ss.y; nx = ss.normal.x * k; ny = ss.normal.y * k;
+        }
+      }
+    } catch (e) { /* a builder without a scanning surface keeps the plane-vertical crack */ }
+    const r3 = function (v) { return +v.toFixed(3); };
+    return [{ x: r3(px), y: r3(py) }, { x: r3(px + nx * h), y: r3(py + ny * h) }];
+  }
+
+  /**
    * v3 F21: the z window of a preset, centred on the position the trainee is looking at — `o.z` when the
    * caller gives one (UT.modes.addPreset passes the probe's z), else the specimen's parked probe z, else
    * the mid-length. On plates defaultProbe.z is L/2 = 150, so every v1/v2 plate number is unchanged; on a
@@ -1223,7 +1272,9 @@
       return makeDefect(Object.assign({ type: 'slag', label: 'Slag inclusion', pts, height: 1.6, reflectivity: 0.8 }, presetZ(spec, o, 40), o || {}));
     },
     /**
-     * v3 F22: a NEAR-VERTICAL surface-breaking crack at the weld toe (x = cap toe + 1 mm, height 4 mm).
+     * v3 F22: a surface-breaking crack at the weld toe (x = cap toe + 1 mm, height 4 mm), built PERPENDICULAR
+     * to the scanning surface it breaks — vertical on a plate or a flat chord, tilted with the arc on the
+     * curved TKY chord of F46 (QA round 3; see surfaceCrackPts).
      * The old preset leaned 26.6° out of vertical, and tilting one face of a right-angle pair by α rotates
      * the return by 2α out of the aperture, so it could never answer the exercise the videos teach
      * ("put the probe at full skip, find the toe defect"). This is a preset-geometry fix: 30-raytrace is
@@ -1233,7 +1284,7 @@
     toeCrack(spec, o) {
       const side = (o && o.side) || 1, h = (o && o.height) || 4;
       const x0 = +(capToeX(spec, side) + side).toFixed(2);
-      return makeDefect(Object.assign({ type: 'crack', label: 'Toe crack', pts: [{ x: x0, y: 0 }, { x: x0, y: h }], height: h }, presetZ(spec, o, 20), o || {}));
+      return makeDefect(Object.assign({ type: 'crack', label: 'Toe crack', pts: surfaceCrackPts(spec, x0, side, h), height: h }, presetZ(spec, o, 20), o || {}));
     },
     centrelineCrack(spec, o) {
       const T = spec.T, h = (o && o.height) || 6;
@@ -1265,7 +1316,7 @@
     toeCrackFillet(spec, o) {
       const side = (o && o.side) || 1, h = (o && o.height) || 3;
       const x0 = +capToeX(spec, side).toFixed(2);
-      return makeDefect(Object.assign({ type: 'crack', label: 'Fillet toe crack', pts: [{ x: x0, y: 0 }, { x: x0, y: h }], height: h }, presetZ(spec, o, 20), o || {}));
+      return makeDefect(Object.assign({ type: 'crack', label: 'Fillet toe crack', pts: surfaceCrackPts(spec, x0, side, h), height: h }, presetZ(spec, o, 20), o || {}));
     },
   };
   const defectPresetNames = [

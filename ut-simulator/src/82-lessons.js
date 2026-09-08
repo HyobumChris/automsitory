@@ -38,12 +38,38 @@
  *   the correct id is exactly `UT.rays.describe(frame.readouts.primary).category`. An item counts as correct only when
  *   both the echo and the action answers are right; the mode/specimen of the last item is left in place on finish.
  * - v1 `UT.modes.lessons` (80) is left untouched; `UT.test.lessons()` is redefined here to return the 25 titles.
+ *
+ * // SPEC NOTES v3 (SPEC-v3 §3.8 F8, §3.10 F10, §6.5 F58 — decisions where the spec is silent)
+ * - F8 'lessons 2, 3, 5/17 and 7 call UT.app.setUtSet('usk7')': routed through `H.utSet(name)`, which prefers
+ *   `UT.app.setUtSet` (90 owns the skin swap) and falls back to `UT.set({utSet})` so a build without 90 still runs
+ *   the lesson. The setups are wrapped in SETUP_OVERRIDES (2 already switched in its v1 setup; 3, 5, 7 and 17 are new),
+ *   never in 80's v1 array — 80 stays the v1 contract.
+ * - F8 corollary (spec silent, needed for determinism): `baseline()` now also resets `utSet` to the default, so a
+ *   USK 7 lesson cannot leak its skin into the next lesson (V2-14 runs 1…25 in order). A lesson that wants the USK 7
+ *   asks for it in its own setup; every other lesson starts on the default EPOCH 600 (§11.1 keeps that default).
+ * - F10 'lessons 6 and 19 start on the 60° probe': both wrap their v1 setup and set `probe.angle = 60` afterwards
+ *   (the v1 setups' 45° was our own choice, not the video's). Lesson 19 step 1 ('select 60°') is therefore already
+ *   satisfied at entry — that is the video's own opening state, and the step stays as the written record of it.
+ * - F10 'read the hole from spec.holes': the angle check of lessons 6 and 19 now stays on the **wide** face and
+ *   maximises around `hole.x + hole.y·tan(probe.angle)` read from `spec.holes` (the wide face gained the 5 mm hole at
+ *   (60, 12.5) in 10-specimens). Measured on the built file: the 60° sdh echo peaks at x = 82 (predicted 81.7),
+ *   248 %FSH at gain 40 — the old `setFace('narrow')` detour is gone, so the graduations the video reads the angle
+ *   from stay on screen (the module's unused `T45` constant went with it).
+ * - Lesson 8 (spec silent, forced by the F46/F47 default): `tkyOpts` became state with the CURVED 'T-joint' chord as
+ *   its default kind, which moves the toe geometry the lesson's LOF steps were written for (measured: the step-3 tip
+ *   echo drops to 0 % at gain 40). The setup therefore pins `{kind:'Plate', chordT:20, braceAngle:60}` — the same
+ *   determinism argument as the utSet baseline; the curved chord stays reachable from the TKY panel.
+ * - F58 'no video window; the 25 lessons are the sanctioned substitute, documented in About': the map lives here as
+ *   `UT.lessons.videoMap` (17 slugs → lesson numbers) with `videoMapText()` / `videoMapNode()` renderers. 90-app owns
+ *   the About window, so 82 appends its own `.ls2-vmap` block on the `'win:show'` of `about` (the pattern 50-tofd
+ *   already uses for the TOFD window) and skips it when the window already carries a `[data-videomap]` node — the day
+ *   90 renders the table itself, this hook goes quiet on its own. Nothing is appended when the window is absent.
  */
 (function (UT) {
   'use strict';
   const M = UT.math;
   const DEG = Math.PI / 180;
-  const T60 = Math.tan(60 * DEG), T70 = Math.tan(70 * DEG), T45 = 1;
+  const T60 = Math.tan(60 * DEG), T70 = Math.tan(70 * DEG);
   const st = function () { return UT.state; };
   const t = function (key, params) { return UT.i18n.t(key, params); };
   const ko = function () { return UT.i18n.lang === 'ko'; };
@@ -156,6 +182,8 @@
     hole(spec, y) { return spec && spec.holes ? spec.holes.find(function (h) { return abs(h.y - y) < 0.01; }) || null : null; },
     hole5(spec) { return spec && spec.holes ? spec.holes.find(function (h) { return h.d === 5 || abs(2 * h.r - 5) < 0.01 || h.label === '5mm'; }) || null : null; },
     acStage() { const a = st().autocal; if (a && a.stage) return a.stage; const s = has('modes.autoCal.state') ? UT.modes.autoCal.state() : null; return s ? s.step : 0; },
+    /** F8: switch the UT set the way Options ▸ UT Set does (90 owns the skin swap); falls back to the state write. */
+    utSet(name) { if (has('app.setUtSet')) UT.app.setUtSet(name); else UT.set({ utSet: name }); return st().utSet; },
     winOpen(name) { const w = UT.dom && UT.dom.wins && UT.dom.wins[name]; return !!(w && w.isOpen && w.isOpen()); },
     gate(start, width, level) { return H.setInstrument({ gates: [{ on: true, start, width, level: level === undefined ? 20 : level }] }); },
     coverage() {
@@ -258,6 +286,20 @@
     return s;
   }
   const HOLE_KO = 'T/2 횡공 위치는 시험편 라벨을 보세요. 최대 에코 = 구멍 x + 깊이·tan(굴절각).', HOLE_EN = 'Read the SDH position from the block label; maximum at x = hole x + depth·tan(angle).';
+  // v3 F10: the V2's 5 mm hole is on the wide face (spec.holes, 10-specimens); the maximum is at hole.x + hole.y·tan θ
+  // (60° → 60 + 12.5·tan60 ≈ 81.7) and the block's 35…75° graduations read the true angle off the index point there.
+  const HOLE5_KO = '5 mm 구멍은 반경 중심 아래 12.5 mm에 있습니다: 최대 에코는 x = 구멍 x + 12.5·tan(굴절각) (60° → ≈ 81.7). 필요하면 게인을 올리세요.',
+    HOLE5_EN = 'The 5 mm hole sits 12.5 mm under the radius centre: the maximum is at x = hole x + 12.5·tan(angle) (60° → ≈ 81.7). Raise the gain if needed.';
+  /** F10 angle check (lessons 6 and 19): maximise the wide-face 5 mm hole from `spec.holes` at the current angle. */
+  function hole5Maximise() {
+    const s = st(), h = H.hole5(s.specimen);
+    if (h) {
+      const x0 = h.x + h.y * Math.tan((s.probe.angle || 60) * DEG);
+      H.maximise(function (e) { return e.kind === 'sdh'; }, H.range(x0 - 4, x0 + 4, 0.5), { side: 1 });
+    }
+    H.setInstrument({ range: 100 });
+    H.auto(80);
+  }
 
   // ------------------------------------------------------------------ §4.1.1 / §4.1.2 step lists
   const STEPS = {};
@@ -353,9 +395,9 @@
     N('반경 차이(mm)?', 'Radius difference (mm)?', 25, 1, { hk: 'R50 − R25.', he: 'R50 − R25.', ok: '두 반경의 차 25 mm가 다중 에코 간격 75 mm의 근거입니다 (25 + 50).', oe: 'The 25 mm difference explains the 75 mm multiple spacing (25 + 50).' }),
     C('V2 블록의 용도는?', 'The V2 block is used for…', [['index-angle-range', '입사점·굴절각·측정 범위 확인', 'Index, angle and range checks'], ['sens', '감도 설정', 'Sensitivity'], ['vel', '속도 측정', 'Velocity'], ['reso', '분해능', 'Resolution']], 'index-angle-range',
       { hk: '작은 현장용 표준 시험편입니다.', he: 'It is the small field calibration block.', ok: 'V2(STB-A3): 휴대용, 사각 탐촉자 교정 전용.', oe: 'V2 (STB-A3): portable, for angle-probe calibration.' }),
-    S('5 mm 구멍(전면)으로 굴절각 확인 (SDH ≥ 40 %)', 'Angle check on the 5 mm hole (front face, SDH ≥ 40 %)', function (c) { return c.E.some(function (e) { return e.kind === 'sdh' && e.ampPct >= 40; }); },
-      function () { if (has('modes.setFace')) UT.modes.setFace('narrow'); const h = H.hole5(st().specimen); if (h) H.maximise(function (e) { return e.kind === 'sdh'; }, H.range(h.x + h.y * T45 - 4, h.x + h.y * T45 + 4, 0.5), { side: 1 }); H.setInstrument({ range: 100 }); H.auto(80); },
-      { hk: '좁은 면(전면)으로 돌린 뒤 x = 60 + 6.25·tan45 ≈ 66. 필요하면 게인을 올리세요.', he: 'Switch to the narrow face; x = 60 + 6.25·tan45 ≈ 66. Raise the gain if needed.', ok: '최대 에코에서 입사점이 가리키는 각도 눈금 = 실제 굴절각.', oe: 'At the maximum the index point shows the true refracted angle on the scale.' }),
+    S('5 mm 구멍으로 굴절각 확인 (SDH ≥ 40 %)', 'Angle check on the 5 mm hole (SDH ≥ 40 %)', function (c) { return c.E.some(function (e) { return e.kind === 'sdh' && e.ampPct >= 40; }); },
+      function () { hole5Maximise(); },
+      { hk: HOLE5_KO, he: HOLE5_EN, ok: '최대 에코에서 입사점이 가리키는 각도 눈금 = 실제 굴절각.', oe: 'At the maximum the index point shows the true refracted angle on the scale.' }),
   ]; };
   STEPS[7] = function () { return [
     S('T/2 횡공 에코 최대 (≈ 40 %)', 'T/2 SDH maximised (≈ 40 %)', function (c) { return c.E.some(function (e) { return e.kind === 'sdh' && abs(e.path - 20) <= 1 && e.ampPct >= 30; }); },
@@ -539,9 +581,9 @@
       function () { H.setInstrument({ range: 100 }); H.setProbe({ x: r25x(st().specimen), side: 1 }); H.auto(80); },
       { hk: '반경 중심(눈금 0) 위에서 최대. 필요하면 게인을 올리세요.', he: 'Maximum over the radius centre (0 mark). Raise the gain if needed.', ok: '최대일 때 입사점이 눈금 0을 가리켜야 합니다.', oe: 'At the maximum the index mark should point at 0.' }),
     N('입사점 오차(mm)? = |probe.x − 표시 눈금|', 'Index error (mm) = |probe.x − mark|', function (c) { return abs(c.S.probe.x - r25x(c.spec)); }, 1, { hk: '탐촉자 입사점 표시와 블록 눈금 0의 차.', he: 'Offset between the probe index mark and the block 0.', ok: '오차가 1 mm를 넘으면 입사점을 다시 표시합니다.', oe: 'More than 1 mm: re-mark the index point.' }),
-    S('5 mm 구멍(전면)으로 굴절각 확인: 60° 눈금 위치에서 최대', 'Angle check on the 5 mm hole (front face)', function (c) { return c.E.some(function (e) { return e.kind === 'sdh' && e.ampPct >= 40; }); },
-      function () { if (has('modes.setFace')) UT.modes.setFace('narrow'); const h = H.hole5(st().specimen); if (h) H.maximise(function (e) { return e.kind === 'sdh'; }, H.range(h.x + h.y * T60 - 4, h.x + h.y * T60 + 4, 0.5), { side: 1 }); H.setInstrument({ range: 100 }); H.auto(80); },
-      { hk: '좁은 면에서 x = 60 + 6.25·tan60 ≈ 70.8.', he: 'On the narrow face, x = 60 + 6.25·tan60 ≈ 70.8.', ok: '최대일 때 입사점이 가리키는 눈금이 실제 굴절각.', oe: 'The scale value under the index point at the maximum is the true angle.' }),
+    S('5 mm 구멍으로 굴절각 확인: 60° 눈금 위치에서 최대', 'Angle check on the 5 mm hole (60° graduation)', function (c) { return c.E.some(function (e) { return e.kind === 'sdh' && e.ampPct >= 40; }); },
+      function () { hole5Maximise(); },
+      { hk: HOLE5_KO, he: HOLE5_EN, ok: '최대일 때 입사점이 가리키는 눈금이 실제 굴절각.', oe: 'The scale value under the index point at the maximum is the true angle.' }),
     C('측정 굴절각이 63°로 나왔다. 조치는?', 'Measured 63°: action?', [['record-and-use', '측정각을 기록하고 Trig 설정을 63°로 수정', 'Record it and set the Trig angle to 63°'], ['ignore', '무시', 'Ignore'], ['replace-probe-only', '탐촉자만 교체', 'Replace the probe only'], ['change-freq', '주파수 변경', 'Change frequency']], 'record-and-use',
       { also: function (c) { const a = c.S.instrument.trig.angle; return a >= 62 && a <= 64; }, ak: '기기 Trig 각도를 63°로 입력하세요 (setInstrument trig).', ae: 'Enter 63° as the instrument Trig angle.', doIt: function () { H.setInstrument({ trig: { angle: 63 } }); },
         hk: '깊이·표면 거리 계산은 어떤 각도로 할까요?', he: 'Which angle should the depth/surface-distance maths use?', ok: '측정각이 기기에 들어가야 DP/SD가 맞습니다 (명판과 2° 이상 차이면 기록).', oe: 'The measured angle must go into the set for DP/SD to be right (record when > 2° off the nameplate).' }),
@@ -632,16 +674,27 @@
   function v1Setup(i) { const l = setupsV1[i]; return l && typeof l.setup === 'function' ? l.setup : function () { console.warn('[UT.lessons] v1 setup ' + (i + 1) + ' missing'); }; }
   const dacHole = function (y) { return H.hole(st().specimen, y); };
   const SETUP_OVERRIDES = {
-    2: function () { v1Setup(1)(); H.setInstrument({ range: 50 }); },
+    // v3 F8: every 2009-era video (2 basic controls, 3 zero probe, 5/17 lamination check, 7 amplitude) runs on the USK 7
+    2: function () { v1Setup(1)(); H.setInstrument({ range: 50 }); H.utSet('usk7'); },
+    3: function () { v1Setup(2)(); H.utSet('usk7'); },
+    5: function () { v1Setup(4)(); H.utSet('usk7'); },
+    // v3 F10: the V2 radius exercise is performed at 60° in the videos (the v1 setups' 45° was our own choice)
+    6: function () { v1Setup(5)(); H.setProbe({ angle: 60 }); },
+    7: function () { v1Setup(6)(); H.utSet('usk7'); },
+    // v3 F46/F47: tkyOpts is now state, and its default kind is the CURVED 'T-joint' chord (32 mm wall). Lesson 8's
+    // toe-LOF steps were written for the flat 20 mm chord, so the lesson pins the configuration it teaches instead of
+    // inheriting the default (or whatever the user last built in the TKY panel).
+    8: function () { UT.set({ tkyOpts: Object.assign({}, UT.defaultState().tkyOpts || {}, { kind: 'Plate', chordT: 20, braceAngle: 60 }) }, { noRender: true }); v1Setup(7)(); },
     11: function () { v1Setup(10)(); H.setInstrument({ range: 200, gain: 30, peakMem: false, freeze: false, gates: [{ on: true, start: 10, width: 60, level: 20 }] }); },
     15: function () { H.weld({ T: 20, pipe: false }); H.setProbe({ angle: 60, x: 40 }); },
     17: function () {
       H.weld({ T: 25, pipe: true, od: 219.1, wt: 25, capWidth: 18 }); H.setProbe({ angle: 60, x: 40, z: 130 });
       const spec = st().specimen;
       const lam = UT.specimens.makeDefect({ n: 1, type: 'lamination', label: 'Lamination', pts: [{ x: -45, y: 12 }, { x: -15, y: 12 }], height: 0.5, zFrom: 100, zTo: 160 });
-      H.setDefects([lam]); H.addPreset('rootCrack', { zFrom: 115, zTo: 145 }); H.setInstrument({ range: 100, gain: 30 }); void spec;
+      H.setDefects([lam]); H.addPreset('rootCrack', { zFrom: 115, zTo: 145 }); H.setInstrument({ range: 100, gain: 30 }); H.utSet('usk7'); void spec;
     },
     18: function () { v1Setup(17)(); H.addPreset('rootCrack', { zFrom: 120, zTo: 150 }); },
+    19: function () { v1Setup(18)(); H.setProbe({ angle: 60 }); },   // v3 F10 (see lesson 6)
     22: function () { v1Setup(10)(); H.setInstrument({ page: 1, gain: 36, refGain: 30, range: 100, gates: [{ on: true, start: 10, width: 60, level: 20 }, { on: false, start: 70, width: 20, level: 40 }] }); UT.setIn('instrument', { page: 1 }); if (has('modes.autoCal.cancel')) UT.modes.autoCal.cancel(); },
   };
   const NEW_LESSONS = {
@@ -772,7 +825,9 @@
     UT.setIn('probe', full ? d.probe : { crystal: 'single', method: 'pe', skew: 0, focus: d.probe.focus }, { noRender: true });
     UT.setIn('display', { hide: false, beam: true }, { noRender: true });
     UT.setIn('plot', { points: [], edgeMarks: [] }, { noRender: true });   // §4.1 'regardless of what earlier lessons left behind': lesson 9 plots its own edge marks
-    UT.set({ physics: d.physics, damping: d.damping, weldOpts: d.weldOpts, material: 'carbon' }, { noRender: true });
+    // v3 F8: the UT set is part of the baseline too — a USK 7 lesson (2/3/5/7/17) must not leak its skin into the
+    // next lesson when the window runs 1…25 in order; a lesson that wants the USK 7 asks for it in its own setup().
+    UT.set({ physics: d.physics, damping: d.damping, weldOpts: d.weldOpts, material: 'carbon', utSet: d.utSet }, { noRender: true });
   }
   /** Start lesson n (1…25): runs setup(), resets answers/memo, enters step 0. */
   api.start = function (n) {
@@ -916,6 +971,8 @@
     writeL({ memo });
     scheduleEval();
   });
+  // F58: 90-app builds the About window's content on every open; append the video → lesson map to it (idempotent).
+  UT.bus.on('win:show', function (w) { if (w && w.name === 'about') { try { attachVideoMap(w); } catch (e) { console.error('[UT.lessons] video map', e); } } });
   UT.bus.on('win:show', function (w) {
     if (!w || !w.name || ls().active === null || ls().active === undefined) return;
     const memo = Object.assign({}, ls().memo || {}); const ui = Object.assign(tally(), memo.ui || {});
@@ -928,6 +985,8 @@
     if (L.statusHint && ((ls().active !== null && ls().active !== undefined) || (st().quiz && st().quiz.active))) { try { UT.status({ right: L.statusHint() }); } catch (e) { console.error('[UT.lessons] status hint', e); } }
     if (L.win) { L.win.setTitle(t('Lessons')); refresh(true); }
     if (Q.win) { Q.win.setTitle(t('Echo quiz')); quizRefresh(); }
+    // 90 rebuilds every open dialog after this listener runs (it registers later), so re-attach the F58 map next tick
+    if (typeof setTimeout === 'function') setTimeout(function () { try { attachVideoMap(); } catch (e) { /* About closed */ } }, 0);
   });
   UT.bus.on('render', function (frame) {
     L.prevFrame = L.curFrame; L.curFrame = frame;
@@ -1091,7 +1150,90 @@
     '.ls2-dim{color:#777;padding:6px}',
     '.ls2-live{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}',
     '.hc .ls2-row.active{background:#000;color:#ff0}.hc .ls2-step.cur{color:#000}',
+    // F58: the video → lesson map appended to the About window (90 owns .dlg-text; these selectors are ours)
+    '.ls2-vmap{margin-top:8px;border-top:1px solid #bbb;padding-top:6px}',
+    '.ls2-vmap h4{margin:0 0 3px;font-size:12px}',
+    '.ls2-vmap p{margin:0 0 5px}',
+    '.ls2-vrow{display:flex;gap:6px;align-items:baseline;padding:1px 0;font-size:11px;border-bottom:1px solid #eee}',
+    '.ls2-vrow.head{font-weight:bold;border-bottom:1px solid #999}',
+    '.ls2-vrows{max-height:190px;overflow:auto}',
+    '.ls2-vslug{flex:none;width:250px;font-family:monospace;overflow:hidden;text-overflow:ellipsis}',
+    '.ls2-vles{flex:none;width:52px;text-align:right}',
+    '.ls2-vt{flex:1;min-width:0;color:#345;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
   ].join('\n');
+
+  // ------------------------------------------------------------------ F58 'UTman Video' → the 25 lessons (SPEC-v3 §6.5)
+  // The original's child window played the 17 training clips; a single offline HTML cannot ship them and must not
+  // fetch them (§11.3), so the lessons ARE the substitute and Help ▸ About documents which lesson replaces which video.
+  const VIDEO_MAP = [
+    { slug: 'utman_functions', title: 'UTman Functions', lessons: [1] },
+    { slug: 'basic_ut_controls_range_x_shift_amplitude', title: 'Basic UT controls: Range, X-shift, Amplitude', lessons: [2] },
+    { slug: 'zero_probe', title: 'Zero Probe', lessons: [3] },
+    { slug: 'lamination_check', title: 'Lamination Check', lessons: [5, 17] },
+    { slug: 'angle_probe_using_the_v2_calibration_block', title: 'Angle Probe using the V2 calibration block', lessons: [6, 19] },
+    { slug: 'making_sense_of_applitude', title: 'Making Sense of Amplitude', lessons: [7] },
+    { slug: 'tky_variable_configuration_welds', title: 'TKY Variable configuration Welds', lessons: [8] },
+    { slug: 'plotting_beam_spread_at_20', title: 'Plotting Beam Spread at 20 %', lessons: [9] },
+    { slug: 'drawing_defects_ii', title: 'Drawing Defects II', lessons: [10] },
+    { slug: 'how_to_use_the_epoch', title: 'How to use the EPOCH', lessons: [11] },
+    { slug: 'epoch_auto_calibration', title: 'EPOCH AUTO Calibration', lessons: [12] },
+    { slug: 'tofd', title: 'TOFD', lessons: [13] },
+    { slug: 'shear_wave_and_compression_wave', title: 'Shear wave and Compression wave', lessons: [14] },
+    { slug: 'utman_software_utsim', title: 'UTman software utsim', lessons: [15] },
+    { slug: 'drawing_defects_i', title: 'Drawing Defects I', lessons: [16] },
+    { slug: 'angleprobe_calibration', title: 'Angleprobe Calibration (DAC and beam spread)', lessons: [20, 9] },
+    { slug: 'utman600', title: 'UTman600', lessons: [22, 11] },
+  ];
+  const VIDEO_EXTRA = [4, 18, 21, 23, 24, 25];   // lessons with no video of their own (V1 block, AUT, trade test, sensitivity)
+  /** The 17 original videos and the lessons that reproduce them (F58). @returns {Array<{slug:string,title:string,lessons:number[]}>} */
+  api.videoMap = function () { return VIDEO_MAP.map(function (v) { return { slug: v.slug, title: v.title, lessons: v.lessons.slice() }; }); };
+  /** The same map as plain text (first line 'Video → lesson map') — for About, print and headless checks. */
+  api.videoMapText = function () {
+    return [t('Video → lesson map')].concat(VIDEO_MAP.map(function (v) {
+      return v.slug + ' → ' + t('Lesson') + ' ' + v.lessons.join(', ') + ' (' + v.title + ')';
+    })).join('\n');
+  };
+  /** The map as a DOM block for the About window; null without a document. */
+  api.videoMapNode = function () {
+    if (!hasDoc()) return null;
+    const dom = UT.dom;
+    const rows = VIDEO_MAP.map(function (v) {
+      return dom.h('div', { class: 'ls2-vrow' }, [
+        dom.h('span', { class: 'ls2-vslug' }, v.slug),
+        dom.h('span', { class: 'ls2-vles' }, v.lessons.join(', ')),
+        dom.h('span', { class: 'ls2-vt' }, v.title),
+      ]);
+    });
+    return dom.h('div', { class: 'ls2-vmap no-i18n', dataset: { videomap: 'lessons' } }, [
+      dom.h('h4', {}, t('Video → lesson map')),
+      dom.h('p', {}, t('UTsim has no video window: the 17 original UTman videos are reproduced step by step by the 25 guided lessons (Help ▸ Lessons…) and the echo quiz.')),
+      dom.h('div', { class: 'ls2-vrow head' }, [
+        dom.h('span', { class: 'ls2-vslug' }, t('Video')),
+        dom.h('span', { class: 'ls2-vles' }, t('Lesson')),
+        dom.h('span', { class: 'ls2-vt' }, t('Subject')),
+      ]),
+      dom.h('div', { class: 'ls2-vrows' }, rows),
+      dom.h('p', {}, t('Lessons {list} have no video of their own (V1 block, AUT, trade test, reference level, transfer correction, sensitivity re-check).', { list: VIDEO_EXTRA.join(', ') })),
+    ]);
+  };
+  /**
+   * Append the map to an open About window (90 owns it and rebuilds its content on every open and on a language
+   * switch, so this runs from 'win:show' and from 'lang'). Idempotent, and silent when 90 renders a map itself.
+   */
+  function attachVideoMap(w) {
+    if (!hasDoc()) return false;
+    const win = w || (UT.dom && UT.dom.wins ? UT.dom.wins.about : null);
+    if (!win || !win.isOpen || !win.isOpen() || !win.body) return false;
+    if (win.body.querySelector('[data-videomap]')) return false;
+    UT.dom.injectCss('lessons', api.css);
+    const node = api.videoMapNode();
+    if (!node) return false;
+    const host = win.body.querySelector('.dlg-text') || win.body;
+    const btns = host.querySelector('.btn-row');
+    if (btns) host.insertBefore(node, btns); else host.appendChild(node);
+    return true;
+  }
+  api.attachVideoMap = attachVideoMap;
 
   // ------------------------------------------------------------------ §4.5 T7 echo-identification quiz (window 'quiz')
   const LABELS = {
@@ -1358,6 +1500,21 @@
     if (!num.check({ ans: 10.5, memo: {} }) || num.check({ ans: 12, memo: {} })) f.push('numeric check');
     const ch = C('a', 'b', [['x', 'x', 'x'], ['y', 'y', 'y'], ['z', 'z', 'z']], 'y');
     if (!ch.check({ ans: 'y' }) || ch.check({ ans: 'x' })) f.push('choice check');
+    // F58: 17 video slugs, every lesson number real, and the text carries the About heading
+    if (VIDEO_MAP.length !== 17) f.push('video map ' + VIDEO_MAP.length);
+    const slugs = {};
+    VIDEO_MAP.forEach(function (v) {
+      if (slugs[v.slug] || !/^[a-z0-9_]+$/.test(v.slug)) f.push('video slug ' + v.slug);
+      slugs[v.slug] = true;
+      if (!v.lessons.length || v.lessons.some(function (n) { return !(n >= 1 && n <= 25); })) f.push('video lessons ' + v.slug);
+    });
+    const mapped = {};
+    VIDEO_MAP.forEach(function (v) { v.lessons.forEach(function (n) { mapped[n] = true; }); });
+    VIDEO_EXTRA.forEach(function (n) { if (mapped[n]) f.push('lesson ' + n + ' listed as both mapped and extra'); });
+    for (let n = 1; n <= 25; n++) if (!mapped[n] && VIDEO_EXTRA.indexOf(n) < 0) f.push('lesson ' + n + ' missing from the video map');
+    if (api.videoMapText().indexOf('Video → lesson map') !== 0 || api.videoMapText().indexOf('utman600') < 0) f.push('videoMapText');
+    // F8/F10: the setups the videos pin (2/3/5/7/17 on the USK 7, 6/19 at 60°) are wrapped, not inherited
+    [2, 3, 5, 6, 7, 8, 17, 19].forEach(function (n) { if (typeof SETUP_OVERRIDES[n] !== 'function') f.push('setup override ' + n + ' missing'); });
     if (typeof UT.test.lessonAutoRun !== 'function' || typeof UT.test.quiz.start !== 'function') f.push('test api');
     if (api.current().n !== null && !UT.state.lessons.active) f.push('current idle');
     return f;

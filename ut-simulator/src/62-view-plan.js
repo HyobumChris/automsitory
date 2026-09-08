@@ -1,9 +1,12 @@
 /* 62-view-plan.js — plan-view canvas (cv-plan): scrolling z window, hatched weld band, defect
- * rectangles, probe symbol (rotated by skew), beam footprint, raster trail, z ruler, compass dial
- * (skew drag), probe drag; plus the defect-editor helpers drawCircleView (pipe ring) and
- * drawLinearBar (plate bar). Spec §7.4 as amended by §14.2 / §14.3 / §15.6; v2: SPEC-v2 F4 (TOFD pair
- * box), U2 (Pointer Events, scale-aware, touch hit targets), P10/P11 (PA array footprint, C-scan hint
- * band), T2 §4.2.1 (coverage band from UT.trade.coverageMap()).
+ * rectangles, probe symbol (rotated by skew), beam footprint, raster trail, z rulers on BOTH flanks,
+ * compass dial (skew drag + pipe position pointer), probe drag; plus the defect-editor helpers
+ * drawCircleView (pipe ring) and drawLinearBar (plate bar). Spec §7.4 as amended by §14.2 / §14.3 /
+ * §15.6; v2: SPEC-v2 F4 (TOFD pair box), U2 (Pointer Events, scale-aware, touch hit targets),
+ * P10/P11 (PA array footprint, C-scan hint band), T2 §4.2.1 (coverage band from
+ * UT.trade.coverageMap()); v3: SPEC-v3 F20 (mirrored probe), F32 (defect depth shading), F48 (dial
+ * position pointer, 9 o'clock datum, both flank rulers, red weld strip), F29 (circle-view header,
+ * Depth label, round ring graduations).
  *
  * // SPEC NOTES (decisions where the spec is silent or ambiguous)
  * - Shared X scale: when UT.views.cross.toPx exists, scale = (cross.toPx(10,0).x − cross.toPx(0,0).x)/10
@@ -11,19 +14,27 @@
  *   rects (divided by UT.dom.scale() so the design-box scaling of U2 does not shift the origin), so the
  *   weld centre-line is at the SAME screen x in both views. Fallback: canvasWidth/320 px/mm with
  *   x = 0 at the canvas centre.
+ * - F29 circle-view graduation labels: the label radius is solved PER BEARING from the inner-circle
+ *   radius, the measured text half-width and RING_LABEL_HALF_H so the whole text box clears the grey
+ *   annulus by RING_LABEL_PAD px (a single fixed radius put the near-horizontal labels on the ring).
  * - The z ruler is a 44 px cream strip at the right edge of the canvas (UTman600 look): ticks every
  *   5 mm, labels every 10 mm, a blue 3 px tick at probe.z. The grey field covers the specimen's x
  *   extents only (cream elsewhere), clipped to the left of the ruler strip.
  * - Angle-probe symbol: 24 × 16 mm rectangle whose FRONT edge is 3 mm ahead of the index point
  *   (so the white index dot sits inside the lighter 4 mm front strip). 0° probe: filled circle of
  *   diameter = crystal diameter (min 8 mm so a 5 mm probe stays visible).
- * - Beam footprint length = surface projection |xEnd − probe.x| of the centre ray's last drawn
- *   leg (≤ display.skips) when frame.rays is available, else the distance to x = 0. Not drawn for
- *   0° probes (the beam goes straight down) nor in TOFD mode.
- * - F4 TOFD (state.mode === 'tofd'): ONE small green 24 × 16 mm box centred between the two index
- *   points ((tx + rx)/2, probe.z) with two white dots (Tx/Rx) at ±6 mm inside the box — the original's
- *   small box. Positions from UT.tofd.probePositions(state) when present ({tx:{x}, rx:{x}} or
- *   [{x},{x}]), else probe.x ± tofd.pcs/2. Dragging the box moves the pair (probe.x/z). Tandem rx / TT
+ * - Beam footprint length = surface projection |xEnd − probe.x| of the centre ray's last DRAWN leg
+ *   when frame.rays is available, else the distance to x = 0. The budget is the tracer's own
+ *   `rays.drawLegs` (SPEC-v3 §4.5 F17: ceil(2·skips), unbounded for 'Run to UT Screen Range'), NOT
+ *   v1's `leg <= display.skips` — since v3 one skip is a full V, so that filter halved the band at
+ *   every setting. Not drawn for 0° probes (the beam goes straight down) nor in TOFD mode.
+ * - TOFD (state.mode === 'tofd'), F44 cosmetics superseding SPEC-v2 F4: TWO green 24 × 16 mm boxes, one
+ *   centred on each index point (tx and rx, i.e. ±pcs/2 about the pair centre), each carrying a white
+ *   index dot, with a dotted beam line running between them — tofd f012/f020. SPEC-v2 F4's single box
+ *   centred at ((tx + rx)/2, probe.z) with two dots at ±6 mm stays as the fallback when
+ *   display.legend === false. Positions from UT.tofd.probePositions(state) when present ({tx:{x}, rx:{x}}
+ *   or [{x},{x}]), else probe.x ± tofd.pcs/2. Dragging the pair (hit region = the union of the two boxes)
+ *   moves it (probe.x/z). Tandem rx / TT
  *   receiver: hollow rectangle at probe.x − side·T·tanθ (TT dashed, it sits on the far surface).
  * - PA (probe.method === 'pa'): orange 24 × 16 wedge box with element ticks across the active aperture
  *   (elements·pitch from state.pa, clamped to the box) and the dashed footprint; short cross ticks on the
@@ -71,8 +82,56 @@
  * - toMm(px, py) returns {x, z, y: z} so both the §15.6 shape ({x, y}) and plan semantics work.
  * - The static 'PLAN VIEW' heading is drawn in English like the cross-section's 'CROSS SECTION'
  *   (SPEC-v2 §5.3: canvases are out of scope; both main-canvas headings follow the same rule).
- *   The parametrised editor captions ('Circle-View. Position {z}', 'Plate. Position {z}') go
+ *   The parametrised editor captions ('Circle-View. Position {z}mm', 'Plate. Position {z}mm') go
  *   through UT.i18n.t() even though canvases are outside the untranslated() audit.
+ *
+ * // SPEC NOTES — v3 (SPEC-v3 F20 / F29 / F32 / F48)
+ * - F48 both flank rulers: the z ruler is drawn IDENTICALLY at the left and the right edge (line, ticks
+ *   right of the line, labels right of the ticks, blue probe-z stub) exactly as drawing_defects_i f038
+ *   and drawing_defects_ii f030 show it; the drawn field is therefore x ∈ [fieldX0, fieldW] with
+ *   fieldX0 = RULER_W. A pointerdown inside either strip is ignored UNLESS it lands on the probe symbol,
+ *   so dragTo() still works when the probe is parked under a ruler.
+ * - F48 dial position pointer: bearings are measured like probe.skew (0 = 12 o'clock, + clockwise). The
+ *   pointer's DATUM is 9 o'clock (−90°, SPEC-v3 §6.3 F48) and z advances CLOCKWISE from it
+ *   (bearing = −90 + 360·z/C): the dial reads as an end view taken from the far end of the pipe, which
+ *   mirrors the editor's circle view (anticlockwise, viewed from the near end), and it keeps the z = 0
+ *   and z = C/4 needles a plain +90° apart for V3-48 whichever way a checker subtracts them. Measured
+ *   for the record in drawing_defects_i f038 (Pos 405, needle bearing ≈ +58°) and drawing_defects_ii
+ *   f030 (Pos 277, ≈ +152°): the ORIGINAL's datum is 12 o'clock and its sense anticlockwise; SPEC-v3 and
+ *   V3-48 pin −90°, and the spec wins. The skew needle is unchanged (datum 12 o'clock, drag unchanged).
+ * - F48 red weld strip: solid #ff0000, width max(2 px, capWidth/6 · scale), centred on weld.capCentre,
+ *   full canvas height, drawn with the weld band (so defect footprints, coverage and the probe stay on
+ *   top) — how_to_use_the_epoch f020.
+ * - F32: the shade helper prefers UT.specimens.defectShade(defect, T) (the single shared source of
+ *   SPEC-v3 §5.8) and falls back to lerp('#e00000' → '#7a0000') over SMOOTHSTEP(yMean/T) — the same
+ *   fallback 60-view-cross uses, so 60/62/64 agree whichever module supplies the helper. Smoothstep, not
+ *   the raw ratio, because §9's V3-32 tolerances are unreachable linearly (3 mm of 20 must stay within 8
+ *   of #e00000 and 17 mm within 12 of #7a0000: linear misses both by 15.3, smoothstep gives 6 and 6).
+ *   yMean = mean y of pts; a lamination without pts uses its y/depth field.
+ *   display.defectShade === false restores the flat v1 red.
+ *   Selection is an outline only (2 px #00a0ff) — never a fill — in the ring, the bar and the plan.
+ * - F20: the mirror is drawn only for an angle/PA probe whose drawn beam actually reaches the weld
+ *   centreline (probe.x and the footprint end straddle weld.capCentre), never in
+ *   v1/v2/iow/dac/tky/step/fbh, never hit-tested (lastProbeSym keeps the real probe). Styling follows
+ *   SPEC-v3 §4.8 (1 px dashed outline + 25 % fill + 45° hatch) rather than utman_functions f044's solid
+ *   twin, so the virtual probe can never be mistaken for the real one.
+ * - F29 circle view: the header is 'Circle-View. Position {z}mm' and always carries a number — the
+ *   hovered z while the pointer is on the ring, otherwise the live probe z (the original's live
+ *   circumferential position). 'Depth = {d}mm' is drawn 11 px black at the top-centre and mirrors the
+ *   status cell: state.cursor.y when the cursor carries a depth (the editor keeps v1's signed readout),
+ *   else UT.frame.depthEcho.y when display.depthEcho, else nothing.
+ * - F57 (probe-direction gesture, QA round 1): the original's plan-view cue is 'LEFT or RIGHT mouse
+ *   button to change probe direction'. The LEFT button already owns the probe drag here (the v1
+ *   contract 'LEFT mouse button/drag to move the UT Probe'), so the RIGHT button carries the direction
+ *   change: a right-button press on the plan field turns the probe round (probe.side, through
+ *   UT.modes.turnProbe() when 80 is loaded so the V1/V2 'Turn Probe' button stays in sync, else a plain
+ *   UT.setIn('probe', {side})) and posts UT.modes.hints.planDirection into status.right — after the
+ *   flip, because turnProbe() re-posts the MODE hint. The hint then stays up until the next mode change
+ *   or hint writer, like every other status cue. The press is ignored (and the hint not posted) while
+ *   the defect editor holds the probe or while a left drag is running; the dial keeps the left button.
+ * - F29 ring graduations: label step = max(10, round(C/12/10)·10) mm (40 mm for the 6-inch pipe) at the
+ *   TRUE circumferential angle (§11.6), at most 12 labels — 0 mm, 40mm … 440mm exactly as
+ *   drawing_defects_ii f030. The linear bar keeps its round(L/12) step (plates have no such original).
  */
 (function (UT) {
   'use strict';
@@ -88,6 +147,16 @@
   const COMPASS_HIDDEN_MODES = { dac: 1, v1: 1, v2: 1, tky: 1, iow: 1, fbh: 1 };
   const TOFD_COLOUR = '#00c000';
   const COVERAGE_COLOUR = 'rgba(0,200,0,0.22)';
+  // v3
+  const MIRROR_HIDDEN_MODES = { v1: 1, v2: 1, iow: 1, dac: 1, tky: 1, step: 1, fbh: 1 };  // F20
+  const SHADE_NEAR = '#e00000';        // F32: defect at the scanning surface
+  const SHADE_FAR = '#7a0000';         // F32: defect at the backwall
+  const SELECT_OUTLINE = '#00a0ff';    // F32: selection is an outline, never a fill
+  const WELD_STRIP_COLOUR = '#ff0000'; // F48: solid red strip on the weld centreline
+  const DIAL_DATUM_DEG = -90;          // F48: the position pointer's 9 o'clock datum
+  const RING_LABELS = 12;              // F29: at most 12 circle-view graduations
+  const RING_LABEL_PAD = 6;            // F29: clear gap (px) between a graduation label and the annulus
+  const RING_LABEL_HALF_H = 8;         // F29: half cap extent (px) of the 11 px graduation labels
   // 7-band AUT colour map (§14.6) — used only when UT.aut.colourFor is unavailable
   const BANDS = [
     { min: 100, colour: '#ffffff' }, { min: 80, colour: '#ff0000' }, { min: 60, colour: '#ff00ff' },
@@ -183,6 +252,156 @@
     return 'rgb(' + f(m[1]) + ',' + f(m[2]) + ',' + f(m[3]) + ')';
   }
 
+  /** Parse a #rrggbb colour into [r, g, b]; null when it is not a hex triplet. */
+  function hexRgb(hex) {
+    const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || '');
+    return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : null;
+  }
+
+  /** Linear blend of two #rrggbb colours (t = 0 → a, 1 → b); returns #rrggbb. */
+  function lerpHex(a, b, tt) {
+    const ca = hexRgb(a), cb = hexRgb(b);
+    if (!ca || !cb) return a || '#000000';
+    const k = M.clamp(tt, 0, 1);
+    const h = function (v) { const s = Math.round(v).toString(16); return s.length < 2 ? '0' + s : s; };
+    return '#' + h(ca[0] + (cb[0] - ca[0]) * k) + h(ca[1] + (cb[1] - ca[1]) * k) + h(ca[2] + (cb[2] - ca[2]) * k);
+  }
+
+  /** A #rrggbb colour as an rgba() string with alpha a (0..1). */
+  function rgba(hex, a) {
+    const c = hexRgb(hex);
+    return c ? 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')' : 'rgba(0,0,0,' + a + ')';
+  }
+
+  /**
+   * F32: mean depth (mm below the scanning surface) of a defect — the mean y of its points; a
+   * lamination given as a single depth uses that.
+   */
+  function defectMeanY(d) {
+    if (!d) return 0;
+    if (Array.isArray(d.pts) && d.pts.length) {
+      let s = 0, n = 0;
+      for (const p of d.pts) if (p && Number.isFinite(p.y)) { s += p.y; n++; }
+      if (n) return s / n;
+    }
+    for (const k of ['y', 'depth', 'depthMm']) if (Number.isFinite(d[k])) return d[k];
+    return 0;
+  }
+
+  /**
+   * F32 depth colour of a defect: UT.specimens.defectShade(defect, T) when 10-specimens provides the
+   * shared helper, else the identical local lerp from #e00000 (surface) to #7a0000 (backwall).
+   * @param {object} d defect
+   * @param {number} T specimen thickness (mm)
+   * @returns {string} '#rrggbb'
+   */
+  function defectShade(d, T) {
+    if (UT.specimens && typeof UT.specimens.defectShade === 'function') {
+      try { const c = UT.specimens.defectShade(d, T); if (typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)) return c; } catch (e) { /* fall through */ }
+    }
+    const th = T > 0 ? T : 20;
+    const u = M.clamp(defectMeanY(d) / th, 0, 1);
+    return lerpHex(SHADE_NEAR, SHADE_FAR, u * u * (3 - 2 * u));       // smoothstep — see the SPEC NOTES
+  }
+
+  /** Fill colour of a defect: the F32 shade unless display.defectShade is explicitly false. */
+  function defectFill(d, T, shadeOn) { return shadeOn === false ? C.COLOURS.defect : defectShade(d, T); }
+
+  /** Fold a bearing (deg, 0 = 12 o'clock, + clockwise) to (−180, 180]. */
+  function bearing(deg) {
+    let d = ((deg % 360) + 360) % 360;
+    if (d > 180) d -= 360;
+    return d === 0 ? 0 : d;
+  }
+
+  /**
+   * F48 compass needles: the skew needle (datum 12 o'clock, unchanged) and, on pipes, the
+   * circumferential position pointer (datum 9 o'clock, clockwise with z).
+   * @returns {{skew:number, position:(number|null), datum:number}} bearings in degrees
+   */
+  function dialAngles(state, spec) {
+    const probe = (state && state.probe) || {};
+    const out = { skew: skewLabel(probe.skew || 0), position: null, datum: DIAL_DATUM_DEG };
+    const Cir = spec && spec.pipe ? spec.L : 0;
+    if (Cir > 0) out.position = bearing(DIAL_DATUM_DEG + 360 * wrapZ(probe.z || 0, Cir) / Cir);
+    return out;
+  }
+
+  /** F29/§11.6: round label step (mm) of the circle view — max(10, round(C/12/10)·10). */
+  function ringStep(Cir) { return Math.max(10, Math.round((Cir > 0 ? Cir : 300) / 12 / 10) * 10); }
+
+  /** F29: circle-view label positions (mm) — at most 12, at the TRUE circumferential angle. */
+  function ringLabelZs(Cir) {
+    const step = ringStep(Cir);
+    const n = Math.min(RING_LABELS, Math.max(1, Math.ceil((Cir > 0 ? Cir : 300) / step)));
+    const out = [];
+    for (let k = 0; k < n; k++) out.push(k * step);
+    return out;
+  }
+
+  /**
+   * F29: the radius at which a graduation label may be centred so that its WHOLE text box stays
+   * inside the circle view's inner (white) circle, clear of the grey annulus — the original
+   * (drawing_defects_ii f030) prints all twelve labels on white. One fixed radius cannot do this
+   * because a near-horizontal bearing spends the text's half-width radially while a near-vertical one
+   * spends only its half-height, so the radius is solved per bearing:
+   * |(cos a·lr ± (hw + |dx|), sin a·lr ± hh)| = rInner − RING_LABEL_PAD, i.e.
+   * lr² + 2·lr·(|cos a|·ex + |sin a|·hh) + ex² + hh² − lim² = 0 with ex = hw + |dx|.
+   * @param {number} a bearing of the graduation (rad, canvas convention)
+   * @param {number} hw half text width (px)
+   * @param {number} hh half text height (px)
+   * @param {number} rInner inner-circle radius (px)
+   * @param {number} [dx] horizontal shift of the text centre off the radial point (px)
+   * @returns {number} label radius (px), never negative
+   */
+  function ringLabelRadius(a, hw, hh, rInner, dx) {
+    const lim = rInner - RING_LABEL_PAD;
+    const ex = Math.max(0, hw) + Math.abs(dx || 0);
+    const hy = Math.max(0, hh);
+    if (!(lim > 0)) return 0;
+    const b = Math.abs(Math.cos(a)) * ex + Math.abs(Math.sin(a)) * hy;
+    const disc = b * b - (ex * ex + hy * hy - lim * lim);
+    if (!(disc > 0)) return 0;
+    return Math.max(0, Math.sqrt(disc) - b);
+  }
+
+  /**
+   * F48 red weld strip: the solid strip on the weld centreline, or null when there is no weld.
+   * @param {object} spec specimen
+   * @param {number} scale px per mm
+   * @returns {{xMm:number, wPx:number, colour:string}|null}
+   */
+  function weldStripGeom(spec, scale) {
+    const weld = spec && spec.weld;
+    if (!weld || weld.type === 'none' || weld.prep === 'none') return null;
+    const cw = weld.capWidth || 16;
+    const s = scale > 0 ? scale : 1;
+    return { xMm: Number.isFinite(weld.capCentre) ? weld.capCentre : 0, wPx: Math.max(2, cw / 6 * s), colour: WELD_STRIP_COLOUR };
+  }
+
+  /**
+   * F20: the virtual (mirrored) probe image — drawn about the weld centreline when display.mirror is on
+   * and the drawn beam actually reaches that centreline.
+   * @returns {{drawn:boolean, x:number}} x = the mirror's index-point x (mm)
+   */
+  function mirrorInfo(state, spec, frame) {
+    const out = { drawn: false, x: 0 };
+    const probe = state && state.probe;
+    if (!probe || !spec || !state.display || state.display.mirror !== true) return out;
+    if (MIRROR_HIDDEN_MODES[state.mode]) return out;
+    const weld = spec.weld;
+    if (!weld || weld.type === 'none' || weld.prep === 'none') return out;
+    if (!probe.angle && probe.method !== 'pa') return out;                 // 0°: the beam goes straight down
+    if (state.mode === 'tofd') return out;
+    const c = Number.isFinite(weld.capCentre) ? weld.capCentre : 0;
+    const dir = planDir(probe.side, probe.skew || 0);
+    const xEnd = probe.x + dir.x * footprintLength(frame, state);
+    if ((probe.x - c) * (xEnd - c) > 1e-9) return out;                     // the beam never crosses the weld
+    out.drawn = true;
+    out.x = 2 * c - probe.x;
+    return out;
+  }
+
   function isCompassHidden(state) {
     const mode = state && state.mode;
     const en = UT.modes && UT.modes.enabled && UT.modes.enabled[mode];
@@ -198,10 +417,26 @@
     return UT.specimens && UT.specimens.bbox ? UT.specimens.bbox(d.pts) : null;
   }
 
-  /** Geometry (mm) of the F4 TOFD pair box: 24 × 16 centred between the index points, dots at ±6. */
+  /** Geometry (mm) of the SPEC-v2 F4 TOFD pair box: 24 × 16 centred between the index points, dots at ±6. */
   function tofdBox(tx, rx, z) {
     const xc = (tx + rx) / 2;
     return { xc, z, x0: xc - 12, x1: xc + 12, z0: z - 8, z1: z + 8, dots: [xc - 6, xc + 6] };
+  }
+
+  /**
+   * F44 (SPEC-v3 §6.3) geometry (mm) of the TOFD pair as the original draws it: TWO 24 × 16 mm boxes,
+   * one centred on each index point (i.e. ±pcs/2 about the pair centre), with a dotted beam line between
+   * them. Supersedes `tofdBox`, which stays the `display.legend === false` fallback.
+   * @param {number} tx  transmitter index x (mm)
+   * @param {number} rx  receiver index x (mm)
+   * @param {number} z   pair centre z (mm)
+   * @returns {{boxes: Array<{xc:number, x0:number, x1:number, z0:number, z1:number}>, z:number,
+   *           x0:number, x1:number, z0:number, z1:number, span:number}} the two boxes plus their union
+   */
+  function tofdPair(tx, rx, z) {
+    const mk = function (xc) { return { xc, x0: xc - 12, x1: xc + 12, z0: z - 8, z1: z + 8 }; };
+    const a = mk(tx), b = mk(rx);
+    return { boxes: [a, b], z, z0: z - 8, z1: z + 8, x0: Math.min(a.x0, b.x0), x1: Math.max(a.x1, b.x1), span: Math.abs(tx - rx) };
   }
 
   /** Extra hit padding (mm) for coarse pointers so a target of sizeMm spans ≥ 44 CSS px (min 1.5 mm). */
@@ -300,6 +535,9 @@
   let drag = null;              // {kind:'probe'|'dial', dx, dz, pointerId, captured, coarse, emitted}
   let dialC = { x: 0, y: 0 };
   let lastProbeSym = null;      // geometry of the drawn probe symbol for hit testing
+  let lastTofdPair = null;      // F44: geometry of the TOFD pair as last painted (QA reporter)
+  let planPalette = [];         // F32: the fills the last plan draw used, in defect order
+  let ringPalette = [];         // F32: the fills the last circle-view / linear-bar draw used
   let hoverCursor = '';
 
   function cssSize(cv) {
@@ -341,7 +579,9 @@
     const spec = state && state.specimen;
     const L = spec ? spec.L : 300;
     const zTop = zWindowTop(state && state.probe ? state.probe.z : 0, L, windowMm);
-    tf = { scale, originX, zTop, windowMm, w: sz.w, h: sz.h, fieldW: Math.max(0, sz.w - RULER_W), L };
+    // F48: a z ruler on BOTH flanks — the drawn field is x ∈ [fieldX0, fieldW]
+    const fieldX0 = Math.min(RULER_W, Math.max(0, sz.w / 2 - 8));
+    tf = { scale, originX, zTop, windowMm, w: sz.w, h: sz.h, fieldX0, fieldW: Math.max(fieldX0, sz.w - RULER_W), L };
     return tf;
   }
 
@@ -357,7 +597,7 @@
     ctx.fillStyle = C.COLOURS.cream;
     ctx.fillRect(0, 0, tf.w, tf.h);
     const ex = spec.extents || { xMin: -150, xMax: 150 };
-    const x0 = M.clamp(toPx(ex.xMin, 0).x, 0, tf.fieldW), x1 = M.clamp(toPx(ex.xMax, 0).x, 0, tf.fieldW);
+    const x0 = M.clamp(toPx(ex.xMin, 0).x, tf.fieldX0, tf.fieldW), x1 = M.clamp(toPx(ex.xMax, 0).x, tf.fieldX0, tf.fieldW);
     ctx.fillStyle = C.COLOURS.steel;
     ctx.fillRect(x0, 0, Math.max(0, x1 - x0), tf.h);
     ctx.strokeStyle = '#222';
@@ -366,7 +606,7 @@
     // side-drilled holes run along z: thin white lines
     for (const hole of spec.holes || []) {
       const hx = toPx(hole.x, 0).x;
-      if (hx < 0 || hx > tf.fieldW) continue;
+      if (hx < tf.fieldX0 || hx > tf.fieldW) continue;
       ctx.strokeStyle = C.COLOURS.hole;
       ctx.lineWidth = Math.max(1, hole.r * 2 * tf.scale * 0.5);
       ctx.beginPath(); ctx.moveTo(hx, 0); ctx.lineTo(hx, tf.h); ctx.stroke();
@@ -379,9 +619,9 @@
     const fillet = weld.type === 'fillet' || weld.prep === 'fillet-t' || weld.prep === 'nozzle';
     const cw = weld.capWidth || 16;
     const xl = toPx(-cw / 2, 0).x, xr = toPx(cw / 2, 0).x;
-    if (xr < 0 || xl > tf.fieldW) return;
+    if (xr < tf.fieldX0 || xl > tf.fieldW) return;
     ctx.save();
-    ctx.beginPath(); ctx.rect(Math.max(0, xl), 0, Math.min(xr, tf.fieldW) - Math.max(0, xl), tf.h); ctx.clip();
+    ctx.beginPath(); ctx.rect(Math.max(tf.fieldX0, xl), 0, Math.min(xr, tf.fieldW) - Math.max(tf.fieldX0, xl), tf.h); ctx.clip();
     ctx.fillStyle = '#767676';
     ctx.fillRect(xl, 0, xr - xl, tf.h);
     // diagonal hatch
@@ -414,6 +654,13 @@
         ctx.stroke();
       }
     }
+    // F48: solid red strip on the weld centreline (how_to_use_the_epoch f020), under the footprints
+    const strip = weldStripGeom(spec, tf.scale);
+    if (strip) {
+      const sx = toPx(strip.xMm, 0).x - strip.wPx / 2;
+      const a = Math.max(tf.fieldX0, sx), b = Math.min(tf.fieldW, sx + strip.wPx);
+      if (b > a) { ctx.fillStyle = strip.colour; ctx.fillRect(a, 0, b - a, tf.h); }
+    }
     ctx.restore();
     ctx.strokeStyle = '#111';
     ctx.lineWidth = 1;
@@ -435,7 +682,7 @@
     const band = coverageBand(spec);
     const ss = spec.scanSurface || spec.extents || { xMin: -150, xMax: 150 };
     ctx.save();
-    ctx.beginPath(); ctx.rect(0, 0, tf.fieldW, tf.h); ctx.clip();
+    ctx.beginPath(); ctx.rect(tf.fieldX0, 0, tf.fieldW - tf.fieldX0, tf.h); ctx.clip();
     ctx.fillStyle = COVERAGE_COLOUR;
     for (const sideKey of [1, -1]) {
       const bins = cm.sides[sideKey] || cm.sides[String(sideKey)];
@@ -460,7 +707,7 @@
     ctx.fillStyle = 'rgba(255,255,255,0.38)';
     for (const p of trail) {
       const q = toPx(p.x, p.z);
-      if (q.x < 0 || q.x > tf.fieldW || q.y < 0 || q.y > tf.h) continue;
+      if (q.x < tf.fieldX0 || q.x > tf.fieldW || q.y < 0 || q.y > tf.h) continue;
       ctx.beginPath(); ctx.arc(q.x, q.y, 2, 0, Math.PI * 2); ctx.fill();
     }
   }
@@ -468,18 +715,28 @@
   function drawDefects(ctx, state, spec) {
     if (!state.defects || state.display.hide) return;
     const pipe = !!spec.pipe;
+    const shadeOn = state.display.defectShade;                             // F32
+    const sel = Number.isFinite(state.selectedDefect) ? state.selectedDefect + 1 : null;
+    planPalette = [];
     for (const d of state.defects) {
       if (!d || d.visible === false) continue;
       const b = defectBox(d);
       if (!b) continue;
       const wMm = Math.max(3, b.w);
       const xl = toPx(b.cx - wMm / 2, 0).x, xr = toPx(b.cx + wMm / 2, 0).x;
-      if (xr < 0 || xl > tf.fieldW) continue;
+      if (xr < tf.fieldX0 || xl > tf.fieldW) continue;
+      const fill = defectFill(d, spec.T, shadeOn);
+      planPalette.push(fill);
       for (const s of zSpans(d.zFrom, d.zTo, spec.L, pipe)) {
         const y0 = toPx(0, s[0]).y, y1 = toPx(0, s[1]).y;
         if (y1 < 0 || y0 > tf.h) continue;
-        ctx.fillStyle = C.COLOURS.defect;
-        ctx.fillRect(Math.max(0, xl), y0, Math.min(xr, tf.fieldW) - Math.max(0, xl), Math.max(2, y1 - y0));
+        const x0 = Math.max(tf.fieldX0, xl), x1 = Math.min(xr, tf.fieldW);
+        ctx.fillStyle = fill;
+        ctx.fillRect(x0, y0, x1 - x0, Math.max(2, y1 - y0));
+        if (sel !== null && d.n === sel && state.editing && state.editing.defect) {
+          ctx.strokeStyle = SELECT_OUTLINE; ctx.lineWidth = 2;             // F32: selection is an outline
+          ctx.strokeRect(x0 - 1, y0 - 1, x1 - x0 + 2, Math.max(2, y1 - y0) + 2);
+        }
       }
     }
   }
@@ -493,7 +750,7 @@
       const x = typeof xd === 'number' ? xd : (xd && xd.x);
       if (!Number.isFinite(x)) continue;
       const p = toPx(x, state.probe.z);
-      if (p.x < 0 || p.x > tf.fieldW) continue;
+      if (p.x < tf.fieldX0 || p.x > tf.fieldW) continue;
       ctx.fillStyle = 'rgba(120,120,120,0.9)';
       ctx.beginPath(); ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = '#333'; ctx.lineWidth = 1; ctx.stroke();
@@ -501,16 +758,35 @@
     ctx.restore();
   }
 
+  /**
+   * F17: how many legs the tracer actually DREW for this frame. v1's `display.skips` was a leg count;
+   * from SPEC-v3 §4.5 one skip is a full V, so the budget is `ceil(2·skips)` — and 'Run to UT Screen
+   * Range' (`display.skips === null` / `display.skipsToRange`) is unbounded. The tracer reports its own
+   * budget as `rays.drawLegs` and already truncates `centre.legs` to it; the display fallback is only for
+   * frames traced elsewhere (or none at all).
+   * @param {object|null} frame  UT.frame-shaped object ({rays})
+   * @param {object} state  UT state ({display})
+   * @returns {number} drawn-leg budget (≥ 1, Infinity when the beam runs to the screen range)
+   */
+  function drawnLegBudget(frame, state) {
+    const rays = frame && frame.rays;
+    if (rays && Number.isFinite(rays.drawLegs) && rays.drawLegs > 0) return rays.drawLegs;
+    const d = (state && state.display) || {};
+    if (d.skipsToRange === true || d.skips === null) return Infinity;
+    const s = Number.isFinite(d.skips) && d.skips > 0 ? d.skips : 3;
+    return Math.max(1, Math.ceil(2 * s));
+  }
+
   function footprintLength(frame, state) {
     const probe = state.probe;
     let xEnd = null;
     const rays = frame && frame.rays;
-    const skips = (state.display && state.display.skips) || 3;
+    const limit = drawnLegBudget(frame, state);
     if (rays && rays.centre) {
       const legs = rays.centre.legs;
       if (Array.isArray(legs) && legs.length) {
         let last = null;
-        for (const lg of legs) if (!lg.leg || lg.leg <= skips) last = lg;
+        for (const lg of legs) if (!lg.leg || lg.leg <= limit) last = lg;
         if (last && last.b) xEnd = last.b.x;
       }
       if (xEnd === null && Array.isArray(rays.centre.pts) && rays.centre.pts.length) xEnd = rays.centre.pts[rays.centre.pts.length - 1].x;
@@ -529,7 +805,7 @@
     const th = (derived && derived.halfAngle20dB) || 4;
     const o = toPx(probe.x, probe.z);
     ctx.save();
-    ctx.beginPath(); ctx.rect(0, 0, tf.fieldW, tf.h); ctx.clip();
+    ctx.beginPath(); ctx.rect(tf.fieldX0, 0, tf.fieldW - tf.fieldX0, tf.h); ctx.clip();
     ctx.strokeStyle = 'rgba(255,255,255,0.85)';
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
@@ -571,7 +847,23 @@
     ctx.save();
     ctx.translate(p.x, p.y);
     ctx.rotate(ang);
-    if (o.hollow) {
+    if (o.ghost) {
+      // F20 virtual probe: 25 % fill + 45° hatch + 1 px dashed outline, all in the probe colour
+      const w = (uF - uB) * s, hgt = 2 * hv * s;
+      ctx.save();
+      ctx.beginPath(); ctx.rect(uB * s, -hv * s, w, hgt); ctx.clip();
+      ctx.fillStyle = rgba(colour, 0.25);
+      ctx.fillRect(uB * s, -hv * s, w, hgt);
+      ctx.strokeStyle = rgba(colour, 0.55);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let k = -hgt; k < w + hgt; k += 6) { ctx.moveTo(uB * s + k, -hv * s); ctx.lineTo(uB * s + k + hgt, hv * s); }
+      ctx.stroke();
+      ctx.restore();
+      ctx.strokeStyle = colour; ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(uB * s + 0.5, -hv * s + 0.5, w - 1, hgt - 1);
+    } else if (o.hollow) {
       ctx.strokeStyle = colour; ctx.lineWidth = 2;
       if (o.dashed) ctx.setLineDash([5, 4]);
       ctx.strokeRect(uB * s, -hv * s, (uF - uB) * s, 2 * hv * s);
@@ -619,27 +911,49 @@
     return { tx, rx };
   }
 
-  function drawProbe(ctx, state, spec, derived) {
+  function drawProbe(ctx, state, spec, derived, frame) {
     const probe = state.probe;
     const pa = probe.method === 'pa';
     const colour = pa ? C.PROBE_COLOURS.pa : ((derived && derived.colour) || C.PROBE_COLOURS[probe.angle] || '#00c000');
     ctx.save();
-    ctx.beginPath(); ctx.rect(0, 0, tf.fieldW, tf.h); ctx.clip();
+    ctx.beginPath(); ctx.rect(tf.fieldX0, 0, tf.fieldW - tf.fieldX0, tf.h); ctx.clip();
+    // F20: the virtual probe first, so the real symbol always draws over it and stays the hit target
+    const mir = mirrorInfo(state, spec, frame);
+    if (mir.drawn) rectSymbol(ctx, mir.x, probe.z, probe.side, probe.skew, colour, { ghost: true });
+    if (state.mode !== 'tofd') lastTofdPair = null;
     if (state.mode === 'tofd') {
-      // F4: one small green 24 × 16 box centred between the probes with two dots (Tx / Rx)
       const pp = tofdPositions(state);
-      const box = tofdBox(pp.tx, pp.rx, probe.z);
-      const a = toPx(box.x0, box.z0), b = toPx(box.x1, box.z1);
-      ctx.fillStyle = TOFD_COLOUR;
-      ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
-      ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1;
-      ctx.strokeRect(a.x + 0.5, a.y + 0.5, b.x - a.x - 1, b.y - a.y - 1);
-      ctx.fillStyle = '#fff';
-      for (const dx of box.dots) {
-        const dot = toPx(dx, probe.z);
+      const fillBox = function (bx) {
+        const a = toPx(bx.x0, bx.z0), b = toPx(bx.x1, bx.z1);
+        ctx.fillStyle = TOFD_COLOUR;
+        ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
+        ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1;
+        ctx.strokeRect(a.x + 0.5, a.y + 0.5, b.x - a.x - 1, b.y - a.y - 1);
+      };
+      const whiteDot = function (xMm) {
+        const dot = toPx(xMm, probe.z);
+        ctx.fillStyle = '#fff';
         ctx.beginPath(); ctx.arc(dot.x, dot.y, 2.5, 0, Math.PI * 2); ctx.fill();
+      };
+      if (state.display && state.display.legend === false) {
+        // SPEC-v2 F4 fallback: one small green 24 × 16 box centred between the probes with two dots
+        const box = tofdBox(pp.tx, pp.rx, probe.z);
+        fillBox(box);
+        for (const dx of box.dots) whiteDot(dx);
+        lastProbeSym = { kind: 'box', x0: box.x0, x1: box.x1, z0: box.z0, z1: box.z1 };
+        lastTofdPair = { shape: 'box', line: false, boxes: [{ xc: box.xc, x0: box.x0, x1: box.x1, z0: box.z0, z1: box.z1 }], dots: box.dots.slice() };
+      } else {
+        // F44: two 24 × 16 boxes on the real index points with the dotted beam line between them
+        const pair = tofdPair(pp.tx, pp.rx, probe.z);
+        const la = toPx(pair.boxes[0].xc, probe.z), lb = toPx(pair.boxes[1].xc, probe.z);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.moveTo(la.x, la.y); ctx.lineTo(lb.x, lb.y); ctx.stroke();
+        ctx.restore();
+        for (const bx of pair.boxes) { fillBox(bx); whiteDot(bx.xc); }
+        lastProbeSym = { kind: 'box', x0: pair.x0, x1: pair.x1, z0: pair.z0, z1: pair.z1 };
+        lastTofdPair = { shape: 'pair', line: true, boxes: pair.boxes.map(function (b) { return { xc: b.xc, x0: b.x0, x1: b.x1, z0: b.z0, z1: b.z1 }; }), dots: pair.boxes.map(function (b) { return b.xc; }) };
       }
-      lastProbeSym = { kind: 'box', x0: box.x0, x1: box.x1, z0: box.z0, z1: box.z1 };
     } else if (pa) {
       const paState = state.pa || {};
       lastProbeSym = rectSymbol(ctx, probe.x, probe.z, probe.side, probe.skew, colour, { dotU: 0, ticks: paTicks(paState.elements, paState.pitch) });
@@ -706,10 +1020,18 @@
     ctx.restore();
   }
 
-  function drawRuler(ctx, state) {
-    const x0 = tf.fieldW;
+  /** F48: the two z-ruler strips — [{side, x0, lineX}] left flank first (design px). */
+  function flankRulers() {
+    return [
+      { side: 'left', x0: 0, w: tf.fieldX0, lineX: Math.round(9) + 0.5 },
+      { side: 'right', x0: tf.fieldW, w: tf.w - tf.fieldW, lineX: Math.round(tf.fieldW + 9) + 0.5 },
+    ];
+  }
+
+  function drawRuler(ctx, state, strip) {
+    const x0 = strip.x0;
     ctx.fillStyle = C.COLOURS.cream;
-    ctx.fillRect(x0, 0, RULER_W, tf.h);
+    ctx.fillRect(x0, 0, strip.w, tf.h);
     const lineX = Math.round(x0 + 9) + 0.5;
     ctx.strokeStyle = C.COLOURS.ruler;
     ctx.lineWidth = 1;
@@ -738,9 +1060,10 @@
     }
   }
 
-  function drawCompass(ctx, state) {
+  function drawCompass(ctx, state, spec) {
     dialC = { x: tf.fieldW - 16 - DIAL_R, y: 16 + DIAL_R };
     const skew = state.probe.skew || 0;
+    const needles = dialAngles(state, spec);
     ctx.save();
     ctx.font = '11px Segoe UI, Arial, sans-serif';
     ctx.fillStyle = '#000';
@@ -750,6 +1073,16 @@
     ctx.strokeStyle = '#0000ff';
     ctx.lineWidth = 3;
     ctx.beginPath(); ctx.arc(dialC.x, dialC.y, DIAL_R, 0, Math.PI * 2); ctx.stroke();
+    // F48: thin red circumferential position pointer (pipes only), datum 9 o'clock
+    if (needles.position !== null) {
+      const ap = M.deg2rad(needles.position);
+      ctx.strokeStyle = '#ff0000';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(dialC.x, dialC.y);
+      ctx.lineTo(dialC.x + Math.sin(ap) * (DIAL_R - 1), dialC.y - Math.cos(ap) * (DIAL_R - 1));
+      ctx.stroke();
+    }
     const a = M.deg2rad(skew);
     ctx.strokeStyle = '#ff0000';
     ctx.lineWidth = 3;
@@ -802,10 +1135,10 @@
     drawTrail(ctx); // after defects so the raster trail stays visible over lamination rectangles (§14.2)
     drawFootprint(ctx, frame, state, derived, spec);
     drawDampers(ctx, state);
-    drawProbe(ctx, state, spec, derived);
+    drawProbe(ctx, state, spec, derived, frame);
     try { drawScanBand(ctx, state); } catch (e) { /* malformed map: ignore */ }
-    drawRuler(ctx, state);
-    if (!isCompassHidden(state)) drawCompass(ctx, state); else dialC = null;
+    for (const strip of flankRulers()) drawRuler(ctx, state, strip);   // F48: both flanks
+    if (!isCompassHidden(state)) drawCompass(ctx, state, spec); else dialC = null;
     ctx.restore();
   }
 
@@ -881,9 +1214,49 @@
 
   function samePointer(d, ev) { return !d || d.pointerId === undefined || ev.pointerId === undefined || d.pointerId === ev.pointerId; }
 
+  /**
+   * F57 status key of the plan view's probe-direction cue. 80-modes owns the wordings table; the literal
+   * is the fallback for a build without 80 (house rule: guard every cross-module call).
+   * @returns {string} English i18n key
+   */
+  function directionHintKey() {
+    const h = UT.modes && UT.modes.hints;
+    return (h && h.planDirection) || 'LEFT or RIGHT mouse button to change probe direction';
+  }
+
+  /**
+   * The other look direction of a probe.side (the plan view's direction gesture, F57).
+   * @param {number} side
+   * @returns {number} +1 or −1
+   */
+  function otherSide(side) { return (side || 1) >= 0 ? -1 : 1; }
+
+  /**
+   * F57: the plan view's probe-direction gesture — a RIGHT-button press turns the probe round and posts
+   * the original's hint, so both mouse buttons act on the probe exactly as the wording says (LEFT drags).
+   * @param {PointerEvent|MouseEvent} ev
+   * @returns {boolean} true when the press was consumed here
+   */
+  function onDirectionPress(ev) {
+    if (drag) return true;                                        // a left drag is running: swallow it
+    if (UT.state.editing && UT.state.editing.defect) return true;  // editor open: the probe is locked
+    const p = UT.dom.localPos(ev, canvas);
+    if (p.x < 0 || p.y < 0 || p.x > tf.w || p.y > tf.h) return false;
+    if (UT.state.probe && UT.state.specimen) {
+      // prefer 80's turnProbe() so the V1/V2 'Turn Probe' button stays in sync; it re-posts the MODE
+      // hint, which is why the direction cue below is written after it
+      if (UT.modes && typeof UT.modes.turnProbe === 'function') UT.modes.turnProbe();
+      else UT.setIn('probe', { side: otherSide(UT.state.probe.side) });
+    }
+    if (typeof UT.status === 'function') UT.status({ right: directionHintKey() });
+    return true;
+  }
+
   function onDown(ev) {
-    if (ev.button !== undefined && ev.button !== 0) return;
     if (ev.isPrimary === false) return;
+    // F57: the RIGHT button is the direction gesture; the LEFT button keeps owning the drag
+    if (ev.button === 2) { if (onDirectionPress(ev)) ev.preventDefault(); return; }
+    if (ev.button !== undefined && ev.button !== 0) return;
     if (drag) return;
     const p = UT.dom.localPos(ev, canvas);
     if (p.x < 0 || p.y < 0 || p.x > tf.w || p.y > tf.h) return;
@@ -895,11 +1268,12 @@
       ev.preventDefault();
       return;
     }
-    if (p.x > tf.fieldW) return;                                   // ruler strip
     if (UT.state.editing && UT.state.editing.defect) return;       // editor open: probe locked
     if (!UT.state.specimen) return;
     const mm = toMm(p.x, p.y);
     const grabbed = hitProbe(mm, probePad(coarse));
+    // F48: either flank's ruler strip is inert unless the press lands on the probe symbol itself
+    if (!grabbed && (p.x > tf.fieldW || p.x < tf.fieldX0)) return;
     drag = { kind: 'probe', dx: grabbed ? UT.state.probe.x - mm.x : 0, dz: 0, pointerId: ev.pointerId, coarse, emitted: false };
     drag.captured = capturePointer(canvas, ev);
     if (!grabbed) moveProbe(mm, drag);                             // jump to the pointer (absolute z)
@@ -921,7 +1295,7 @@
     if (ev.target !== canvas) return;
     const coarse = isCoarse(ev);
     if (hitDial(p, coarse)) setCursor('pointer');
-    else if (p.x <= tf.fieldW && hitProbe(toMm(p.x, p.y), probePad(coarse))) setCursor('grab');
+    else if (hitProbe(toMm(p.x, p.y), probePad(coarse))) setCursor('grab');
     else setCursor('default');
   }
 
@@ -1110,14 +1484,46 @@
     }
   }
 
+  /** Is F32 depth shading on? (display.defectShade, defaulting to on when state is unavailable) */
+  function shadeEnabled() {
+    const s = UT.state;
+    return !(s && s.display && s.display.defectShade === false);
+  }
+
+  /**
+   * F29: the number in the 'Position {z}mm' header — the hovered z while the pointer is on the
+   * ring/bar, otherwise the live circumferential probe position.
+   */
+  function captionZ(st) {
+    if (st && st.hoverZ !== null && st.hoverZ !== undefined) return Math.round(st.hoverZ);
+    const s = UT.state;
+    return s && s.probe && Number.isFinite(s.probe.z) ? Math.round(s.probe.z) : 0;
+  }
+
+  /**
+   * F29: the value of the editor's 'Depth = …' cell (mm), mirroring the status bar — the cursor depth
+   * when the cursor carries one, else the F23 echo depth. null = no cell.
+   * @returns {number|null}
+   */
+  function depthLabel() {
+    const s = UT.state;
+    if (!s) return null;
+    const c = s.cursor;
+    if (c && Number.isFinite(c.y) && (s.editing && s.editing.defect ? true : c.y >= 0)) return c.y;
+    if (s.display && s.display.depthEcho === false) return null;
+    const de = UT.frame && UT.frame.depthEcho;
+    return de && Number.isFinite(de.y) ? de.y : null;
+  }
+
   function isSelected(d, opts) {
     if (opts.selected === undefined || opts.selected === null) return false;
     return d.n === opts.selected;
   }
 
   /**
-   * Pipe circle view for the defect editor: grey annulus, 12 spokes, position labels increasing
-   * anticlockwise from 12 o'clock, red defect arcs (selected dark red + two radial lines).
+   * Pipe circle view for the defect editor: grey annulus, up to 12 spokes at the round F29 label step,
+   * positions increasing anticlockwise from 12 o'clock, defect arcs shaded by mean depth (F32, selection
+   * outlined in #00a0ff plus two radial lines), the 'Depth = …' cell and the Circle-View header (F29).
    * @param {HTMLCanvasElement} cv
    * @param {{spec:object, defects:Array, selected:number, onDrag:function, onSelect:function}} opts
    */
@@ -1144,36 +1550,46 @@
     ctx.arc(cx, cy, R, 0, Math.PI * 2, false);
     ctx.arc(cx, cy, r, 0, Math.PI * 2, true);
     ctx.fill();
-    // spokes + labels
-    const step = Math.max(1, Math.round(L / 12));
+    // F29 spokes + labels: a round step (max(10, round(C/12/10)*10) mm) at the TRUE circumferential angle
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 1;
     ctx.font = '11px Segoe UI, Arial, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    for (let k = 0; k < 12; k++) {
-      const a = circleAngle(k * step, L);
+    const zs = ringLabelZs(L);
+    for (let k = 0; k < zs.length; k++) {
+      const a = circleAngle(zs[k], L);
       ctx.save();
       ctx.setLineDash([3, 3]);
       ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R); ctx.stroke();
       ctx.restore();
-      const lr = r - 20;
+      const txt = (k === 0 ? '0 ' : String(zs[k])) + 'mm';
+      const dx = k === 0 ? 16 : 0;                       // '0 mm' sits beside the zero line, not on it
+      const m = ctx.measureText(txt);
+      const hw = (m && m.width > 0 ? m.width : txt.length * 6) / 2;
+      const lr = ringLabelRadius(a, hw, RING_LABEL_HALF_H, r, dx);
       ctx.fillStyle = '#000';
-      ctx.fillText((k === 0 ? '0 ' : String(k * step)) + 'mm', cx + Math.cos(a) * lr + (k === 0 ? 16 : 0), cy + Math.sin(a) * lr);
+      ctx.fillText(txt, cx + Math.cos(a) * lr + dx, cy + Math.sin(a) * lr);
     }
-    // defects
+    // defects — F32: filled by mean depth, selection is an outline (never a fill)
     const pipe = true;
+    const shadeOn = shadeEnabled();
+    const T = (opts.spec && opts.spec.T) || 20;
+    ringPalette = [];
     for (const d of opts.defects || []) {
       if (!d || d.visible === false) continue;
       const sel = isSelected(d, opts);
+      const fill = defectFill(d, T, shadeOn);
+      ringPalette.push(fill);
       for (const s of zSpans(d.zFrom, d.zTo, L, pipe)) {
         const a0 = circleAngle(s[0], L), a1 = circleAngle(s[1], L);
-        ctx.fillStyle = sel ? '#a00000' : C.COLOURS.defect;
         ctx.beginPath();
         ctx.arc(cx, cy, R - 2, a0, a1, true);
         ctx.arc(cx, cy, r + 2, a1, a0, false);
         ctx.closePath();
+        ctx.fillStyle = fill;
         ctx.fill();
+        if (sel) { ctx.strokeStyle = SELECT_OUTLINE; ctx.lineWidth = 2; ctx.stroke(); }
       }
       if (sel) {
         ctx.strokeStyle = '#ff0000';
@@ -1192,12 +1608,17 @@
     ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx, topY); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(cx, topY); ctx.lineTo(cx - 58, topY); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(cx - 66, topY); ctx.lineTo(cx - 54, topY - 5); ctx.lineTo(cx - 54, topY + 5); ctx.closePath(); ctx.fill();
-    // caption
+    // F29 header + Depth cell
     ctx.font = '11px Segoe UI, Arial, sans-serif';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
     ctx.fillStyle = '#000';
-    ctx.fillText(t('Circle-View. Position {z}', { z: st.hoverZ === null ? '' : Math.round(st.hoverZ) }), w - 6, 4);
+    ctx.fillText(t('Circle-View. Position {z}mm', { z: captionZ(st) }), w - 6, 4);
+    const dep = depthLabel();
+    if (dep !== null) {
+      ctx.textAlign = 'center';
+      ctx.fillText(t('Depth = {d}mm', { d: dep.toFixed(1) }), w / 2, 4);
+    }
     ctx.restore();
   }
 
@@ -1245,13 +1666,20 @@
       ctx.beginPath(); ctx.moveTo(x, y1); ctx.lineTo(x, y1 + 6); ctx.stroke();
       if (k % every === 0) { ctx.fillStyle = '#000'; ctx.fillText(Math.round(z) + 'mm', x, y1 + 8); }
     }
-    // defects
+    // defects — F32: filled by mean depth, selection is an outline (never a fill)
+    const shadeOn = shadeEnabled();
+    const Tmm = (opts.spec && opts.spec.T) || 20;
+    ringPalette = [];
     for (const d of opts.defects || []) {
       if (!d || d.visible === false) continue;
       const sel = isSelected(d, opts);
+      const fill = defectFill(d, Tmm, shadeOn);
+      ringPalette.push(fill);
       for (const s of zSpans(d.zFrom, d.zTo, L, false)) {
-        ctx.fillStyle = sel ? '#a00000' : C.COLOURS.defect;
-        ctx.fillRect(px(s[0]), y0 + 2, Math.max(2, px(s[1]) - px(s[0])), barH - 4);
+        const a = px(s[0]), bw = Math.max(2, px(s[1]) - px(s[0]));
+        ctx.fillStyle = fill;
+        ctx.fillRect(a, y0 + 2, bw, barH - 4);
+        if (sel) { ctx.strokeStyle = SELECT_OUTLINE; ctx.lineWidth = 2; ctx.strokeRect(a - 1, y0 + 1, bw + 2, barH - 2); }
       }
       if (sel) {
         ctx.strokeStyle = '#ff0000';
@@ -1271,8 +1699,62 @@
     ctx.font = '11px Segoe UI, Arial, sans-serif';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
-    ctx.fillText(t('Plate. Position {z}', { z: st.hoverZ === null ? '' : Math.round(st.hoverZ) }), w - 6, 4);
+    ctx.fillText(t('Plate. Position {z}mm', { z: captionZ(st) }), w - 6, 4);
+    const dep = depthLabel();
+    if (dep !== null) {
+      ctx.textAlign = 'center';
+      ctx.fillText(t('Depth = {d}mm', { d: dep.toFixed(1) }), w / 2, 4);
+    }
     ctx.restore();
+  }
+
+  // ------------------------------------------------------------------ v3 QA hooks (SPEC-v3 §9)
+  /**
+   * F48: the compass needles as drawn — bearings in degrees (0 = 12 o'clock, + clockwise).
+   * `position` is null on plates (no circumferential pointer) and `datum` is the 9 o'clock datum.
+   * @returns {{skew:number, position:(number|null), datum:number, hidden:boolean}}
+   */
+  function qaDial() {
+    const s = UT.state || {};
+    const d = dialAngles(s, s.specimen);
+    return { skew: d.skew, position: d.position, datum: d.datum, hidden: isCompassHidden(s) };
+  }
+
+  /**
+   * F48: the two z-ruler strips of the plan view, left flank first.
+   * @returns {Array<{side:string, x0:number, w:number, lineX:number}>}
+   */
+  function qaFlankRulers() { if (canvas) fit(); return flankRulers(); }
+
+  /**
+   * F48: the red weld strip drawn on the weld band ({drawn:false} when the specimen carries no weld).
+   * @returns {{drawn:boolean, xMm:number, widthPx:number, colour:string}}
+   */
+  function qaWeldStrip() {
+    if (canvas) fit();
+    const s = UT.state;
+    const g = weldStripGeom(s && s.specimen, tf.scale);
+    return g ? { drawn: true, xMm: g.xMm, widthPx: +g.wPx.toFixed(2), colour: g.colour }
+      : { drawn: false, xMm: 0, widthPx: 0, colour: WELD_STRIP_COLOUR };
+  }
+
+  /**
+   * F32: the palette the plan / ring / bar renderers fill defects with — the two depth-shade ends, the
+   * selection outline and the weld-strip red.
+   * @returns {{shades:string[], near:string, far:string, select:string, weldStrip:string, on:boolean}}
+   */
+  function qaPalette() {
+    return { shades: [SHADE_NEAR, SHADE_FAR], near: SHADE_NEAR, far: SHADE_FAR, select: SELECT_OUTLINE, weldStrip: WELD_STRIP_COLOUR, on: shadeEnabled() };
+  }
+
+  /**
+   * F20 test API: the virtual (mirrored) probe image of the current state.
+   * @returns {{drawn:boolean, x:number}} x = the mirror's index x (mm), 0 when it is not drawn
+   */
+  function testMirrorProbe() {
+    const s = UT.state || {};
+    const m = mirrorInfo(s, s.specimen, UT.frame);
+    return { drawn: m.drawn, x: +m.x.toFixed(2) };
   }
 
   // ------------------------------------------------------------------ self test
@@ -1297,6 +1779,16 @@
     }
     const a40 = circleAngle(40, Cir);   // 40 of 480 = 30° anticlockwise from the top → up-left
     if (!(Math.cos(a40) < 0 && Math.sin(a40) < 0)) f.push('circleAngle direction not anticlockwise');
+    // F29: every graduation label must fit inside the inner circle at every bearing
+    for (const deg of [0, 15, 30, 45, 60, 75, 90, 120, 150, 180, 210, 270, 330]) {
+      const aa = deg * Math.PI / 180, hw = 19, hh = 6, rInner = 120;
+      const lrr = ringLabelRadius(aa, hw, hh, rInner, deg === 0 ? 16 : 0);
+      const ex = hw + (deg === 0 ? 16 : 0);
+      const far = Math.hypot(Math.abs(Math.cos(aa)) * lrr + ex, Math.abs(Math.sin(aa)) * lrr + hh);
+      if (far > rInner - RING_LABEL_PAD + 1e-6) f.push('ringLabelRadius overflows at ' + deg + ' (' + far.toFixed(2) + ')');
+      if (!(lrr > 0)) f.push('ringLabelRadius degenerate at ' + deg);
+    }
+    if (ringLabelRadius(0, 19, 6, 4, 0) !== 0) f.push('ringLabelRadius tiny circle');
     const d1 = ringDragSpan(76, 143, Cir);
     if (d1.zFrom !== 76 || d1.zTo !== 143) f.push('ringDragSpan forward ' + JSON.stringify(d1));
     const d2 = ringDragSpan(143, 76, Cir);
@@ -1312,7 +1804,7 @@
     if (lighten('#00c000', 0.5) !== 'rgb(128,224,128)') f.push('lighten ' + lighten('#00c000', 0.5));
     // transform arithmetic with the fallback scale
     const saved = tf;
-    tf = { scale: 4, originX: 640, zTop: 120, windowMm: 65, w: 1280, h: 260, fieldW: 1236, L: 300 };
+    tf = { scale: 4, originX: 640, zTop: 120, windowMm: 65, w: 1280, h: 260, fieldX0: 44, fieldW: 1236, L: 300 };
     const p = toPx(40, 150);
     if (p.x !== 800 || p.y !== 120) f.push('toPx ' + JSON.stringify(p));
     const mm = toMm(800, 120);
@@ -1322,6 +1814,13 @@
     // v2: F4 TOFD box geometry + hit test
     const box = tofdBox(30, -30, 150);
     if (box.xc !== 0 || box.x0 !== -12 || box.x1 !== 12 || box.z0 !== 142 || box.z1 !== 158 || box.dots[0] !== -6 || box.dots[1] !== 6) f.push('tofdBox ' + JSON.stringify(box));
+    // v3 F44: the pair is TWO boxes on the real index points (the v2 single box stays the legend-off fallback)
+    const pair = tofdPair(30, -30, 150);
+    if (pair.boxes.length !== 2 || pair.boxes[0].xc !== 30 || pair.boxes[1].xc !== -30) f.push('tofdPair centres ' + JSON.stringify(pair.boxes));
+    if (pair.boxes[0].x0 !== 18 || pair.boxes[0].x1 !== 42 || pair.boxes[0].z0 !== 142 || pair.boxes[0].z1 !== 158) f.push('tofdPair box ' + JSON.stringify(pair.boxes[0]));
+    if (pair.x0 !== -42 || pair.x1 !== 42 || pair.z0 !== 142 || pair.z1 !== 158 || pair.span !== 60) f.push('tofdPair union ' + JSON.stringify(pair));
+    const pair0 = tofdPair(0, 0, 100);
+    if (pair0.x0 !== -12 || pair0.x1 !== 12 || pair0.span !== 0) f.push('tofdPair coincident ' + JSON.stringify(pair0));
     const savedSym = lastProbeSym;
     lastProbeSym = { kind: 'box', x0: box.x0, x1: box.x1, z0: box.z0, z1: box.z1 };
     if (!hitProbe({ x: 11, z: 157 }, 0) || hitProbe({ x: 13, z: 150 }, 0) || !hitProbe({ x: 13, z: 150 }, 2)) f.push('hitProbe box');
@@ -1362,15 +1861,85 @@
     const s3 = scanBandSource({ probe: { method: 'pe' }, mode: 'weld', aut: { map: { z0: 0, step: 1, n: 2, k: 1, map: new Float32Array([1, 0.8]) } } });
     if (!s3 || Math.abs(s3.vals[0] - 1) > 1e-6) f.push('scanBandSource must not rescale a ≈1 % aut.map');
     if (scanBandSource({ probe: {}, mode: 'weld', aut: { scan: null, map: null } }) !== null) f.push('scanBandSource none');
+    // v3 F48: both flank rulers
+    const rulers = flankRulers();
+    if (rulers.length !== 2 || rulers[0].side !== 'left' || rulers[0].x0 !== 0 || rulers[1].x0 !== 1236) f.push('flankRulers ' + JSON.stringify(rulers));
     tf = saved;
+    // v3 F32: colour maths
+    if (lerpHex(SHADE_NEAR, SHADE_FAR, 0) !== SHADE_NEAR || lerpHex(SHADE_NEAR, SHADE_FAR, 1) !== SHADE_FAR) f.push('lerpHex ends');
+    if (lerpHex('#000000', '#ffffff', 0.5) !== '#808080') f.push('lerpHex mid ' + lerpHex('#000000', '#ffffff', 0.5));
+    if (rgba('#e00000', 0.25) !== 'rgba(224,0,0,0.25)') f.push('rgba ' + rgba('#e00000', 0.25));
+    if (defectMeanY({ pts: [{ x: 0, y: 2 }, { x: 0, y: 4 }] }) !== 3 || defectMeanY({ y: 8 }) !== 8 || defectMeanY(null) !== 0) f.push('defectMeanY');
+    const shallow = hexRgb(defectShade({ pts: [{ x: 0, y: 3 }] }, 20)), deep = hexRgb(defectShade({ pts: [{ x: 0, y: 17 }] }, 20));
+    const near = hexRgb(SHADE_NEAR), far = hexRgb(SHADE_FAR);
+    // V3-32 tolerances (8 from #e00000 at y = 3, 12 from #7a0000 at y = 17 of T = 20)
+    if (!shallow || !deep) f.push('defectShade hex');
+    else for (let i = 0; i < 3; i++) {
+      if (shallow[i] < deep[i]) f.push('defectShade must lighten toward the surface');
+      if (Math.abs(shallow[i] - near[i]) > 8) f.push('defectShade shallow off #e00000 ' + JSON.stringify(shallow));
+      if (Math.abs(deep[i] - far[i]) > 12) f.push('defectShade deep off #7a0000 ' + JSON.stringify(deep));
+    }
+    if (defectShade({ pts: [{ x: 0, y: 0 }] }, 20) !== SHADE_NEAR || defectShade({ pts: [{ x: 0, y: 20 }] }, 20) !== SHADE_FAR) f.push('defectShade ends');
+    if (defectFill({ pts: [{ x: 0, y: 17 }] }, 20, false) !== C.COLOURS.defect) f.push('defectFill shading off');
+    // v3 F48: dial bearings — datum 9 o'clock, +90° per quarter circumference, plates have no pointer
+    if (bearing(-90) !== -90 || bearing(270) !== -90 || bearing(180) !== 180 || bearing(360) !== 0) f.push('bearing');
+    const pipeSpec = { pipe: { wt: 20, odInch: 6 }, L: 528.7, T: 20 };
+    const d0 = dialAngles({ probe: { z: 0, skew: 0 } }, pipeSpec), dq = dialAngles({ probe: { z: 528.7 / 4, skew: 0 } }, pipeSpec);
+    if (d0.position !== -90 || d0.datum !== -90) f.push('dialAngles datum ' + JSON.stringify(d0));
+    if (Math.abs(dq.position - d0.position - 90) > 0.01) f.push('dialAngles quarter ' + JSON.stringify(dq));
+    if (dialAngles({ probe: { z: 100, skew: 30 } }, { L: 300, T: 20 }).position !== null) f.push('dialAngles plate pointer');
+    if (dialAngles({ probe: { z: 0, skew: 338 } }, pipeSpec).skew !== -22) f.push('dialAngles skew label');
+    // v3 F29: ring graduations
+    if (ringStep(528.7) !== 40 || ringStep(100) !== 10 || ringStep(0) !== 30) f.push('ringStep ' + ringStep(528.7) + '/' + ringStep(100) + '/' + ringStep(0));
+    const zs = ringLabelZs(528.7);
+    if (zs.length !== 12 || zs[0] !== 0 || zs[11] !== 440) f.push('ringLabelZs ' + JSON.stringify(zs));
+    if (ringLabelZs(100).length !== 10 || ringLabelZs(100)[9] !== 90) f.push('ringLabelZs short');
+    // v3 F48: weld strip
+    const wsp = { weld: { type: 'butt', prep: 'single-v', capWidth: 16, capCentre: 0 }, T: 20, L: 300 };
+    const ws = weldStripGeom(wsp, 4);
+    if (!ws || ws.xMm !== 0 || Math.abs(ws.wPx - 16 / 6 * 4) > 1e-9 || ws.colour !== '#ff0000') f.push('weldStripGeom ' + JSON.stringify(ws));
+    if (weldStripGeom({ weld: { type: 'none' } }, 4) !== null || weldStripGeom({}, 4) !== null) f.push('weldStripGeom no weld');
+    if (weldStripGeom(wsp, 0.01).wPx !== 2) f.push('weldStripGeom min width');
+    // v3 F17: the footprint follows the DRAWN legs (ceil(2·skips)), never v1's `leg <= skips`
+    if (drawnLegBudget(null, { display: { skips: 0.5 } }) !== 1 || drawnLegBudget(null, { display: { skips: 1 } }) !== 2
+      || drawnLegBudget(null, { display: { skips: 1.5 } }) !== 3 || drawnLegBudget(null, { display: { skips: 3 } }) !== 6) f.push('drawnLegBudget ladder');
+    if (drawnLegBudget(null, { display: { skips: null } }) !== Infinity || drawnLegBudget(null, { display: { skipsToRange: true } }) !== Infinity) f.push('drawnLegBudget to range');
+    if (drawnLegBudget(null, {}) !== 6 || drawnLegBudget({ rays: { drawLegs: 4 } }, { display: { skips: 1 } }) !== 4) f.push('drawnLegBudget source');
+    const fpFrame = { rays: { drawLegs: 2, centre: { pts: [{ x: 40, leg: 1 }, { x: 5.4, leg: 1 }, { x: -29.3, leg: 2 }], legs: [{ leg: 1, b: { x: 5.4 } }, { leg: 2, b: { x: -29.3 } }] } } };
+    const fpState = { probe: { x: 40 }, display: { skips: 1 } };
+    if (Math.abs(footprintLength(fpFrame, fpState) - 69.3) > 1e-9) f.push('footprintLength drawn legs ' + footprintLength(fpFrame, fpState));
+    if (Math.abs(footprintLength(null, fpState) - 40) > 1e-9) f.push('footprintLength fallback');
+    // v3 F20: mirrored probe
+    const mst = { mode: 'weld', display: { mirror: true }, probe: { x: 40, z: 150, angle: 60, side: 1, skew: 0 } };
+    const m1 = mirrorInfo(mst, wsp, null);
+    if (!m1.drawn || Math.abs(m1.x + 40) > 1e-9) f.push('mirrorInfo ' + JSON.stringify(m1));
+    if (mirrorInfo({ mode: 'weld', display: { mirror: false }, probe: mst.probe }, wsp, null).drawn) f.push('mirrorInfo off');
+    if (mirrorInfo({ mode: 'iow', display: { mirror: true }, probe: mst.probe }, wsp, null).drawn) f.push('mirrorInfo iow');
+    if (mirrorInfo(mst, { T: 20, L: 300 }, null).drawn) f.push('mirrorInfo needs a weld');
+    if (mirrorInfo({ mode: 'weld', display: { mirror: true }, probe: { x: 40, z: 150, angle: 0, side: 1, skew: 0 } }, wsp, null).drawn) f.push('mirrorInfo 0 deg');
+    if (mirrorInfo({ mode: 'weld', display: { mirror: true }, probe: { x: 40, z: 150, angle: 60, side: -1, skew: 0 } }, wsp, null).drawn) f.push('mirrorInfo beam away from the weld');
+    // v3 F57: the probe-direction gesture (wording owned by 80-modes, flip = the 'Turn Probe' semantics)
+    if (directionHintKey() !== 'LEFT or RIGHT mouse button to change probe direction') f.push('directionHintKey ' + directionHintKey());
+    if (otherSide(1) !== -1 || otherSide(-1) !== 1 || otherSide(0) !== -1 || otherSide(undefined) !== -1) f.push('otherSide');
     return f;
   }
 
   const plan = {
     init, draw, toPx, toMm, fit, drawCircleView, drawLinearBar, clearTrail, dragTo, __selftest,
+    /** v3 QA hooks (SPEC-v3 §9): F48 dial / flank rulers / weld strip and the F32 palette. */
+    __dial: qaDial, __flankRulers: qaFlankRulers, __weldStrip: qaWeldStrip, __palette: qaPalette, __mirror: testMirrorProbe,
+    /** F44: the TOFD pair geometry (mm) as the last plan draw painted it, or null outside tofd mode. */
+    __tofdPair() { return lastTofdPair ? JSON.parse(JSON.stringify(lastTofdPair)) : null; },
+    /** F17: the drawn-leg budget and beam-footprint length (mm) the plan view is using right now. */
+    __footprint() { return { legs: drawnLegBudget(UT.frame, UT.state || {}), length: +footprintLength(UT.frame, UT.state || { probe: { x: 0 } }).toFixed(2) }; },
+    /** F32: the defect fills the last plan draw used, in defect order (same shape as 60's reporter). */
+    __defectPalette() { return planPalette.slice(); },
+    /** F32: the defect fills the last circle-view / linear-bar draw used, in defect order. */
+    __ringPalette() { return ringPalette.slice(); },
     /** Pure helpers (exposed for tests). */
     helpers: { zWindowTop, snapSkew, skewLabel, wrapZ, zSpans, circleAngle, zAtAngle, ringDragSpan, zInDefect, planDir, lighten, isCompassHidden,
-      tofdBox, touchPadMm, columnMaxima, pctScale, bandColour, coverageRuns, coverageBand, paTicks, scanBandSource },
+      tofdBox, tofdPair, drawnLegBudget, footprintLength, touchPadMm, columnMaxima, pctScale, bandColour, coverageRuns, coverageBand, paTicks, scanBandSource,
+      lerpHex, rgba, defectMeanY, defectShade, defectFill, bearing, dialAngles, ringStep, ringLabelZs, ringLabelRadius, weldStripGeom, mirrorInfo, flankRulers },
     /** Current transform (read-only snapshot). */
     get transform() { return Object.assign({}, tf); },
     css: [
@@ -1380,4 +1949,6 @@
     ].join('\n'),
   };
   UT.views.plan = plan;
+  // F20: SPEC-v3 §7 — the mirrored-probe test hook belongs to 62 (guarded: 00-core may be absent)
+  if (UT.test) Object.assign(UT.test, { mirrorProbe: testMirrorProbe });
 })(window.UT = window.UT || {});

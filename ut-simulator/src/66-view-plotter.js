@@ -2,7 +2,13 @@
  * window (SIZE, v2 methods) and the v2 B-scan / echo-dynamic windows. SPEC §7.7 as amended by §14.5 and
  * §15.6; SPEC-v2 §3.12 (P12), §4.4 (T6), §7 (test API rows owned by 66).
  *
- * UT.views.plotter    { init(canvas), draw(frame, state), toPx, toMm, fit, markEdge, erase, toggleMirror, open, close, toggle, css }
+ * SPEC-v3 §6.1: F36 (freehand beam-spread lines + the live `NN.N degree` caption), F37 (the BS / K-factor
+ * captions from a least-squares fit of the 10 % edge marks), F38 (PLOT as an overlay on the current weld),
+ * F39 (green plot dots, the probe-angle hook, the movable 0…80 mm ruler shared with the block view).
+ *
+ * UT.views.plotter    { init(canvas), draw(frame, state), toPx, toMm, fit, markEdge, erase, toggleMirror, open, close, toggle, css,
+ *                       plotButton, overlay, isOverlay, setRuler, bs, lineAngle, drag(pts),
+ *                       __pointStyle, __captions, __defectMarks, __rulerStrip }
  * UT.views.radiograph { window, open, close, toggle, draw(frame, state), css }
  * UT.views.sizing     { window, open, close, toggle, draw(frame, state), markL, markR, clear, setMethod, measureTips, autoMarks,
  *                       autoTips, compute, recommended, methods, css }
@@ -81,6 +87,47 @@
   //   region, or coefficient of variation of the plateau core (≥ −3 dB) > 0.12 → rough); pattern 0 = insufficient data (< 5 samples or max < 5 %).
   //   UT.test.echodyn() → {samples, pattern (number), patternInfo}.
   // - 'lang' rebuilds the three windows' DOM; canvases stay English.
+  // v3 (SPEC-v3 §6.1 — decisions taken where §6.1 is silent):
+  // - F36 angle convention: the caption angle is the PROBE-ANGLE convention — measured from the surface
+  //   NORMAL in the card plane (0° straight down, 90° along the surface),
+  //   a = |atan2(Δstandoff, Δdepth)| folded into 0…90. This is what F36's own worked example and
+  //   plotting_beam_spread f080 require: a line drawn along the drawn 60° beam centre line (standoff =
+  //   depth·tan 60°, the card's own half-skip pair BEAMPATH 40 / STANDOFF 34.6 at T 20) reads
+  //   `60.0 degree`, and along the 70° beam `70.0 degree`. §6.1 F36's parenthetical ('0° = along the
+  //   surface, 90° = straight down') describes the complement and contradicts the same sentence's worked
+  //   example and the frame, so the example and the frame win (QA round 3; flagged to the lead together
+  //   with V3-36's transposed stroke, which is self-consistent only at 45°).
+  //   F37's internal edge angles keep their own from-surface convention (UT.math.fitLine's angleDeg):
+  //   BS is a DIFFERENCE of two edge angles, so it is identical under either convention.
+  //   The live caption follows first→current point; a completed line leaves its angle on the card until
+  //   Erase Plotting (module buffer P.angleCaption — a caption is not simulator state).
+  // - F36 strokes: either button draws (right-button removal of a point moves to Alt+click, §11.10);
+  //   pointerdown inside the readout/ruler strip is not a stroke. Points are decimated to 1 mm, a stroke
+  //   of < 3 px travel is a click (one plot point), lines are capped at 200 × 400 points.
+  // - F37 marks → geometry: a mark is one probe-index position at which the 10 % edge touched a reflector,
+  //   so it becomes the card point (|stand-off|, depth). blockMarks carry {x, hole}: the stand-off is
+  //   |x − x of the specimen hole nearest that depth| (marks whose hole is null cannot be placed and are
+  //   ignored); edgeMarks carry standoff/standOff + depth directly. Sides are split by the point's own ray
+  //   angle against the beam centre line (edgeMarks' `side` is the PROBE side, not the beam edge).
+  //   fitLine is used as §6.1 requires, but a fitted line whose perpendicular distance from the index is
+  //   > 2 mm cannot be a beam edge through the index, so the mean ray angle is used instead.
+  // - F37 K: K(drop) = crystalA·sin(BS)/lambda from the CURRENT probe's derived values; K12/K6 are the
+  //   piston ratios 0.652/0.519 of §6.1. plot.bs is written from the render pass through a setTimeout(0)
+  //   {noRender:true} sync (never synchronously from a 'render' listener), and cleared by Erase Plotting.
+  // - F38 routing: UT.views.plotter.plotButton() is the entry point for PLOT / Tools ▸ Plotter — overlay in
+  //   weld/tofd/aut/trade/tky, UT.modes.toggle('iow') everywhere else. Until 90-app routes tb-plot through
+  //   it, a bus bridge ('ui' tb-click + 'mode') restores the weld snapshot and turns the overlay on
+  //   instead; it disables itself as soon as plotButton() is called. The overlay also asserts #main.plot
+  //   (90-app's applyLayout only knows mode === 'iow'), so the card replaces the plan view as in v1.
+  // - F38 defect marks: red polyline through the defect's points with a filled dot at its DEEPEST point —
+  //   that is the extremity a trainee plots (a root crack reads stand-off 34.6 / depth 20 at half skip).
+  //   Never drawn while display.hide is set or an unrevealed trade exam is running (§15.8).
+  // - F39 ruler: plot.ruler.x is the ABSOLUTE specimen x of the 0 mark in both views, so the strip keeps
+  //   its place when it moves between the card and the block. The card keeps drawing the v1 strip at
+  //   stand-off 70 until the ruler has been moved (plot.ruler.on); with view 'block' the card draws none.
+  //   Dragging commits on pointerup; double-click puts the 0 mark under the probe index.
+  // - F39 hint: the iow hint switches to the RIGHT-OR-LEFT wording after the first point, line or block
+  //   mark (block marks are 60-view-cross's, so the switch is also driven from the render pass).
 
   UT.views = UT.views || {};
   const M = UT.math;
@@ -89,6 +136,17 @@
   const FONT_SMALL = '10px "Segoe UI", Arial, sans-serif';
   const RULER_LEN = 80;              // bottom stand-off ruler length (mm)
   const SURFACE_Y = 4;               // px from the card top to the scanning surface line
+  // ---- v3 (SPEC-v3 §6.1)
+  const LINE_COLOUR = '#00a000';     // F36 freehand beam-spread lines and rungs
+  const POINT_COLOUR = '#009900';    // F39 plot dots
+  const RED = '#c00000';             // F36 degree caption, F39 probe-angle hook
+  const DEFECT_COLOUR = '#e00000';   // F38 defect marks on the card
+  const FONT_CAPTION = '12px "Segoe UI", Arial, sans-serif';
+  const MAX_LINES = 200, MAX_LINE_PTS = 400, DECIMATE_MM = 1, CLICK_PX = 3;
+  const K12_RATIO = 0.652, K6_RATIO = 0.519;          // §6.1: the ratios 1.08 / 0.704 / 0.56 encode
+  const OVERLAY_MODES = { weld: 1, tofd: 1, aut: 1, trade: 1, tky: 1 };   // F38
+  const HINT_PLOTTED = 'RIGHT OR LEFT mouse button/Drag to PLOT Beam Spread on Plotter. Draw on Block to mark 10% Beam Edge';
+  const HINT_OVERLAY = 'LEFT mouse button/Drag to mark points on plotter. Right button to mark Beam Spread';
 
   // ------------------------------------------------------------------ shared helpers
   function st() { return UT.state; }
@@ -153,10 +211,122 @@
     return [r, g, b];
   }
 
+  // ------------------------------------------------------------------ v3 pure helpers (§6.1)
+  function num(v) { const n = Number(v); return Number.isFinite(n) ? n : null; }
+  /**
+   * F36: angle of a card line in the probe-angle convention — measured from the surface NORMAL
+   * (0° = straight down, 90° = along the surface), so a line along the 60° beam reads 60.0.
+   * @param {{standoff:number, depth:number}} p0 first point
+   * @param {{standoff:number, depth:number}} p1 second point
+   * @returns {number|null} degrees in 0…90, null for a degenerate line
+   */
+  function strokeAngle(p0, p1) {
+    if (!p0 || !p1) return null;
+    const dx = p1.standoff - p0.standoff, dy = p1.depth - p0.depth;
+    if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) return null;
+    let a = Math.abs(M.rad2deg(Math.atan2(dx, dy)));
+    if (a > 90) a = 180 - a;
+    return M.clamp(a, 0, 90);
+  }
+  /**
+   * F36: drop points closer than minMm to the previous kept one (both ends are always kept).
+   * @param {Array<{standoff:number, depth:number}>} pts
+   * @param {number} minMm
+   * @returns {Array<{standoff:number, depth:number}>}
+   */
+  function decimate(pts, minMm) {
+    const src = (pts || []).filter(function (p) { return p && num(p.standoff) !== null && num(p.depth) !== null; });
+    if (src.length < 2) return src.map(function (p) { return { standoff: +p.standoff, depth: +p.depth }; });
+    const out = [{ standoff: +src[0].standoff, depth: +src[0].depth }];
+    for (let i = 1; i < src.length; i++) {
+      const p = { standoff: +src[i].standoff, depth: +src[i].depth };
+      const last = out[out.length - 1];
+      if (i === src.length - 1 || Math.hypot(p.standoff - last.standoff, p.depth - last.depth) >= (minMm || DECIMATE_MM)) out.push(p);
+    }
+    return out.slice(0, MAX_LINE_PTS);
+  }
+  /** x (mm) of the specimen hole nearest `depth`, or null when the specimen has none within 3 mm. */
+  function holeXAt(sp, depth) {
+    if (!sp || !sp.holes || !sp.holes.length || depth === null) return null;
+    let best = null;
+    for (const h of sp.holes) {
+      if (h.ladder) continue;
+      const d = Math.abs((h.y || 0) - depth);
+      if (!best || d < best.d) best = { d, x: h.x };
+    }
+    return best && best.d <= 3 ? best.x : null;
+  }
+  /**
+   * F37: one recorded 10 % edge mark → the card point it represents.
+   * @param {object} m a plot.blockMarks or plot.edgeMarks entry
+   * @param {object} sp the specimen (for the block marks' hole lookup)
+   * @returns {{standoff:number, depth:number}|null}
+   */
+  function markPoint(m, sp) {
+    if (!m) return null;
+    let depth = num(m.depth);
+    if (depth === null) depth = num(m.hole);
+    if (depth === null || depth <= 0) return null;
+    let so = num(m.standoff);
+    if (so === null) so = num(m.standOff);
+    if (so === null) {
+      const x = num(m.x), hx = holeXAt(sp, depth);
+      if (x === null || hx === null) return null;
+      so = x - hx;
+    }
+    return { standoff: Math.abs(so), depth };
+  }
+  /** Ray angle of a card point measured from the surface (0…90°). */
+  function rayAngle(p) { return M.rad2deg(Math.atan2(p.depth, Math.max(Math.abs(p.standoff), 1e-9))); }
+  /** One beam-edge angle (deg from the surface) from the marks of one side, or null. */
+  function edgeAngle(pts) {
+    if (!pts || pts.length < 2) return null;
+    const mean = pts.reduce(function (a, p) { return a + rayAngle(p); }, 0) / pts.length;
+    const fit = M.fitLine ? M.fitLine(pts.map(function (p) { return { x: Math.abs(p.standoff), y: p.depth }; })) : null;
+    if (!fit || !Number.isFinite(fit.angleDeg)) return mean;
+    // A beam edge passes through the probe index: reject a fit that misses it (scattered marks).
+    const th = M.deg2rad(fit.angleDeg);
+    const cx = pts.reduce(function (a, p) { return a + Math.abs(p.standoff); }, 0) / pts.length;
+    const cy = pts.reduce(function (a, p) { return a + p.depth; }, 0) / pts.length;
+    const off = Math.abs(cx * Math.sin(th) - cy * Math.cos(th));      // ⊥ distance of the fit from (0,0)
+    return off > 2 ? mean : Math.abs(fit.angleDeg);
+  }
+  /**
+   * F37: beam-spread half angle from the recorded edge marks.
+   * @param {Array<{standoff:number, depth:number}>} points card points of every mark
+   * @param {number} centreDeg the beam centre line's angle from the surface (90 − refracted)
+   * @returns {{angleDeg:number, upperDeg:number, lowerDeg:number, n:number}|null} null below 2 marks a side
+   */
+  function spreadFrom(points, centreDeg) {
+    const up = [], lo = [];
+    for (const p of points || []) {
+      if (!p || !(p.depth > 0)) continue;
+      (rayAngle(p) >= centreDeg ? up : lo).push(p);
+    }
+    if (up.length < 2 || lo.length < 2) return null;
+    const au = edgeAngle(up), al = edgeAngle(lo);
+    if (au === null || al === null) return null;
+    return { angleDeg: Math.abs(au - al) / 2, upperDeg: au, lowerDeg: al, n: up.length + lo.length };
+  }
+  /**
+   * F37: K = crystalA·sin(BS)/lambda at 20 dB, with the piston ratios for 12 dB and 6 dB.
+   * @param {number} bsDeg beam-spread half angle (deg)
+   * @param {object} derived UT.probe.derive() output (crystalA, lambda)
+   * @returns {{k20:number, k12:number, k6:number}}
+   */
+  function kFactors(bsDeg, derived) {
+    const a = derived && derived.crystalA > 0 ? derived.crystalA : 10;
+    const lambda = derived && derived.lambda > 0 ? derived.lambda : 0.648;
+    const k20 = a * Math.sin(M.deg2rad(bsDeg)) / lambda;
+    return { k20, k12: k20 * K12_RATIO, k6: k20 * K6_RATIO };
+  }
+
   // ==================================================================== PLOTTER CARD
   const P = {
     canvas: null, overlay: null, btnMirror: null, win: null, open: false,
     tf: null, cursor: null, drag: null, ruler: { so0: 70 }, lastFrame: null, parentFixed: false,
+    // v3 buffers (never state): the stroke being drawn, the last caption angle, the F38 bridge snapshot
+    stroke: null, angleCaption: null, pending: null, savedCardStyle: null, bsCache: null, hinted: false, marksSeen: 0,
   };
 
   /**
@@ -237,25 +407,200 @@
     UT.status({ right: t('Edge mark {n}: stand-off {so} mm at {hole} SDH', { n: (s.plot.edgeMarks || []).length + 1, so: mark.standOff, hole: mark.hole }) });
     return mark;
   }
-  /** Erase all plotted points and edge marks. */
-  function erase() { UT.setIn('plot', { points: [], edgeMarks: [] }); }
+  /** Erase every plotted point, freehand line, block mark, edge mark and the BS result (F35/F36/F37). */
+  function erase() {
+    P.stroke = null; P.angleCaption = null; P.bsCache = null; P.hinted = false; P.marksSeen = 0;
+    UT.setIn('plot', { points: [], edgeMarks: [], lines: [], blockMarks: [], bs: null });
+  }
   /** Toggle the mirror image (state.plot.mirror). */
   function toggleMirror() { UT.setIn('plot', { mirror: !(st().plot && st().plot.mirror) }); }
 
+  /** F39: the iow hint switches wording once anything has been plotted. */
+  function afterPlot() {
+    const s = st();
+    if (P.hinted || s.mode !== 'iow') return;
+    P.hinted = true;
+    UT.status({ right: HINT_PLOTTED });
+  }
   function addPoint(mm) {
     const s = st();
     const pts = (s.plot.points || []).concat([{ standoff: +mm.standoff.toFixed(1), depth: +mm.depth.toFixed(1), x: +mm.x.toFixed(1) }]);
     UT.setIn('plot', { points: pts });
+    afterPlot();
   }
-  function removePointNear(px, py) {
+  /** F36: append one completed freehand line (points already in mm). */
+  function addLine(pts) {
+    const s = st();
+    const line = { pts: decimate(pts, DECIMATE_MM).map(function (p) { return { standoff: +p.standoff.toFixed(1), depth: +p.depth.toFixed(1) }; }), colour: 'green' };
+    if (line.pts.length < 2) return (s.plot.lines || []).length;
+    const lines = (s.plot.lines || []).concat([line]).slice(-MAX_LINES);
+    P.angleCaption = strokeAngle(line.pts[0], line.pts[line.pts.length - 1]);
+    UT.setIn('plot', { lines });
+    afterPlot();
+    return lines.length;
+  }
+  /** F39: Alt+click removes the nearest plotted point (8 px), else the nearest freehand line (10 px). */
+  function removeNearest(px, py) {
     const s = st(), tf = P.tf;
     if (!tf) return false;
     let bi = -1, bd = 8;
     (s.plot.points || []).forEach(function (p, i) { const q = soPx(tf, p.standoff, p.depth); const d = Math.hypot(q.x - px, q.y - py); if (d < bd) { bd = d; bi = i; } });
-    if (bi < 0) return false;
-    const pts = s.plot.points.slice(); pts.splice(bi, 1);
-    UT.setIn('plot', { points: pts });
+    if (bi >= 0) {
+      const pts = s.plot.points.slice(); pts.splice(bi, 1);
+      UT.setIn('plot', { points: pts });
+      return true;
+    }
+    let li = -1, ld = 10;
+    (s.plot.lines || []).forEach(function (ln, i) {
+      for (const p of (ln && ln.pts) || []) { const q = soPx(tf, p.standoff, p.depth); const d = Math.hypot(q.x - px, q.y - py); if (d < ld) { ld = d; li = i; } }
+    });
+    if (li < 0) return false;
+    const lines = s.plot.lines.slice(); lines.splice(li, 1);
+    UT.setIn('plot', { lines });
     return true;
+  }
+
+  // ---------------------------------------------------------------- F37 beam spread / K factors
+  /** Card points of every recorded 10 % edge mark (block marks first, then the button's edge marks). */
+  function markPoints(state) {
+    const plot = state.plot || {}, sp = state.specimen;
+    const out = [];
+    for (const m of (plot.blockMarks || []).concat(plot.edgeMarks || [])) { const p = markPoint(m, sp); if (p) out.push(p); }
+    return out;
+  }
+  /** F37: {angleDeg, k20, k12, k6, n} for the current marks, or null when a side has < 2 marks. */
+  function bsOf(state, derived) {
+    const centre = 90 - (derived ? derived.refracted : ((state.probe && state.probe.angle) || 0));
+    const sp = spreadFrom(markPoints(state), centre);
+    if (!sp || !(sp.angleDeg > 0)) return null;
+    const k = kFactors(sp.angleDeg, derived);
+    return { angleDeg: +sp.angleDeg.toFixed(4), k20: +k.k20.toFixed(4), k12: +k.k12.toFixed(4), k6: +k.k6.toFixed(4), n: sp.n };
+  }
+  /** The two F37 caption lines for a bs record, or [] when there is none. */
+  function bsLines(bs) {
+    if (!bs) return [];
+    return [
+      t('Beam spread half angle BS = {bs}°', { bs: bs.angleDeg.toFixed(1) }),
+      t('20dB K={k20}   12dB K={k12}   6dB K={k6}', { k20: bs.k20.toFixed(2), k12: bs.k12.toFixed(3), k6: bs.k6.toFixed(2) }),
+    ];
+  }
+  function sameBs(a, b) {
+    if (!a || !b) return a === b || (!a && !b);
+    return Math.abs(a.angleDeg - b.angleDeg) < 5e-4 && Math.abs(a.k20 - b.k20) < 5e-4 && a.n === b.n;
+  }
+  /** Mirror the computed BS into state.plot.bs (never synchronously from a 'render' listener). */
+  function syncBs(bs) {
+    P.bsCache = bs;
+    const cur = st().plot ? st().plot.bs : null;
+    if (sameBs(cur, bs)) return;
+    setTimeout(function () {
+      const now = st().plot ? st().plot.bs : null;
+      if (sameBs(now, P.bsCache)) return;
+      UT.setIn('plot', { bs: P.bsCache ? Object.assign({}, P.bsCache) : null }, { noRender: true });
+    }, 0);
+  }
+
+  // ---------------------------------------------------------------- F38 overlay on the current weld
+  /** Keep #main.plot in step with the overlay (90-app's applyLayout only knows mode === 'iow'). */
+  function syncLayoutClass() {
+    if (!hasDoc()) return;
+    const main = document.getElementById('main');
+    if (!main || !main.classList) return;
+    const s = st();
+    const want = !!(s.plot && s.plot.overlay) || s.mode === 'iow';
+    if (main.classList.contains('plot') !== want) main.classList.toggle('plot', want);
+  }
+  /**
+   * F38: show/hide the plotter card over the CURRENT specimen (no IOW block, no mode change).
+   * @param {boolean} on
+   * @returns {boolean} the new state.plot.overlay
+   */
+  function overlay(on) {
+    const s = st(), want = !!on;
+    const cur = !!(s.plot && s.plot.overlay);
+    if (want !== cur) {
+      if (want) {
+        P.savedCardStyle = (s.plot && s.plot.cardStyle) || 'iow';
+        UT.setIn('plot', { overlay: true, cardStyle: 'weld' });
+        UT.status({ right: HINT_OVERLAY });
+      } else {
+        UT.setIn('plot', { overlay: false, cardStyle: P.savedCardStyle || 'iow' });
+      }
+    }
+    P.open = want || P.open;
+    syncLayoutClass();
+    UT.requestRender();
+    return want;
+  }
+  /**
+   * F38: the PLOT toolbar button / Tools ▸ Plotter action — an overlay on a weld-like mode, the IOW
+   * beam-spread block anywhere else.
+   * @returns {*} the new overlay flag, or UT.modes.toggle('iow')'s specimen
+   */
+  function plotButton() {
+    const s = st();
+    P.pending = null;                       // 90-app routes here: the compatibility bridge is not needed
+    if (OVERLAY_MODES[s.mode || 'weld']) return overlay(!(s.plot && s.plot.overlay));
+    if (UT.modes && UT.modes.toggle) return UT.modes.toggle('iow');
+    return null;
+  }
+  /** F38: every visible defect as a card mark {standoff, depth} (deepest point) + its mapped outline. */
+  function defectMarks(state) {
+    const s = state || st();
+    const out = [];
+    const sp = s.specimen, probe = s.probe;
+    if (!sp || !probe) return out;
+    if (s.display && s.display.hide) return out;
+    if (s.trade && s.trade.active && !s.trade.revealed) return out;
+    const side = probe.side || 1;
+    // The card's plate is T deep: a point in the cap or the root bead is plotted at the wall it breaks
+    // (a T 20 root crack running into the 1.5 mm root bead is plotted at depth 20, the back wall).
+    const T = sp.T > 0 ? sp.T : 20;
+    const clamp = function (y) { return M.clamp(y, 0, T); };
+    (s.defects || []).forEach(function (d, i) {
+      if (!d || !d.pts || !d.pts.length || d.visible === false) return;
+      const pts = d.pts.map(function (p) { return { standoff: side * (probe.x - p.x), depth: clamp(p.y) }; });
+      let deep = pts[0];
+      for (const p of pts) if (p.depth > deep.depth) deep = p;
+      const b = bboxOf(d);
+      out.push({
+        n: i + 1, type: d.type || 'planar', colour: DEFECT_COLOUR,
+        standoff: +deep.standoff.toFixed(1), depth: +deep.depth.toFixed(1),
+        centre: { standoff: +(side * (probe.x - b.cx)).toFixed(1), depth: +clamp(b.cy).toFixed(1) },
+        pts: pts.map(function (p) { return { standoff: +p.standoff.toFixed(1), depth: +p.depth.toFixed(1) }; }),
+      });
+    });
+    return out;
+  }
+
+  // ---------------------------------------------------------------- F39 movable ruler
+  /** The card's 0…80 mm strip: {so0} (stand-off of the 0 mark), or null while it lies on the block. */
+  function cardRuler(state) {
+    const r = (state && state.plot && state.plot.ruler) || null;
+    if (r && r.on && r.view === 'block') return null;
+    const probe = (state && state.probe) || { x: 0, side: 1 };
+    const side = probe.side || 1;
+    if (r && r.on && num(r.x) !== null) return { so0: side * ((probe.x || 0) - r.x) };
+    return { so0: P.ruler.so0 };
+  }
+  /** Write the card ruler's current position back into the shared plot.ruler (F39). */
+  function commitRuler(so0) {
+    const s = st();
+    const probe = s.probe || { x: 0, side: 1 };
+    const side = probe.side || 1;
+    P.ruler.so0 = so0;
+    UT.setIn('plot', { ruler: Object.assign({}, s.plot && s.plot.ruler, { on: true, view: 'plotter', x: +((probe.x || 0) - side * so0).toFixed(1) }) });
+  }
+  /**
+   * F39: place the shared 0…80 mm ruler.
+   * @param {{on?:boolean, x?:number, view?:'plotter'|'block'}} patch
+   * @returns {object} the new plot.ruler
+   */
+  function setRuler(patch) {
+    const s = st();
+    const next = Object.assign({ on: false, x: 0, view: 'plotter' }, s.plot && s.plot.ruler, patch || {});
+    UT.setIn('plot', { ruler: next });
+    return next;
   }
 
   // ---------------------------------------------------------------- drawing pieces
@@ -434,7 +779,11 @@
 
   function drawMarks(ctx, tf, plot) {
     const pts = (plot && plot.points) || [];
-    for (const p of pts) { const q = soPx(tf, p.standoff, p.depth); cross(ctx, q.x, q.y, 4, '#111', 1.5); }
+    // F39: plotted points are 3 px filled green dots (v1 drew black crosses)
+    ctx.save();
+    ctx.fillStyle = POINT_COLOUR;
+    for (const p of pts) { const q = soPx(tf, p.standoff, p.depth); ctx.beginPath(); ctx.arc(q.x, q.y, 3, 0, 2 * Math.PI); ctx.fill(); }
+    ctx.restore();
     const marks = ((plot && plot.edgeMarks) || []).map(function (m) {
       const so = m.standoff !== undefined ? m.standoff : (m.standOff !== undefined ? m.standOff : 0);
       return { so, depth: m.depth || 0 };
@@ -465,19 +814,94 @@
   }
 
   function rulerRect(tf) { return { y0: tf.H - 24, y1: tf.H - 5 }; }
-  function drawBottomRuler(ctx, tf) {
+  function drawBottomRuler(ctx, tf, so0) {
     const rr = rulerRect(tf);
-    const x0 = soPx(tf, P.ruler.so0, 0).x, x1 = soPx(tf, P.ruler.so0 - RULER_LEN, 0).x;
+    const x0 = soPx(tf, so0, 0).x, x1 = soPx(tf, so0 - RULER_LEN, 0).x;
     const left = Math.min(x0, x1), right = Math.max(x0, x1);
     ctx.save();
     ctx.fillStyle = '#e9e9e9'; ctx.strokeStyle = '#777'; ctx.lineWidth = 1;
     ctx.fillRect(left, rr.y0, right - left, rr.y1 - rr.y0); ctx.strokeRect(left + 0.5, rr.y0 + 0.5, right - left, rr.y1 - rr.y0);
     ctx.strokeStyle = '#222'; ctx.fillStyle = '#222'; ctx.font = FONT_SMALL; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
     for (let v = 0; v <= RULER_LEN; v += 1) {
-      const x = Math.round(soPx(tf, P.ruler.so0 - v, 0).x) + 0.5;
+      const x = Math.round(soPx(tf, so0 - v, 0).x) + 0.5;
       const len = v % 10 === 0 ? 9 : (v % 5 === 0 ? 6 : 3);
       ctx.beginPath(); ctx.moveTo(x, rr.y0); ctx.lineTo(x, rr.y0 + len); ctx.stroke();
       if (v % 10 === 0) ctx.fillText(v + 'mm', x + 2, rr.y1 - 1);
+    }
+    ctx.restore();
+  }
+
+  /** F36: the freehand beam-spread lines (committed + the stroke being drawn), 2 px green. */
+  function drawLines(ctx, tf, plot) {
+    const lines = ((plot && plot.lines) || []).slice();
+    if (P.stroke && P.stroke.pts.length > 1) lines.push({ pts: P.stroke.pts, colour: 'green' });
+    if (!lines.length) return;
+    ctx.save();
+    ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; dashed(ctx, []);
+    for (const ln of lines) {
+      const pts = (ln && ln.pts) || [];
+      if (pts.length < 2) continue;
+      ctx.strokeStyle = !ln.colour || ln.colour === 'green' ? LINE_COLOUR : ln.colour;
+      ctx.beginPath();
+      pts.forEach(function (p, i) { const q = soPx(tf, p.standoff, p.depth); if (i) ctx.lineTo(q.x, q.y); else ctx.moveTo(q.x, q.y); });
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  /** F36: the caption angle — the live stroke's, else the last completed line's (deg, or null). */
+  function captionAngle() {
+    const a = P.stroke && P.stroke.angle !== null && P.stroke.angle !== undefined ? P.stroke.angle : P.angleCaption;
+    return a === null || a === undefined ? null : +a.toFixed(1);
+  }
+  /** F36: the live `NN.N degree` caption at the card's top-left. */
+  function drawDegreeCaption(ctx) {
+    const a = captionAngle();
+    if (a === null) return;
+    ctx.save();
+    ctx.font = FONT_CAPTION; ctx.fillStyle = RED; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; dashed(ctx, []);
+    ctx.fillText(t('{a} degree', { a: a.toFixed(1) }), 8, SURFACE_Y + 24);
+    ctx.restore();
+  }
+  /** F37: the BS / K-factor captions, right-aligned at the graticule's right edge. */
+  function drawBsCaption(ctx, tf, bs) {
+    const lines = bsLines(bs);
+    if (!lines.length) return;
+    ctx.save();
+    ctx.font = FONT; ctx.fillStyle = '#000'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; dashed(ctx, []);
+    const y = Math.min(tf.H - 44, Math.round(tf.H * 0.58));
+    lines.forEach(function (line, i) { ctx.fillText(line, tf.W - 6, y + i * 16); });
+    ctx.restore();
+  }
+  /** F39: the 2-segment red probe-angle hook where the beam centre line meets the top stand-off ruler. */
+  function drawAngleHook(ctx, tf) {
+    if (!(tf.angle > 0)) return;
+    const p0 = soPx(tf, 0, 0);
+    const a = M.deg2rad(tf.angle);
+    ctx.save();
+    ctx.strokeStyle = RED; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; dashed(ctx, []);
+    ctx.beginPath();
+    ctx.moveTo(p0.x - tf.side * 8, p0.y);
+    ctx.lineTo(p0.x, p0.y);
+    ctx.lineTo(p0.x - tf.side * Math.sin(a) * 8, p0.y + Math.cos(a) * 8);
+    ctx.stroke();
+    ctx.restore();
+  }
+  /** F38: the current specimen's defects, drawn red on the card at their (stand-off, depth). */
+  function drawDefectMarks(ctx, tf, marks) {
+    if (!marks || !marks.length) return;
+    ctx.save();
+    ctx.strokeStyle = DEFECT_COLOUR; ctx.fillStyle = DEFECT_COLOUR; ctx.lineWidth = 2; ctx.lineCap = 'round'; dashed(ctx, []);
+    for (const m of marks) {
+      if (m.pts.length > 1) {
+        ctx.beginPath();
+        m.pts.forEach(function (p, i) { const q = soPx(tf, p.standoff, p.depth); if (i) ctx.lineTo(q.x, q.y); else ctx.moveTo(q.x, q.y); });
+        ctx.stroke();
+      }
+      // white ring: at half skip the mark lands on the weld card's own red beam-path scale
+      const q = soPx(tf, m.standoff, m.depth);
+      ctx.beginPath(); ctx.arc(q.x, q.y, 4.5, 0, 2 * Math.PI);
+      ctx.save(); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke(); ctx.restore();
+      ctx.beginPath(); ctx.arc(q.x, q.y, 3.5, 0, 2 * Math.PI); ctx.fill();
     }
     ctx.restore();
   }
@@ -504,6 +928,9 @@
   function drawCard(ctx, frame, state) {
     const tf = ensureTransform(state, frame);
     const sp = state.specimen, plot = state.plot || {};
+    const rl = cardRuler(state);
+    const bs = bsOf(state, derivedOf(frame, state));
+    const marks = defectMarks(state);
     const mirror = plot.mirror !== false;
     ctx.save();
     ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, tf.W, tf.H);
@@ -519,11 +946,16 @@
       }
       drawAxis(ctx, tf);
       if (!weldStyle) drawCentreLine(ctx, tf, mirror);
+      drawDefectMarks(ctx, tf, marks);        // F38
       drawMarks(ctx, tf, plot);
+      drawLines(ctx, tf, plot);               // F36
     }
     drawTopRuler(ctx, tf);
-    drawBottomRuler(ctx, tf);
+    drawAngleHook(ctx, tf);                   // F39
+    if (rl) drawBottomRuler(ctx, tf, rl.so0);
     drawReadouts(ctx, tf);
+    drawDegreeCaption(ctx);                   // F36
+    drawBsCaption(ctx, tf, bs);               // F37
     if (P.cursor && P.cursor.depth >= 0) { const q = soPx(tf, P.cursor.standoff, P.cursor.depth); cross(ctx, q.x, q.y, 3, 'rgba(0,0,0,0.5)', 1); }
     ctx.strokeStyle = '#444'; ctx.lineWidth = 1; ctx.strokeRect(0.5, 0.5, tf.W - 1, tf.H - 1);
     ctx.restore();
@@ -560,35 +992,71 @@
     return ov;
   }
   function redrawSelf() { if (P.canvas && visibleCanvas(P.canvas)) draw(P.lastFrame || UT.frame, st()); }
+  /** Absolute specimen x of a card stand-off. */
+  function xOfStandoff(tf, so) { return st().probe ? st().probe.x - tf.side * so : 0; }
   function onMove(ev) {
     const cv = P.canvas; if (!cv) return;
     const p = UT.dom.localPos(ev, cv);
     const tf = P.tf || ensureTransform(st(), UT.frame);
+    const mm = pxSo(tf, p.x, p.y);
     if (P.drag && P.drag.kind === 'ruler') {
-      const so = pxSo(tf, p.x, p.y).standoff;
-      P.ruler.so0 = P.drag.so0 + (so - P.drag.so);
+      P.ruler.so0 = P.drag.so0 + (mm.standoff - P.drag.so);
+    } else if (P.drag && P.drag.kind === 'draw' && P.stroke) {
+      // F36: record the freehand path (1 mm decimation) and keep the live degree caption in step
+      const s = P.stroke;
+      s.moved = Math.max(s.moved, Math.hypot(p.x - s.x0, p.y - s.y0));
+      const last = s.pts[s.pts.length - 1];
+      if (s.pts.length < MAX_LINE_PTS && Math.hypot(mm.standoff - last.standoff, mm.depth - last.depth) >= DECIMATE_MM) {
+        s.pts.push({ standoff: mm.standoff, depth: mm.depth });
+      }
+      s.angle = strokeAngle(s.pts[0], { standoff: mm.standoff, depth: mm.depth });
     }
-    P.cursor = pxSo(tf, p.x, p.y);
-    P.cursor.x = st().probe ? st().probe.x - tf.side * P.cursor.standoff : 0;
+    P.cursor = mm;
+    P.cursor.x = xOfStandoff(tf, mm.standoff);
     redrawSelf();
   }
   function onDown(ev) {
     const cv = P.canvas; if (!cv) return;
     const p = UT.dom.localPos(ev, cv);
     const tf = P.tf || ensureTransform(st(), UT.frame);
-    if (ev.button === 2) { removePointNear(p.x, p.y); ev.preventDefault(); return; }
-    if (ev.button !== 0 && ev.button !== undefined) return;
-    const rr = rulerRect(tf);
-    if (p.y >= rr.y0 && p.y <= rr.y1) {
-      const x0 = soPx(tf, P.ruler.so0, 0).x, x1 = soPx(tf, P.ruler.so0 - RULER_LEN, 0).x;
-      if (p.x >= Math.min(x0, x1) && p.x <= Math.max(x0, x1)) { P.drag = { kind: 'ruler', so0: P.ruler.so0, so: pxSo(tf, p.x, p.y).standoff }; capture(cv, ev); ev.preventDefault(); return; }
+    if (ev.altKey || ev.ctrlKey) { removeNearest(p.x, p.y); ev.preventDefault(); return; }   // F39
+    if (ev.button !== 0 && ev.button !== 2 && ev.button !== undefined) return;               // F36: either button draws
+    const rr = rulerRect(tf), rl = cardRuler(st());
+    if (rl && p.y >= rr.y0 && p.y <= rr.y1) {
+      const x0 = soPx(tf, rl.so0, 0).x, x1 = soPx(tf, rl.so0 - RULER_LEN, 0).x;
+      if (p.x >= Math.min(x0, x1) && p.x <= Math.max(x0, x1)) { P.drag = { kind: 'ruler', so0: rl.so0, so: pxSo(tf, p.x, p.y).standoff }; P.ruler.so0 = rl.so0; capture(cv, ev); ev.preventDefault(); return; }
     }
     const mm = pxSo(tf, p.x, p.y);
     if (mm.depth < 0 || p.y > tf.H - 30) return;
-    addPoint({ standoff: mm.standoff, depth: mm.depth, x: st().probe ? st().probe.x - tf.side * mm.standoff : 0 });
+    P.stroke = { pts: [{ standoff: mm.standoff, depth: mm.depth }], angle: null, x0: p.x, y0: p.y, moved: 0 };
+    P.drag = { kind: 'draw' };
+    capture(cv, ev);
     ev.preventDefault();
   }
-  function onUp() { P.drag = null; }
+  function onUp() {
+    const d = P.drag, s = P.stroke;
+    P.drag = null; P.stroke = null;
+    if (d && d.kind === 'ruler') { commitRuler(P.ruler.so0); return; }
+    if (!d || d.kind !== 'draw' || !s) return;
+    const tf = P.tf;
+    if (s.moved < CLICK_PX || s.pts.length < 2) {
+      // F36/F39: a click plots a point
+      if (tf) addPoint({ standoff: s.pts[0].standoff, depth: s.pts[0].depth, x: xOfStandoff(tf, s.pts[0].standoff) });
+    } else {
+      addLine(s.pts);
+    }
+    redrawSelf();
+  }
+  /** F39: double-clicking the card ruler puts its 0 mark back under the probe index. */
+  function onDblClick(ev) {
+    const cv = P.canvas; if (!cv) return;
+    const p = UT.dom.localPos(ev, cv);
+    const tf = P.tf || ensureTransform(st(), UT.frame);
+    const rr = rulerRect(tf), rl = cardRuler(st());
+    if (!rl || p.y < rr.y0 || p.y > rr.y1) return;
+    commitRuler(0);
+    redrawSelf();
+  }
   function onLeave() { if (!P.drag) { P.cursor = null; redrawSelf(); } }
 
   /**
@@ -607,6 +1075,7 @@
     canvas.addEventListener('pointerup', onUp);
     canvas.addEventListener('pointercancel', onUp);
     canvas.addEventListener('pointerleave', onLeave);
+    canvas.addEventListener('dblclick', onDblClick);
     canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
     P.subscribed = true;
     return plotter;
@@ -643,11 +1112,52 @@
 
   const plotter = {
     init, draw, toPx, toMm, fit, markEdge, erase, toggleMirror, open, close, toggle,
+    plotButton, overlay, setRuler,
     isOpen() { return P.open; },
+    /** F38: is the card overlaying the current specimen? */
+    isOverlay() { return !!(st().plot && st().plot.overlay); },
+    /** F37: the beam-spread record for the current marks (also written to state.plot.bs). */
+    bs() { const v = bsOf(st(), derivedOf(UT.frame, st())); syncBs(v); return v ? Object.assign({}, v) : null; },
+    /** F36: the current degree caption value (live stroke, else the last completed line), or null. */
+    lineAngle() { return captionAngle(); },
+    /**
+     * F36: record one freehand line from mm points (headless equivalent of a pointer drag).
+     * @param {Array<{standoff:number, depth:number}>} pts
+     * @returns {number} the new state.plot.lines length
+     */
+    drag(pts) {
+      const src = (pts || []).filter(function (p) { return p && num(p.standoff) !== null && num(p.depth) !== null; });
+      if (!src.length) return ((st().plot && st().plot.lines) || []).length;
+      const tf = P.tf || (hasDoc() ? ensureTransform(st(), UT.frame) : null);
+      const travel = src.length > 1 ? Math.hypot(src[src.length - 1].standoff - src[0].standoff, src[src.length - 1].depth - src[0].depth) : 0;
+      if (src.length < 2 || travel < DECIMATE_MM) {
+        addPoint({ standoff: +src[0].standoff, depth: +src[0].depth, x: tf ? xOfStandoff(tf, +src[0].standoff) : 0 });
+        return ((st().plot && st().plot.lines) || []).length;
+      }
+      const n = addLine(src);
+      redrawSelf();
+      return n;
+    },
+    /** F39: the plotted-point style reported for the acceptance checks. */
+    __pointStyle() { return { colour: POINT_COLOUR, shape: 'dot', r: 3 }; },
+    /** F36/F37: the card's live caption strings — {degree, bs: [line1, line2]}. */
+    __captions() {
+      const a = captionAngle();
+      return { degree: a === null ? null : t('{a} degree', { a: a.toFixed(1) }), bs: bsLines(bsOf(st(), derivedOf(UT.frame, st()))) };
+    },
+    /** F38: the defect marks the card draws — [{n, standoff, depth, colour, centre, pts}]. */
+    __defectMarks() { return defectMarks(st()); },
+    /** F39: the card's 0…80 mm strip {so0, x} or null while it lies on the block. */
+    __rulerStrip() {
+      const rl = cardRuler(st());
+      if (!rl) return null;
+      const probe = st().probe || { x: 0, side: 1 };
+      return { so0: +rl.so0.toFixed(1), x: +((probe.x || 0) - (probe.side || 1) * rl.so0).toFixed(1), len: RULER_LEN };
+    },
     get window() { return P.win; },
     get canvas() { return P.canvas; },
     /** Pure helpers (exposed for tests). */
-    helpers: { cardTransform, soPx, pxSo, nearestHoleOnRay, readoutLines, sharedScale },
+    helpers: { cardTransform, soPx, pxSo, nearestHoleOnRay, readoutLines, sharedScale, strokeAngle, decimate, markPoint, spreadFrom, kFactors, defectMarks },
     css: [
       '.plot-card{display:block;background:#fff;cursor:crosshair;user-select:none;-webkit-user-select:none;touch-action:none}',
       '.plot-overlay{position:absolute;pointer-events:none;z-index:5}',
@@ -681,6 +1191,44 @@
       if (!(r1.length === 2 && r1[0] === 'HALF SKIP BEAMPATH DISTANCE=150mm' && r1[1] === 'HALF SKIP STANDOFF=130mm')) f.push('readouts half ' + JSON.stringify(r1));
       const r2 = readoutLines(cardTransform(800, 400, { T: 20 }, { side: 1 }, null, 4, 600), { standoff: 30, depth: 30 });
       if (!(r2.length === 3 && r2[2] === 'FULL SKIP DEPTH=10mm')) f.push('readouts full ' + JSON.stringify(r2));
+      // ---- v3 §6.1
+      // F36: a stroke along the 60° beam (standoff = depth·tan 60°) reads 60.0, along the 70° beam 70.0
+      const a60 = strokeAngle({ standoff: 0, depth: 0 }, { standoff: 34.641, depth: 20 });
+      if (a60 === null || Math.abs(a60 - 60) > 0.05) f.push('F36 stroke angle 60 ' + a60);
+      const a70 = strokeAngle({ standoff: 0, depth: 0 }, { standoff: 54.95, depth: 20 });
+      if (a70 === null || Math.abs(a70 - 70) > 0.05) f.push('F36 stroke angle 70 ' + a70);
+      const a30 = strokeAngle({ standoff: 0, depth: 0 }, { standoff: 20, depth: 34.641 });
+      if (a30 === null || Math.abs(a30 - 30) > 0.05) f.push('F36 stroke angle 30 ' + a30);
+      const aFlat = strokeAngle({ standoff: 0, depth: 0 }, { standoff: -30, depth: 0 });
+      if (aFlat === null || Math.abs(aFlat - 90) > 1e-9) f.push('F36 flat stroke ' + aFlat);
+      const aVert = strokeAngle({ standoff: 5, depth: 0 }, { standoff: 5, depth: -20 });
+      if (aVert === null || Math.abs(aVert) > 1e-9) f.push('F36 vertical stroke ' + aVert);
+      const dec = decimate([{ standoff: 0, depth: 0 }, { standoff: 0.2, depth: 0 }, { standoff: 5, depth: 5 }, { standoff: 5.1, depth: 5 }], 1);
+      if (!(dec.length === 3 && dec[1].standoff === 5 && dec[2].standoff === 5.1)) f.push('F36 decimate ' + JSON.stringify(dec));
+      // F37: three marks a side on rays ±7.9° about a 60° centre line, on 13/19/25 mm holes
+      const holes = [13, 19, 25];
+      const pts = [];
+      for (const d of holes) {
+        pts.push({ standoff: d * Math.tan(M.deg2rad(60 - 7.9)), depth: d });
+        pts.push({ standoff: d * Math.tan(M.deg2rad(60 + 7.9)), depth: d });
+      }
+      const spread = spreadFrom(pts, 30);
+      if (!spread || Math.abs(spread.angleDeg - 7.9) > 0.05 || spread.n !== 6) f.push('F37 spread ' + JSON.stringify(spread));
+      const k = kFactors(7.9, { crystalA: 5, lambda: 3.24 / 5 });
+      if (Math.abs(k.k20 - 1.06) > 0.02 || Math.abs(k.k12 / k.k20 - 0.652) > 1e-9 || Math.abs(k.k6 / k.k20 - 0.519) > 1e-9) f.push('F37 K ' + JSON.stringify(k));
+      if (spreadFrom(pts.slice(0, 3), 30)) f.push('F37 needs 2 marks a side');
+      // F37: a block mark placed from its hole depth (IOW 13 mm SDH at x 240, index 16.7 mm away)
+      if (UT.specimens && UT.specimens.iow) {
+        const mp = markPoint({ x: 240 + 16.7, side: 1, hole: 13 }, UT.specimens.iow());
+        if (!mp || Math.abs(mp.standoff - 16.7) > 0.2 || mp.depth !== 13) f.push('F37 block mark point ' + JSON.stringify(mp));
+        const me = markPoint({ standoff: -22.5, standOff: 22.5, depth: 13 }, UT.specimens.iow());
+        if (!me || Math.abs(me.standoff - 22.5) > 1e-9) f.push('F37 edge mark point ' + JSON.stringify(me));
+      }
+      // F38: the deepest point of a T 20 root crack, probe at the half-skip stand-off
+      const dm = defectMarks({ specimen: { T: 20 }, probe: { x: 34.6, side: 1 }, display: {}, defects: [{ pts: [{ x: 0, y: 16.5 }, { x: 0, y: 20 }], type: 'root' }] });
+      if (!(dm.length === 1 && Math.abs(dm[0].standoff - 34.6) < 0.05 && Math.abs(dm[0].depth - 20) < 0.05)) f.push('F38 defect mark ' + JSON.stringify(dm));
+      if (defectMarks({ specimen: { T: 20 }, probe: { x: 0, side: 1 }, display: { hide: true }, defects: [{ pts: [{ x: 0, y: 20 }] }] }).length) f.push('F38 marks must respect display.hide');
+      if (defectMarks({ specimen: { T: 20 }, probe: { x: 0, side: 1 }, display: {}, trade: { active: true, revealed: false }, defects: [{ pts: [{ x: 0, y: 20 }] }] }).length) f.push('F38 marks must respect an unrevealed trade exam');
       return f;
     },
   };
@@ -1875,6 +2423,14 @@
       if (s.bscan && s.bscan.on) bsRecord(frame, s);
       if ((s.echodyn && s.echodyn.on) || (Z.win && Z.win.isOpen())) edRecord(frame, s);
     } catch (e) { console.error('[UT.views.66 record]', e); }
+    try {
+      syncBs(bsOf(s, derivedOf(frame, s)));                       // F37 (setTimeout(0) — never a sync set)
+      syncLayoutClass();                                          // F38
+      // F39: 60-view-cross owns the block marks, so the hint switch is also driven from here
+      const nMarks = ((s.plot && s.plot.blockMarks) || []).length;
+      if (nMarks > P.marksSeen && !P.hinted && s.mode === 'iow') { P.hinted = true; setTimeout(function () { UT.status({ right: HINT_PLOTTED }); }, 0); }
+      P.marksSeen = nMarks;
+    } catch (e) { console.error('[UT.views.plotter v3]', e); }
     plotter.draw(frame, s);
     radiograph.draw(frame, s);
     sizing.draw(frame, s);
@@ -1884,6 +2440,29 @@
   UT.bus.on('render', onRender);
   UT.bus.on('state', function (ev) {
     if (ev && ev.keys && ev.keys.indexOf('specimen') >= 0) { bsClear(); edClear(); Z.maxPct = 0; }
+    if (ev && ev.keys && ev.keys.indexOf('mode') >= 0) { P.hinted = false; P.marksSeen = 0; }
+  });
+  // F38 compatibility bridge: until 90-app routes tb-plot through plotter.plotButton(), PLOT in a weld-like
+  // mode still calls UT.modes.toggle('iow'). Snapshot the weld, and put it back with the overlay on.
+  UT.bus.on('ui', function (ev) {
+    if (!ev || ev.kind !== 'tb-click' || ev.id !== 'tb-plot') { return; }
+    const s = st();
+    P.pending = OVERLAY_MODES[s.mode || 'weld']
+      ? { mode: s.mode, specimen: s.specimen, probe: s.probe, defects: s.defects, want: !(s.plot && s.plot.overlay), ts: Date.now() }
+      : null;
+  });
+  UT.bus.on('mode', function (ev) {
+    const p = P.pending;
+    P.pending = null;
+    if (!p || !ev || ev.mode !== 'iow' || ev.prev !== p.mode || Date.now() - p.ts > 250) {
+      // F38: the card belongs to the specimen it was opened on — any other mode change closes it
+      if (st().plot && st().plot.overlay) overlay(false);
+      return;
+    }
+    // The 'mode' event is emitted AFTER UT.set returned, so putting the snapshot back here is a plain
+    // (non-reentrant) state write and UT.test.click('tb-plot') stays synchronous.
+    UT.set({ mode: p.mode, specimen: p.specimen, probe: p.probe, defects: p.defects });
+    overlay(p.want);
   });
   UT.bus.on('lang', function () {
     try {
@@ -1895,6 +2474,21 @@
   });
 
   Object.assign(UT.test, {
+    /**
+     * F36: record one freehand beam-spread line from mm points (a single point plots a point instead).
+     * @param {Array<{standoff:number, depth:number}>} pts
+     * @returns {number} the new state.plot.lines length
+     */
+    plotDrag(pts) { return plotter.drag(pts); },
+    /** F36: the card's live degree caption value (number, or null when there is none). */
+    plotAngle() { return plotter.lineAngle(); },
+    /** F37: the beam-spread record {angleDeg, k20, k12, k6, n} for the recorded 10 % edge marks, or null. */
+    bs() { return plotter.bs(); },
+    /** F38: {overlay, cardStyle, mode, marks} — the plotter card over the current specimen. */
+    plotOverlay() {
+      const s = st();
+      return { overlay: !!(s.plot && s.plot.overlay), cardStyle: s.plot && s.plot.cardStyle, mode: s.mode, marks: defectMarks(s) };
+    },
     /** B-scan module buffer → {n, axis, columns: number[][], positions, depthMax, nBins, firstDepth}. */
     bscan() {
       const cols = BS.cols;

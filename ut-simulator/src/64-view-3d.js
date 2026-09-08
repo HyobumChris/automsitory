@@ -13,8 +13,10 @@
  */
 // SPEC NOTES
 // - Window: created in init() via UT.dom.win({name:'pipe3d'}); on its FIRST show it is snapped to the
-//   bottom-right corner of the viewport (8 px margin, the reference position, SPEC §7 "3D Pipe (bottom-right)")
-//   using the measured window size; afterwards the user's dragged position is kept. Canvas #cv-3d 260 × 200 px.
+//   bottom-right corner of the WORKING area (8 px margin, the reference position, SPEC §7 "3D Pipe
+//   (bottom-right)") using the measured window size; afterwards the user's dragged position is kept.
+//   The working area is #main, i.e. the app box MINUS the status bar (and the touch bar when shown), so the
+//   window never covers the status line and its F57 mode hint (SPEC-v3 §6.5). Canvas #cv-3d 260 × 200 px.
 //   Title (i18n keys via dom.win/setTitle): '3D Pipe' for spec.pipe, '3D Nozzle' for a nozzle prep (plate or pipe
 //   base), '3D T-joint' for fillet-t on a plate, '3D Block' for calibration blocks (FBH), '3D Plate' otherwise.
 // - Visibility model: `display.pipe3d` = "the user wants the 3-D window"; it is a PIPE feature (§1.1, §8.8:
@@ -48,8 +50,22 @@
 // - Plan-view z window: taken from UT.views.plan.transform {zTop, windowMm} when available, otherwise
 //   zTop = clamp(probe.z − 30, 0, L − 65), window 65 mm (SPEC §14.2). Drawn as a black dotted rectangle
 //   on the surface: z ∈ [zTop, zTop + window], axial ∈ ±min(60, L3d/2 − 15) mm (an annular sector on a nozzle).
-// - Defects: 3 px red arcs (pipe, nozzle) / patches (plate) at their z extent and bbox x centre; hidden when
-//   display.hide or defect.visible === false. Probe: 16 mm green outlined square (2 px) at (x, z), rotated by skew.
+// - Defects (v3 F49 + the 3-D half of F21): every visible defect is a FILLED band on the surface spanning its
+//   own z extent (zFrom…zTo, unwrapped on a pipe) × its own x extent (the bbox width of its cross-section
+//   points, never narrower than 4 mm), lifted 0.8 mm clear of the mesh. The band is tessellated into ≤ 4 mm
+//   quads so it follows the curvature of a pipe / nozzle and each quad is culled by its own normal (the part
+//   of a band that has rotated round the far side simply disappears). Fill = the shared F32 depth shade
+//   UT.specimens.defectShade(d, spec.T) (bright #e00000 at the scanning surface → dark #7a0000 at the
+//   backwall), flat #e00000 when display.defectShade === false; a fill is NEVER used to show selection — while
+//   the defect editor is open the selected defect's band gains a 2 px #00a0ff outline (F32), matching 60/62.
+//   Hidden when display.hide or defect.visible === false. A degenerate z extent (zFrom === zTo, only reachable
+//   for a hand-made defect: F21 gives every preset a real length) is still drawn, as a 2 mm band, so a defect
+//   is never invisible here. Probe: 16 mm green outlined square (2 px) at (x, z), rotated by skew.
+// - Banner (F49): the yellow 13 px caption in the top-left corner of the canvas reads `utsim.co.uk` — the
+//   original paints `http://www.utsim.co.uk/` there (utman_functions f060, drawing_defects_i f061+) and
+//   SPEC-v3 §6.3 F49 fixes the shortened wording. It is a brand/domain literal, so — like the '3D …' title's
+//   product words and the 'CROSS SECTION' / 'PLAN VIEW' canvas headings — it is NOT put through UT.i18n.t()
+//   (canvas text is outside the [data-i18n] audit, and §5.3.4 exempts product names anyway).
 // - Interaction (Pointer Events, SPEC-v2 §5.4): one pointer drags = rotate (0.5° per design px — positions come
 //   from UT.dom.localPos so the responsive scale k is compensated), two pointers = pinch zoom, wheel = zoom ×1.1 per
 //   notch (0.4 … 4), double-click resets to yaw −58°, pitch 26°, zoom 1. Rotation redraws the window directly
@@ -70,6 +86,17 @@
   const DEFAULT_VIEW = { yaw: -58, pitch: 26, zoom: 1 };
   const WINDOW_AXIAL_HALF = 60;       // mm, half axial extent of the plan-view window rectangle
   const PROBE_SIZE = 16;              // mm, side of the probe square
+  const MARK_MIN_W = 4;               // mm, narrowest drawn axial width of a defect band (F49)
+  const MARK_MIN_Z = 2;               // mm, shortest drawn along-weld length of a defect band (F49)
+  const MARK_LIFT = 0.8;              // mm, the band floats this far clear of the surface
+  const MARK_STEP = 4;                // mm, one tessellation quad per this much band (curvature + culling)
+  const MARK_MAX_NZ = 40;             // cap on the along-weld tessellation of one band
+  const MARK_MAX_NA = 8;              // cap on the axial tessellation of one band
+  const SHADE_NEAR = '#e00000';       // F32 defect fill at the scanning surface
+  const SHADE_FAR = '#7a0000';        // F32 defect fill at the backwall
+  const SELECT_OUTLINE = '#00a0ff';   // F32 selection outline (never a fill)
+  // F49: the yellow caption of the original's 3-D window (SPEC-v3 §6.3 shortens the on-screen URL)
+  const BANNER = { text: 'utsim.co.uk', colour: '#ffff00', font: 'bold 13px Segoe UI, Arial, sans-serif', x: 6, y: 4 };
   const GRAZE_COS = 0.06;             // overlays vanish when the surface normal is nearly perpendicular to the view
   const ROT_PER_PX = 0.5;             // degrees of rotation per design pixel of drag
   const COL = {
@@ -584,34 +611,167 @@
     return { z0, z1 };
   }
 
-  function drawDefects(ctx, P, body, state) {
-    if (!state || !state.defects || (state.display && state.display.hide)) return;
+  // ------------------------------------------------------------------ F49 defect bands
+  /** '#rrggbb' → [r, g, b] (null when the string is not a 6-digit hex colour). */
+  function hexRgb(h) {
+    const m = /^#([0-9a-f]{6})$/i.exec(String(h == null ? '' : h));
+    if (!m) return null;
+    const v = parseInt(m[1], 16);
+    return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+  }
+
+  /**
+   * Blend two '#rrggbb' colours.
+   * @param {string} a colour at t = 0
+   * @param {string} b colour at t = 1
+   * @param {number} t 0…1 (clamped)
+   * @returns {string} '#rrggbb'
+   */
+  function lerpHex(a, b, t) {
+    const A = hexRgb(a) || [224, 0, 0], B = hexRgb(b) || [122, 0, 0];
+    const u = M.clamp(t, 0, 1);
+    return '#' + [0, 1, 2].map(function (i) {
+      const v = Math.round(A[i] + (B[i] - A[i]) * u);
+      return (v < 16 ? '0' : '') + v.toString(16);
+    }).join('');
+  }
+
+  /**
+   * F32: mean depth (mm below the scanning surface) of a defect — the mean y of its points; a lamination
+   * given as a single depth uses that.
+   * @param {object} d defect
+   * @returns {number} mm
+   */
+  function defectMeanY(d) {
+    if (!d) return 0;
+    if (Array.isArray(d.pts) && d.pts.length) {
+      let s = 0, n = 0;
+      for (const p of d.pts) if (p && Number.isFinite(p.y)) { s += p.y; n++; }
+      if (n) return s / n;
+    }
+    for (const k of ['y', 'depth', 'depthMm']) if (Number.isFinite(d[k])) return d[k];
+    return 0;
+  }
+
+  /**
+   * F32 depth colour of a defect: the shared UT.specimens.defectShade(defect, T) when it exists (so 60, 62
+   * and 64 agree digit for digit), else the identical local smoothstep lerp #e00000 → #7a0000.
+   * @param {object} d defect
+   * @param {number} T wall thickness (mm)
+   * @returns {string} '#rrggbb'
+   */
+  function defectShade(d, T) {
+    if (UT.specimens && typeof UT.specimens.defectShade === 'function') {
+      try { const c = UT.specimens.defectShade(d, T); if (hexRgb(c)) return c; } catch (e) { /* fall through */ }
+    }
+    const th = T > 0 ? T : 20;
+    const u = M.clamp(defectMeanY(d) / th, 0, 1);
+    return lerpHex(SHADE_NEAR, SHADE_FAR, u * u * (3 - 2 * u));
+  }
+
+  /**
+   * Surface rectangle a defect covers: its bbox x extent (≥ MARK_MIN_W, clamped to the body) × its z extent
+   * (unwrapped on a pipe, ≥ MARK_MIN_Z so a zero-length hand-made defect is still visible).
+   * @param {object} d defect
+   * @param {object} body bodyOf(specimen)
+   * @returns {{a0:number, a1:number, aMid:number, z0:number, z1:number}} mm
+   */
+  function markGeom(d, body) {
+    const b = UT.specimens.bbox(d.pts);
+    const span = defectSpan(d, body);
+    let z0 = span.z0, z1 = span.z1;
+    if (z1 - z0 < MARK_MIN_Z) { const c = (z0 + z1) / 2; z0 = c - MARK_MIN_Z / 2; z1 = c + MARK_MIN_Z / 2; }
+    const w = Math.max(MARK_MIN_W, b.w);
+    const a = clampA(body, b.cx, 2);
+    return { a0: clampA(body, a - w / 2), a1: clampA(body, a + w / 2), aMid: a, z0, z1 };
+  }
+
+  /**
+   * F49 (pure): the filled defect bands of a state, in defect order — exactly what draw() paints, so an
+   * empty array means nothing is drawn (display.hide, no defects, every defect invisible).
+   * @param {object} state UT.state
+   * @param {object} body bodyOf(state.specimen)
+   * @returns {Array<object>} {n, index, kind, filled, a0, a1, aSpan, z0, z1, zFrom, zTo, zSpan, span, fill,
+   *   colour, shaded, selected, outlined}
+   */
+  function defectMarks(state, body) {
+    const out = [];
+    if (!state || !body || !Array.isArray(state.defects)) return out;
+    if (state.display && state.display.hide) return out;
+    const T = (state.specimen && state.specimen.T) || body.T || 20;
+    const shaded = !(state.display && state.display.defectShade === false);
+    const selN = (state.selectedDefect || 0) + 1;
+    const editing = !!(state.editing && state.editing.defect);
     for (const d of state.defects) {
       if (!d || d.visible === false || !d.pts || !d.pts.length) continue;
-      const b = UT.specimens.bbox(d.pts);
-      const span = defectSpan(d, body);
-      const a = clampA(body, b.cx, 2);
-      if (body.kind === 'pipe' || body.nozzle) {
-        strokeSurfaceLine(ctx, P, surfaceSamples(body, a, span.z0, a, span.z1, 0.8), { colour: '#e00000', width: 3 });
-      } else {
-        const wx = Math.max(4, b.w);
-        const a0 = clampA(body, a - wx / 2), a1 = clampA(body, a + wx / 2);
-        const corners = [surfacePoint(body, a0, span.z0, 0.5), surfacePoint(body, a1, span.z0, 0.5), surfacePoint(body, a1, span.z1, 0.5), surfacePoint(body, a0, span.z1, 0.5)];
-        const q = corners.map(function (sp) { return projectSurface(P, sp); });
-        if (q.some(function (p) { return !p; })) continue;
-        ctx.save();
-        ctx.fillStyle = '#e00000';
-        ctx.strokeStyle = '#e00000';
-        ctx.lineWidth = 1.5;
+      const g = markGeom(d, body);
+      const fill = shaded ? defectShade(d, T) : SHADE_NEAR;
+      const selected = (d.n || 0) === selN;
+      out.push({
+        n: d.n || 0, id: d.id || null, index: out.length, kind: body.kind, filled: true, shaded,
+        a0: g.a0, a1: g.a1, aSpan: g.a1 - g.a0,
+        z0: g.z0, z1: g.z1, zFrom: g.z0, zTo: g.z1, zSpan: g.z1 - g.z0, span: g.z1 - g.z0,
+        fill, colour: fill, selected, outlined: selected && editing,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Tessellate a band into ≤ MARK_STEP mm quads so it follows the curvature of a pipe / nozzle.
+   * @param {object} body bodyOf(specimen)
+   * @param {{a0:number, a1:number, z0:number, z1:number}} g band rectangle in surface coordinates
+   * @param {number} lift mm above the surface
+   * @returns {Array<{corners:number[][], centre:{p:number[], n:number[]}}>}
+   */
+  function bandQuads(body, g, lift) {
+    const nz = Math.max(1, Math.min(MARK_MAX_NZ, Math.ceil(Math.abs(g.z1 - g.z0) / MARK_STEP)));
+    const na = Math.max(1, Math.min(MARK_MAX_NA, Math.ceil(Math.abs(g.a1 - g.a0) / MARK_STEP)));
+    const quads = [];
+    for (let i = 0; i < nz; i++) {
+      const zA = g.z0 + (g.z1 - g.z0) * i / nz, zB = g.z0 + (g.z1 - g.z0) * (i + 1) / nz;
+      for (let j = 0; j < na; j++) {
+        const aA = g.a0 + (g.a1 - g.a0) * j / na, aB = g.a0 + (g.a1 - g.a0) * (j + 1) / na;
+        quads.push({
+          corners: [surfacePoint(body, aA, zA, lift).p, surfacePoint(body, aB, zA, lift).p,
+            surfacePoint(body, aB, zB, lift).p, surfacePoint(body, aA, zB, lift).p],
+          centre: surfacePoint(body, (aA + aB) / 2, (zA + zB) / 2, lift),
+        });
+      }
+    }
+    return quads;
+  }
+
+  /** F49: paint every defect as a filled, depth-shaded band at its own z × x extent. */
+  function drawDefects(ctx, P, body, state) {
+    const marks = defectMarks(state, body);
+    if (!marks.length) return;
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 1;
+    for (const m of marks) {
+      ctx.fillStyle = m.fill;
+      ctx.strokeStyle = m.fill;                 // hairline stroke closes the seams between the quads
+      for (const q of bandQuads(body, m, MARK_LIFT)) {
+        if (!projectSurface(P, q.centre)) continue;      // this piece of the band faces away from the camera
+        const p = q.corners.map(function (w) { return P.proj(P.rot(w)); });
         ctx.beginPath();
-        ctx.moveTo(q[0].x, q[0].y);
-        for (let i = 1; i < 4; i++) ctx.lineTo(q[i].x, q[i].y);
+        ctx.moveTo(p[0].x, p[0].y);
+        for (let i = 1; i < p.length; i++) ctx.lineTo(p[i].x, p[i].y);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
-        ctx.restore();
+      }
+      if (m.outlined) {
+        const style = { colour: SELECT_OUTLINE, width: 2 };
+        const lift = MARK_LIFT + 0.15;
+        strokeSurfaceLine(ctx, P, surfaceSamples(body, m.a0, m.z0, m.a0, m.z1, lift), style);
+        strokeSurfaceLine(ctx, P, surfaceSamples(body, m.a1, m.z0, m.a1, m.z1, lift), style);
+        strokeSurfaceLine(ctx, P, surfaceSamples(body, m.a0, m.z0, m.a1, m.z0, lift), style);
+        strokeSurfaceLine(ctx, P, surfaceSamples(body, m.a0, m.z1, m.a1, m.z1, lift), style);
       }
     }
+    ctx.restore();
   }
 
   function drawProbe(ctx, P, body, state) {
@@ -686,10 +846,11 @@
       drawDefects(ctx, P, body, state);
       drawProbe(ctx, P, body, state);
     } else lastProj = null;
-    ctx.fillStyle = '#ffff00';
-    ctx.font = 'bold 13px Segoe UI, Arial, sans-serif';
+    ctx.fillStyle = BANNER.colour;                    // F49 banner (see the SPEC NOTES: a domain, not a phrase)
+    ctx.font = BANNER.font;
     ctx.textBaseline = 'top';
-    ctx.fillText('UTsim', 6, 4);
+    ctx.textAlign = 'left';
+    ctx.fillText(BANNER.text, BANNER.x, BANNER.y);
     ctx.restore();
   }
 
@@ -746,14 +907,42 @@
     if (keys.indexOf('display') >= 0 || keys.indexOf('mode') >= 0 || keys.indexOf('specimen') >= 0 || keys.indexOf('weldOpts') >= 0) syncVisibility(false);
   }
 
-  /** First show: snap the window to the bottom-right corner of the app box (reference position; design px). */
+  /**
+   * Bottom edge of the WORKING area inside the app box, in the offsetParent's px: the app box minus the
+   * status bar (and the touch bar when it is shown), so a snapped window never covers the status line.
+   * `#main` is the working area itself, so its own bottom is used when it can be measured; subtracting
+   * the bar heights is the fallback for a DOM without it.
+   * @param {Element|null} box  the window's offsetParent (normally #app), or null
+   * @param {number} bh         height of that box (the bottom to fall back to)
+   * @returns {number} usable bottom in px
+   */
+  function workingBottom(box, bh) {
+    const doc = typeof document !== 'undefined' ? document : null;
+    if (!doc) return bh;
+    const main = doc.getElementById('main');
+    if (main && main.offsetHeight > 0 && (!box || box.contains(main))) {
+      const b = main.offsetTop + main.offsetHeight;
+      if (b > 0) return Math.min(bh, b);
+    }
+    let b = bh;
+    ['statusbar', 'touchbar'].forEach(function (id) {
+      const el = doc.getElementById(id);
+      if (el && el.offsetHeight > 0) b -= el.offsetHeight;
+    });
+    return b;
+  }
+
+  /**
+   * First show: snap the window to the bottom-right corner of the WORKING area (reference position;
+   * design px) — clear of the status bar, whose F57 hint cell must stay readable (SPEC-v3 §6.5).
+   */
   function placeDefault(api) {
     if (placed || !api || !api.el || typeof window === 'undefined') return;
     placed = true;
     const box = api.el.offsetParent || (typeof document !== 'undefined' && document.getElementById('app')) || null;
     const bw = (box && box.clientWidth) || window.innerWidth, bh = (box && box.clientHeight) || window.innerHeight;
     api.el.style.left = Math.max(0, bw - api.el.offsetWidth - 8) + 'px';
-    api.el.style.top = Math.max(0, bh - api.el.offsetHeight - 8) + 'px';
+    api.el.style.top = Math.max(0, workingBottom(box, bh) - api.el.offsetHeight - 8) + 'px';
   }
 
   // ------------------------------------------------------------------ pointer interaction (rotate / pinch / wheel)
@@ -896,6 +1085,28 @@
   /** Nothing to refit: the canvas has a fixed 260 × 200 CSS size; a redraw suffices. */
   function fit() { if (canvas) redraw(); }
 
+  // ------------------------------------------------------------------ v3 QA hooks (SPEC-v3 §9, V3-49)
+  /**
+   * F49/F21 test hook: the filled defect bands the 3-D view paints for the current state, in defect order.
+   * The returned Array also carries `.banner` (the caption text) and `.bands` (itself) so a check can read
+   * either shape.
+   * @returns {Array<object>} see defectMarks(); [] when nothing is drawn (no specimen, HIDE, no defects)
+   */
+  function qaMarks() {
+    const s = UT.state;
+    const sp = s && s.specimen;
+    const marks = sp ? defectMarks(s, bodyOf(sp)) : [];
+    marks.banner = BANNER.text;
+    marks.bands = marks;
+    return marks;
+  }
+
+  /**
+   * F49 test hook: the yellow caption painted in the top-left corner of the canvas.
+   * @returns {{text:string, colour:string, font:string, x:number, y:number}}
+   */
+  function qaBanner() { return Object.assign({}, BANNER); }
+
   // ------------------------------------------------------------------ self test (headless-safe)
   function __selftest() {
     const f = [];
@@ -938,6 +1149,53 @@
     const span = defectSpan({ zFrom: 500, zTo: 20 }, body);
     if (Math.abs(span.z1 - (20 + body.L)) > 1e-9) f.push('defect wrap');
     if (shade([1, 1, 1], [0, 0, 1]).indexOf('rgb(') !== 0) f.push('shade');
+    // ---------------------------------------------------------------- v3 F49 / F21: filled defect bands
+    const dTest = S.makeDefect({ n: 1, pts: [{ x: 0, y: 16 }, { x: 0, y: 19 }], zFrom: 140, zTo: 160 });
+    const dState = { specimen: spec, defects: [dTest], display: {}, selectedDefect: 0 };
+    const marks = defectMarks(dState, body);
+    if (marks.length !== 1) f.push('F49 mark count ' + marks.length);
+    else {
+      const m = marks[0];
+      if (Math.abs(m.zSpan - 20) > 1e-9 || Math.abs(m.z0 - 140) > 1e-9) f.push('F49 z span ' + JSON.stringify([m.z0, m.z1]));
+      if (Math.abs(m.aSpan - MARK_MIN_W) > 1e-9) f.push('F49 min width ' + m.aSpan);
+      if (m.fill !== defectShade(dTest, spec.T) || !m.filled) f.push('F49 fill ' + m.fill);
+      if (m.outlined) f.push('F49 outline without the editor');
+      const quads = bandQuads(body, m, MARK_LIFT);
+      if (quads.length !== 5) f.push('F49 tessellation ' + quads.length);
+      for (const q of quads) {
+        if (q.corners.length !== 4) f.push('F49 quad corners');
+        const r = Math.hypot(q.centre.p[1], q.centre.p[2]);       // over the cap here, so radiusAt = Rw
+        if (Math.abs(r - (radiusAt(body, 0) + MARK_LIFT)) > 1e-6) f.push('F49 band lift ' + r);
+      }
+    }
+    // depth shading: shallow is brighter than deep on every channel, and HIDE / visible:false draw nothing
+    const shallow = hexRgb(defectShade({ pts: [{ x: 0, y: 3 }] }, 20)), deep = hexRgb(defectShade({ pts: [{ x: 0, y: 17 }] }, 20));
+    if (!shallow || !deep) f.push('F49 shade hex');
+    else for (let i = 0; i < 3; i++) if (shallow[i] < deep[i]) f.push('F49 shade must lighten toward the surface');
+    if (defectMarks(Object.assign({}, dState, { display: { hide: true } }), body).length) f.push('F49 HIDE');
+    if (defectMarks(Object.assign({}, dState, { defects: [Object.assign({}, dTest, { visible: false })] }), body).length) f.push('F49 invisible defect');
+    const flat = defectMarks(Object.assign({}, dState, { display: { defectShade: false } }), body);
+    if (!flat.length || flat[0].fill !== SHADE_NEAR || flat[0].shaded) f.push('F49 flat fill');
+    const editing = defectMarks(Object.assign({}, dState, { editing: { defect: true } }), body);
+    if (!editing.length || !editing[0].outlined || !editing[0].selected) f.push('F49 selection outline');
+    // a zero-length defect still draws a band (MARK_MIN_Z); presets (F21) always carry a real extent
+    const dZero = S.makeDefect({ n: 1, pts: [{ x: 0, y: 10 }, { x: 0, y: 12 }], zFrom: 150, zTo: 150 });
+    const mz = defectMarks(Object.assign({}, dState, { defects: [dZero] }), body);
+    if (!mz.length || Math.abs(mz[0].zSpan - MARK_MIN_Z) > 1e-9 || Math.abs((mz[0].z0 + mz[0].z1) / 2 - 150) > 1e-9) f.push('F49 zero-length band ' + JSON.stringify(mz[0]));
+    if (typeof S.defectPresets === 'object' && typeof S.defectPresets.rootCrack === 'function') {
+      const pre = S.defectPresets.rootCrack(spec, { n: 1 });
+      const pm = defectMarks(Object.assign({}, dState, { defects: [pre] }), body);
+      if (!pm.length || !(pm[0].zSpan > 0)) f.push('F21 preset band ' + JSON.stringify(pm[0] || null));
+    }
+    // a plate band is flat, its own bbox wide, and lifted clear of the slab
+    const wide = S.makeDefect({ n: 1, pts: [{ x: -6, y: 5 }, { x: 6, y: 8 }], zFrom: 100, zTo: 130 });
+    const pm2 = defectMarks({ specimen: plateSpec, defects: [wide], display: {} }, pb);
+    if (!pm2.length || Math.abs(pm2[0].aSpan - 12) > 1e-9 || Math.abs(pm2[0].zSpan - 30) > 1e-9) f.push('F49 plate band ' + JSON.stringify(pm2[0] || null));
+    if (defectMarks({ specimen: plateSpec, defects: [], display: {} }, pb).length) f.push('F49 no defects');
+    // F49 banner
+    if (BANNER.text !== 'utsim.co.uk' || BANNER.colour !== '#ffff00' || BANNER.font.indexOf('13px') < 0) f.push('F49 banner ' + JSON.stringify(BANNER));
+    if (lerpHex('#000000', '#ffffff', 0.5) !== '#808080') f.push('lerpHex ' + lerpHex('#000000', '#ffffff', 0.5));
+    if (Math.abs(defectMeanY({ pts: [{ x: 0, y: 4 }, { x: 0, y: 8 }] }) - 6) > 1e-9) f.push('defectMeanY');
     if (shouldShow({ display: { pipe3d: true }, specimen: plateSpec, mode: 'v1' }, true)) f.push('shouldShow v1 plate');
     if (!shouldShow({ display: { pipe3d: true }, specimen: spec, mode: 'aut' })) f.push('shouldShow pipe aut');
     if (shouldShow({ display: { pipe3d: true }, specimen: plateSpec, mode: 'weld' }, false)) f.push('shouldShow weld plate not requested');
@@ -1013,10 +1271,14 @@
   const pipe3d = {
     init, draw, open, close, toggle, setView, toPx, toMm, fit, __selftest,
     window: null,
+    /** v3 QA hooks (SPEC-v3 §9 V3-49): F49 defect bands and the canvas banner. */
+    __marks: qaMarks, __banner: qaBanner,
+    /** F49: the yellow canvas caption text ('utsim.co.uk'). */
+    banner: BANNER.text,
     /** Current camera (read-only copy). */
     get view() { return Object.assign({}, view); },
     /** Pure helpers (exposed for tests). */
-    helpers: { bodyOf, surfacePoint, webPoint, clampA, buildMesh, buildFbhMesh, makeProjection, projectSurface, zWindow, defectSpan, shouldShow, titleFor, boundingRadius, centreOf },
+    helpers: { bodyOf, surfacePoint, webPoint, clampA, buildMesh, buildFbhMesh, makeProjection, projectSurface, zWindow, defectSpan, shouldShow, titleFor, boundingRadius, centreOf, defectMeanY, defectShade, lerpHex, markGeom, defectMarks, bandQuads },
     css: [
       '.win[data-win=pipe3d] .win-body { padding: 0; background: #000; line-height: 0; }',
       '#cv-3d { display: block; width: 260px; height: 200px; background: #000; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }',
