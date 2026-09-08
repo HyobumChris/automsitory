@@ -1261,11 +1261,11 @@
       h('table', { class: 'e4-gates' }, [h('tr', {}, ['Gate', 'Start', 'Width', 'Level', 'Alarm'].map(function (t) { return h('th', {}, t); }))].concat(gateRows)),
       // F5: the row carries the gate softkeys, or the quick-range presets `10.0mm … 100.0mm` of f028 while `range` is selected
       h('div', { class: 'e4-soft' }, [
-        h('span', { class: 'e4-sk', dataset: { sk: 'START' }, onclick: function () { mem.focused = true; if (rangeRow(0)) return; selectParam('g' + (inst().activeGate + 1) + 'start'); } }, '1-START'),
-        h('span', { class: 'e4-sk', dataset: { sk: 'WIDTH' }, onclick: function () { mem.focused = true; if (rangeRow(1)) return; selectParam('g' + (inst().activeGate + 1) + 'width'); } }, '1-WIDTH'),
-        h('span', { class: 'e4-sk', dataset: { sk: 'LEVEL' }, onclick: function () { mem.focused = true; if (rangeRow(2)) return; selectParam('g' + (inst().activeGate + 1) + 'level'); } }, '1-LEVEL'),
-        h('span', { class: 'e4-sk', onclick: function () { mem.focused = true; rangeRow(3); } }, ''),
-        h('span', { class: 'e4-sk', dataset: { sk: 'AUTO-80' }, onclick: function () { mem.focused = true; emitUi('softkey', 'AUTO-80'); keys.auto80(); } }, 'AUTO-80'),
+        h('span', { class: 'e4-sk', dataset: { sk: 'START' }, onclick: function () { mem.focused = true; if (calRow(0) || rangeRow(0)) return; selectParam('g' + (inst().activeGate + 1) + 'start'); } }, '1-START'),
+        h('span', { class: 'e4-sk', dataset: { sk: 'WIDTH' }, onclick: function () { mem.focused = true; if (calRow(1) || rangeRow(1)) return; selectParam('g' + (inst().activeGate + 1) + 'width'); } }, '1-WIDTH'),
+        h('span', { class: 'e4-sk', dataset: { sk: 'LEVEL' }, onclick: function () { mem.focused = true; if (calRow(2) || rangeRow(2)) return; selectParam('g' + (inst().activeGate + 1) + 'level'); } }, '1-LEVEL'),
+        h('span', { class: 'e4-sk', onclick: function () { mem.focused = true; if (calRow(3)) return; rangeRow(3); } }, ''),
+        h('span', { class: 'e4-sk', dataset: { sk: 'AUTO-80' }, onclick: function () { mem.focused = true; if (calRow(4)) return; emitUi('softkey', 'AUTO-80'); keys.auto80(); } }, 'AUTO-80'),
       ]),
     ]);
     screen.classList.add('no-i18n');
@@ -1323,7 +1323,17 @@
       ['start', 'width', 'level'].forEach(function (f, k) { R.gateCells[base + k].classList.toggle('sel', sel === 'g' + (gi + 1) + f); });
     });
     const gn = I.activeGate + 1;
-    if (sel === 'range') {
+    const wiz = calStage();
+    if (wiz) {
+      // v3 F3 (v3 integration): the wizard owns the row — CAL THIN | CAL THICK | CANCEL, the stage marked
+      // with '<' exactly as CAL_PAGE() marks it on the EPOCH 600 column.
+      const page = CAL_PAGE(wiz);
+      R.softLabels.forEach(function (el, i) {
+        const it = page[i];
+        setText(el, it && it.kind !== 'blank' ? it.label : '');
+        el.classList.toggle('sel', !!(it && it.value));
+      });
+    } else if (sel === 'range') {
       // F5 (f028): the softkey row becomes the quick-range presets
       QUICK_RANGES_E4.forEach(function (r, i) { setText(R.softLabels[i], r.toFixed(1) + 'mm'); R.softLabels[i].classList.toggle('sel', Math.abs(I.range - r) < 0.05); });
     } else {
@@ -1331,7 +1341,27 @@
       R.softLabels[0].classList.toggle('sel', sel === 'g' + gn + 'start'); R.softLabels[1].classList.toggle('sel', sel === 'g' + gn + 'width'); R.softLabels[2].classList.toggle('sel', sel === 'g' + gn + 'level');
       R.softLabels[3].classList.remove('sel');
     }
+    // slot 5 is AUTO-80 on BOTH non-wizard pages (QUICK_RANGES_E4 fills only 0…3); the CAL page blanks it,
+    // so it has to be restored explicitly once the wizard ends.
+    if (!wiz) setText(R.softLabels[4], 'AUTO-80');
     drawMiniIcon(frame);
+  }
+  /**
+   * v3 F3 (v3 integration): while the auto-cal wizard is up, the EPOCH 4 LCD softkey row IS the CAL page —
+   * the same `CAL_PAGE()` items the EPOCH 600 column shows, so slot `i` (and therefore F(i+1)) runs the same
+   * action and F3 is CANCEL. The blank slots stay inert rather than falling through to the gate page.
+   * @param {number} i  softkey slot 0…4
+   * @returns {boolean} true when the wizard consumed the press
+   */
+  function calRow(i) {
+    const s = calStage();
+    if (!s) return false;
+    const it = CAL_PAGE(s)[i];
+    if (!it || it.kind !== 'act' || !it.fn) return true;
+    emitUi('softkey', it.label);
+    it.fn();
+    UT.requestRender();
+    return true;
   }
   /** F5: a click on the EPOCH 4 / LTC softkey row while `range` is selected applies preset `i`. Returns true when handled. */
   function rangeRow(i) {

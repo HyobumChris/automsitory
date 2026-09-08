@@ -2121,6 +2121,9 @@
    * @param {{name:string, title:string, label:string, unit:string, key:string, min:number, max:number, step:number, note:string}} o
    */
   function openWeldCondition(o) {
+    // modal (v3 integration): these one-field prompts are answered before anything else, so 00-core's
+    // focus trap, the initial `.btn.primary` focus and the focus restore on hide all apply. The flag is
+    // per call — dialog() is shared with the non-modal panels (Options, Weld, Wedge, …).
     dialog(o.name, o.title, 340, function (win) {
       let v = +weldFlag(o.key) || 0;
       const f = numField(o.label, { value: v, min: o.min, max: o.max, step: o.step, unit: o.unit, onchange: function (n) { v = n; } });
@@ -2134,7 +2137,7 @@
           UT.dom.button('Cancel', function () { win.close(); }),
         ]),
       ]);
-    });
+    }, { modal: true });
   }
   /** v3 F45: high–low step at the joint, −5…+5 mm (0 = aligned). */
   function openMisalignment() {
@@ -2151,6 +2154,7 @@
    * The validation line is the original's wording and is shown whenever the entry is refused.
    */
   function openPipeThk() {
+    // modal (v3 integration): the original's single-field prompt, see openWeldCondition().
     dialog('pipethk', 'Pipe Thickness', 320, function (win) {
       let v = +(st().weldOpts && st().weldOpts.wt) || 20;
       const msg = h('div', { class: 'dlg-msg' }, '');
@@ -2168,7 +2172,7 @@
         tx('div', { class: 'dlg-note' }, 'Enter Thickness between 6mm and 40mm'),
         h('div', { class: 'btn-row' }, [UT.dom.button('OK', ok, { class: 'btn primary' }), UT.dom.button('Cancel', function () { win.close(); })]),
       ]);
-    });
+    }, { modal: true });
   }
   /**
    * v3 F19: the `UTsim` notice shown once per session when Through Transmission is selected
@@ -2304,12 +2308,12 @@
   function openKeys() {
     const rows = [
       ['← / →', 'Move probe 1 mm (Shift: 10 mm)'], ['↑ / ↓', 'Move probe along the weld (z)'],
-      ['+ / −', 'Gain ±1 dB (Shift: ±6 dB)'], ['R', 'Range 50 → 100 → 200 → 400 mm'], ['F', 'Freeze'], ['P', 'Peak memory'],
-      ['H', 'Hide defects & beam'], ['B', 'Beam on/off'], ['D', 'Finger damping tool'], ['1 2 3 4', 'Probe 0° / 45° / 60° / 70°'], ['Esc', 'Close the top window, menu or tour'],
+      ['+ / −', 'Gain ±1 dB (Shift: ±6 dB)'], ['R', 'Cycle the range 50 → 100 → 200 → 400 mm'], ['F', 'Freeze the A-scan (press F again to release it)'], ['P', 'Peak memory — hold the envelope of the maximum echo height'],
+      ['H', 'Hide or show the defects and the beam'], ['B', 'Show or hide the beam'], ['D', 'Turn the finger damping tool on or off'], ['1 2 3 4', 'Select the 0° / 45° / 60° / 70° probe'], ['Esc', 'Close the top window, menu or tour'],
       ['F10, Alt', 'Open the menu bar (arrows navigate, Enter activates)'],
       ['Alt+F/P/S/W/D/T/O/H', 'Open the File / Probes / Step Wedge / Weld / Defects / Tools / Options / Help menu'],
       // v3 F55: the two new top-level menus carry Alt+M and Alt+A (F/P/S/W/D/T/O/H were taken)
-      ['Alt+M / Alt+A', ['Scale Mode', 'About']],
+      ['Alt+M / Alt+A', ['Open the Scale Mode menu', 'Open the About menu']],
       ['▲▼◀▶ (instrument focused)', 'Adjust the selected instrument parameter'], ['Mouse wheel', 'Over the cross-section: gain ±1 dB; over the instrument: selected parameter'],
       // v3 F51 — the teaching-aid drawing overlay and its keyboard pen (86-annotate owns both chords)
       ['SHIFT+F12, Ctrl+Shift+D', 'TEACHING AID DRAWING MODE — LEFT mouse draws red, RIGHT mouse draws blue. SHIFT+F12 again to clear and exit.'],
@@ -2319,7 +2323,7 @@
       // v3 F27 — the defect editor's own bindings (80-modes editorKey), live while the editor window is open
       ['Shift+← / → (defect editor; Ctrl = 10 mm)', 'All defects can be moved with: SHIFT+  LEFT or RIGHT cursor key'],
       ['Shift+Z X A S Q W (defect editor)', "To alter LOF defects use: SHIFT+ 'Z' or 'X' = Rotate, 'A' or 'S' = change size, 'Q'\nor 'W'"],
-      ['Delete (defect editor, selected defect)', 'Delete'],
+      ['Delete (defect editor, selected defect)', 'Delete the selected defect'],
       ['F1 (defect editor)', 'Press F1 to redisplay these instructions'],
     ];
     // a row description is one key, or a list of keys joined with ' / ' (Alt+M / Alt+A name two menus)
@@ -2701,10 +2705,7 @@
     confirmDlg(t('Reset everything to the default setup? (defects, probe, instrument, weld)'), { title: 'New' }).then(function (ok) {
       if (!ok) return;
       try { localStorage.removeItem(STORE_KEY); } catch (e) { /* ignore */ }
-      mem.suspendSave = true;
-      const def = UT.defaultState();
-      UT.set(def, { noRender: true });
-      mem.suspendSave = false;
+      suspendSave(function () { UT.set(UT.defaultState(), { noRender: true }); });
       enterMode('weld', { keepProbe: false });
       if (!st().specimen) enterMode('weld');
       call('instruments.setSkin', [st().utSet]);
@@ -3057,6 +3058,23 @@
     mem.saveTimer = setTimeout(function () { mem.saveTimer = null; saveNow(); }, 500);
   }
 
+  /**
+   * Run `fn` with the persistence record frozen: no autosave is scheduled while it runs and any debounce it
+   * armed is cancelled before the switch is released. Callback form (NOT a `suspendSave(on)` flag setter) —
+   * 94-scenario checks that the callback really ran before trusting the export. Re-entrant.
+   * @param {function():*} fn  the state-mutating work to protect
+   * @returns {*} whatever `fn` returns
+   */
+  function suspendSave(fn) {
+    const was = mem.suspendSave;
+    mem.suspendSave = true;
+    try { return fn(); }
+    finally {
+      if (mem.saveTimer) { clearTimeout(mem.saveTimer); mem.saveTimer = null; }
+      mem.suspendSave = was;
+    }
+  }
+
   // ------------------------------------------------------------------ boot
   /**
    * Run every `UT.*.__selftest()` (and `UT.views.*`) and log the results. Persistence is suspended for the whole
@@ -3065,8 +3083,6 @@
    */
   function runSelftests() {
     const out = {};
-    const wasSuspended = mem.suspendSave;
-    mem.suspendSave = true;
     let dirty = false;
     const run = function (label, fn) {
       const saved = Object.assign({}, UT.state);
@@ -3081,16 +3097,13 @@
         dirty = true;
       }
     };
-    try {
+    suspendSave(function () {
       for (const k of Object.keys(UT)) {
         const m = UT[k];
         if (m && typeof m.__selftest === 'function') run(k, function () { return m.__selftest(); });
         if (k === 'views' && m) for (const v of Object.keys(m)) if (m[v] && typeof m[v].__selftest === 'function') run('views.' + v, function () { return m[v].__selftest(); });
       }
-    } finally {
-      if (mem.saveTimer) { clearTimeout(mem.saveTimer); mem.saveTimer = null; }
-      mem.suspendSave = wasSuspended;
-    }
+    });
     if (dirty) { refreshToolbar(); applyLayout(); try { UT.renderNow(); } catch (e) { /* logged by core */ } }
     for (const k of Object.keys(out)) console.log('[selftest] ' + k + ': ' + (out[k].length ? 'FAIL ' + JSON.stringify(out[k]) : 'ok'));
     return out;
@@ -3152,7 +3165,7 @@
 
   // ------------------------------------------------------------------ public API + test API
   Object.assign(app, {
-    boot, buildLayout, setLang, saveNow, applyLayout, applyScale, refreshToolbar, refreshTouchBar, menuByPath, activateToolbar, runSelftests,
+    boot, buildLayout, setLang, saveNow, suspendSave, applyLayout, applyScale, refreshToolbar, refreshTouchBar, menuByPath, activateToolbar, runSelftests,
     toolbarIds: TB_IDS, restore, patchFromRecord, buildSavePatch, coerceLike, parseSteps, wedgeToRefracted, probePatchFor, typeOfPrep, OD_INCH,
     openWeld, openWedge, openOptions, openStepWedge, openAbout, openGuide, openKeys, openExport, openProbeLib, openMaterial, openFocus, openGlossary,
     openTour, closeTour, printReport, closeMenus, openMenu: kbOpenMenu, selectLibProbe, setMaterial, setUtSet, applyWeldOpts,

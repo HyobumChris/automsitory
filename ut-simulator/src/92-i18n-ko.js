@@ -65,7 +65,7 @@
     'Colour Code Display': '색상 코드 표시', 'Colour Code': '색상 코드', 'Number of Skips': '스킵 수', 'Single Line Beam': '단일선 빔',
     'Mode conversion': '모드 변환', 'Surface wave': '표면파', 'Side lobes': '사이드 로브', 'Finger damping tool': '손가락 감쇠 도구',
     'Steps 5-25 mm (5 mm)': '스텝 5-25 mm (5 mm)', 'Steps 10-50 mm (10 mm)': '스텝 10-50 mm (10 mm)', 'Custom Steps...': '사용자 정의 스텝...',
-    'Auto Cal': '자동 교정', 'Exit Step Wedge': '스텝 웨지 나가기', 'FBH block': '평저공 시험편',
+    'Auto Cal': '자동 교정', 'Cancel Auto Cal': '자동 교정 취소', 'Exit Step Wedge': '스텝 웨지 나가기', 'FBH block': '평저공 시험편',
     'Weld Settings...': '용접부 설정...', 'Weld…': '용접부…', 'Material…': '재질…', 'Presets': '프리셋', 'Pipe': '파이프', 'TKY Joint': 'TKY 이음',
     'Plate': '평판', 'T-joint': 'T형 이음', 'T-joint: plate chord with an angled brace (modelled)': 'T형 이음: 평판 코드에 경사 브레이스 (모델링됨)',
     '{kind} joint is not modelled in this version — only the T-joint geometry is available': '{kind} 이음은 이 버전에서 모델링되지 않습니다 — T형 이음 형상만 사용할 수 있습니다',
@@ -276,7 +276,7 @@
     'Planar': '면상', 'Crack': '균열', 'Lack of fusion': '융합 불량', 'Incomplete penetration': '용입 부족', 'Volumetric': '체적형', 'Porosity': '기공', 'Slag inclusion': '슬래그 혼입', 'Lamination': '라미네이션',
     'History': '기록', 'Score': '점수', 'Found': '발견', 'Result': '결과', 'Candidate': '수험자', 'Clear history': '기록 지우기', 'Print this report': '이 보고서 인쇄', 'Verify': '검증', 'Token': '토큰', 'Paste a result token': '결과 토큰을 붙여 넣으세요',
     'Detected': '검출됨', 'Bonus': '가산점', 'Type correct': '종류 정답', 'Length': '길이', 'Height': '높이', 'Position': '위치', 'Coverage {p} %': '주사 범위 {p} %', 'Coverage: {p} % of the weld length scanned from both sides': '주사 범위: 용접선 길이의 {p} %를 양면에서 주사',
-    'Timer': '타이머', 'Truth': '정답', 'Locked': '잠김', 'Report rows': '보고서 행', 'Row': '행', 'Not recordable': '기록 불요', 'recordable': '기록', 'accept': '합격', 'reject': '불합격', 'record': '기록', 'Accept': '합격', 'Disposition': '판정',
+    'Timer': '타이머', 'Truth': '정답', 'Locked': '잠김', 'Report rows': '보고서 행', 'Row': '행', 'Not recordable': '기록 불요', 'recordable': '기록', 'accept': '합격', 'reject': '불합격', 'record': '기록', 'Accept': '합격', 'Disposition': '판정', 'Defect number': '결함 번호',
 
     // ------------------------------------------------------------------ 45-standards (dgs / evaluation / procedures / stdnotes)
     'DGS diagram': 'DGS 선도', 'Evaluation (standards)': '평가 (규격)', 'Standards notes': '규격 참고 사항', 'Evaluation…': '평가…', 'Procedures…': '절차서…', 'Standard': '규격', 'Testing level': '검사 레벨', 'Acceptance level': '허용 수준',
@@ -486,6 +486,7 @@
     'EPOCH records deleted': 'EPOCH 기록을 삭제했습니다', 'Delete all stored records?': '저장된 기록을 모두 삭제할까요?',
     'LEFT mouse button/drag to draw curve': '마우스 왼쪽 버튼 드래그로 커브를 그리세요',
     'Auto Cal 2/2: press ENTER to confirm the thick standard': '자동 교정 2/2: ENTER를 눌러 두꺼운 기준편을 확정하세요',
+    'Auto Cal 1/2: enter the thin standard again': '자동 교정 1/2: 얇은 기준편 값을 다시 입력하세요',
     'Flaw detector': '탐상기',
     // 80-modes (F2/F3, F9, F11, F29, F33, F34, F47)
     'Auto Cal 1/2: gate the {d} mm backwall echo, enter the thin standard and press ✓':
@@ -594,6 +595,7 @@
     // 85-scalemode (F41/F42)
     'A traced boundary needs at least 3 points': '추적한 경계에는 점이 3개 이상 필요합니다',
     'Click the boundary corners, then double-click or press OK to close it': '경계의 모서리를 차례로 클릭한 뒤, 두 번 클릭하거나 확인을 눌러 닫으세요',
+    'That boundary already has as many points as it can hold — press OK to close it': '이 경계는 담을 수 있는 점을 모두 채웠습니다 — 확인을 눌러 닫으세요',
     'Boundary traced — LEFT mouse button/drag to move the UT Probe': '경계를 추적했습니다 — 마우스 왼쪽 버튼 드래그로 탐촉자를 이동하세요',
     'Picture loaded — set mm per pixel, then trace the boundary': '그림을 불러왔습니다 — 픽셀당 mm를 설정한 뒤 경계를 추적하세요',
     'Screen captured — set mm per pixel, then trace the boundary': '화면을 캡처했습니다 — 픽셀당 mm를 설정한 뒤 경계를 추적하세요',

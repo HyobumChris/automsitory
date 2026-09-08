@@ -4,6 +4,8 @@
 소개된 UTman 소프트웨어를 참고하여 **HTML 파일 하나**로 다시 구현한 독립 프로젝트입니다.
 서버·설치·인터넷 없이 브라우저에서 `utman_simulator.html` 파일을 열면 바로 동작합니다.
 
+**v3** (2026-09): 원본 UTman 영상 17편을 기능 명세로 삼아 시연 기능 274개를 대조하고, 누락·부분 구현분을 모두 구현했습니다 — 스케일 모드, 강사 주석 도구, 용접 상태 토글, 현재 시편 자동 교정, 플로터 빔 확산 실습, 결함 편집기 제스처 일습, TOFD 평행 주사, TKY 곡면 코드 등. 상세는 `SPEC-v3.md`.
+
 **v2** (2026-09): 물리(피스톤 지향성·모드 변환·표면파·재질·집속·TCG·DGS·TOFD/PA/AUT v2·B-scan), 훈련(25개 코칭 레슨·에코 퀴즈·실기시험 v2·규격 판정·절차서·랜덤 연습·사이징 v2), 충실도(용접 개선 5종·EPOCH Pulsar/Rcvr·데이터로거·경보음), 사용성(완전 한국어화·터치/반응형·시나리오 공유 링크·용어집/둘러보기·접근성), 엔지니어링(인수검사 러너·CI)까지 전면 확장되었습니다. 상세는 `SPEC-v2.md`, 변경 이력은 `CHANGELOG.md`.
 
 > This is an independent re-implementation inspired by UTman / UTsim (© Paul Rawlinson). It shares no
@@ -26,8 +28,8 @@ python3 build.py                        # -> ../utman_simulator.html
 ## 화면 구성 (Layout)
 
 ```
- 메뉴  File · Probes · Step Wedge · Weld · Defects · Tools · Options · Help   (Tools = v2)
- 툴바  0° 45° 60° 70° | V2 V1 DAC | PLOT DAMP SIZE | DEFECT HIDE CLEAR | BEAM RAD | PIPE TKY TOFD AUT
+ 메뉴  File · Probes · Step Wedge · Weld · Defects · Tools · Scale Mode · Options · Help · About   (Tools = v2, Scale Mode/About = v3)
+ 툴바  0° 45° 60° 70° | V2 V1 DAC | PLOT DAMP SIZE | DEFECT HIDE CLEAR | BEAM RAD | PIPE TKY TOFD AUT | AccRej
  ┌────────────────────┬────────────────────────────────────────────┐
  │ 탐상기 (EPOCH 600 / │ PLAN VIEW (평면도) — 결함, 탐촉자, 빔, 스큐 다이얼 │
  │ EPOCH 4 / USK7)     │                                            │
@@ -39,6 +41,8 @@ python3 build.py                        # -> ../utman_simulator.html
  + 떠 있는 창: 3D Pipe, Defects, TOFD, AUT, Beam Plotting, Radiograph, Sizing, Trade Test, Lessons …
  + v2 창: Probe library · Material · Focus · PA(S/E/C) · DGS · Evaluation · Procedures · Standards notes · B-scan · Echo dynamic ·
           Datalogger · Quiz · Scoreboard · Report · Practice · Scenario · Share · Glossary · Quick tour · 터치 바
+ + v3 창: ADJUST SCALE(그림 불러오기·mm 보정·각도기) · Tools ▸ Draw(강사 주석) · STEP 1–5 안내 · ASME/A5 선택 ·
+          자동 교정 값 입력(LCD 위) · TOFD Parallel Scan · 용접 상태(루트 부식·거친 표면·어긋남·두께 변동)
 ```
 
 ## 재생목록 22개 영상 ↔ 기능 대응 (Lessons)
@@ -102,6 +106,22 @@ v2 레슨은 단계별 **자동 판정**(상태/전이/객관식/수치 입력),
 * **한국어 완전 대응** (`Options ▸ Language`): 단일 사전(92-i18n-ko), 실시간 전환, KS B 0817 용어 규칙, 용어집(`Help ▸ Glossary…`), 둘러보기(`Help ▸ Quick tour`).
 * **터치·접근성**: 포인터 이벤트, 터치 바(자동 반복), 1280×760 설계 상자 자동 스케일, ARIA 메뉴/툴바, F10·Alt+문자 메뉴 탐색, 고대비, 경보음(옵션).
 
+## 영상이 정의한 기능 v3 (Functional completeness)
+
+원본 UTman 영상 17편을 기능 명세로 삼아, 시연되는 기능 **274개**를 목록화하고 우리 구현에서 하나씩 실행해 대조했습니다
+(검증 220 · 부분 37 · 누락 17). 그 결과가 `SPEC-v3.md`의 기능 F1–F59와 인수검사 V3-1…V3-64입니다.
+
+* **스케일 모드** (`Scale Mode`): 로컬 그림 불러오기 → mm/픽셀 보정 슬라이더 → 경계 추적으로 임의 형상을 시편으로 만들어 주사,
+  각도기 오버레이, 스킵 거리 눈금. 오프라인 단일 파일 원칙 그대로 — 네트워크 접근 없음, 그림은 저장되지 않습니다.
+* **강사 주석 도구**: `Shift+F12`(또는 `Ctrl+Shift+D`)로 화면 전체에 자유 그리기(좌 빨강 / 우 파랑), `Tools ▸ Draw` 팔레트, 포인터 손전등.
+* **용접 상태 토글** (`Weld ▸`): 루트 부식(울퉁불퉁한 이면 비드의 에코 열), 거친 표면(전달 손실 + 그래스), 어긋남(단차와 그 코너 에코),
+  파이프 두께 변동(탐촉자를 따라 걷는 저면 에코).
+* **자동 교정**: 스텝 웨지를 강제하지 않고 **현재 시편**의 1차·2차 저면으로 교정하며, 기준 두께를 계기 LCD 위에서 직접 입력합니다.
+* **플로터 실습**: 블록 위에 10 % 빔 에지 표시, 자유선으로 에지를 그으면 실시간 각도 표시, `angle BS = 7.9°` · `20dB K=1.08  12dB K=0.704` 캡션 계산,
+  PLOT을 IOW 블록 대신 **현재 용접부** 위에 겹치기.
+* **결함 편집기 제스처**: 우클릭 단선 융합 불량, `Shift+화살표` 이동 · `Z/X` 회전 · `A/S` 크기, 획 모양 자동 분류와 각도·깊이 캡션, STEP 1–5 안내, 파일로 저장/불러오기.
+* **탐촉자 돌리기** 버튼(V1/V2 화면), TOFD 평행 주사 스트립, TKY 곡면 코드와 파이프 링, 3D 결함 밴드, AccRej, 화면 저장.
+
 ## 개발 (Development)
 
 ```
@@ -110,24 +130,26 @@ ut-simulator/
   build.py         src/*.js + style.css 를 하나의 HTML 로 인라인
   index.html       개발용 페이지
   SPEC-v2.md       v2 프로그램 명세 (기능 P1–P12 · T1–T7 · F1–F4 · U1–U5 · E1–E6, 상태, 물리, 인수검사 V2-1…27)
+  SPEC-v3.md       v3 기능 명세 — 원본 영상 17편이 시연하는 기능 F1–F59, 인수검사 V3-1…V3-64
   CHANGELOG.md     변경 이력
-  src/00-core.js … 94-scenario.js, style.css   (20개 모듈: 45-standards, 56-pa, 82-lessons, 84-trade, 92-i18n-ko, 94-scenario 는 v2 신규)
+  src/00-core.js … 94-scenario.js, style.css   (22개 모듈: 45-standards, 56-pa, 82-lessons, 84-trade, 92-i18n-ko, 94-scenario 는 v2 신규,
+                                                85-scalemode(스케일 모드), 86-annotate(강사 주석) 는 v3 신규)
   tools/node-load.mjs  Node 에서 모듈을 로드해 셀프테스트 (DOM 없이 물리 검증)
   tools/smoke.mjs      Playwright 헤드리스 스모크 테스트 (툴바 전체 클릭 + 물리 프로브)
   tools/integ.mjs      전체 통합 드라이브 (툴바·73개 메뉴·21개 창·드래그·키보드·스캔·레슨·수용 기준)
   tools/qa-helpers.mjs Playwright 부팅/오류 수집 헬퍼 (QA 스크립트 공용)
-  tools/acceptance.mjs v1 14개 + v2 인수검사를 헤드리스 Chromium 에서 실행, JSON 보고서, 실패 시 exit 1 (CI 가 실행)
+  tools/acceptance.mjs 인수검사 112개(v1 14 + v2 34 + v3 64)를 헤드리스 Chromium 에서 실행, JSON 보고서, 실패 시 exit 1 (CI 가 실행)
   ../.github/workflows/utsim-ci.yml  셀프테스트 → 빌드 → 인수검사 (push / pull_request)
 ```
 
 ```bash
-node tools/node-load.mjs --selftest                    # 20개 모듈 셀프테스트
-NODE_PATH=/opt/node22/lib/node_modules node tools/acceptance.mjs --json /tmp/acceptance.json   # v1+v2 인수검사
+node tools/node-load.mjs --selftest                    # 22개 모듈 셀프테스트
+NODE_PATH=/opt/node22/lib/node_modules node tools/acceptance.mjs --json /tmp/acceptance.json   # 인수검사 112개 (--only v1|v2|v3)
 NODE_PATH=/opt/node22/lib/node_modules node tools/smoke.mjs ../utman_simulator.html
 NODE_PATH=/opt/node22/lib/node_modules node tools/integ.mjs --shots /tmp/utsim-shots
 ```
 
-빌드 결과물은 약 1.8 MB(주석 포함, 미압축 — 단일 파일의 가독성을 의도)의 단일 HTML이며 외부 리소스를 참조하지 않습니다. `docs/utman_simulator.html` 에도 같은 파일이 쓰입니다. 브라우저에서
+빌드 결과물은 약 2.6 MB(주석 포함, 미압축 — 단일 파일의 가독성을 의도)의 단일 HTML이며 외부 리소스를 참조하지 않습니다. `docs/utman_simulator.html` 에도 같은 파일이 쓰입니다. 브라우저에서
 `utman_simulator.html#selftest` 로 열면 콘솔에 모든 모듈의 셀프테스트 결과가 출력됩니다.
 
 `build.py` 는 index.html 에 나열된 src 모듈이 하나라도 없으면 exit 1 로 중단합니다(부분 빌드 금지 — V2-26 은 두 출력 파일이 바이트 단위로

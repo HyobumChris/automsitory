@@ -479,10 +479,17 @@ the status lists **four** multiples — `25mm Radius. Echoes 25, 100, 175, 250 e
 `50mm Radius. Echoes 50, 125, 200, 275 etc` — and the 4th is visible at range 250.
 **Required.**
 
-- `UT.specimens.v2({face:'wide'})` gains `holes: [{ x: 25, y: 12.5, r: 2.5, tag: 'hole5' }]` (the 5 mm
-  through hole at the block's radius centre) and `graduations: [{x, deg}]` every 5° from 35° to 75° along
-  the 25 mm radius edge; 60-view-cross draws the hole as a white filled circle with a 1 px dark outline and
-  the graduations as 4 px ticks with 10° labels.
+- `UT.specimens.v2({face:'wide'})` gains `holes: [{ x: 102, y: 4, r: 2.5, tag: 'hole5', label: '5mm' }]`
+  (the 5 mm through hole) and `graduations: [{x, deg}]` every 5° from 35° to 75° along the 25 mm radius
+  edge; 60-view-cross draws the hole as a white filled circle with a 1 px dark outline and the graduations
+  as 4 px ticks with 10° labels.
+  (LEAD CORRECTION, v3 integration: an earlier draft printed `{x: 25, y: 12.5}`. The block's **radius
+  centre** is (60, 0) — the only point in the block that no radius arc can shadow — but it lies ON the
+  scanning surface, and 60-view-cross draws holes as unclipped `ctx.arc` discs, so a hole centred there
+  renders half outside the block. The shipped hole is therefore at (102, 4): clear of both arcs, fully
+  inside the outline, and reachable at `x + y·tan θ` from `scanSurface` (108.9 mm at 60°, inside
+  `xMax = 110`). Moving it to the radius centre is a one-line change that must be preceded by clipping the
+  hole draw to the front-face path, and it gains only ~0.35 dB on the 4th multiple.)
 - 30-raytrace emits the **4th** V2 radius return (`25/100/175/250` and `50/125/200/275`), and
   `UT.modes.statusMid()` lists four numbers followed by ` etc`.
 - Lessons 6 and 19 start on the **60°** probe (the video performs the whole V2 radius exercise at 60°),
@@ -632,6 +639,11 @@ the weld** in BOTH plan and cross-section (hatched green, dashed outline), teach
 centreline, `drawPlan` and `drawCross` additionally draw the probe reflected about `x = weld.capCentre`:
 same outline path, 1 px dashed stroke in the probe colour, fill = the probe colour at 25 % alpha with a
 45° hatch. The mirror image is never clickable and never drawn in `v1/v2/iow/dac/tky/step/fbh` modes.
+(v3 integration, QA bug 3: **both** views additionally suppress the ghost when it would overdraw the real
+symbol — `|probe.x − weld.capCentre| < derived.shoeWidth / 2` (12 mm at the default shoe). 60-view-cross
+shipped this gate first; 62-view-plan now applies the identical test on the identical datum, so the two
+views can never disagree about whether the ghost exists. `aut` is deliberately NOT on the never-drawn
+list: both views draw the mirror there, and removing it needs a lead ruling, not a one-sided edit.)
 
 ### 4.9 F21 — Preset defects reachable from the taught workflow
 
@@ -672,7 +684,13 @@ These override the audit text and the first draft of this section — read them 
 ```js
 // A VERTICAL surface-breaking crack already produces a full-skip corner echo, and plate and TKY agree
 // to four decimals — the corner rule of SPEC 6.1 2d covers scanning-surface pairs exactly as it covers
-// backwall pairs, on flat and curved boundaries alike:
+// backwall pairs, on flat and curved boundaries alike.
+// NOTE (v3 integration): 0.3882 / 56.6 is the FLAT-chord figure — build('tky', {}) with no chord
+// curvature, the shape these lead measurements were taken on. On the APP DEFAULT TKY (T-joint,
+// chordOd 600, chordWt 32) the chord is curved and the same preset reads:
+//   toeCrack on the default T-joint, 45 deg sweep -> best kind 'corner', amp 0.1510, path 96.7 (x 86)
+//                                                 -> about 40 %FSH at gain 40
+// Both are correct; quote the flat number only for a flat chord.
 {pts:[{x:8,y:0},{x:8,y:4}]}   on build('tky',{})    -> kind 'corner', amp 0.3882, path 56.6 (45 deg, x 51.5)
 {pts:[{x:20,y:0},{x:20,y:4}]} on build('tky',{})    -> kind 'corner', amp 0.3882, path 56.6 (45 deg, x 63.5)
 {pts:[{x:9,y:0},{x:9,y:4}]}   on plateWeld({T:20})  -> kind 'corner', amp 0.3882, path 56.6 (45 deg, x 53)
@@ -720,7 +738,9 @@ The `Phased Array Probe Details` window (56-pa) gains `Shoe Stand Off (mm)` (def
 `Shoe Height (mm)` (default 12), stored as `pa.shoeStandOff` / `pa.shoeHeight`, which offset the aperture
 origin along the surface and along the wedge normal respectively (the existing `Shoe Angle`,
 `Number of Elements`, `Element Spacing` and `Wedge Velocity 2740` fields are unchanged). Focal-law timing
-uses the offset origin, so `pa.focalLaw(60).slope` (V2-11) is unaffected at the default values.
+uses the offset origin, so `pa.focalLaw(60).origin.wedgePathMm = sqrt(standOff² + height²)` (14.42 mm at
+the defaults) while `.slope` (V2-11) is unaffected at **any** shoe setting — the wedge term is common to all
+elements and the per-element delays are differential (min-normalised, or `(max d − d_i)/v_w` when focused).
 
 ---
 
@@ -907,8 +927,8 @@ un-hides through `UT.test.hideKey(code)`.
 
 ### 5.10 F34 — Load Def / Save Def as files
 
-`Save Def` writes a `.json` download (`UT.dom.download(name, text, 'application/json')` using a
-`Blob` + object URL, revoked after the click) named `utsim-defects-<yyyymmdd-hhmm>.json`;
+`Save Def` writes a `.json` download (a `Blob` + object URL offered through one `<a download>` click and
+revoked afterwards — there is no `UT.dom.download`, see F54) named `utsim-defects-<yyyymmdd-hhmm>.json`;
 `Load Def` opens `UT.dom.fileOpen('.json,application/json')` and applies the parsed array through
 `UT.specimens.normaliseDefects`. Both keep the existing `localStorage utsim.defects` behaviour as a
 fallback (a `Browser storage` checkbox in the editor selects it) and the JSON textarea stays for
@@ -1121,9 +1141,12 @@ under it (140 × 140). `UT.test.tofdParallel()` returns `{x0, x1, step, n, peakC
   PCS 60 this lengthens the wedge-zeroed backwall time from the flat-plate 12.22 µs toward the observed
   **10.41 µs** family — the acceptance requirement is only that the pipe time differs from the flat-plate
   time by ≥ 0.15 µs in the correct direction and that the flat-plate numbers (V1 #11, V2-10) are untouched.
-- **Cosmetics.** The plan view draws the pair as **two** 24 × 16 mm green boxes at ±pcs/2 with dotted beam
-  lines between them (superseding SPEC-v2 F4, which stays the fallback when `display.legend` is off), and
-  the cross-section fills the rx wedge with the tx wedge's green.
+- **Cosmetics.** The plan view draws the pair as **two** 24 × 16 mm green boxes at ±pcs/2 joined by a single
+  1 px white dashed hairline along the pair axis (superseding SPEC-v2 F4, which stays the fallback when
+  `display.legend` is off), and the cross-section fills the rx wedge with the tx wedge's green.
+  (v3 integration: an earlier draft said "dotted beam lines", plural. tofd f012 / f020 show one hairline
+  joining the two index points, and that is what 62-view-plan draws — `UT.views.plan.__tofdPair()` reports
+  `{shape:'pair', line:true, …}`.)
 
 #### F45 — Weld condition toggles
 
@@ -1266,7 +1289,11 @@ attention. `UT.test.loadSpecimen('ok-demo')` reaches it headlessly.
 
 `File ▸ Save screen shot (PNG)` composes the visible canvases (`#cv-plan`, `#cv-ruler`, `#cv-cross`,
 `#cv-ascan`, and any open window canvas) into one offscreen canvas at their on-screen positions, divided by
-`UT.dom.scale()`, and downloads it as `utsim-screen-<yyyymmdd-hhmm>.png` via `UT.dom.download`. A note
+`UT.dom.scale()`, and downloads it as `utsim-screen-<yyyymmdd-hhmm>.png` through 90-app's own private
+`downloadUrl(name, url)` helper — a hidden `<a download>` click on an object URL, revoked on the next tick.
+(LEAD CORRECTION, v3 integration: earlier drafts named a `UT.dom.download`; 00-core has never exported one
+— its `dom` keys are `_z _zTop alert button closeTopWindow confirm cssSize field fileOpen fitCanvas h
+injectCss localPos scale win wins` — and the shipped code uses the `<a download>` helper instead.) A note
 under the item reads `You can attach this file to an email and send it to other UTsim users` — the
 original's hint. The existing `Export A-scan PNG` and `Share link…` stay.
 
@@ -1592,8 +1619,10 @@ V1 #1–#14 and V2-1…V2-27 unchanged. Quantities that legitimately change:
   `plot.blockMarks.length === 3` with `x` values 255/262/269 ± 0.5; `UT.views.plotter.erase()` and
   `UT.test.click('tb-clear')` each empty it; a normal probe drag (pointerdown ≥ 20 px below the surface)
   adds no marks and still moves the probe.
-- **V3-36 Freehand lines and caption** (F36): `UT.test.plotDrag([{standoff:0,depth:0},{standoff:20,depth:34.6}])`
-  → `plot.lines.length === 1` with ≥ 2 points, and `UT.test.plotAngle()` returns `60.0` ± 0.3; a click
+- **V3-36 Freehand lines and caption** (F36): `UT.test.plotDrag([{standoff:0,depth:0},{standoff:34.6,depth:20}])`
+  → `plot.lines.length === 1` with ≥ 2 points, and `UT.test.plotAngle()` returns `60.0` ± 0.3 (from-NORMAL
+  per the §6.1 F36 lead correction: `a = |atan2(Δstandoff, Δdepth)|`; the mirrored drag
+  `{standoff:20, depth:34.6}` is a 30° beam and reads `30.0`); a click
   (single point) still appends to `plot.points`; `Erase Plotting` empties both.
 - **V3-37 BS and K captions** (F37): with 3 block marks each side fitting ±7.9° about the beam centre
   line, `UT.test.bs()` returns `{angleDeg: 7.9 ± 0.3, k20, k12, k6}` where `k12/k20` = 0.652 ± 0.005 and

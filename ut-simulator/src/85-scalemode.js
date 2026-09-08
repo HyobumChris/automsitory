@@ -66,8 +66,9 @@
  *     `modes.enter('scale')` (§8's `MODE_OF`) turn the flag on, leaving `scale` for any other mode turns it
  *     off and drops the protractor overlay — and satisfies F53's "with the probe on the K and the
  *     protractor shown" for the `ok-demo` specimen however it was loaded (Help ▸ Demo, the icon, or the
- *     test API). The 'O' of that demo is still off-canvas: the sheet transform's origin is 60's
- *     (`ox = SCALE_GUTTER_PX`, no fit-to-extents), reported as a cross-file fix rather than patched here.
+ *     test API). (v3 integration: an earlier revision of this note said the 'O' of that demo was still
+ *     off-canvas. It is not — 60-view-cross fits the sheet to the specimen extents, so the demo's
+ *     x -98…82 mm land at 28…388 px inside a 798 px #cv-cross. The note is kept only to retire the claim.)
  * 12. QA r3 #2: `scaleMode.outline` is the point list the whole mode is built from, so it is sanitised the
  *     way every other point list in the build is — vertices clamped to ±`COORD_MAX` (2000 mm, the limit
  *     10-specimens clamps defect points to) and thinned to `MAX_OUTLINE_PTS` (400, its MAX_DEFECT_PTS).

@@ -1167,10 +1167,16 @@
     ctx.save();
     ctx.lineCap = 'butt';
     const base = mode === 'none' ? 'rgba(255,255,255,0.55)' : (der && der.colour) || '#ffffff';
+    // F14 equal prominence (§4.2, v3 integration): 30-raytrace tags the SECOND fan's axis ray
+    // `{second:true, centre:true}`. It is the peer of `rays.centre`, so it is kept out of the 1 px dashed
+    // fan pass and stroked at the centre-ray weight — and it survives Single Line, where the fan does not.
+    // Its ±θ20 edge pair already arrives inside `rays.edge20`, so it must NOT be re-stroked here.
+    const axes = (rays.fan || []).filter(function (f) { return f && f.centre; });
     if (!singleLine) {
       ctx.lineWidth = 1;
       ctx.setLineDash([1, 2]);
       for (const f of rays.fan || []) {
+        if (f && f.centre) continue;
         const pts = polylinePts(f);
         if (pts) strokeRay(ctx, sp, pts, skips, mode, base, f.mode || wave);
       }
@@ -1185,6 +1191,13 @@
       if (singleLine) { ctx.setLineDash([]); ctx.lineWidth = 1.5; strokeRay(ctx, sp, cpts, skips, mode, mode === 'none' ? ((der && der.colour) || '#ffffff') : base, wave, true); }
       else if (mode === 'none') { ctx.setLineDash([1, 2]); ctx.lineWidth = 1; strokeRay(ctx, sp, cpts, skips, mode, base, wave, true); }
       else { ctx.setLineDash([]); ctx.lineWidth = 1.5; strokeRay(ctx, sp, cpts, skips, mode, base, wave, true); }
+    }
+    for (const f of axes) {
+      const pts = polylinePts(f);
+      if (!pts) continue;
+      if (!singleLine && mode === 'none') { ctx.setLineDash([1, 2]); ctx.lineWidth = 1; }   // match the primary centre ray
+      else { ctx.setLineDash([]); ctx.lineWidth = 1.5; }
+      strokeRay(ctx, sp, pts, skips, mode, base, f.mode || wave);   // no `record`: the leg-colour legend stays the PRIMARY fan's
     }
     ctx.restore();
   }
@@ -1722,11 +1735,14 @@
     ctx.restore();
   }
 
-  /** F41: the protractor overlay — drawn here only while 85-scalemode does not draw its own. */
+  /**
+   * F41: the protractor overlay. 60 owns every pixel on #cv-cross (SPEC-v3 §1) and 85-scalemode's header
+   * contract states it never exports a drawProtractor, so the delegation arm that used to sit here was
+   * unreachable by contract and was removed (v3 integration, bug 4).
+   */
   function drawProtractor(ctx, st) {
     const pr = st.scaleMode && st.scaleMode.protractor;
     if (!pr) return;
-    if (UT.scalemode && typeof UT.scalemode.drawProtractor === 'function') { try { UT.scalemode.drawProtractor(ctx, st); return; } catch (e) { /* draw ours */ } }
     const R = 60, rot = M.deg2rad(pr.rotDeg || 0);
     const c = toPx(pr.x || 0, pr.y || 0);
     const sc = (S.xf && S.xf.scale) || 4;

@@ -330,6 +330,7 @@
       editing: { defect: false, brush: 'planar',      // cross-section brush active when defect editor open
         // v3
         lof: false,                             // F26: the current stroke is a right-button single-line LOF
+        erase: false,                           // F26: the editor's Erase toggle (left-drag rubs points out)
         autoType: true,                         // F28: infer volumetric vs LOF from the stroke
         spotMm: 5,                              // F29: spot/brush diameter in mm (5…45); replaces the 10–60 px spinner
         returnMode: null,                       // F30: the modal mode to re-enter when the editor closes

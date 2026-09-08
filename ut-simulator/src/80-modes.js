@@ -89,11 +89,10 @@
 //   70-instruments is loaded, #cv-ascan exists and utSet starts with 'epoch' (every EPOCH skin draws the box).
 //   Otherwise the trainee saw the same three lines twice, the second copy parked over the plan view. A skin
 //   change mid-cal re-syncs through the 'state' listener (acSync), so the window is never left orphaned.
-// - F4 post-cal range: the smallest preset of {10,20,50,100,125,250,500} ≥ 1.1 × the deepest path the cal must
-//   display. RECONCILIATION (spec §3.4 states two examples that no single formula fits): a two-multiple cal at ONE
-//   probe position (d2 ≈ 2·d1, source 'specimen') only has to show d2 → 20/40 gives 50.0 as in the video; two
-//   separate standards (the step wedge, or any d2 ≠ 2·d1) have to show the 2nd multiple of the thick one →
-//   10/25 gives 100. Cancelling never touches the range.
+// - F4 post-cal range: implements SPEC-v3 §3.4 verbatim — deepest = d2 for a one-position two-multiple cal
+//   (source ≠ 'step', |d2 − 2·d1| ≤ 0.05·d1), else 2·d2; range = the smallest preset of
+//   {10,20,50,100,125,250,500} ≥ 1.1 · deepest. So 20/40 on a specimen gives 50.0 (the video) and 10/25 gives
+//   100 from either source. Cancelling never touches the range.
 //   QA round 3 — F2 case 3 reads the step wedge's OWN steps (stepPair(): 2nd-thinnest and thickest, so 10/25 on
 //   the default wedge). state.autocal.d1/d2 are NOT consulted there: they carry the previous cal's standards
 //   (20/40 after a 20 mm plate), which prompted for steps the wedge has not got and scaled vel by (d2−d1)/15.
@@ -1002,7 +1001,7 @@
    * v3 F4: the round screen range a successful two-point cal leaves behind — the smallest preset that shows the
    * deepest path the cal had to display, with 10 % headroom. A two-multiple cal at ONE probe position
    * (d2 ≈ 2·d1) only has to show d2 (20/40 → 50.0, the video); two separate standards have to show the thick
-   * one's 2nd multiple (10/25 → 100). See the SPEC NOTES: §3.4's two examples fit no single formula.
+   * one's 2nd multiple (10/25 → 100). This is SPEC-v3 §3.4's rule as written.
    * @param {number} d1 thin standard (mm)
    * @param {number} d2 thick standard (mm)
    * @param {string} [source] 'specimen' | 'step'
@@ -2017,7 +2016,7 @@
       sizeDot(mm);
       UT.setIn('editing', { spotMm: mm }, { noRender: true });
     });
-    ui.jsonArea = dom.h('textarea', { class: 'dfe-json', rows: 4, spellcheck: 'false', placeholder: 'Defect JSON (Save Def writes here; paste here and press Load Def)' });
+    ui.jsonArea = dom.h('textarea', { class: 'dfe-json', rows: 4, spellcheck: 'false', 'aria-label': t('Defect JSON'), placeholder: 'Defect JSON (Save Def writes here; paste here and press Load Def)' });
     ui.jsonArea.style.display = 'none';
     const presetSel = (ui.presetSel = dom.h('select', { class: 'dfe-preset', 'aria-label': 'Defect preset' }, S.defectPresetNames.map(function (p) { return dom.h('option', { value: p.key, dataset: { i18n: p.label } }, t(p.label)); })));
     const left = dom.h('div', { class: 'dfe-left' }, [
@@ -2031,8 +2030,9 @@
         const on = !st().editing.erase;
         UT.setIn('editing', { erase: on }, { noRender: true });
         ui.eraseBtn.classList.toggle('active', on);
+        ui.eraseBtn.setAttribute('aria-pressed', String(on));   // the .active class alone is invisible to assistive tech
         UT.status({ right: on ? 'Eraser: drag over a defect to remove its points' : HINTS.editor });
-      }, { class: 'btn dfe-btn' })),
+      }, { class: 'btn dfe-btn', 'aria-pressed': 'false' })),
       // v3 F34: real files, with the browser-storage / textarea fallbacks kept
       (ui.storeChk = dom.field('Browser storage', { type: 'checkbox', value: false, title: 'Load / Save through localStorage instead of a file' })),
       dom.button('Load Def', function () {

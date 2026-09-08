@@ -1,5 +1,55 @@
 # Changelog — UTsim (UTman-style ultrasonic weld testing simulator)
 
+## v3 — 2026-09-08
+
+The 17 original UTman videos were treated as the functional specification. A per-video audit inventoried **274
+demonstrated features** (220 already working, 37 partial, 17 missing) and 111 fidelity gaps; `SPEC-v3.md` turned them
+into features F1–F59 with acceptance checks V3-1…V3-64. All 112 checks (14 v1 + 34 v2 + 64 v3) pass.
+
+### Instrument and calibration
+- Instrument OFF blanks the trace without closing the window; UnCalibrate, EPOCH record deletion, Always Show UT Controls.
+- Auto-calibration runs on the **current specimen** (1st and 2nd backwall at one probe position), not a forced step
+  wedge, with the thickness values typed or arrowed **on the LCD** ('ENTER VALUE FOR THIN/THICK STANDARD') and the
+  range re-set to a round value afterwards.
+- Range-preset softkeys, Trig Diameter, Gate Status, F-key flash, LTC skin, key-function hints echoed into the status
+  bar; USK 7 chrome with float/dock; hand-drawn DAC mode.
+- 'Turn Probe' on the V1/V2 oblique screens; the V2 wide face with its 5 mm hole and 5° graduations; ASME / A5 block
+  chooser; descending 20→8 mm step-wedge preset.
+
+### Probe, beam and echoes
+- The probe turns round when dragged across the weld (Pos shown unsigned); both wave modes are drawn below the first
+  critical angle; the original's wording and leg colours; 'Normal 0°' status with range rescale.
+- Fractional skips and 'Run to UT Screen Range'; twin-crystal near-surface boost at 0°; Through Transmission with a
+  receiver moved by Shift+arrows; the mirrored (virtual) probe image; phased-array shoe stand-off and height.
+- **Preset defects now land under the parked probe** (they were centred half a circumference away on pipes, which is
+  the whole of the reported "pipes give no corner echo"); the toe-crack preset is near-vertical so the taught
+  full-skip corner exercise works. Neither needed a ray-tracer change — verified by measurement.
+- Echo-driven `Depth =` status cell.
+
+### Defect editor
+- The verbatim STEP 1–5 instructions dialog; right-drag draws a single-line LOF (erase moves to Alt/Ctrl+right-drag);
+  keyboard manipulation (Shift+arrows move, Z/X rotate, A/S resize); stroke auto-classification with the
+  'LACK OF FUSION  Defect Angle …  Height=…  Top=…' caption; the blue relocatable draw-region box; depth colour-coding
+  in all three renderers; the HIDE key-code lock; Load Def / Save Def as real files.
+
+### Plotter, Scale Mode, views and teaching aids
+- Draw-on-block 10 % beam-edge marks; freehand beam-spread lines with a live 'NN.N degree' caption; the computed
+  'angle BS = 7.9°' and '20dB K=1.08  12dB K=0.704' captions; PLOT as an overlay on the **current weld**; the movable
+  ruler, green dots and angle hook.
+- **Scale Mode** (new `85-scalemode.js`): import a picture from a local file, calibrate mm per pixel, trace the
+  boundary into a polygon specimen the tracer scans, drop a protractor, and stamp skip-distance graduations.
+- **Instructor annotation toolkit** (new `86-annotate.js`): Shift+F12 (or Ctrl+Shift+D) full-window drawing — left
+  button red, right blue — a Tools ▸ Draw palette, and a pointer torch.
+- TOFD gains the labelled 'Parallel Scan' strip beside 'Non-Parallel Scan', an A-scan OFF button and pipe-curvature
+  times; TKY gains a genuinely curved chord and the complete pipe ring; the plan view gains the original's dial
+  position, datum and flank rulers; the 3D pipe shows defect bands at their z extent.
+- **Weld condition toggles**: root corrosion (a bumpy, echoing root), rough surface (transfer loss + grass),
+  misalignment (a stepped joint with its corner echoes) and pipe wall-thickness variation (a backwall that walks).
+- AccRej button, 'OK' demo splash, Save screen shot, Scale Mode and About promoted to the menu bar.
+
+### Engineering
+- 22 modules; `tools/acceptance.mjs` now runs 112 checks; the Korean dictionary covers every new surface.
+
 ## v2 — 2026-09-06
 
 Programme defined in `SPEC-v2.md` (79 expert-critique findings applied before implementation). Sixteen modules were

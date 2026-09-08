@@ -394,6 +394,11 @@
     if (!probe.angle && probe.method !== 'pa') return out;                 // 0°: the beam goes straight down
     if (state.mode === 'tofd') return out;
     const c = Number.isFinite(weld.capCentre) ? weld.capCentre : 0;
+    // Degenerate overlap (v3 integration, QA bug 3): with the probe straddling the weld centreline the ghost
+    // lands on top of the real symbol. 60-view-cross's mirrorProbeInfo() has always suppressed it there, and
+    // the two views MUST agree about when the ghost exists — same datum, same half-shoe (24 mm default).
+    const der = (frame && frame.derived) || (UT.frame && UT.frame.derived);
+    if (Math.abs(probe.x - c) < ((der && der.shoeWidth) || 24) / 2) return out;
     const dir = planDir(probe.side, probe.skew || 0);
     const xEnd = probe.x + dir.x * footprintLength(frame, state);
     if ((probe.x - c) * (xEnd - c) > 1e-9) return out;                     // the beam never crosses the weld
