@@ -115,6 +115,10 @@
   // - F26: a plain right-drag while the editor is open collects a stroke and emits
   //   {pts, erase:false, lof:true}; Alt/Ctrl + right-drag erases. `contextmenu` is preventDefault()ed on
   //   #cv-cross ONLY while the editor is open, so the browser menu works everywhere else.
+  //   The editor's Erase TOGGLE is the state field `editing.erase` (what 80-modes writes and 00-core
+  //   declares) — a left-drag with it on erases exactly as Alt/Ctrl + right-drag does. `editing.eraser`
+  //   is NOT part of the contract and is never read; `editing.brush === 'eraser'` stays accepted as the
+  //   brush-palette spelling of the same tool.
   // - F31: the blue box is enforced only when the specimen has a weld or display.drawRegion is set (a bare
   //   block keeps the v1/v2 free-draw behaviour). A press within 4 px of its border drags the box (clamped
   //   to the specimen extents); a press outside it is refused with the status hint and starts no stroke.
@@ -2403,7 +2407,7 @@
       const type = (st.editing && st.editing.brush) || 'planar';
       // F26: right-drag draws a single-line LOF; Alt/Ctrl + right-drag (or the Eraser tool) erases
       const mod = !!(ev.altKey || ev.ctrlKey || ev.metaKey);
-      const eraserTool = !!(st.editing && (st.editing.eraser === true || st.editing.brush === 'eraser'));
+      const eraserTool = !!(st.editing && (st.editing.erase === true || st.editing.brush === 'eraser'));
       const erase = (button === 2 && mod) || (button === 0 && eraserTool);
       const lof = button === 2 && !mod;
       S.stroke = { pts: [mm], erase, lof, planar: lof || isPlanarType(type) };
@@ -2712,7 +2716,7 @@
     }
     const button = o.button === undefined ? 0 : o.button;
     const mod = !!(o.alt || o.ctrl || o.meta);
-    const eraserTool = !!(st.editing && (st.editing.eraser === true || st.editing.brush === 'eraser'));
+    const eraserTool = !!(st.editing && (st.editing.erase === true || st.editing.brush === 'eraser'));
     const erase = o.erase !== undefined ? !!o.erase : ((button === 2 && mod) || (button === 0 && eraserTool));
     const lof = o.lof !== undefined ? !!o.lof : (button === 2 && !mod);
     const type = (st.editing && st.editing.brush) || 'planar';

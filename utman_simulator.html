@@ -1340,15 +1340,15 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
  *     (a T-joint needs somewhere to put its brace); the drawable width is the 300 mm cross-section box.
  *  9. F10 (revised, QA round 3): the spec's `{x: 25, y: 12.5}` — "25 mm from the left end, 12.5 mm down" —
  *     put the 5 mm hole straight under the PARKED probe (defaultProbe.x = 60 = the radius centre). Every leg
- *     of the R25/R50 walk radiates from (60, 0), so SPEC NOTE 20's beam-band shadow in 30-raytrace clipped
- *     the taught multiples by 5.3/10.3/13.4 dB and the 4th multiple F10 exists to expose fell to 3.7 %FSH at
- *     40 dB (§9.0 allows no such move). The hole is therefore offset ALONG the surface to (102, 4), 84.7°
- *     off vertical from the centre, clear of the 35…75° walk. At 45°, x = 60, range 250, fan 21 (hole vs no
- *     hole): +1 0.8969/0.3202/0.1391/0.0594 vs …/0.0669, −1 0.7437/0.2704/0.1228/0.0541 vs …/0.0602 — 2nd
- *     and 3rd exact, 1.0 dB of scatter on the 4th (15.7 %FSH at 40 dB), the honest price of a hole in the
- *     block. The prose's other reading, the radius centre (60, 0), is the one point the shadow cannot touch
- *     (0.65 dB) but 60-view-cross then draws the disc HALF OUTSIDE the block under the probe shoe. (102, 4)
- *     stays reachable for the angle check of lessons 6/19 (x + y·tan 60° = 108.9 < scanSurface.xMax 110).
+ *     of the R25/R50 walk radiates from (60, 0), so NOTE 20's beam-band shadow in 30-raytrace clipped the
+ *     taught multiples by 5.3/10.3/13.4 dB and the 4th multiple F10 exists to expose fell to 3.7 %FSH at
+ *     40 dB (§9.0 allows no such move). It is therefore offset ALONG the surface to (102, 4), 84.7° off
+ *     vertical from the centre and clear of the 35…75° walk: at 45°, x 60, range 250, fan 21 the multiples
+ *     read +1 0.8969/0.3202/0.1391/0.0594 and −1 0.7437/0.2704/0.1228/0.0541 against 0.0669 / 0.0602 with
+ *     no hole at all — 2nd and 3rd exact, 1.0 dB of scatter on the 4th (15.7 %FSH). The prose's other
+ *     reading, the radius centre (60, 0), is the one point the shadow cannot touch (0.65 dB) but 60-view-
+ *     cross then draws the disc HALF OUTSIDE the block under the probe shoe. (102, 4) stays reachable for
+ *     the angle check of lessons 6/19 (x + y·tan 60° = 108.9 < scanSurface.xMax 110).
  * 10. F53 registers BOTH ids the spec uses: build('okDemo') (§6.5) and build('ok-demo') (§8's MODE_OF and
  *     V3-53's loadSpecimen); spec.id is 'ok-demo'.
  */
@@ -2469,11 +2469,11 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   /**
    * v3 F22 (QA round 3): the two points of a surface-breaking crack whose mouth sits ON the scanning surface
    * at `x0` and runs `h` mm along the INWARD normal, i.e. perpendicular to the face it breaks. Flat surfaces
-   * are untouched — `scanSurfaceAt` gives y = 0 with the normal (0, 1), so the result is the plane-vertical
-   * [{x0, 0}, {x0, h}] bit for bit (the lead's 0.3882 amp / 56.57 mm path is preserved). On
-   * F46's curved chord (the app's TKY default, chordOd 600) the mouth moves onto the real arc and the crack
-   * tilts with it: plane-vertical there threw 7.9 dB of the toe-corner echo away (a face tilted α out of the
-   * right angle rotates the return by 2α) and floated the "crack" 0.135 mm above its own surface.
+   * are untouched — `scanSurfaceAt` gives y = 0 and the normal (0, 1), so the result is the plane-vertical
+   * [{x0, 0}, {x0, h}] bit for bit (the lead's 0.3882 amp / 56.57 mm path is preserved). On F46's curved
+   * chord (the app's TKY default) the mouth moves onto the real arc and the crack tilts with it: plane-
+   * vertical there floated the "crack" 0.135 mm above its own surface and, because a face tilted α out of a
+   * right angle rotates the return by 2α, threw 7.9 dB of the toe-corner echo away.
    * @param {object} spec specimen (a spec without a scanning surface keeps the vertical crack)
    * @param {number} x0 mouth position along the scanning surface (mm; arc length on a curved surface)
    * @param {number} side probe/weld side (±1) — resolves the surface on multi-face specimens
@@ -13050,6 +13050,10 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   // - F26: a plain right-drag while the editor is open collects a stroke and emits
   //   {pts, erase:false, lof:true}; Alt/Ctrl + right-drag erases. `contextmenu` is preventDefault()ed on
   //   #cv-cross ONLY while the editor is open, so the browser menu works everywhere else.
+  //   The editor's Erase TOGGLE is the state field `editing.erase` (what 80-modes writes and 00-core
+  //   declares) — a left-drag with it on erases exactly as Alt/Ctrl + right-drag does. `editing.eraser`
+  //   is NOT part of the contract and is never read; `editing.brush === 'eraser'` stays accepted as the
+  //   brush-palette spelling of the same tool.
   // - F31: the blue box is enforced only when the specimen has a weld or display.drawRegion is set (a bare
   //   block keeps the v1/v2 free-draw behaviour). A press within 4 px of its border drags the box (clamped
   //   to the specimen extents); a press outside it is refused with the status hint and starts no stroke.
@@ -15338,7 +15342,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       const type = (st.editing && st.editing.brush) || 'planar';
       // F26: right-drag draws a single-line LOF; Alt/Ctrl + right-drag (or the Eraser tool) erases
       const mod = !!(ev.altKey || ev.ctrlKey || ev.metaKey);
-      const eraserTool = !!(st.editing && (st.editing.eraser === true || st.editing.brush === 'eraser'));
+      const eraserTool = !!(st.editing && (st.editing.erase === true || st.editing.brush === 'eraser'));
       const erase = (button === 2 && mod) || (button === 0 && eraserTool);
       const lof = button === 2 && !mod;
       S.stroke = { pts: [mm], erase, lof, planar: lof || isPlanarType(type) };
@@ -15647,7 +15651,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     }
     const button = o.button === undefined ? 0 : o.button;
     const mod = !!(o.alt || o.ctrl || o.meta);
-    const eraserTool = !!(st.editing && (st.editing.eraser === true || st.editing.brush === 'eraser'));
+    const eraserTool = !!(st.editing && (st.editing.erase === true || st.editing.brush === 'eraser'));
     const erase = o.erase !== undefined ? !!o.erase : ((button === 2 && mod) || (button === 0 && eraserTool));
     const lof = o.lof !== undefined ? !!o.lof : (button === 2 && !mod);
     const type = (st.editing && st.editing.brush) || 'planar';
@@ -22758,6 +22762,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     const sel = inst().selectedParam;
     // v3 QA r3: while the CAL page is up the five slots ARE the five F keys — no gate thumbnail between them
     const wiz = !!calStage();
+    col.classList.toggle('cal', wiz);   // lay the five rows out ON the physical F keys (CSS `.e6-soft.cal`)
     const iconRow = function () { return h('div', { class: 'e6-icon' }, [miniIcon(), h('span', { class: 'e6-icon1 no-i18n' }, '1'), h('div', { class: 'e6-legs no-i18n' }, mem.refs.legs)]); };
     items.forEach(function (it, idx) {
       if (it.kind === 'blank') { col.appendChild(h('div', { class: 'e6-sk blank' })); return; }
@@ -23984,6 +23989,11 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     '.e6-sk.hdr{background:#1d1f1d;color:#f0c020;}',
     '.e6-sk.sub{background:#343634;}',
     '.e6-sk.blank{background:#2b2d2b;cursor:default;}',
+    /* v3 QA r3 — the F3 CAL page is drawn ON the hardware keys: the F stack starts 72 px below the skin's content
+       top (.e6-right padding 26 + .ik-next 30 + gap 6 + .e6-fkeys margin 10) and the softkey column starts at 41
+       (.e6-top 20 + gap 3 + .e6-screen border 2 + .e6-hdr 16), so key n is centred 43 + 32n px into the column. */
+    '.e6-soft.cal{padding-top:31px;}',
+    '.skin-epoch600 .e6-soft.cal .e6-sk{flex:0 0 24px;height:24px;min-height:0;margin-bottom:8px;border-bottom:0;}',   /* out-ranks the .touch min-height */
     '.e6-skl{font-size:9px;font-weight:bold;white-space:nowrap;}',
     '.e6-skv{font-size:8px;white-space:nowrap;}',
     '.e6-skv.ref{font-size:6.5px;letter-spacing:-0.2px;}',
@@ -24077,6 +24087,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     '.skin-epoch600.touch .e6-screen{height:300px;}',
     '.skin-epoch600.touch .e6-soft{width:64px;flex-basis:64px;}',
     '.skin-epoch600.touch .e6-sk{min-height:26px;}',
+    /* the touch F stack is taller (.ik-next 36 + .ik-f 30, pitch 38) — keep the CAL rows on the keys */
+    '.skin-epoch600.touch .e6-soft.cal{padding-top:37px;}',
+    '.skin-epoch600.touch .e6-soft.cal .e6-sk{flex:0 0 30px;height:30px;margin-bottom:8px;}',
     '.skin-epoch600.touch .e6-icon{height:30px;}',
     '.skin-epoch600.touch .e6-skl{font-size:10px;}.skin-epoch600.touch .e6-skv{font-size:9px;}',
     '.skin-epoch600.touch .e6-bottom{height:26px;}',

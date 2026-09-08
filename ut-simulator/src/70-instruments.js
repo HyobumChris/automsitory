@@ -1124,6 +1124,7 @@
     const sel = inst().selectedParam;
     // v3 QA r3: while the CAL page is up the five slots ARE the five F keys — no gate thumbnail between them
     const wiz = !!calStage();
+    col.classList.toggle('cal', wiz);   // lay the five rows out ON the physical F keys (CSS `.e6-soft.cal`)
     const iconRow = function () { return h('div', { class: 'e6-icon' }, [miniIcon(), h('span', { class: 'e6-icon1 no-i18n' }, '1'), h('div', { class: 'e6-legs no-i18n' }, mem.refs.legs)]); };
     items.forEach(function (it, idx) {
       if (it.kind === 'blank') { col.appendChild(h('div', { class: 'e6-sk blank' })); return; }
@@ -2350,6 +2351,11 @@
     '.e6-sk.hdr{background:#1d1f1d;color:#f0c020;}',
     '.e6-sk.sub{background:#343634;}',
     '.e6-sk.blank{background:#2b2d2b;cursor:default;}',
+    /* v3 QA r3 — the F3 CAL page is drawn ON the hardware keys: the F stack starts 72 px below the skin's content
+       top (.e6-right padding 26 + .ik-next 30 + gap 6 + .e6-fkeys margin 10) and the softkey column starts at 41
+       (.e6-top 20 + gap 3 + .e6-screen border 2 + .e6-hdr 16), so key n is centred 43 + 32n px into the column. */
+    '.e6-soft.cal{padding-top:31px;}',
+    '.skin-epoch600 .e6-soft.cal .e6-sk{flex:0 0 24px;height:24px;min-height:0;margin-bottom:8px;border-bottom:0;}',   /* out-ranks the .touch min-height */
     '.e6-skl{font-size:9px;font-weight:bold;white-space:nowrap;}',
     '.e6-skv{font-size:8px;white-space:nowrap;}',
     '.e6-skv.ref{font-size:6.5px;letter-spacing:-0.2px;}',
@@ -2443,6 +2449,9 @@
     '.skin-epoch600.touch .e6-screen{height:300px;}',
     '.skin-epoch600.touch .e6-soft{width:64px;flex-basis:64px;}',
     '.skin-epoch600.touch .e6-sk{min-height:26px;}',
+    /* the touch F stack is taller (.ik-next 36 + .ik-f 30, pitch 38) — keep the CAL rows on the keys */
+    '.skin-epoch600.touch .e6-soft.cal{padding-top:37px;}',
+    '.skin-epoch600.touch .e6-soft.cal .e6-sk{flex:0 0 30px;height:30px;margin-bottom:8px;}',
     '.skin-epoch600.touch .e6-icon{height:30px;}',
     '.skin-epoch600.touch .e6-skl{font-size:10px;}.skin-epoch600.touch .e6-skv{font-size:9px;}',
     '.skin-epoch600.touch .e6-bottom{height:26px;}',
