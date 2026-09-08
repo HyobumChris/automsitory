@@ -35,6 +35,15 @@
 //   swap openKeys() over to them at any time (step 2, its own file) and the shared keys stay valid meanwhile. The rows that
 //   quote the original UTman wording verbatim (F19 receiver move, F27 editor F1 sheet, F51 teaching aid) keep their shared
 //   keys on purpose — the same sentence is shown by the ttinfo dialogs, and §3–§6 require the original wording there.
+//   Those twelve rows (8 rephrased + 4 verbatim) are every Keyboard Shortcuts row whose description reuses a key another
+//   surface also shows; step 1 is therefore complete on the dictionary side.
+// - v3 QA r3 (round 3 re-check): step 2 (openKeys() swapping to the purpose-written keys) lives in 90-app.js and is NOT
+//   mine to make, so this file only widens the safety net: the dictionary now also carries 'Turn the finger damping tool
+//   on or off' (D toggles, it does not merely open, so an accurate rewrite would say so), 'Select the 0° / 45° / 60° / 70°
+//   probe' and 'Hide or show the defects and the beam' (the two remaining label-shaped rows, unique to openKeys()).
+//   Every one of these is ADDITIVE — no existing key was renamed or removed — so 90-app can adopt any of them, one row
+//   at a time, and V2-18 / V3-64 stay green at every intermediate state. Until it does, they are dictionary entries with
+//   no live twin, which untranslated() never inspects (it walks the DOM, not the table).
 // - v3 QA r3: the dictionary entry 'Close the USK 7 window' was dropped — no source string carries it any more (70's OFF
 //   key falls back to TIPS.ON, 'Switch the set on / off (the trace is blanked while it is off)'). Its live twin
 //   'Re-open the USK 7 window' ('Show USK 7') stays.
@@ -170,9 +179,13 @@
     'Peak memory — hold the envelope of the maximum echo height': '피크 메모리 — 최대 에코 높이 포락선 유지',
     'Show or hide the beam': '빔 표시 켜기 / 끄기',
     'Open the finger damping tool': '손가락 감쇠 도구 열기',
+    'Turn the finger damping tool on or off': '손가락 감쇠 도구 켜기 / 끄기',
     'Open the Scale Mode menu': '축척 모드 메뉴 열기',
     'Open the About menu': '정보 메뉴 열기',
     'Delete the selected defect': '선택한 결함 삭제',
+    // the same treatment for the two label-shaped rows that are NOT shared with another surface
+    'Select the 0° / 45° / 60° / 70° probe': '0° / 45° / 60° / 70° 탐촉자 선택',
+    'Hide or show the defects and the beam': '결함과 빔 숨기기 / 표시',
     // options window (90)
     'Auto trig (angle/thickness follow probe)': '자동 삼각 계산 (각도/두께가 탐촉자를 따름)', 'Colour code': '색상 코드', 'Number of skips': '스킵 수', 'Show 3D window': '3D 창 표시', 'Show beam': '빔 표시',
     'Show converted rays': '모드 변환 광선 표시', 'Show legend': '범례 표시', 'Show plan view': '평면도 표시', 'Language / 언어': '언어 / Language', 'EPOCH 4 (ASME text screen)': 'EPOCH 4 (ASME 텍스트 화면)',
