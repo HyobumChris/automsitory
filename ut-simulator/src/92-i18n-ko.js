@@ -27,6 +27,17 @@
 //   'Beam spread half angle BS = {bs}°' (66-view-plotter draws them on the canvas, so untranslated() cannot see
 //   them) and the F29 defect-editor caption '{p}  Defect Num {n}, DRAW DEFECT ON CROSS SECTION BELOW'; all three
 //   are added below. Latin card/product tokens (BS, VOL / LOF via {p}) stay Latin per the note above.
+// - v3 QA r3 / Keyboard Shortcuts: 90-app's openKeys() builds the description column out of keys the dictionary already
+//   carries for other surfaces, so every row is translated today (V2-18 / V3-64 green). Eight of those keys are BUTTON or
+//   MENU labels ('Freeze', 'Peak memory', 'Beam on/off', 'Finger damping tool', 'Range 50 → 100 → 200 → 400 mm',
+//   'Scale Mode', 'About', 'Delete'), which read as names rather than as descriptions of what the key does. Purpose-written
+//   English keys + Korean wordings for exactly those eight are registered above (step 1 of a two-step change); 90-app may
+//   swap openKeys() over to them at any time (step 2, its own file) and the shared keys stay valid meanwhile. The rows that
+//   quote the original UTman wording verbatim (F19 receiver move, F27 editor F1 sheet, F51 teaching aid) keep their shared
+//   keys on purpose — the same sentence is shown by the ttinfo dialogs, and §3–§6 require the original wording there.
+// - v3 QA r3: the dictionary entry 'Close the USK 7 window' was dropped — no source string carries it any more (70's OFF
+//   key falls back to TIPS.ON, 'Switch the set on / off (the trace is blanked while it is off)'). Its live twin
+//   'Re-open the USK 7 window' ('Show USK 7') stays.
 // - untranslated(): exemptions exactly per §5.3.4 — the two short-token regexes, the product-name set (whole key equals
 //   a product name, or the key is made only of product names / digits / punctuation), `.no-i18n` subtrees,
 //   `#statusbar .sb-left`, and probe library `name` strings (UT.probe.library[].name / label). Returns [] when lang != 'ko'.
@@ -149,6 +160,19 @@
     'Hide defects & beam': '결함과 빔 숨기기', 'Probe 0° / 45° / 60° / 70°': '탐촉자 0° / 45° / 60° / 70°', 'Close the top window, menu or tour': '맨 위 창, 메뉴 또는 둘러보기 닫기',
     'Open the menu bar (arrows navigate, Enter activates)': '메뉴 바 열기 (화살표로 이동, Enter로 실행)', 'Open the File / Probes / Step Wedge / Weld / Defects / Tools / Options / Help menu': '파일 / 탐촉자 / 스텝 웨지 / 용접부 / 결함 / 도구 / 옵션 / 도움말 메뉴 열기',
     'Adjust the selected instrument parameter': '선택한 탐상기 파라미터 조정', 'Over the cross-section: gain ±1 dB; over the instrument: selected parameter': '단면도 위: 게인 ±1 dB; 탐상기 위: 선택한 파라미터',
+    // v3 QA r3 — purpose-written wordings for the Keyboard Shortcuts rows whose description column currently reuses a
+    // BUTTON / MENU label ('Freeze', 'Peak memory', 'Beam on/off', 'Finger damping tool', 'Range 50 → …', 'Scale Mode',
+    // 'About', 'Delete'). Registered first so 90-app's openKeys() can switch to these keys without ever passing through a
+    // state where V2-18 / V3-64 see an untranslated key; the shared keys above stay in place either way (see SPEC NOTES).
+    // The rows that quote the original verbatim (F19 receiver, F27 editor, F51 teaching aid) are NOT rephrased.
+    'Cycle the range 50 → 100 → 200 → 400 mm': '측정 범위를 50 → 100 → 200 → 400 mm로 순환',
+    'Freeze the A-scan (press F again to release it)': 'A-스캔 프리즈 (F를 다시 누르면 해제)',
+    'Peak memory — hold the envelope of the maximum echo height': '피크 메모리 — 최대 에코 높이 포락선 유지',
+    'Show or hide the beam': '빔 표시 켜기 / 끄기',
+    'Open the finger damping tool': '손가락 감쇠 도구 열기',
+    'Open the Scale Mode menu': '축척 모드 메뉴 열기',
+    'Open the About menu': '정보 메뉴 열기',
+    'Delete the selected defect': '선택한 결함 삭제',
     // options window (90)
     'Auto trig (angle/thickness follow probe)': '자동 삼각 계산 (각도/두께가 탐촉자를 따름)', 'Colour code': '색상 코드', 'Number of skips': '스킵 수', 'Show 3D window': '3D 창 표시', 'Show beam': '빔 표시',
     'Show converted rays': '모드 변환 광선 표시', 'Show legend': '범례 표시', 'Show plan view': '평면도 표시', 'Language / 언어': '언어 / Language', 'EPOCH 4 (ASME text screen)': 'EPOCH 4 (ASME 텍스트 화면)',
@@ -760,7 +784,6 @@
     'Option (no function)': '옵션 (기능 없음)',
     'ID (no function)': 'ID (기능 없음)',
     'Erase the DAC curve': 'DAC 곡선 지우기',
-    'Close the USK 7 window': 'USK 7 창 닫기',
     'Re-open the USK 7 window': 'USK 7 창 다시 열기',
     'Turn {k} down': '{k} 낮추기',
     'Turn {k} up': '{k} 높이기',

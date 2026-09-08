@@ -144,6 +144,20 @@
 //   CARBON: calibrateK() now names material 'carbon' on its DAC block, so selecting 'carbon-utman'
 //   before the first (lazy) calibration cannot move the 80 %-at-34 dB reference. That was already the
 //   default; making it explicit is what keeps F59's "zero effect on the default numbers" true.
+// - v3 QA round 3 (leg budget, cosmetic — no behaviour change): the `maxLegs` that traceOpts() passes for
+//   an angle beam is `display.skips`, and computeSscan()'s preview cap is min(2, display.skips) — both are
+//   SKIP counts sitting in a leg-count slot, the naming mismatch 30-raytrace's SPEC NOTES 41/42 describe.
+//   It is left as it is on purpose: 30-raytrace lifts `opts.maxLegs` to its own legBudget(display, …).legs
+//   unconditionally at the point of use, and that lift only ever RAISES a cap, so the menu's ladder reaches
+//   the screen while the two budgets that are genuinely leg counts here — the 0° multiples law
+//   (max(12, ceil(2·maxPath/T) + 2), capped at MAX_LEGS_0DEG) and the flat 12 for calibration blocks — keep
+//   winning, being larger. Translating the skip counts into legs here would mean copying 30's MENU_SKIPS
+//   ladder into this file for numbers 30 already computes; the fix, if the duplication is ever wanted,
+//   belongs in 30's API (a named `display`-derived budget), not in a second ladder. Measured after the
+//   round-3 sweep: V3-63 stays inside budget (5.70 / 4.50 / 28 / 1.80 ms) and the suite is 112/112.
+//   SPEC-v3 §9.0's `tb-clear` ruling likewise stands as written and the code agrees (plot.ruler.on false,
+//   plot.overlay false, lines/blockMarks emptied, plot.ruler itself surviving as an object) — 40 owns no
+//   part of that clear, and nothing here needed changing for it.
 (function (UT) {
   'use strict';
   const M = UT.math;
@@ -800,6 +814,8 @@
     const display = (state && state.display) || {};
     const maxPath = (inst.delay || 0) + (inst.range || 100);
     const zero = (probe.angle || 0) === 0;
+    // NB: for an angle beam this hands 30-raytrace a SKIP count in a leg-count slot; its unconditional
+    // lift to legBudget(display, …).legs corrects it at the point of use (SPEC NOTES above, 30's 41/42).
     let maxLegs = (zero || (spec && spec.kind === 'block')) ? 12 : (display.skips || 3);
     if (zero && spec) {
       // 0°: let the backwall multiples run to the end of the range (bottom + top = 2 legs per echo)
@@ -914,6 +930,7 @@
     for (const a of angles) {
       const p = Object.assign({}, probe, { angle: a, method: 'pe', mode: 'shear' });
       const d = UT.probe.derive(p, spec);
+      // preview cap: also a skip count in a leg slot, lifted by 30-raytrace with everything else
       const opts = Object.assign({}, base, { maxPath: (inst.delay || 0) + (inst.range || 100), fanCount: 5, maxLegs: Math.min(2, state.display.skips || 2) });
       const rays = spec ? safeTrace({ specimen: spec, probe: p, derived: d, display, defects, opts }) : null;
       columns.push({ angle: a, echoes: mapEchoes(rays, inst, d, thicknessFor(spec, probe)) });
