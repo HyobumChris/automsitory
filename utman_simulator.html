@@ -735,6 +735,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       editing: { defect: false, brush: 'planar',      // cross-section brush active when defect editor open
         // v3
         lof: false,                             // F26: the current stroke is a right-button single-line LOF
+        erase: false,                           // F26: the editor's Erase toggle (left-drag rubs points out)
         autoType: true,                         // F28: infer volumetric vs LOF from the stroke
         spotMm: 5,                              // F29: spot/brush diameter in mm (5…45); replaces the 10–60 px spinner
         returnMode: null,                       // F30: the modal mode to re-enter when the editor closes
@@ -14119,10 +14120,16 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     ctx.save();
     ctx.lineCap = 'butt';
     const base = mode === 'none' ? 'rgba(255,255,255,0.55)' : (der && der.colour) || '#ffffff';
+    // F14 equal prominence (§4.2, v3 integration): 30-raytrace tags the SECOND fan's axis ray
+    // `{second:true, centre:true}`. It is the peer of `rays.centre`, so it is kept out of the 1 px dashed
+    // fan pass and stroked at the centre-ray weight — and it survives Single Line, where the fan does not.
+    // Its ±θ20 edge pair already arrives inside `rays.edge20`, so it must NOT be re-stroked here.
+    const axes = (rays.fan || []).filter(function (f) { return f && f.centre; });
     if (!singleLine) {
       ctx.lineWidth = 1;
       ctx.setLineDash([1, 2]);
       for (const f of rays.fan || []) {
+        if (f && f.centre) continue;
         const pts = polylinePts(f);
         if (pts) strokeRay(ctx, sp, pts, skips, mode, base, f.mode || wave);
       }
@@ -14137,6 +14144,13 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       if (singleLine) { ctx.setLineDash([]); ctx.lineWidth = 1.5; strokeRay(ctx, sp, cpts, skips, mode, mode === 'none' ? ((der && der.colour) || '#ffffff') : base, wave, true); }
       else if (mode === 'none') { ctx.setLineDash([1, 2]); ctx.lineWidth = 1; strokeRay(ctx, sp, cpts, skips, mode, base, wave, true); }
       else { ctx.setLineDash([]); ctx.lineWidth = 1.5; strokeRay(ctx, sp, cpts, skips, mode, base, wave, true); }
+    }
+    for (const f of axes) {
+      const pts = polylinePts(f);
+      if (!pts) continue;
+      if (!singleLine && mode === 'none') { ctx.setLineDash([1, 2]); ctx.lineWidth = 1; }   // match the primary centre ray
+      else { ctx.setLineDash([]); ctx.lineWidth = 1.5; }
+      strokeRay(ctx, sp, pts, skips, mode, base, f.mode || wave);   // no `record`: the leg-colour legend stays the PRIMARY fan's
     }
     ctx.restore();
   }
@@ -14674,11 +14688,14 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     ctx.restore();
   }
 
-  /** F41: the protractor overlay — drawn here only while 85-scalemode does not draw its own. */
+  /**
+   * F41: the protractor overlay. 60 owns every pixel on #cv-cross (SPEC-v3 §1) and 85-scalemode's header
+   * contract states it never exports a drawProtractor, so the delegation arm that used to sit here was
+   * unreachable by contract and was removed (v3 integration, bug 4).
+   */
   function drawProtractor(ctx, st) {
     const pr = st.scaleMode && st.scaleMode.protractor;
     if (!pr) return;
-    if (UT.scalemode && typeof UT.scalemode.drawProtractor === 'function') { try { UT.scalemode.drawProtractor(ctx, st); return; } catch (e) { /* draw ours */ } }
     const R = 60, rot = M.deg2rad(pr.rotDeg || 0);
     const c = toPx(pr.x || 0, pr.y || 0);
     const sc = (S.xf && S.xf.scale) || 4;
@@ -16271,6 +16288,11 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     if (!probe.angle && probe.method !== 'pa') return out;                 // 0°: the beam goes straight down
     if (state.mode === 'tofd') return out;
     const c = Number.isFinite(weld.capCentre) ? weld.capCentre : 0;
+    // Degenerate overlap (v3 integration, QA bug 3): with the probe straddling the weld centreline the ghost
+    // lands on top of the real symbol. 60-view-cross's mirrorProbeInfo() has always suppressed it there, and
+    // the two views MUST agree about when the ghost exists — same datum, same half-shoe (24 mm default).
+    const der = (frame && frame.derived) || (UT.frame && UT.frame.derived);
+    if (Math.abs(probe.x - c) < ((der && der.shoeWidth) || 24) / 2) return out;
     const dir = planDir(probe.side, probe.skew || 0);
     const xEnd = probe.x + dir.x * footprintLength(frame, state);
     if ((probe.x - c) * (xEnd - c) > 1e-9) return out;                     // the beam never crosses the weld
@@ -22916,11 +22938,11 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       h('table', { class: 'e4-gates' }, [h('tr', {}, ['Gate', 'Start', 'Width', 'Level', 'Alarm'].map(function (t) { return h('th', {}, t); }))].concat(gateRows)),
       // F5: the row carries the gate softkeys, or the quick-range presets `10.0mm … 100.0mm` of f028 while `range` is selected
       h('div', { class: 'e4-soft' }, [
-        h('span', { class: 'e4-sk', dataset: { sk: 'START' }, onclick: function () { mem.focused = true; if (rangeRow(0)) return; selectParam('g' + (inst().activeGate + 1) + 'start'); } }, '1-START'),
-        h('span', { class: 'e4-sk', dataset: { sk: 'WIDTH' }, onclick: function () { mem.focused = true; if (rangeRow(1)) return; selectParam('g' + (inst().activeGate + 1) + 'width'); } }, '1-WIDTH'),
-        h('span', { class: 'e4-sk', dataset: { sk: 'LEVEL' }, onclick: function () { mem.focused = true; if (rangeRow(2)) return; selectParam('g' + (inst().activeGate + 1) + 'level'); } }, '1-LEVEL'),
-        h('span', { class: 'e4-sk', onclick: function () { mem.focused = true; rangeRow(3); } }, ''),
-        h('span', { class: 'e4-sk', dataset: { sk: 'AUTO-80' }, onclick: function () { mem.focused = true; emitUi('softkey', 'AUTO-80'); keys.auto80(); } }, 'AUTO-80'),
+        h('span', { class: 'e4-sk', dataset: { sk: 'START' }, onclick: function () { mem.focused = true; if (calRow(0) || rangeRow(0)) return; selectParam('g' + (inst().activeGate + 1) + 'start'); } }, '1-START'),
+        h('span', { class: 'e4-sk', dataset: { sk: 'WIDTH' }, onclick: function () { mem.focused = true; if (calRow(1) || rangeRow(1)) return; selectParam('g' + (inst().activeGate + 1) + 'width'); } }, '1-WIDTH'),
+        h('span', { class: 'e4-sk', dataset: { sk: 'LEVEL' }, onclick: function () { mem.focused = true; if (calRow(2) || rangeRow(2)) return; selectParam('g' + (inst().activeGate + 1) + 'level'); } }, '1-LEVEL'),
+        h('span', { class: 'e4-sk', onclick: function () { mem.focused = true; if (calRow(3)) return; rangeRow(3); } }, ''),
+        h('span', { class: 'e4-sk', dataset: { sk: 'AUTO-80' }, onclick: function () { mem.focused = true; if (calRow(4)) return; emitUi('softkey', 'AUTO-80'); keys.auto80(); } }, 'AUTO-80'),
       ]),
     ]);
     screen.classList.add('no-i18n');
@@ -22978,7 +23000,17 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       ['start', 'width', 'level'].forEach(function (f, k) { R.gateCells[base + k].classList.toggle('sel', sel === 'g' + (gi + 1) + f); });
     });
     const gn = I.activeGate + 1;
-    if (sel === 'range') {
+    const wiz = calStage();
+    if (wiz) {
+      // v3 F3 (v3 integration): the wizard owns the row — CAL THIN | CAL THICK | CANCEL, the stage marked
+      // with '<' exactly as CAL_PAGE() marks it on the EPOCH 600 column.
+      const page = CAL_PAGE(wiz);
+      R.softLabels.forEach(function (el, i) {
+        const it = page[i];
+        setText(el, it && it.kind !== 'blank' ? it.label : '');
+        el.classList.toggle('sel', !!(it && it.value));
+      });
+    } else if (sel === 'range') {
       // F5 (f028): the softkey row becomes the quick-range presets
       QUICK_RANGES_E4.forEach(function (r, i) { setText(R.softLabels[i], r.toFixed(1) + 'mm'); R.softLabels[i].classList.toggle('sel', Math.abs(I.range - r) < 0.05); });
     } else {
@@ -22986,7 +23018,27 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       R.softLabels[0].classList.toggle('sel', sel === 'g' + gn + 'start'); R.softLabels[1].classList.toggle('sel', sel === 'g' + gn + 'width'); R.softLabels[2].classList.toggle('sel', sel === 'g' + gn + 'level');
       R.softLabels[3].classList.remove('sel');
     }
+    // slot 5 is AUTO-80 on BOTH non-wizard pages (QUICK_RANGES_E4 fills only 0…3); the CAL page blanks it,
+    // so it has to be restored explicitly once the wizard ends.
+    if (!wiz) setText(R.softLabels[4], 'AUTO-80');
     drawMiniIcon(frame);
+  }
+  /**
+   * v3 F3 (v3 integration): while the auto-cal wizard is up, the EPOCH 4 LCD softkey row IS the CAL page —
+   * the same `CAL_PAGE()` items the EPOCH 600 column shows, so slot `i` (and therefore F(i+1)) runs the same
+   * action and F3 is CANCEL. The blank slots stay inert rather than falling through to the gate page.
+   * @param {number} i  softkey slot 0…4
+   * @returns {boolean} true when the wizard consumed the press
+   */
+  function calRow(i) {
+    const s = calStage();
+    if (!s) return false;
+    const it = CAL_PAGE(s)[i];
+    if (!it || it.kind !== 'act' || !it.fn) return true;
+    emitUi('softkey', it.label);
+    it.fn();
+    UT.requestRender();
+    return true;
   }
   /** F5: a click on the EPOCH 4 / LTC softkey row while `range` is selected applies preset `i`. Returns true when handled. */
   function rangeRow(i) {
@@ -24448,11 +24500,10 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
 //   70-instruments is loaded, #cv-ascan exists and utSet starts with 'epoch' (every EPOCH skin draws the box).
 //   Otherwise the trainee saw the same three lines twice, the second copy parked over the plan view. A skin
 //   change mid-cal re-syncs through the 'state' listener (acSync), so the window is never left orphaned.
-// - F4 post-cal range: the smallest preset of {10,20,50,100,125,250,500} ≥ 1.1 × the deepest path the cal must
-//   display. RECONCILIATION (spec §3.4 states two examples that no single formula fits): a two-multiple cal at ONE
-//   probe position (d2 ≈ 2·d1, source 'specimen') only has to show d2 → 20/40 gives 50.0 as in the video; two
-//   separate standards (the step wedge, or any d2 ≠ 2·d1) have to show the 2nd multiple of the thick one →
-//   10/25 gives 100. Cancelling never touches the range.
+// - F4 post-cal range: implements SPEC-v3 §3.4 verbatim — deepest = d2 for a one-position two-multiple cal
+//   (source ≠ 'step', |d2 − 2·d1| ≤ 0.05·d1), else 2·d2; range = the smallest preset of
+//   {10,20,50,100,125,250,500} ≥ 1.1 · deepest. So 20/40 on a specimen gives 50.0 (the video) and 10/25 gives
+//   100 from either source. Cancelling never touches the range.
 //   QA round 3 — F2 case 3 reads the step wedge's OWN steps (stepPair(): 2nd-thinnest and thickest, so 10/25 on
 //   the default wedge). state.autocal.d1/d2 are NOT consulted there: they carry the previous cal's standards
 //   (20/40 after a 20 mm plate), which prompted for steps the wedge has not got and scaled vel by (d2−d1)/15.
@@ -25361,7 +25412,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
    * v3 F4: the round screen range a successful two-point cal leaves behind — the smallest preset that shows the
    * deepest path the cal had to display, with 10 % headroom. A two-multiple cal at ONE probe position
    * (d2 ≈ 2·d1) only has to show d2 (20/40 → 50.0, the video); two separate standards have to show the thick
-   * one's 2nd multiple (10/25 → 100). See the SPEC NOTES: §3.4's two examples fit no single formula.
+   * one's 2nd multiple (10/25 → 100). This is SPEC-v3 §3.4's rule as written.
    * @param {number} d1 thin standard (mm)
    * @param {number} d2 thick standard (mm)
    * @param {string} [source] 'specimen' | 'step'
@@ -26376,7 +26427,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       sizeDot(mm);
       UT.setIn('editing', { spotMm: mm }, { noRender: true });
     });
-    ui.jsonArea = dom.h('textarea', { class: 'dfe-json', rows: 4, spellcheck: 'false', placeholder: 'Defect JSON (Save Def writes here; paste here and press Load Def)' });
+    ui.jsonArea = dom.h('textarea', { class: 'dfe-json', rows: 4, spellcheck: 'false', 'aria-label': t('Defect JSON'), placeholder: 'Defect JSON (Save Def writes here; paste here and press Load Def)' });
     ui.jsonArea.style.display = 'none';
     const presetSel = (ui.presetSel = dom.h('select', { class: 'dfe-preset', 'aria-label': 'Defect preset' }, S.defectPresetNames.map(function (p) { return dom.h('option', { value: p.key, dataset: { i18n: p.label } }, t(p.label)); })));
     const left = dom.h('div', { class: 'dfe-left' }, [
@@ -26390,8 +26441,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
         const on = !st().editing.erase;
         UT.setIn('editing', { erase: on }, { noRender: true });
         ui.eraseBtn.classList.toggle('active', on);
+        ui.eraseBtn.setAttribute('aria-pressed', String(on));   // the .active class alone is invisible to assistive tech
         UT.status({ right: on ? 'Eraser: drag over a defect to remove its points' : HINTS.editor });
-      }, { class: 'btn dfe-btn' })),
+      }, { class: 'btn dfe-btn', 'aria-pressed': 'false' })),
       // v3 F34: real files, with the browser-storage / textarea fallbacks kept
       (ui.storeChk = dom.field('Browser storage', { type: 'checkbox', value: false, title: 'Load / Save through localStorage instead of a file' })),
       dom.button('Load Def', function () {
@@ -30792,8 +30844,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
  *     `modes.enter('scale')` (§8's `MODE_OF`) turn the flag on, leaving `scale` for any other mode turns it
  *     off and drops the protractor overlay — and satisfies F53's "with the probe on the K and the
  *     protractor shown" for the `ok-demo` specimen however it was loaded (Help ▸ Demo, the icon, or the
- *     test API). The 'O' of that demo is still off-canvas: the sheet transform's origin is 60's
- *     (`ox = SCALE_GUTTER_PX`, no fit-to-extents), reported as a cross-file fix rather than patched here.
+ *     test API). (v3 integration: an earlier revision of this note said the 'O' of that demo was still
+ *     off-canvas. It is not — 60-view-cross fits the sheet to the specimen extents, so the demo's
+ *     x -98…82 mm land at 28…388 px inside a 798 px #cv-cross. The note is kept only to retire the claim.)
  * 12. QA r3 #2: `scaleMode.outline` is the point list the whole mode is built from, so it is sanitised the
  *     way every other point list in the build is — vertices clamped to ±`COORD_MAX` (2000 mm, the limit
  *     10-specimens clamps defect points to) and thinned to `MAX_OUTLINE_PTS` (400, its MAX_DEFECT_PTS).
@@ -35080,6 +35133,9 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
    * @param {{name:string, title:string, label:string, unit:string, key:string, min:number, max:number, step:number, note:string}} o
    */
   function openWeldCondition(o) {
+    // modal (v3 integration): these one-field prompts are answered before anything else, so 00-core's
+    // focus trap, the initial `.btn.primary` focus and the focus restore on hide all apply. The flag is
+    // per call — dialog() is shared with the non-modal panels (Options, Weld, Wedge, …).
     dialog(o.name, o.title, 340, function (win) {
       let v = +weldFlag(o.key) || 0;
       const f = numField(o.label, { value: v, min: o.min, max: o.max, step: o.step, unit: o.unit, onchange: function (n) { v = n; } });
@@ -35093,7 +35149,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
           UT.dom.button('Cancel', function () { win.close(); }),
         ]),
       ]);
-    });
+    }, { modal: true });
   }
   /** v3 F45: high–low step at the joint, −5…+5 mm (0 = aligned). */
   function openMisalignment() {
@@ -35110,6 +35166,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
    * The validation line is the original's wording and is shown whenever the entry is refused.
    */
   function openPipeThk() {
+    // modal (v3 integration): the original's single-field prompt, see openWeldCondition().
     dialog('pipethk', 'Pipe Thickness', 320, function (win) {
       let v = +(st().weldOpts && st().weldOpts.wt) || 20;
       const msg = h('div', { class: 'dlg-msg' }, '');
@@ -35127,7 +35184,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
         tx('div', { class: 'dlg-note' }, 'Enter Thickness between 6mm and 40mm'),
         h('div', { class: 'btn-row' }, [UT.dom.button('OK', ok, { class: 'btn primary' }), UT.dom.button('Cancel', function () { win.close(); })]),
       ]);
-    });
+    }, { modal: true });
   }
   /**
    * v3 F19: the `UTsim` notice shown once per session when Through Transmission is selected
@@ -35263,12 +35320,12 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
   function openKeys() {
     const rows = [
       ['← / →', 'Move probe 1 mm (Shift: 10 mm)'], ['↑ / ↓', 'Move probe along the weld (z)'],
-      ['+ / −', 'Gain ±1 dB (Shift: ±6 dB)'], ['R', 'Range 50 → 100 → 200 → 400 mm'], ['F', 'Freeze'], ['P', 'Peak memory'],
-      ['H', 'Hide defects & beam'], ['B', 'Beam on/off'], ['D', 'Finger damping tool'], ['1 2 3 4', 'Probe 0° / 45° / 60° / 70°'], ['Esc', 'Close the top window, menu or tour'],
+      ['+ / −', 'Gain ±1 dB (Shift: ±6 dB)'], ['R', 'Cycle the range 50 → 100 → 200 → 400 mm'], ['F', 'Freeze the A-scan (press F again to release it)'], ['P', 'Peak memory — hold the envelope of the maximum echo height'],
+      ['H', 'Hide or show the defects and the beam'], ['B', 'Show or hide the beam'], ['D', 'Turn the finger damping tool on or off'], ['1 2 3 4', 'Select the 0° / 45° / 60° / 70° probe'], ['Esc', 'Close the top window, menu or tour'],
       ['F10, Alt', 'Open the menu bar (arrows navigate, Enter activates)'],
       ['Alt+F/P/S/W/D/T/O/H', 'Open the File / Probes / Step Wedge / Weld / Defects / Tools / Options / Help menu'],
       // v3 F55: the two new top-level menus carry Alt+M and Alt+A (F/P/S/W/D/T/O/H were taken)
-      ['Alt+M / Alt+A', ['Scale Mode', 'About']],
+      ['Alt+M / Alt+A', ['Open the Scale Mode menu', 'Open the About menu']],
       ['▲▼◀▶ (instrument focused)', 'Adjust the selected instrument parameter'], ['Mouse wheel', 'Over the cross-section: gain ±1 dB; over the instrument: selected parameter'],
       // v3 F51 — the teaching-aid drawing overlay and its keyboard pen (86-annotate owns both chords)
       ['SHIFT+F12, Ctrl+Shift+D', 'TEACHING AID DRAWING MODE — LEFT mouse draws red, RIGHT mouse draws blue. SHIFT+F12 again to clear and exit.'],
@@ -35278,7 +35335,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
       // v3 F27 — the defect editor's own bindings (80-modes editorKey), live while the editor window is open
       ['Shift+← / → (defect editor; Ctrl = 10 mm)', 'All defects can be moved with: SHIFT+  LEFT or RIGHT cursor key'],
       ['Shift+Z X A S Q W (defect editor)', "To alter LOF defects use: SHIFT+ 'Z' or 'X' = Rotate, 'A' or 'S' = change size, 'Q'\nor 'W'"],
-      ['Delete (defect editor, selected defect)', 'Delete'],
+      ['Delete (defect editor, selected defect)', 'Delete the selected defect'],
       ['F1 (defect editor)', 'Press F1 to redisplay these instructions'],
     ];
     // a row description is one key, or a list of keys joined with ' / ' (Alt+M / Alt+A name two menus)
@@ -35660,10 +35717,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     confirmDlg(t('Reset everything to the default setup? (defects, probe, instrument, weld)'), { title: 'New' }).then(function (ok) {
       if (!ok) return;
       try { localStorage.removeItem(STORE_KEY); } catch (e) { /* ignore */ }
-      mem.suspendSave = true;
-      const def = UT.defaultState();
-      UT.set(def, { noRender: true });
-      mem.suspendSave = false;
+      suspendSave(function () { UT.set(UT.defaultState(), { noRender: true }); });
       enterMode('weld', { keepProbe: false });
       if (!st().specimen) enterMode('weld');
       call('instruments.setSkin', [st().utSet]);
@@ -36016,6 +36070,23 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     mem.saveTimer = setTimeout(function () { mem.saveTimer = null; saveNow(); }, 500);
   }
 
+  /**
+   * Run `fn` with the persistence record frozen: no autosave is scheduled while it runs and any debounce it
+   * armed is cancelled before the switch is released. Callback form (NOT a `suspendSave(on)` flag setter) —
+   * 94-scenario checks that the callback really ran before trusting the export. Re-entrant.
+   * @param {function():*} fn  the state-mutating work to protect
+   * @returns {*} whatever `fn` returns
+   */
+  function suspendSave(fn) {
+    const was = mem.suspendSave;
+    mem.suspendSave = true;
+    try { return fn(); }
+    finally {
+      if (mem.saveTimer) { clearTimeout(mem.saveTimer); mem.saveTimer = null; }
+      mem.suspendSave = was;
+    }
+  }
+
   // ------------------------------------------------------------------ boot
   /**
    * Run every `UT.*.__selftest()` (and `UT.views.*`) and log the results. Persistence is suspended for the whole
@@ -36024,8 +36095,6 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
    */
   function runSelftests() {
     const out = {};
-    const wasSuspended = mem.suspendSave;
-    mem.suspendSave = true;
     let dirty = false;
     const run = function (label, fn) {
       const saved = Object.assign({}, UT.state);
@@ -36040,16 +36109,13 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
         dirty = true;
       }
     };
-    try {
+    suspendSave(function () {
       for (const k of Object.keys(UT)) {
         const m = UT[k];
         if (m && typeof m.__selftest === 'function') run(k, function () { return m.__selftest(); });
         if (k === 'views' && m) for (const v of Object.keys(m)) if (m[v] && typeof m[v].__selftest === 'function') run('views.' + v, function () { return m[v].__selftest(); });
       }
-    } finally {
-      if (mem.saveTimer) { clearTimeout(mem.saveTimer); mem.saveTimer = null; }
-      mem.suspendSave = wasSuspended;
-    }
+    });
     if (dirty) { refreshToolbar(); applyLayout(); try { UT.renderNow(); } catch (e) { /* logged by core */ } }
     for (const k of Object.keys(out)) console.log('[selftest] ' + k + ': ' + (out[k].length ? 'FAIL ' + JSON.stringify(out[k]) : 'ok'));
     return out;
@@ -36111,7 +36177,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
 
   // ------------------------------------------------------------------ public API + test API
   Object.assign(app, {
-    boot, buildLayout, setLang, saveNow, applyLayout, applyScale, refreshToolbar, refreshTouchBar, menuByPath, activateToolbar, runSelftests,
+    boot, buildLayout, setLang, saveNow, suspendSave, applyLayout, applyScale, refreshToolbar, refreshTouchBar, menuByPath, activateToolbar, runSelftests,
     toolbarIds: TB_IDS, restore, patchFromRecord, buildSavePatch, coerceLike, parseSteps, wedgeToRefracted, probePatchFor, typeOfPrep, OD_INCH,
     openWeld, openWedge, openOptions, openStepWedge, openAbout, openGuide, openKeys, openExport, openProbeLib, openMaterial, openFocus, openGlossary,
     openTour, closeTour, printReport, closeMenus, openMenu: kbOpenMenu, selectLibProbe, setMaterial, setUtSet, applyWeldOpts,
@@ -36383,7 +36449,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     'Colour Code Display': '색상 코드 표시', 'Colour Code': '색상 코드', 'Number of Skips': '스킵 수', 'Single Line Beam': '단일선 빔',
     'Mode conversion': '모드 변환', 'Surface wave': '표면파', 'Side lobes': '사이드 로브', 'Finger damping tool': '손가락 감쇠 도구',
     'Steps 5-25 mm (5 mm)': '스텝 5-25 mm (5 mm)', 'Steps 10-50 mm (10 mm)': '스텝 10-50 mm (10 mm)', 'Custom Steps...': '사용자 정의 스텝...',
-    'Auto Cal': '자동 교정', 'Exit Step Wedge': '스텝 웨지 나가기', 'FBH block': '평저공 시험편',
+    'Auto Cal': '자동 교정', 'Cancel Auto Cal': '자동 교정 취소', 'Exit Step Wedge': '스텝 웨지 나가기', 'FBH block': '평저공 시험편',
     'Weld Settings...': '용접부 설정...', 'Weld…': '용접부…', 'Material…': '재질…', 'Presets': '프리셋', 'Pipe': '파이프', 'TKY Joint': 'TKY 이음',
     'Plate': '평판', 'T-joint': 'T형 이음', 'T-joint: plate chord with an angled brace (modelled)': 'T형 이음: 평판 코드에 경사 브레이스 (모델링됨)',
     '{kind} joint is not modelled in this version — only the T-joint geometry is available': '{kind} 이음은 이 버전에서 모델링되지 않습니다 — T형 이음 형상만 사용할 수 있습니다',
@@ -36594,7 +36660,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     'Planar': '면상', 'Crack': '균열', 'Lack of fusion': '융합 불량', 'Incomplete penetration': '용입 부족', 'Volumetric': '체적형', 'Porosity': '기공', 'Slag inclusion': '슬래그 혼입', 'Lamination': '라미네이션',
     'History': '기록', 'Score': '점수', 'Found': '발견', 'Result': '결과', 'Candidate': '수험자', 'Clear history': '기록 지우기', 'Print this report': '이 보고서 인쇄', 'Verify': '검증', 'Token': '토큰', 'Paste a result token': '결과 토큰을 붙여 넣으세요',
     'Detected': '검출됨', 'Bonus': '가산점', 'Type correct': '종류 정답', 'Length': '길이', 'Height': '높이', 'Position': '위치', 'Coverage {p} %': '주사 범위 {p} %', 'Coverage: {p} % of the weld length scanned from both sides': '주사 범위: 용접선 길이의 {p} %를 양면에서 주사',
-    'Timer': '타이머', 'Truth': '정답', 'Locked': '잠김', 'Report rows': '보고서 행', 'Row': '행', 'Not recordable': '기록 불요', 'recordable': '기록', 'accept': '합격', 'reject': '불합격', 'record': '기록', 'Accept': '합격', 'Disposition': '판정',
+    'Timer': '타이머', 'Truth': '정답', 'Locked': '잠김', 'Report rows': '보고서 행', 'Row': '행', 'Not recordable': '기록 불요', 'recordable': '기록', 'accept': '합격', 'reject': '불합격', 'record': '기록', 'Accept': '합격', 'Disposition': '판정', 'Defect number': '결함 번호',
 
     // ------------------------------------------------------------------ 45-standards (dgs / evaluation / procedures / stdnotes)
     'DGS diagram': 'DGS 선도', 'Evaluation (standards)': '평가 (규격)', 'Standards notes': '규격 참고 사항', 'Evaluation…': '평가…', 'Procedures…': '절차서…', 'Standard': '규격', 'Testing level': '검사 레벨', 'Acceptance level': '허용 수준',
@@ -36804,6 +36870,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     'EPOCH records deleted': 'EPOCH 기록을 삭제했습니다', 'Delete all stored records?': '저장된 기록을 모두 삭제할까요?',
     'LEFT mouse button/drag to draw curve': '마우스 왼쪽 버튼 드래그로 커브를 그리세요',
     'Auto Cal 2/2: press ENTER to confirm the thick standard': '자동 교정 2/2: ENTER를 눌러 두꺼운 기준편을 확정하세요',
+    'Auto Cal 1/2: enter the thin standard again': '자동 교정 1/2: 얇은 기준편 값을 다시 입력하세요',
     'Flaw detector': '탐상기',
     // 80-modes (F2/F3, F9, F11, F29, F33, F34, F47)
     'Auto Cal 1/2: gate the {d} mm backwall echo, enter the thin standard and press ✓':
@@ -36912,6 +36979,7 @@ html.scaled, html.scaled body { overflow: hidden; width: 100%; height: 100%; min
     // 85-scalemode (F41/F42)
     'A traced boundary needs at least 3 points': '추적한 경계에는 점이 3개 이상 필요합니다',
     'Click the boundary corners, then double-click or press OK to close it': '경계의 모서리를 차례로 클릭한 뒤, 두 번 클릭하거나 확인을 눌러 닫으세요',
+    'That boundary already has as many points as it can hold — press OK to close it': '이 경계는 담을 수 있는 점을 모두 채웠습니다 — 확인을 눌러 닫으세요',
     'Boundary traced — LEFT mouse button/drag to move the UT Probe': '경계를 추적했습니다 — 마우스 왼쪽 버튼 드래그로 탐촉자를 이동하세요',
     'Picture loaded — set mm per pixel, then trace the boundary': '그림을 불러왔습니다 — 픽셀당 mm를 설정한 뒤 경계를 추적하세요',
     'Screen captured — set mm per pixel, then trace the boundary': '화면을 캡처했습니다 — 픽셀당 mm를 설정한 뒤 경계를 추적하세요',
